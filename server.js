@@ -1,6 +1,7 @@
 // server.js
 const express = require("express");
 const cors = require("cors");
+const fetch = require("node-fetch"); // use node-fetch v2 for compatibility
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -67,7 +68,7 @@ app.get("/api/odds", async (req, res) => {
     url.searchParams.set("apiKey", ODDS_API_KEY);
     url.searchParams.set("regions", "uk"); // UK bookmakers
     url.searchParams.set("markets", "h2h"); // head-to-head (1X2)
-    url.searchParams.set("oddsFormat", "decimal"); // decimal odds (2.10, 3.40, etc)
+    url.searchParams.set("oddsFormat", "decimal"); // decimal odds
 
     const apiRes = await fetch(url.toString());
     console.log("The Odds API status:", apiRes.status);
@@ -86,10 +87,6 @@ app.get("/api/odds", async (req, res) => {
 
     const data = await apiRes.json();
 
-    // data is an array of events. Each event has:
-    // - home_team
-    // - away_team
-    // - bookmakers[].markets[].key === "h2h" with outcomes
     const markets = [];
 
     if (Array.isArray(data)) {
@@ -101,7 +98,6 @@ app.get("/api/odds", async (req, res) => {
           return;
         }
 
-        // Take the first bookmaker (or you could pick a specific one later)
         const firstBookmaker = event.bookmakers[0];
         if (!firstBookmaker || !Array.isArray(firstBookmaker.markets)) {
           return;
