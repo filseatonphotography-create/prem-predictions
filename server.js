@@ -5,13 +5,10 @@ const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// === YOUR FOOTBALL-DATA.ORG TOKEN ===
-// (Keep this as your real token)
-const API_TOKEN = "18351cddefba4334a5edb3a60ea84ba3";
-
-// === YOUR THE ODDS API TOKEN ===
-// (You gave me this key)
-const ODDS_API_KEY = "72209b9a1ab8337b046a7a1a3996f1bc";
+// === TOKENS ===
+// Keep these real in your deployed code, but DO NOT share them publicly.
+const FOOTBALL_DATA_TOKEN = "18351cddefba4334a5edb3a60ea84ba3"; // your existing football-data.org token
+const ODDS_API_KEY = "72209b9a1ab8337b046a7a1a3996f1bc"; // your Odds API key
 
 app.use(cors());
 
@@ -20,17 +17,16 @@ app.get("/", (req, res) => {
   res.send("Backend is running");
 });
 
-// --- MAIN ENDPOINT: RETURN PL MATCHES AS AN ARRAY ---
+// --- PREMIER LEAGUE RESULTS (football-data.org) ---
 app.get("/api/results", async (req, res) => {
   try {
     console.log("Incoming /api/results request");
 
-    // Use Node's built-in fetch (Node 18+ has global fetch)
     const apiRes = await fetch(
       "https://api.football-data.org/v4/competitions/PL/matches",
       {
         headers: {
-          "X-Auth-Token": API_TOKEN,
+          "X-Auth-Token": FOOTBALL_DATA_TOKEN,
         },
       }
     );
@@ -60,24 +56,20 @@ app.get("/api/results", async (req, res) => {
   }
 });
 
-// --- NEW ENDPOINT: RETURN EPL ODDS (HOME/DRAW/AWAY) ---
+// --- EPL ODDS (The Odds API) ---
 app.get("/api/odds", async (req, res) => {
   try {
     console.log("Incoming /api/odds request");
 
-    if (!ODDS_API_KEY) {
-      console.error("No ODDS_API_KEY configured");
-      return res
-        .status(500)
-        .json({ error: "No ODDS_API_KEY configured on the server." });
-    }
+    const url = new URL(
+      "https://api.the-odds-api.com/v4/sports/soccer_epl/odds"
+    );
+    url.searchParams.set("apiKey", ODDS_API_KEY);
+    url.searchParams.set("regions", "uk"); // UK bookmakers
+    url.searchParams.set("markets", "h2h"); // head-to-head (1X2)
+    url.searchParams.set("oddsFormat", "decimal"); // decimal odds (2.10, 3.40, etc)
 
-    const url =
-      "https://api.the-odds-api.com/v4/sports/soccer_epl/odds" +
-      `?regions=uk&markets=h2h&oddsFormat=decimal&apiKey=${ODDS_API_KEY}`;
-
-    const apiRes = await fetch(url);
-
+    const apiRes = await fetch(url.toString());
     console.log("The Odds API status:", apiRes.status);
 
     if (!apiRes.ok) {
@@ -88,62 +80,82 @@ app.get("/api/odds", async (req, res) => {
         errorText || "<no body>"
       );
       return res
-        .status(500)
+        .status(apiRes.status)
         .json({ error: "The Odds API error", status: apiRes.status });
     }
 
-    const data = await apiRes.json(); // array of events
+    const data = await apiRes.json();
 
-    // Simplify for the frontend
-    const simplified = data
-      .map((event) => {
-        const bookmaker =
-          Array.isArray(event.bookmakers) && event.bookmakers.length > 0
-            ? event.bookmakers[0]
-            : null;
-        if (!bookmaker) return null;
+    // data is an array of events. Each event has:
+    // - home_team
+    // - away_team
+    // - bookmakers[].markets[].key === "h2h" with outcomes
+    const markets = [];
 
-        const h2h = Array.isArray(bookmaker.markets)
-          ? bookmaker.markets.find((m) => m.key === "h2h")
-          : null;
-        if (!h2h) return null;
+    if (Array.isArray(data)) {
+      data.forEach((event) => {
+        const homeTeam = event.home_team;
+        const awayTeam = event.away_team;
 
-        const outcomes = Array.isArray(h2h.outcomes) ? h2h.outcomes : [];
+        if (!homeTeam || !awayTeam || !Array.isArray(event.bookmakers)) {
+          return;
+        }
+
+        // Take the first bookmaker (or you could pick a specific one later)
+        const firstBookmaker = event.bookmakers[0];
+        if (!firstBookmaker || !Array.isArray(firstBookmaker.markets)) {
+          return;
+        }
+
+        const h2hMarket = firstBookmaker.markets.find(
+          (m) => m.key === "h2h"
+        );
+        if (!h2hMarket || !Array.isArray(h2hMarket.outcomes)) {
+          return;
+        }
 
         let homeOdds = null;
         let awayOdds = null;
         let drawOdds = null;
 
-        outcomes.forEach((o) => {
-          const name = (o.name || "").toLowerCase();
-          const homeName = (event.home_team || "").toLowerCase();
-          const awayName = (event.away_team || "").toLowerCase();
+        h2hMarket.outcomes.forEach((o) => {
+          if (!o || typeof o.name !== "string") return;
+          const name = o.name;
+          const price = o.price;
 
-          if (name === homeName) homeOdds = o.price;
-          else if (name === awayName) awayOdds = o.price;
-          else if (name === "draw") drawOdds = o.price;
+          if (name === homeTeam) {
+            homeOdds = price;
+          } else if (name === awayTeam) {
+            awayOdds = price;
+          } else if (name.toLowerCase() === "draw") {
+            drawOdds = price;
+          }
         });
 
-        if (!homeOdds || !awayOdds || !drawOdds) return null;
+        if (
+          typeof homeOdds === "number" &&
+          typeof awayOdds === "number" &&
+          typeof drawOdds === "number"
+        ) {
+          markets.push({
+            homeTeam,
+            awayTeam,
+            homeOdds,
+            drawOdds,
+            awayOdds,
+          });
+        }
+      });
+    }
 
-        return {
-          homeTeam: event.home_team,
-          awayTeam: event.away_team,
-          homeOdds,
-          drawOdds,
-          awayOdds,
-        };
-      })
-      .filter(Boolean);
-
-    console.log("Returning", simplified.length, "odds rows to frontend");
-    res.json(simplified);
+    console.log("Returning odds for", markets.length, "fixtures");
+    res.json(markets);
   } catch (err) {
     console.error("Server error in /api/odds:", err);
-    res.status(500).json({ error: "Internal server error (odds)" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+  console.log(`Backend running on port ${PORT}`);
 });
