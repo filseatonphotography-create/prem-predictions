@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 
 const app = express();
-const PORT = 5001;
+const PORT = process.env.PORT || 5001;
 
 // === YOUR FOOTBALL-DATA.ORG TOKEN ===
 // (Keep this as your real token)
