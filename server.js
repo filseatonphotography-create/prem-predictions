@@ -1,8 +1,9 @@
-// server.js (no node-fetch, no bcryptjs)
+// server.js (no node-fetch, WITH bcryptjs)
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const bcrypt = require("bcryptjs");   
 const crypto = require("crypto");
 
 const app = express();
