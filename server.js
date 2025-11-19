@@ -1,11 +1,11 @@
 // server.js
 const express = require("express");
 const cors = require("cors");
-const fetch = require("node-fetch"); // v2
 const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const fetch = global.fetch;
 
 const app = express();
 const PORT = process.env.PORT || 5001;
