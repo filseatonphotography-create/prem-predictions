@@ -1,11 +1,9 @@
-// server.js
+// server.js (no node-fetch, no bcryptjs)
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-const fetch = global.fetch;
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -31,6 +29,26 @@ const sessions = new Map();
 // Make sure the data folder exists
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR);
+}
+
+// ---------------- PASSWORD HELPERS (using Node crypto) ----------------
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto
+    .pbkdf2Sync(password, salt, 10000, 64, "sha512")
+    .toString("hex");
+  return `${salt}:${hash}`; // "salt:hash"
+}
+
+function verifyPassword(password, stored) {
+  if (!stored || typeof stored !== "string" || !stored.includes(":")) {
+    return false;
+  }
+  const [salt, hash] = stored.split(":");
+  const hashCheck = crypto
+    .pbkdf2Sync(password, salt, 10000, 64, "sha512")
+    .toString("hex");
+  return hashCheck === hash;
 }
 
 // ---------------- USERS ----------------
@@ -113,8 +131,7 @@ function generateJoinCode(existingLeagues) {
     existingLeagues.map((l) => (l.joinCode || l.inviteCode || "").toUpperCase())
   );
   while (true) {
-    const code =
-      Math.random().toString(36).substring(2, 8).toUpperCase(); // 6 chars
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6 chars
     if (!existingCodes.has(code)) return code;
   }
 }
@@ -179,7 +196,7 @@ app.post("/api/signup", async (req, res) => {
         .json({ error: "That username is already taken. Please log in." });
     }
 
-    const passwordHash = await bcrypt.hash(pwd, 10);
+    const passwordHash = hashPassword(pwd);
     const newUser = {
       id: Date.now().toString(),
       username: name,
@@ -224,7 +241,7 @@ app.post("/api/login", async (req, res) => {
       return res.status(401).json({ error: "Incorrect username or password." });
     }
 
-    const ok = await bcrypt.compare(pwd, user.passwordHash);
+    const ok = verifyPassword(pwd, user.passwordHash);
     if (!ok) {
       return res.status(401).json({ error: "Incorrect username or password." });
     }
@@ -306,8 +323,8 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
     const newLeague = {
       id: "league_" + Date.now().toString(),
       name,
-      joinCode,               // new style
-      inviteCode: joinCode,   // keep a mirror for compatibility
+      joinCode, // new style
+      inviteCode: joinCode, // keep a mirror for compatibility
       ownerId: userId,
       members: [userId],
       createdAt: new Date().toISOString(),
@@ -384,7 +401,7 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// PREMIER LEAGUE RESULTS (football-data.org)
+// PREMIER LEAGUE RESULTS (football-data.org) – using global fetch
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
   try {
@@ -425,7 +442,7 @@ app.get("/api/results", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// EPL ODDS (The Odds API)
+// EPL ODDS (The Odds API) – using global fetch
 // ---------------------------------------------------------------------------
 app.get("/api/odds", async (req, res) => {
   try {
