@@ -2,6 +2,29 @@
 // Uses Node built‑in crypto for password hashing and sessions.
 
 const express = require("express");
+const app = express();
+
+// ---------- ADD CORS FIX BELOW THIS LINE ----------
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://scintillating-macaron-cfbf04.netlify.app",
+  "https://prem-predictions-1.onrender.com",
+];
+
+app.use(
+  cors({
+    origin: function (origin, cb) {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("CORS blocked"));
+    },
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  })
+);
+
+app.options("*", cors());
+// ---------- END CORS FIX ----------
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
