@@ -1,50 +1,71 @@
-// server.js (no node-fetch, WITH bcryptjs)
+// server.js — Rebuilt backend with legacy mapping, admin reset, CORS, cloud predictions.
+// Uses Node built‑in crypto for password hashing and sessions.
+
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const bcrypt = require("bcryptjs");   
 const crypto = require("crypto");
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
 // === TOKENS ===
-// Keep these real in your deployed code, but DO NOT share them publicly.
-const FOOTBALL_DATA_TOKEN = "18351cddefba4334a5edb3a60ea84ba3"; // your football-data.org token
-const ODDS_API_KEY = "72209b9a1ab8337b046a7a1a3996f1bc"; // your Odds API key
-
-app.use(cors());
-app.use(express.json()); // so we can read JSON bodies
+// Keep real in deployed code (do NOT share publicly).
+const FOOTBALL_DATA_TOKEN = process.env.FOOTBALL_DATA_TOKEN || "18351cddefba4334a5edb3a60ea84ba3";
+const ODDS_API_KEY = process.env.ODDS_API_KEY || "72209b9a1ab8337b046a7a1a3996f1bc";
 
 // ---------------------------------------------------------------------------
-// SIMPLE USER STORAGE + SESSIONS
+// CORS (required origins + credentials + authorization allowed)
+// ---------------------------------------------------------------------------
+const ALLOWED_ORIGINS = new Set([
+  "http://localhost:3000",
+  "https://scintillating-macaron-cfbf04.netlify.app",
+  "https://prem-predictions-1.onrender.com",
+]);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // allow curl / server-to-server
+      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
+  })
+);
+
+app.use(express.json());
+
+// ---------------------------------------------------------------------------
+// DATA FILES
 // ---------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
+const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
+const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 
-// In-memory sessions: token -> { id, username }
-const sessions = new Map();
+const RESERVED_LEGACY_NAMES = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 
-// Make sure the data folder exists
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR);
-}
+// Ensure data dir exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
-// ---------------- PASSWORD HELPERS (using Node crypto) ----------------
+// ---------------------------------------------------------------------------
+// HELPERS: PASSWORD HASHING
+// ---------------------------------------------------------------------------
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString("hex");
   const hash = crypto
     .pbkdf2Sync(password, salt, 10000, 64, "sha512")
     .toString("hex");
-  return `${salt}:${hash}`; // "salt:hash"
+  return `${salt}:${hash}`;
 }
 
 function verifyPassword(password, stored) {
-  if (!stored || typeof stored !== "string" || !stored.includes(":")) {
-    return false;
-  }
+  if (!stored || typeof stored !== "string" || !stored.includes(":")) return false;
   const [salt, hash] = stored.split(":");
   const hashCheck = crypto
     .pbkdf2Sync(password, salt, 10000, 64, "sha512")
@@ -52,99 +73,83 @@ function verifyPassword(password, stored) {
   return hashCheck === hash;
 }
 
-// ---------------- USERS ----------------
-function loadUsers() {
+// ---------------------------------------------------------------------------
+// HELPERS: LOAD/SAVE JSON
+// ---------------------------------------------------------------------------
+function loadJson(file, fallback) {
   try {
-    if (!fs.existsSync(USERS_FILE)) {
-      return [];
-    }
-    const raw = fs.readFileSync(USERS_FILE, "utf8");
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error("Error reading users file:", err);
-    return [];
-  }
-}
-
-function saveUsers(users) {
-  try {
-    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf8");
-  } catch (err) {
-    console.error("Error writing users file:", err);
-  }
-}
-
-// ---------------- LEAGUES ----------------
-function createDefaultLeagues() {
-  const defaultLeague = {
-    id: "league_" + Date.now().toString(),
-    name: "The Originals",
-    // default code if we ever need to seed from scratch
-    joinCode: "ORIGINALS",
-    inviteCode: "ORIGINALS",
-    ownerId: null, // not tied to a specific user
-    members: [],
-    createdAt: new Date().toISOString(),
-  };
-  return [defaultLeague];
-}
-
-function loadLeagues() {
-  try {
-    if (!fs.existsSync(LEAGUES_FILE)) {
-      const initial = createDefaultLeagues();
-      saveLeagues(initial);
-      return initial;
-    }
-    const raw = fs.readFileSync(LEAGUES_FILE, "utf8");
-    if (!raw) {
-      const initial = createDefaultLeagues();
-      saveLeagues(initial);
-      return initial;
-    }
+    if (!fs.existsSync(file)) return fallback;
+    const raw = fs.readFileSync(file, "utf8");
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      const initial = createDefaultLeagues();
-      saveLeagues(initial);
-      return initial;
-    }
-    return parsed;
+    return parsed ?? fallback;
   } catch (err) {
-    console.error("Error reading leagues file:", err);
-    const initial = createDefaultLeagues();
-    saveLeagues(initial);
-    return initial;
+    console.error("Failed to load", file, err);
+    return fallback;
   }
 }
 
-function saveLeagues(leagues) {
+function saveJson(file, data) {
   try {
-    fs.writeFileSync(LEAGUES_FILE, JSON.stringify(leagues, null, 2), "utf8");
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
   } catch (err) {
-    console.error("Error writing leagues file:", err);
+    console.error("Failed to save", file, err);
   }
 }
 
-// Generate a unique join code (for NEW leagues)
-function generateJoinCode(existingLeagues) {
-  const existingCodes = new Set(
-    existingLeagues.map((l) => (l.joinCode || l.inviteCode || "").toUpperCase())
-  );
-  while (true) {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase(); // 6 chars
-    if (!existingCodes.has(code)) return code;
-  }
-}
+// Users
+const loadUsers = () => loadJson(USERS_FILE, []);
+const saveUsers = (users) => saveJson(USERS_FILE, users);
 
-// Create a new random session token
+// Leagues (backwards compatible default)
+function createDefaultLeagues() {
+  return [
+    {
+      id: "league_" + Date.now().toString(),
+      name: "The Originals",
+      joinCode: "ORIGINALS",
+      inviteCode: "ORIGINALS",
+      ownerId: null,
+      members: [],
+      createdAt: new Date().toISOString(),
+    },
+  ];
+}
+function loadLeagues() {
+  if (!fs.existsSync(LEAGUES_FILE)) {
+    const init = createDefaultLeagues();
+    saveJson(LEAGUES_FILE, init);
+    return init;
+  }
+  const leagues = loadJson(LEAGUES_FILE, null);
+  if (!Array.isArray(leagues)) {
+    const init = createDefaultLeagues();
+    saveJson(LEAGUES_FILE, init);
+    return init;
+  }
+  return leagues;
+}
+const saveLeagues = (leagues) => saveJson(LEAGUES_FILE, leagues);
+
+// Predictions (userId -> { fixtureId -> prediction })
+const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
+const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
+
+// Legacy map (legacyName -> userId)
+const loadLegacyMap = () => loadJson(LEGACY_MAP_FILE, {});
+const saveLegacyMap = (m) => saveJson(LEGACY_MAP_FILE, m);
+
+// ---------------------------------------------------------------------------
+// SESSIONS (token -> { id, username })
+// ---------------------------------------------------------------------------
+const sessions = new Map();
+
 function createSession(user) {
   const token = crypto.randomBytes(24).toString("hex");
   sessions.set(token, { id: user.id, username: user.username });
   return token;
 }
 
-// Auth middleware used for mini-leagues etc.
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const parts = authHeader.split(" ");
@@ -160,111 +165,173 @@ function authMiddleware(req, res, next) {
 }
 
 // ---------------------------------------------------------------------------
-// HEALTH CHECK
+// HEALTH
 // ---------------------------------------------------------------------------
-app.get("/", (req, res) => {
-  res.send("Backend is running");
-});
+app.get("/", (req, res) => res.send("Backend is running"));
 
 // ---------------------------------------------------------------------------
-// AUTH ROUTES
+// AUTH
 // ---------------------------------------------------------------------------
-
-// Create account
-app.post("/api/signup", async (req, res) => {
+app.post("/api/signup", (req, res) => {
   try {
     const { username, password } = req.body || {};
     const name = (username || "").trim();
     const pwd = (password || "").trim();
 
     if (!name || !pwd) {
-      return res
-        .status(400)
-        .json({ error: "Username and password are required." });
+      return res.status(400).json({ error: "Username and password are required." });
     }
-
     if (pwd.length < 4) {
-      return res
-        .status(400)
-        .json({ error: "Password must be at least 4 characters long." });
+      return res.status(400).json({ error: "Password must be at least 4 characters." });
     }
 
-    let users = loadUsers();
+    // Reserved legacy name protection
+    const isReserved = RESERVED_LEGACY_NAMES.some(
+      (n) => n.toLowerCase() === name.toLowerCase()
+    );
+    if (isReserved) {
+      return res.status(400).json({
+        error:
+          "That legacy name is reserved. Please log in with your existing account.",
+      });
+    }
 
+    const users = loadUsers();
     if (users.find((u) => u.username.toLowerCase() === name.toLowerCase())) {
-      return res
-        .status(400)
-        .json({ error: "That username is already taken. Please log in." });
+      return res.status(400).json({ error: "That username is already taken." });
     }
 
-    const passwordHash = hashPassword(pwd);
     const newUser = {
       id: Date.now().toString(),
       username: name,
-      passwordHash,
+      passwordHash: hashPassword(pwd),
+      createdAt: new Date().toISOString(),
     };
-
     users.push(newUser);
     saveUsers(users);
 
     const token = createSession(newUser);
 
-    return res.json({
-      userId: newUser.id,
-      username: newUser.username,
-      token,
-    });
+    return res.json({ userId: newUser.id, username: newUser.username, token });
   } catch (err) {
-    console.error("Error in /api/signup:", err);
+    console.error("signup error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Log in
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", (req, res) => {
   try {
     const { username, password } = req.body || {};
     const name = (username || "").trim();
     const pwd = (password || "").trim();
-
     if (!name || !pwd) {
-      return res
-        .status(400)
-        .json({ error: "Username and password are required." });
+      return res.status(400).json({ error: "Username and password are required." });
     }
 
     const users = loadUsers();
-    const user = users.find(
-      (u) => u.username.toLowerCase() === name.toLowerCase()
-    );
+    const user = users.find((u) => u.username.toLowerCase() === name.toLowerCase());
+    if (!user) return res.status(401).json({ error: "Incorrect username or password." });
 
-    if (!user) {
-      return res.status(401).json({ error: "Incorrect username or password." });
-    }
-
-    const ok = verifyPassword(pwd, user.passwordHash);
-    if (!ok) {
+    if (!verifyPassword(pwd, user.passwordHash)) {
       return res.status(401).json({ error: "Incorrect username or password." });
     }
 
     const token = createSession(user);
-
-    return res.json({
-      userId: user.id,
-      username: user.username,
-      token,
-    });
+    return res.json({ userId: user.id, username: user.username, token });
   } catch (err) {
-    console.error("Error in /api/login:", err);
+    console.error("login error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// MINI-LEAGUE ROUTES (with backwards compatibility)
+// LEGACY MAP ENDPOINT
+// POST /api/users/legacy-map { legacyName, userId }
+// Creates/updates mapping in data/legacyMap.json
 // ---------------------------------------------------------------------------
+app.post("/api/users/legacy-map", (req, res) => {
+  try {
+    const { legacyName, userId } = req.body || {};
+    const name = (legacyName || "").trim();
+    const uid = (userId || "").trim();
 
-// Get leagues that the current user is a member of
+    if (!name || !uid) {
+      return res.status(400).json({ error: "legacyName and userId are required." });
+    }
+
+    const isReserved = RESERVED_LEGACY_NAMES.some(
+      (n) => n.toLowerCase() === name.toLowerCase()
+    );
+    if (!isReserved) {
+      return res.status(400).json({ error: "legacyName must be one of reserved legacy players." });
+    }
+
+    const users = loadUsers();
+    const user = users.find((u) => u.id === uid);
+    if (!user) return res.status(404).json({ error: "userId not found." });
+
+    const legacyMap = loadLegacyMap();
+    legacyMap[name] = uid;
+    saveLegacyMap(legacyMap);
+
+    return res.json({ ok: true, legacyMap });
+  } catch (err) {
+    console.error("legacy-map error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN RESET PASSWORD
+// POST /api/admin/reset-password
+// headers: x-admin-key: prem-admin-reset
+// body: { username, newPassword }
+// ---------------------------------------------------------------------------
+app.post("/api/admin/reset-password", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { username, newPassword } = req.body || {};
+    const name = (username || "").trim();
+    const pwd = (newPassword || "").trim();
+    if (!name || !pwd) {
+      return res.status(400).json({ error: "username and newPassword are required." });
+    }
+    if (pwd.length < 4) {
+      return res.status(400).json({ error: "newPassword must be at least 4 characters." });
+    }
+
+    const users = loadUsers();
+    const idx = users.findIndex((u) => u.username.toLowerCase() === name.toLowerCase());
+    if (idx === -1) return res.status(404).json({ error: "User not found." });
+
+    users[idx].passwordHash = hashPassword(pwd);
+    users[idx].passwordResetAt = new Date().toISOString();
+    saveUsers(users);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("admin reset error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// MINI‑LEAGUES (unchanged, backwards‑compatible)
+// ---------------------------------------------------------------------------
+function generateJoinCode(existingLeagues) {
+  const existingCodes = new Set(
+    existingLeagues.map((l) => (l.joinCode || l.inviteCode || "").toUpperCase())
+  );
+  while (true) {
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    if (!existingCodes.has(code)) return code;
+  }
+}
+
 app.get("/api/leagues/my", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
@@ -272,51 +339,34 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
 
     const myLeagues = leagues
       .map((league) => {
-        // handle both new and old formats
         const members = Array.isArray(league.members)
           ? league.members
           : Array.isArray(league.memberUserIds)
           ? league.memberUserIds
           : [];
-
         const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
-
-        return {
-          raw: league,
-          members,
-          joinCode,
-        };
+        return { raw: league, members, joinCode };
       })
-      .filter((wrapped) => wrapped.members.includes(userId))
-      .map((wrapped) => ({
-        id: wrapped.raw.id,
-        name: wrapped.raw.name,
-        joinCode: wrapped.joinCode,
-        memberCount: wrapped.members.length,
+      .filter((w) => w.members.includes(userId))
+      .map((w) => ({
+        id: w.raw.id,
+        name: w.raw.name,
+        joinCode: w.joinCode,
+        memberCount: w.members.length,
       }));
 
     return res.json({ leagues: myLeagues });
   } catch (err) {
-    console.error("Error in /api/leagues/my:", err);
+    console.error("leagues/my error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Create a new mini-league
 app.post("/api/league/create", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
-    const rawName = (req.body && req.body.name) || "";
-    const name = rawName.trim();
-
-    if (!name) {
-      return res.status(400).json({ error: "League name is required." });
-    }
-    if (name.length < 3) {
-      return res
-        .status(400)
-        .json({ error: "League name must be at least 3 characters long." });
-    }
+    const name = ((req.body && req.body.name) || "").trim();
+    if (!name) return res.status(400).json({ error: "League name is required." });
 
     const leagues = loadLeagues();
     const joinCode = generateJoinCode(leagues);
@@ -324,13 +374,13 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
     const newLeague = {
       id: "league_" + Date.now().toString(),
       name,
-      joinCode, // new style
-      inviteCode: joinCode, // keep a mirror for compatibility
+      joinCode,
+      inviteCode: joinCode,
       ownerId: userId,
       members: [userId],
+      memberUserIds: [userId],
       createdAt: new Date().toISOString(),
     };
-
     leagues.push(newLeague);
     saveLeagues(leagues);
 
@@ -343,46 +393,31 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Error in /api/league/create:", err);
+    console.error("league/create error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Join a mini-league by invite code
 app.post("/api/league/join", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
-    const rawCode = (req.body && req.body.code) || "";
-    const code = rawCode.trim().toUpperCase();
-
-    if (!code) {
-      return res.status(400).json({ error: "Invite/join code is required." });
-    }
+    const code = (((req.body && req.body.code) || "")).trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: "Invite/join code is required." });
 
     const leagues = loadLeagues();
-    const idx = leagues.findIndex((l) => {
-      const storedCode = (l.joinCode || l.inviteCode || "").toUpperCase();
-      return storedCode === code;
+    const league = leagues.find((l) => {
+      const stored = (l.joinCode || l.inviteCode || "").toUpperCase();
+      return stored === code;
     });
+    if (!league) return res.status(404).json({ error: "Mini‑league not found." });
 
-    if (idx === -1) {
-      return res.status(404).json({ error: "Mini-league not found." });
-    }
-
-    const league = leagues[idx];
-
-    // normalise members for older data that used memberUserIds
     if (!Array.isArray(league.members)) {
-      if (Array.isArray(league.memberUserIds)) {
-        league.members = league.memberUserIds.slice();
-      } else {
-        league.members = [];
-      }
+      league.members = Array.isArray(league.memberUserIds)
+        ? league.memberUserIds.slice()
+        : [];
     }
-
     if (!league.members.includes(userId)) {
       league.members.push(userId);
-      // keep old field in sync if it exists
       league.memberUserIds = league.members.slice();
       saveLeagues(leagues);
     }
@@ -396,123 +431,131 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Error in /api/league/join:", err);
+    console.error("league/join error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// PREMIER LEAGUE RESULTS (football-data.org) – using global fetch
+// PREDICTIONS (cloud sync for all users)
+// ---------------------------------------------------------------------------
+app.get("/api/predictions/my", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const allPreds = loadPredictions();
+    return res.json({ predictions: allPreds[userId] || {} });
+  } catch (err) {
+    console.error("predictions/my error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/predictions/save", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { fixtureId, prediction } = req.body || {};
+    if (fixtureId === undefined || fixtureId === null) {
+      return res.status(400).json({ error: "fixtureId is required." });
+    }
+    if (!prediction || typeof prediction !== "object") {
+      return res.status(400).json({ error: "prediction object is required." });
+    }
+
+    const allPreds = loadPredictions();
+    if (!allPreds[userId]) allPreds[userId] = {};
+
+    const clean = {
+      homeGoals:
+        prediction.homeGoals === "" || prediction.homeGoals === null
+          ? ""
+          : String(prediction.homeGoals),
+      awayGoals:
+        prediction.awayGoals === "" || prediction.awayGoals === null
+          ? ""
+          : String(prediction.awayGoals),
+      isDouble: !!prediction.isDouble,
+      isTriple: !!prediction.isTriple,
+    };
+
+    allPreds[userId][fixtureId] = clean;
+    savePredictions(allPreds);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("predictions/save error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
   try {
-    console.log("Incoming /api/results request");
-
     const apiRes = await fetch(
       "https://api.football-data.org/v4/competitions/PL/matches",
       {
-        headers: {
-          "X-Auth-Token": FOOTBALL_DATA_TOKEN,
-        },
+        headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
       }
     );
 
-    console.log("Football-Data status:", apiRes.status);
-
     if (!apiRes.ok) {
       const errorText = await apiRes.text().catch(() => "");
-      console.error(
-        "Football-Data API error:",
-        apiRes.status,
-        errorText || "<no body>"
-      );
+      console.error("Football-Data API error:", apiRes.status, errorText);
       return res
         .status(apiRes.status)
         .json({ error: "Football-Data API error", status: apiRes.status });
     }
 
     const data = await apiRes.json();
-    const matches = Array.isArray(data.matches) ? data.matches : [];
-
-    console.log("Returning", matches.length, "matches to frontend");
-    res.json(matches);
+    res.json(Array.isArray(data.matches) ? data.matches : []);
   } catch (err) {
-    console.error("Server error in /api/results:", err);
+    console.error("results error", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
 // ---------------------------------------------------------------------------
-// EPL ODDS (The Odds API) – using global fetch
+// ODDS (The Odds API) – proxy
 // ---------------------------------------------------------------------------
 app.get("/api/odds", async (req, res) => {
   try {
-    console.log("Incoming /api/odds request");
-
     const url = new URL(
       "https://api.the-odds-api.com/v4/sports/soccer_epl/odds"
     );
     url.searchParams.set("apiKey", ODDS_API_KEY);
-    url.searchParams.set("regions", "uk"); // UK bookmakers
-    url.searchParams.set("markets", "h2h"); // head-to-head (1X2)
-    url.searchParams.set("oddsFormat", "decimal"); // decimal odds
+    url.searchParams.set("regions", "uk");
+    url.searchParams.set("markets", "h2h");
+    url.searchParams.set("oddsFormat", "decimal");
 
     const apiRes = await fetch(url.toString());
-    console.log("The Odds API status:", apiRes.status);
-
     if (!apiRes.ok) {
       const errorText = await apiRes.text().catch(() => "");
-      console.error(
-        "The Odds API error:",
-        apiRes.status,
-        errorText || "<no body>"
-      );
+      console.error("Odds API error:", apiRes.status, errorText);
       return res
         .status(apiRes.status)
         .json({ error: "The Odds API error", status: apiRes.status });
     }
 
     const data = await apiRes.json();
-
     const markets = [];
 
     if (Array.isArray(data)) {
       data.forEach((event) => {
         const homeTeam = event.home_team;
         const awayTeam = event.away_team;
-
-        if (!homeTeam || !awayTeam || !Array.isArray(event.bookmakers)) {
-          return;
-        }
+        if (!homeTeam || !awayTeam || !Array.isArray(event.bookmakers)) return;
 
         const firstBookmaker = event.bookmakers[0];
-        if (!firstBookmaker || !Array.isArray(firstBookmaker.markets)) {
-          return;
-        }
+        const h2hMarket = firstBookmaker?.markets?.find((m) => m.key === "h2h");
+        if (!h2hMarket?.outcomes) return;
 
-        const h2hMarket = firstBookmaker.markets.find(
-          (m) => m.key === "h2h"
-        );
-        if (!h2hMarket || !Array.isArray(h2hMarket.outcomes)) {
-          return;
-        }
-
-        let homeOdds = null;
-        let awayOdds = null;
-        let drawOdds = null;
-
+        let homeOdds = null, awayOdds = null, drawOdds = null;
         h2hMarket.outcomes.forEach((o) => {
-          if (!o || typeof o.name !== "string") return;
-          const name = o.name;
-          const price = o.price;
-
-          if (name === homeTeam) {
-            homeOdds = price;
-          } else if (name === awayTeam) {
-            awayOdds = price;
-          } else if (name.toLowerCase() === "draw") {
-            drawOdds = price;
-          }
+          if (!o?.name) return;
+          if (o.name === homeTeam) homeOdds = o.price;
+          else if (o.name === awayTeam) awayOdds = o.price;
+          else if (String(o.name).toLowerCase() === "draw") drawOdds = o.price;
         });
 
         if (
@@ -520,28 +563,18 @@ app.get("/api/odds", async (req, res) => {
           typeof awayOdds === "number" &&
           typeof drawOdds === "number"
         ) {
-          markets.push({
-            homeTeam,
-            awayTeam,
-            homeOdds,
-            drawOdds,
-            awayOdds,
-          });
+          markets.push({ homeTeam, awayTeam, homeOdds, drawOdds, awayOdds });
         }
       });
     }
 
-    console.log("Returning odds for", markets.length, "fixtures");
     res.json(markets);
   } catch (err) {
-    console.error("Server error in /api/odds:", err);
+    console.error("odds error", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ---------------------------------------------------------------------------
-// START SERVER
-// ---------------------------------------------------------------------------
 app.listen(PORT, () => {
-  console.log(`Backend running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
