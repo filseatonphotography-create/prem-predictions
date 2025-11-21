@@ -286,6 +286,43 @@ app.post("/api/login", (req, res) => {
   }
 });
 
+app.post("/api/change-password", (req, res) => {
+  try {
+    const authHeader = req.headers["authorization"] || "";
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return res.status(401).json({ error: "Missing token" });
+
+    const session = getSession(token);
+    if (!session) return res.status(401).json({ error: "Invalid token" });
+
+    const { oldPassword, newPassword } = req.body || {};
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ error: "Missing oldPassword or newPassword." });
+    }
+    if (newPassword.trim().length < 4) {
+      return res
+        .status(400)
+        .json({ error: "New password must be at least 4 characters." });
+    }
+
+    const users = loadUsers();
+    const user = users.find((u) => u.id === session.userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!verifyPassword(oldPassword, user.passwordHash)) {
+      return res.status(401).json({ error: "Incorrect current password" });
+    }
+
+    user.passwordHash = hashPassword(newPassword.trim());
+    saveUsers(users);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("change-password error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // LEGACY MAP ENDPOINT
 // POST /api/users/legacy-map { legacyName, userId }
