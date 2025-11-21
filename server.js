@@ -1,10 +1,14 @@
-// server.js — Rebuilt backend with legacy mapping, admin reset, CORS, cloud predictions.
-// Uses Node built‑in crypto for password hashing and sessions.
-
 const express = require("express");
+const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+
+const PORT = process.env.PORT || 5001;
+
 const app = express();
 
-// ---------- ADD CORS FIX BELOW THIS LINE ----------
+// ---------- CORS BLOCK ----------
 const allowedOrigins = [
   "http://localhost:3000",
   "https://scintillating-macaron-cfbf04.netlify.app",
@@ -24,13 +28,13 @@ app.use(
 );
 
 app.options("*", cors());
-// ---------- END CORS FIX ----------
+// ---------- END CORS BLOCK ----------
+app.options("*", cors());
+// ---------- END CORS BLOCK ----------
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-
-const app = express();
 const PORT = process.env.PORT || 5001;
 
 // === TOKENS ===
