@@ -292,8 +292,15 @@ app.post("/api/change-password", (req, res) => {
     const token = authHeader.replace("Bearer ", "").trim();
     if (!token) return res.status(401).json({ error: "Missing token" });
 
-    const session = getSession(token);
-    if (!session) return res.status(401).json({ error: "Invalid token" });
+    // ✅ Use the same sessions store createSession writes to.
+    // Your file should already have something like:
+    // const SESSIONS = {};
+    // function createSession(user) { SESSIONS[token] = { userId: user.id, ... }; return token; }
+    const session = (global.SESSIONS || SESSIONS || {})[token];
+
+    if (!session || !session.userId) {
+      return res.status(401).json({ error: "Invalid token" });
+    }
 
     const { oldPassword, newPassword } = req.body || {};
     if (!oldPassword || !newPassword) {
