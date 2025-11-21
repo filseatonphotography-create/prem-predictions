@@ -185,16 +185,31 @@ app.post("/api/signup", (req, res) => {
       return res.status(400).json({ error: "Password must be at least 4 characters." });
     }
 
-    // Reserved legacy name protection
-    const isReserved = RESERVED_LEGACY_NAMES.some(
+    // ---- Legacy name auto-claim support ----
+    const LEGACY_NAMES = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
+    const legacyMapPath = path.join(__dirname, "data", "legacyMap.json");
+
+    let legacyMap = {};
+    if (fs.existsSync(legacyMapPath)) {
+      legacyMap = JSON.parse(fs.readFileSync(legacyMapPath, "utf8") || "{}");
+    }
+
+    const isLegacyName = LEGACY_NAMES.some(
       (n) => n.toLowerCase() === name.toLowerCase()
     );
-    if (isReserved) {
-      return res.status(400).json({
-        error:
-          "That legacy name is reserved. Please log in with your existing account.",
-      });
+
+    // If they are trying to register a legacy name, allow ONLY if unclaimed.
+    if (isLegacyName) {
+      const alreadyClaimed = Object.keys(legacyMap).some(
+        (k) => k.toLowerCase() === name.toLowerCase()
+      );
+      if (alreadyClaimed) {
+        return res.status(400).json({
+          error: "That legacy name has already been claimed. Please choose another username.",
+        });
+      }
     }
+    // ---- End legacy name check ----
 
     const users = loadUsers();
     if (users.find((u) => u.username.toLowerCase() === name.toLowerCase())) {
@@ -210,8 +225,18 @@ app.post("/api/signup", (req, res) => {
     users.push(newUser);
     saveUsers(users);
 
-    const token = createSession(newUser);
+    // Auto-claim legacy name ON SIGNUP if applicable
+    if (isLegacyName) {
+      // store using the canonical legacy spelling (from LEGACY_NAMES)
+      const canonical = LEGACY_NAMES.find(
+        (n) => n.toLowerCase() === name.toLowerCase()
+      );
+      legacyMap[canonical] = newUser.id;
+      fs.writeFileSync(legacyMapPath, JSON.stringify(legacyMap, null, 2));
+      console.log(`Auto legacy-claimed on signup ${canonical} -> ${newUser.id}`);
+    }
 
+    const token = createSession(newUser);
     return res.json({ userId: newUser.id, username: newUser.username, token });
   } catch (err) {
     console.error("signup error", err);
