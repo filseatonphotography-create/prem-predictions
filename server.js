@@ -236,6 +236,23 @@ app.post("/api/login", (req, res) => {
       return res.status(401).json({ error: "Incorrect username or password." });
     }
 
+    // ---- AUTO legacy-map on first successful login ----
+    const LEGACY_NAMES = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
+    const legacyMapPath = path.join(__dirname, "data", "legacyMap.json");
+
+    let legacyMap = {};
+    if (fs.existsSync(legacyMapPath)) {
+      legacyMap = JSON.parse(fs.readFileSync(legacyMapPath, "utf8") || "{}");
+    }
+
+    // If they log in with an exact legacy username and it's not mapped yet, map it now.
+    if (LEGACY_NAMES.includes(user.username) && !legacyMap[user.username]) {
+      legacyMap[user.username] = user.id;
+      fs.writeFileSync(legacyMapPath, JSON.stringify(legacyMap, null, 2));
+      console.log(`Auto legacy-mapped ${user.username} -> ${user.id}`);
+    }
+    // ---- END AUTO legacy-map ----
+
     const token = createSession(user);
     return res.json({ userId: user.id, username: user.username, token });
   } catch (err) {
