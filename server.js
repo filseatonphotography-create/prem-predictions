@@ -44,7 +44,7 @@ app.use(express.json());
 // ---------------------------------------------------------------------------
 // DATA FILES
 // ---------------------------------------------------------------------------
-const DATA_DIR = path.join(__dirname, "data");
+const DATA_DIR = "/opt/render/project/src/data";
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
