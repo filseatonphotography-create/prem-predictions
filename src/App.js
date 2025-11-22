@@ -3,7 +3,6 @@ import "./App.css";
 import FIXTURES from "./fixtures";
 
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
-const toCode = (name) => TEAM_ABBREVIATIONS[name] || name;
 const TEAM_ABBREVIATIONS = {
   Arsenal: "ARS",
   "Aston Villa": "AVL",
