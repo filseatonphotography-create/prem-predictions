@@ -1762,14 +1762,14 @@ setNewPasswordInput("");
             }}
           >
             <div className="prob-row">
-              {/* Left column: fixture */}
+              {/* Fixture (left column) */}
               <div className="prob-fixture">
                 {TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam}
                 {" "}vs{" "}
                 {TEAM_ABBREVIATIONS[fixture.awayTeam] || fixture.awayTeam}
               </div>
 
-              {/* Right column: odds + % */}
+              {/* Odds + % (right column) */}
               <div className="prob-odds">
                 <input
                   type="number"
@@ -1781,6 +1781,7 @@ setNewPasswordInput("");
                     updateOdds(fixture.id, { home: e.target.value })
                   }
                 />
+
                 <input
                   type="number"
                   step="0.01"
@@ -1791,6 +1792,7 @@ setNewPasswordInput("");
                     updateOdds(fixture.id, { draw: e.target.value })
                   }
                 />
+
                 <input
                   type="number"
                   step="0.01"
@@ -1802,7 +1804,7 @@ setNewPasswordInput("");
                   }
                 />
 
-                <div style={{ fontSize: 12, color: theme.muted, marginLeft: 4 }}>
+                <div style={{ fontSize: 12, color: theme.muted }}>
                   {probs
                     ? `${probs.home.toFixed(1)}% / ${probs.draw.toFixed(
                         1
@@ -1817,14 +1819,7 @@ setNewPasswordInput("");
     </div>
   </section>
 )}
-                  >
-                    <div
-  style={{
-    fontWeight: 700,
-    marginBottom: 6,
-    textAlign: "center",
-  }}
->
+
  <div className="prob-row">
   <div className="prob-fixture">
     {TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam}
