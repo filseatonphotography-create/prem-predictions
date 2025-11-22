@@ -77,10 +77,22 @@ function hashPassword(password) {
 function verifyPassword(password, stored) {
   if (!stored || typeof stored !== "string" || !stored.includes(":")) return false;
   const [salt, hash] = stored.split(":");
-  const check = crypto
+  if (!salt || !hash) return false;
+
+  // --- Legacy SHA256 format (hash length 64 hex chars) ---
+  if (hash.length === 64) {
+    const legacyCheck = crypto
+      .createHash("sha256")
+      .update(salt + password)
+      .digest("hex");
+    return legacyCheck === hash;
+  }
+
+  // --- Current PBKDF2 format ---
+  const hashCheck = crypto
     .pbkdf2Sync(password, salt, 10000, 64, "sha512")
     .toString("hex");
-  return check === hash;
+  return hashCheck === hash;
 }
 
 // ---------------------------------------------------------------------------
