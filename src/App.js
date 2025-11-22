@@ -880,18 +880,24 @@ const handlePasswordChange = async () => {
   });
 
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
-  const theme = {
-    bg: "#0f172a",
-    panel: "#111827",
-    panelHi: "#0b1220",
-    text: "#e5e7eb",
-    muted: "#9ca3af",
-    accent: "#38bdf8",
-    accent2: "#22c55e",
-    warn: "#f59e0b",
-    danger: "#ef4444",
-    line: "rgba(255,255,255,0.08)",
-  };
+ const theme = {
+  bg: "#0f172a",
+  panel: "#111827",
+  panelHi: "#0b1220",
+  text: "#e5e7eb",
+  muted: "#9ca3af",
+  accent: "#38bdf8",
+  accent2: "#22c55e",
+  warn: "#f59e0b",
+  danger: "#ef4444",
+  line: "rgba(255,255,255,0.08)",
+
+  // aliases used by your Change Password UI
+  card: "#111827",              // same as panel
+  border: "rgba(255,255,255,0.08)", // same as line
+  background: "#0f172a",        // same as bg
+  button: "#38bdf8",            // same as accent
+};
 
   const pageStyle = {
     minHeight: "100vh",
@@ -1170,6 +1176,111 @@ const handlePasswordChange = async () => {
             </button>
           </div>
         </header>
+        {showPasswordModal && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.55)",
+      display: "grid",
+      placeItems: "center",
+      zIndex: 9999,
+      padding: 16,
+    }}
+    onClick={() => setShowPasswordModal(false)}
+  >
+    <div
+      style={{
+        width: "100%",
+        maxWidth: 420,
+        background: theme.card,
+        color: theme.text,
+        border: "1px solid " + theme.border,
+        borderRadius: 12,
+        padding: 16,
+        boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <h2 style={{ marginTop: 0 }}>Change Password</h2>
+
+      <label style={{ fontSize: 12, color: theme.muted }}>Old password</label>
+      <input
+        type="password"
+        value={oldPasswordInput}
+        onChange={(e) => setOldPasswordInput(e.target.value)}
+        style={{
+          width: "100%",
+          marginTop: 4,
+          marginBottom: 10,
+          padding: "8px 10px",
+          borderRadius: 8,
+          border: "1px solid " + theme.border,
+          background: theme.background,
+          color: theme.text,
+        }}
+      />
+
+      <label style={{ fontSize: 12, color: theme.muted }}>New password</label>
+      <input
+        type="password"
+        value={newPasswordInput}
+        onChange={(e) => setNewPasswordInput(e.target.value)}
+        style={{
+          width: "100%",
+          marginTop: 4,
+          marginBottom: 10,
+          padding: "8px 10px",
+          borderRadius: 8,
+          border: "1px solid " + theme.border,
+          background: theme.background,
+          color: theme.text,
+        }}
+      />
+
+      {passwordError && (
+        <div style={{ color: "#ff6b6b", fontSize: 13, marginBottom: 8 }}>
+          {passwordError}
+        </div>
+      )}
+      {passwordSuccess && (
+        <div style={{ color: "#22c55e", fontSize: 13, marginBottom: 8 }}>
+          {passwordSuccess}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button
+          onClick={() => setShowPasswordModal(false)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            background: "transparent",
+            color: theme.text,
+            border: "1px solid " + theme.border,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handlePasswordChange}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 8,
+            background: theme.button,
+            color: theme.text,
+            border: "1px solid " + theme.border,
+            cursor: "pointer",
+            fontWeight: 700,
+          }}
+        >
+          Update
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
         {/* Controls */}
         <section

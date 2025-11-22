@@ -153,3 +153,52 @@ footer {
     width: 100%;
   }
 }
+/* ---- View tab bar ---- */
+.view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0 1rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #ddd;
+}
+
+/* Individual tabs */
+.view-tab {
+  border: none;
+  background: transparent;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: #444;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+/* Hover (desktop) */
+.view-tab:hover {
+  background: #f2f2f2;
+}
+
+/* Active tab (matches your orange buttons) */
+.view-tab.active {
+  background: #ff6347;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* Mobile: make tabs scroll horizontally instead of wrapping ugly */
+@media (max-width: 700px) {
+  .view-tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    padding-bottom: 0.4rem;
+  }
+
+  .view-tab {
+    flex: 0 0 auto;
+  }
+}
