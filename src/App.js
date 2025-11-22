@@ -2,6 +2,30 @@ import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 
+// --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
+const TEAM_ABBREVIATIONS = {
+  Arsenal: "ARS",
+  "Aston Villa": "AVL",
+  Bournemouth: "BOU",
+  Brentford: "BRE",
+  Brighton: "BHA",
+  Burnley: "BUR",
+  Chelsea: "CHE",
+  "Crystal Palace": "CRY",
+  Everton: "EVE",
+  Fulham: "FUL",
+  Liverpool: "LIV",
+  Luton: "LUT",
+  "Man City": "MCI",
+  "Man United": "MUN",
+  Newcastle: "NEW",
+  Nottingham: "NOT",
+  Southampton: "SOU",
+  Tottenham: "TOT",
+  West Ham: "WHU",
+  Wolves: "WOL",
+};
+
 /**
  * PREMIER LEAGUE PREDICTION GAME — Rebuilt cloud-synced + redesigned UI
  * Requirements covered:
@@ -1136,7 +1160,7 @@ setNewPasswordInput("");
 
   {/* RIGHT SIDE: Change password / Logged in as / Logout */}
   {isLoggedIn && (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
       <button
         onClick={() => setShowPasswordModal(true)}
         style={{
@@ -1430,8 +1454,8 @@ setNewPasswordInput("");
                           gap: 6,
                         }}
                       >
-                        <div style={{ fontWeight: 700 }}>
-                          {fixture.homeTeam} vs {fixture.awayTeam}
+                        <div style={{ fontWeight: 700, textAlign: "center" }}>
+                          {fixture.homeTeam.tla} vs {fixture.awayTeam.tla}
                         </div>
                         <div style={{ fontSize: 12, color: theme.muted }}>
                           {formatKickoffShort(fixture.kickoff)} GMT
@@ -1583,7 +1607,7 @@ setNewPasswordInput("");
                     }}
                   >
                     <div style={{ fontWeight: 700 }}>
-                      {fixture.homeTeam} vs {fixture.awayTeam}
+                      {getTeamCode(fixture.homeTeam)} vs {getTeamCode(fixture.awayTeam)}
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <input
@@ -1734,9 +1758,17 @@ setNewPasswordInput("");
                       alignItems: "center",
                     }}
                   >
-                    <div style={{ fontWeight: 700 }}>
-                      {fixture.homeTeam} vs {fixture.awayTeam}
-                    </div>
+                    <div
+  style={{
+    fontWeight: 700,
+    marginBottom: 6,
+    textAlign: "center",
+  }}
+>
+  {(TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam)}{" "}
+  vs{" "}
+  {(TEAM_ABBREVIATIONS[fixture.awayTeam] || fixture.awayTeam)}
+</div>
 
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <input
