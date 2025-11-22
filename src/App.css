@@ -202,3 +202,21 @@ footer {
     flex: 0 0 auto;
   }
 }
+/* ---- Probability tab layout ---- */
+.prob-row {
+  display: grid;
+  grid-template-columns: 1fr auto; /* fixture left, odds tight right */
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.prob-fixture {
+  font-weight: 700;
+}
+
+.prob-odds {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
