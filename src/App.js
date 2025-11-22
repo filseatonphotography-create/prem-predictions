@@ -632,15 +632,11 @@ const handlePasswordChange = async () => {
   setPasswordSuccess("");
 
   try {
-    const result = await apiChangePassword(
-      authToken,
-      oldPasswordInput,
-      newPasswordInput
-    );
+    await apiChangePassword(authToken, oldPasswordInput, newPasswordInput);
 
-    setPasswordSuccess("Password updated successfully!");
-    setOldPasswordInput("");
-    setNewPasswordInput("");
+setPasswordSuccess("Password updated successfully!");
+setOldPasswordInput("");
+setNewPasswordInput("");
   } catch (err) {
     setPasswordError(err.message || "Failed to update password.");
   }
