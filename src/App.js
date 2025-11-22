@@ -3,6 +3,7 @@ import "./App.css";
 import FIXTURES from "./fixtures";
 
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
+const toCode = (name) => TEAM_ABBREVIATIONS[name] || name;
 const TEAM_ABBREVIATIONS = {
   Arsenal: "ARS",
   "Aston Villa": "AVL",
@@ -24,6 +25,11 @@ const TEAM_ABBREVIATIONS = {
   Tottenham: "TOT",
   "West Ham": "WHU",
   Wolves: "WOL",
+  "Sunderland": "SUN",
+"Nott'm Forest": "NFO",
+"Nottingham Forest": "NFO",
+"Spurs": "TOT",
+"Tottenham Hotspur": "TOT",
 };
 
 /**
@@ -1733,30 +1739,84 @@ setNewPasswordInput("");
           </section>
         )}
 
-        {/* Win Probabilities */}
-        {activeView === "winprob" && (
-          <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>
-              Win probabilities — GW{selectedGameweek}
-            </h2>
-            <div style={{ display: "grid", gap: 8 }}>
-              {visibleFixtures.map((fixture) => {
-                const o = odds[fixture.id] || {};
-                const probs = computeProbabilities(o);
+{/* Win Probabilities */}
+{activeView === "winprob" && (
+  <section style={cardStyle}>
+    <h2 style={{ marginTop: 0, fontSize: 18 }}>
+      Win probabilities — GW{selectedGameweek}
+    </h2>
 
-                return (
-                  <div
-                    key={fixture.id}
-                    style={{
-                      background: theme.panelHi,
-                      borderRadius: 12,
-                      border: `1px solid ${theme.line}`,
-                      padding: 10,
-                      display: "grid",
-                      gridTemplateColumns: "1fr auto",
-                      gap: 8,
-                      alignItems: "center",
-                    }}
+    <div style={{ display: "grid", gap: 8 }}>
+      {visibleFixtures.map((fixture) => {
+        const o = odds[fixture.id] || {};
+        const probs = computeProbabilities(o);
+
+        return (
+          <div
+            key={fixture.id}
+            style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 10,
+            }}
+          >
+            <div className="prob-row">
+              {/* Left column: fixture */}
+              <div className="prob-fixture">
+                {TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam}
+                {" "}vs{" "}
+                {TEAM_ABBREVIATIONS[fixture.awayTeam] || fixture.awayTeam}
+              </div>
+
+              {/* Right column: odds + % */}
+              <div className="prob-odds">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1.01"
+                  style={smallInput}
+                  value={o.home ?? ""}
+                  onChange={(e) =>
+                    updateOdds(fixture.id, { home: e.target.value })
+                  }
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1.01"
+                  style={smallInput}
+                  value={o.draw ?? ""}
+                  onChange={(e) =>
+                    updateOdds(fixture.id, { draw: e.target.value })
+                  }
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="1.01"
+                  style={smallInput}
+                  value={o.away ?? ""}
+                  onChange={(e) =>
+                    updateOdds(fixture.id, { away: e.target.value })
+                  }
+                />
+
+                <div style={{ fontSize: 12, color: theme.muted, marginLeft: 4 }}>
+                  {probs
+                    ? `${probs.home.toFixed(1)}% / ${probs.draw.toFixed(
+                        1
+                      )}% / ${probs.away.toFixed(1)}%`
+                    : "-"}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </section>
+)}
                   >
                     <div
   style={{
@@ -1765,9 +1825,16 @@ setNewPasswordInput("");
     textAlign: "center",
   }}
 >
-  {(TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam)}{" "}
-  vs{" "}
-  {(TEAM_ABBREVIATIONS[fixture.awayTeam] || fixture.awayTeam)}
+ <div className="prob-row">
+  <div className="prob-fixture">
+    {TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam}
+    {" "}vs{" "}
+    {TEAM_ABBREVIATIONS[fixture.awayTeam] || fixture.awayTeam}
+  </div>
+
+  <div className="prob-odds">
+    {/* Your odds boxes stay exactly as they are — just move them inside this div */}
+  </div>
 </div>
 
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
