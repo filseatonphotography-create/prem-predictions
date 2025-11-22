@@ -16,11 +16,19 @@ const ODDS_API_KEY =
   process.env.ODDS_API_KEY || "72209b9a1ab8337b046a7a1a3996f1bc";
 
 // ---------------------------------------------------------------------------
-// CORS (required origins + credentials + authorization allowed)
+// CORS (allow Netlify + localhost + Render backend)
 // ---------------------------------------------------------------------------
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",
+
+  // Your Netlify live site
   "https://scintillating-macaron-cfbf04.netlify.app",
+
+  // Netlify branch deploys
+  "https://main--scintillating-macaron-cfbf04.netlify.app",
+  "https://deploy-preview--scintillating-macaron-cfbf04.netlify.app",
+
+  // Render backend
   "https://prem-predictions-1.onrender.com",
   "https://prem-predictions-p9fy.onrender.com",
 ]);
@@ -28,9 +36,10 @@ const ALLOWED_ORIGINS = new Set([
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // curl / server-server
+      if (!origin) return cb(null, true);
+      console.log("CORS request from:", origin);
       if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS"));
+      return cb(new Error("Not allowed by CORS: " + origin));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -38,13 +47,12 @@ app.use(
   })
 );
 
-app.options(/.*/, cors());
 app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // DATA FILES
 // ---------------------------------------------------------------------------
-const DATA_DIR = "/opt/render/project/src/data";
+const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
@@ -61,7 +69,7 @@ const RESERVED_LEGACY_NAMES = [
 ];
 
 // Ensure data dir exists
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
 // HELPERS: PASSWORD HASHING (pbkdf2)
@@ -164,28 +172,48 @@ function loadLeagues() {
 const saveLeagues = (leagues) => saveJson(LEAGUES_FILE, leagues);
 
 // ---------------------------------------------------------------------------
-// SESSIONS (token → user)
+// TOKENS (stateless, survive restarts)
+// token format: userId.nonce.signature
 // ---------------------------------------------------------------------------
-const sessions = new Map();
+const SESSION_SECRET = process.env.SESSION_SECRET || "dev-secret-change-me";
 
-function createSession(user) {
-  const token = crypto.randomBytes(24).toString("hex");
-  sessions.set(token, { id: user.id, username: user.username });
-  return token;
+function createToken(userId) {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const sig = crypto
+    .createHash("sha256")
+    .update(`${userId}:${nonce}:${SESSION_SECRET}`)
+    .digest("hex");
+  return `${userId}.${nonce}.${sig}`;
+}
+
+function verifyToken(token) {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [userId, nonce, sig] = parts;
+
+  const expected = crypto
+    .createHash("sha256")
+    .update(`${userId}:${nonce}:${SESSION_SECRET}`)
+    .digest("hex");
+
+  if (expected !== sig) return null;
+  return { id: userId };
 }
 
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization || "";
-  const parts = authHeader.split(" ");
-  if (parts.length === 2 && parts[0] === "Bearer") {
-    const token = parts[1];
-    const session = sessions.get(token);
-    if (session) {
-      req.user = session;
-      return next();
-    }
-  }
-  return res.status(401).json({ error: "Unauthorized" });
+  const token = authHeader.replace("Bearer ", "").trim();
+
+  const data = verifyToken(token);
+  if (!data) return res.status(401).json({ error: "Unauthorized" });
+
+  const users = loadUsers();
+  const user = users.find((u) => u.id === data.id);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  req.user = { id: user.id, username: user.username };
+  next();
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +284,7 @@ app.post("/api/signup", (req, res) => {
       console.log(`Auto legacy-claimed on signup ${canonical} -> ${newUser.id}`);
     }
 
-    const token = createSession(newUser);
+    const token = createToken(newUser.id);
     return res.json({ userId: newUser.id, username: newUser.username, token });
   } catch (err) {
     console.error("signup error", err);
