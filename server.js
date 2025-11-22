@@ -4,10 +4,12 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
+const BUILD_ID = "2025-11-22-a";
+console.log("SERVER BUILD:", BUILD_ID);
+
 const PORT = process.env.PORT || 5001;
 
 const app = express();
-
 // === TOKENS ===
 // Keep real in deployed code (do NOT share publicly).
 const FOOTBALL_DATA_TOKEN =
@@ -331,8 +333,8 @@ app.post("/api/login", (req, res) => {
       console.log(`Auto legacy-mapped ${user.username} -> ${user.id}`);
     }
 
-    const token = createSession(user);
-    return res.json({ userId: user.id, username: user.username, token });
+    const token = createToken(user.id);
+return res.json({ userId: user.id, username: user.username, token });
   } catch (err) {
     console.error("login error", err);
     return res.status(500).json({ error: "Internal server error" });
