@@ -22,7 +22,7 @@ const TEAM_ABBREVIATIONS = {
   Nottingham: "NOT",
   Southampton: "SOU",
   Tottenham: "TOT",
-  West Ham: "WHU",
+  "West Ham": "WHU",
   Wolves: "WOL",
 };
 
