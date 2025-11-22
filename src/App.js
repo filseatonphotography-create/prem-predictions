@@ -1113,65 +1113,68 @@ setNewPasswordInput("");
       <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 12 }}>
         {/* Header */}
         <header
-          style={{
-            ...cardStyle,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 10,
-            position: "sticky",
-            top: 8,
-            zIndex: 5,
-            backdropFilter: "blur(6px)",
-          }}
-        >
-          <div>
-  <h1 style={{ margin: 0, fontSize: 20 }}>
-    PHIL’S MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
-  </h1>
+  style={{
+    ...cardStyle,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10,
+    position: "sticky",
+    top: 8,
+    zIndex: 5,
+    backdropFilter: "blur(6px)",
+    flexWrap: "wrap"
+  }}
+>
+  {/* LEFT SIDE: Title + API status */}
+  <div style={{ display: "flex", flexDirection: "column" }}>
+    <h1 style={{ margin: 0, fontSize: 20 }}>
+      PHIL’S MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
+    </h1>
+    <div style={{ fontSize: 12, color: theme.muted }}>{apiStatus}</div>
+  </div>
 
+  {/* RIGHT SIDE: Change password / Logged in as / Logout */}
   {isLoggedIn && (
-    <button
-      onClick={() => setShowPasswordModal(true)}
-      style={{
-        marginTop: 4,
-        padding: "4px 10px",
-        borderRadius: 6,
-        background: theme.card,
-        color: theme.text,
-        border: "1px solid " + theme.border,
-        cursor: "pointer",
-        fontSize: 12,
-      }}
-    >
-      Change Password
-    </button>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <button
+        onClick={() => setShowPasswordModal(true)}
+        style={{
+          padding: "4px 10px",
+          borderRadius: 6,
+          background: theme.card,
+          color: theme.text,
+          border: "1px solid " + theme.border,
+          cursor: "pointer",
+          fontSize: 12,
+          height: 30
+        }}
+      >
+        Change Password
+      </button>
+
+      <div style={{ fontSize: 13 }}>
+        Logged in as <strong style={{ color: theme.text }}>{currentPlayer}</strong>
+      </div>
+
+      <button
+        onClick={handleLogout}
+        style={{
+          padding: "6px 10px",
+          borderRadius: 8,
+          border: `1px solid ${theme.line}`,
+          background: theme.panelHi,
+          color: theme.text,
+          cursor: "pointer",
+          fontSize: 12,
+          height: 30
+        }}
+      >
+        Log out
+      </button>
+    </div>
   )}
-
-  <div style={{ fontSize: 12, color: theme.muted }}>{apiStatus}</div>
-</div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 13 }}>
-              Logged in as{" "}
-              <strong style={{ color: theme.text }}>{currentPlayer}</strong>
-            </div>
-            <button
-              onClick={handleLogout}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 8,
-                border: `1px solid ${theme.line}`,
-                background: theme.panelHi,
-                color: theme.text,
-                cursor: "pointer",
-                fontSize: 12,
-              }}
-            >
-              Log out
-            </button>
-          </div>
-        </header>
+</header>
         {showPasswordModal && (
   <div
     style={{
