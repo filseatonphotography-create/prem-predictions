@@ -2,10 +2,33 @@ import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 
-// --- PLAYERS ---
+/**
+ * PREMIER LEAGUE PREDICTION GAME — Rebuilt cloud-synced + redesigned UI
+ * Requirements covered:
+ * 1) Always use Render backend for predictions (unless DEV_USE_LOCAL true)
+ * 2) Auth persistence in localStorage key "pl_prediction_auth_v1"
+ * 3) Load cloud predictions on login/restore and merge instantly
+ * 4) Legacy player mapping handled by backend (frontend just treats names normally)
+ * 5) Admin reset handled by backend
+ * 6) CORS handled by backend
+ * 7) Results + odds endpoints preserved
+ */
+
+// ---- CONFIG ----
+const DEV_USE_LOCAL = false; // set true ONLY for offline/dev localStorage testing
+
+const BACKEND_BASE =
+  window.location.hostname === "localhost"
+    ? "https://prem-predictions-1.onrender.com"
+    : "https://prem-predictions-1.onrender.com";
+
+const STORAGE_KEY = "pl_prediction_game_v1";
+const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
+
+// Legacy/original players for history/league views
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 
-// Spreadsheet weekly totals
+// Spreadsheet weekly totals (historic seed)
 const SPREADSHEET_WEEKLY_TOTALS = {
   Tom: [8, 14, 33, 8, 42, 11, 34, 16, 14, 8, 26],
   Emma: [26, 15, 4, 14, 19, 11, 20, 25, 12, 32, 19],
@@ -16,14 +39,212 @@ const SPREADSHEET_WEEKLY_TOTALS = {
   Anthony: [12, 25, 15, 28, 25, 11, 23, 13, 17, 17, 0],
 };
 
-const STORAGE_KEY = "pl_prediction_game_v1";
-const ACCOUNT_STORAGE_KEY = "pl_prediction_accounts_v1";
-
 const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
   (a, b) => a - b
 );
 
-// --- SCORING LOGIC ---
+// --- TEAM NAME NORMALISATION (kept from your version) ---
+function normalizeTeamName(name) {
+  if (!name) return "";
+  let s = name.toLowerCase().trim();
+
+  if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
+  if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
+  if (s === "nott'm forest" || s === "nottm forest" || s === "nottingham")
+    s = "nottingham forest";
+  if (
+    s === "man utd" ||
+    s === "man u" ||
+    s === "manchester utd" ||
+    s === "manchester u" ||
+    s === "mufc"
+  )
+    s = "manchester united";
+  if (s === "leeds") s = "leeds united";
+  if (s === "west ham" || s === "whu" || s === "hammers")
+    s = "west ham united";
+  if (s === "aston villa" || s === "villa") s = "aston villa";
+  if (s === "chelsea" || s === "cfc") s = "chelsea";
+  if (s === "man city" || s === "mcfc") s = "manchester city";
+  if (s === "bournemouth") s = "bournemouth";
+  if (s === "brighton") s = "brighton & hove albion";
+  if (s === "crystal palace" || s === "cpfc") s = "crystal palace";
+  if (s === "newcastle" || s === "nufc") s = "newcastle united";
+  if (s === "southampton") s = "southampton";
+  if (s === "burnley" || s === "clarets") s = "burnley";
+  if (s === "everton" || s === "efc") s = "everton";
+  if (s === "fulham" || s === "ffc") s = "fulham";
+  if (s === "brentford") s = "brentford";
+  if (s === "leicester city" || s === "lcfc") s = "leicester city";
+
+  s = s.replace(/football club/g, "");
+  s = s.replace(/\bfc\b/g, "");
+  s = s.replace(/\bafc\b/g, "");
+  s = s.replace(/\butd\b/g, "united");
+  s = s.replace(/[^a-z]/g, "");
+
+  const aliasMap = {
+    spurs: "tottenhamhotspur",
+    tottenham: "tottenhamhotspur",
+    tottenhamhotspur: "tottenhamhotspur",
+    wolves: "wolverhamptonwanderers",
+    wolverhampton: "wolverhamptonwanderers",
+    wolverhamptonwanderers: "wolverhamptonwanderers",
+    nottmforest: "nottinghamforest",
+    nottinghamforest: "nottinghamforest",
+    manutd: "manchesterunited",
+    manunited: "manchesterunited",
+    manchesterunited: "manchesterunited",
+    leeds: "leedsunited",
+    leedsunited: "leedsunited",
+    westham: "westhamunited",
+    whu: "westhamunited",
+    hammers: "westhamunited",
+    astonvilla: "astonvilla",
+    villa: "astonvilla",
+    chelsea: "chelsea",
+    cfc: "chelsea",
+    mancity: "manchestercity",
+    mcfc: "manchestercity",
+    bournemouth: "bournemouth",
+    brighton: "brightonandhovealbion",
+    hovealbion: "brightonandhovealbion",
+    fulham: "fulham",
+    brentford: "brentford",
+    southampton: "southampton",
+    burnley: "burnley",
+    everton: "everton",
+    leicester: "leicester",
+    leicestercity: "leicestercity",
+  };
+
+  if (aliasMap[s]) s = aliasMap[s];
+  return s;
+}
+
+// --- API HELPERS ---
+async function apiSignup(username, password) {
+  const res = await fetch(`${BACKEND_BASE}/api/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Signup failed.");
+  return data;
+}
+
+async function apiLogin(username, password) {
+  const res = await fetch(`${BACKEND_BASE}/api/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Login failed.");
+  return data;
+}
+async function apiChangePassword(token, oldPassword, newPassword) {
+  const res = await fetch(`${BACKEND_BASE}/api/change-password`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Failed to change password.");
+  }
+  return data;
+}
+
+async function apiGetMyPredictions(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/predictions/my`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data.predictions || {};
+}
+
+async function apiSavePrediction(token, fixtureId, prediction) {
+  const res = await fetch(`${BACKEND_BASE}/api/predictions/save`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ fixtureId, prediction }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return true;
+}
+
+async function apiFetchMyLeagues(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/leagues/my`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
+  return data.leagues || [];
+}
+
+async function apiCreateLeague(token, name) {
+  const res = await fetch(`${BACKEND_BASE}/api/league/create`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to create league.");
+  return data.league || data;
+}
+
+async function apiJoinLeague(token, code) {
+  const res = await fetch(`${BACKEND_BASE}/api/league/join`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ code }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to join league.");
+  return data.league || data;
+}
+
+// Results & Odds (unchanged)
+async function fetchPremierLeagueResults() {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/results`);
+    if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
+    const matches = await res.json();
+    return { matches, error: null };
+  } catch (err) {
+    return { matches: [], error: err.message };
+  }
+}
+
+async function fetchPremierLeagueOdds() {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/odds`);
+    if (!res.ok) return { markets: [], error: `HTTP ${res.status}` };
+    const markets = await res.json();
+    return { markets, error: null };
+  } catch (err) {
+    return { markets: [], error: err.message };
+  }
+}
+
+// --- SCORING ---
 function getResult(home, away) {
   if (home > away) return "H";
   if (home < away) return "A";
@@ -45,7 +266,7 @@ function getBasePoints(predHome, predAway, realHome, realAway) {
   const ra = Number(realAway);
   if ([ph, pa, rh, ra].some((n) => Number.isNaN(n))) return 0;
 
-  if (ph === rh && pa === ra) return 7; // bingpot
+  if (ph === rh && pa === ra) return 7;
   const predRes = getResult(ph, pa);
   const realRes = getResult(rh, ra);
   if (predRes === realRes && ph - pa === rh - ra) return 4;
@@ -66,168 +287,6 @@ function getTotalPoints(pred, result) {
   return total;
 }
 
-// --- TEAM NAME NORMALISATION ---
-function normalizeTeamName(name) {
-  if (!name) return "";
-  let s = name.toLowerCase().trim();
-
-  // Handle your short/quirky names BEFORE cleanup
-  if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
-  if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
-  if (s === "nott'm forest" || s === "nottm forest" || s === "nottingham")
-    s = "nottingham forest";
-  if (
-    s === "man utd" ||
-    s === "man u" ||
-    s === "manchester utd" ||
-    s === "manchester u" ||
-    s === "mufc"
-  )
-    s = "manchester united";
-  if (s === "leeds") s = "leeds united";
-  if (s === "west ham" || s === "whu" || s === "hammers") s = "west ham united";
-  if (s === "aston villa" || s === "villa") s = "aston villa";
-  if (s === "chelsea" || s === "cfc") s = "chelsea";
-  if (s === "man city" || s === "mcfc") s = "manchester city";
-  if (s === "bournemouth") s = "bournemouth";
-  if (s === "brighton") s = "brighton & hove albion";
-  if (s === "crystal palace" || s === "cpfc") s = "crystal palace";
-  if (s === "newcastle" || s === "nufc") s = "newcastle united";
-  if (s === "southampton") s = "southampton";
-  if (s === "burnley" || s === "clarets") s = "burnley";
-  if (s === "everton" || s === "efc") s = "everton";
-  if (s === "fulham" || s === "ffc") s = "fulham";
-  if (s === "brentford") s = "brentford";
-  if (s === "leicester city" || s === "lcfc") s = "leicester city";
-
-  // strip common suffixes
-  s = s.replace(/football club/g, "");
-  s = s.replace(/\bfc\b/g, "");
-  s = s.replace(/\bafc\b/g, "");
-  s = s.replace(/\butd\b/g, "united");
-
-  // remove everything that's not a–z
-  s = s.replace(/[^a-z]/g, "");
-
-  // map short-ish forms to canonical
-  const aliasMap = {
-    spurs: "tottenhamhotspur",
-    tottenham: "tottenhamhotspur",
-    tottenhamhotspur: "tottenhamhotspur",
-
-    wolves: "wolverhamptonwanderers",
-    wolverhampton: "wolverhamptonwanderers",
-    wolverhamptonwanderers: "wolverhamptonwanderers",
-
-    nottmforest: "nottinghamforest",
-    nottinghamforest: "nottinghamforest",
-
-    manutd: "manchesterunited",
-    manunited: "manchesterunited",
-    manchesterunited: "manchesterunited",
-
-    leeds: "leedsunited",
-    leedsunited: "leedsunited",
-
-    westham: "westhamunited",
-    whu: "westhamunited",
-    hammers: "westhamunited",
-
-    astonvilla: "astonvilla",
-    villa: "astonvilla",
-
-    chelsea: "chelsea",
-    cfc: "chelsea",
-
-    mancity: "manchestercity",
-    mcfc: "manchestercity",
-
-    bournemouth: "bournemouth",
-    brighton: "brightonandhovealbion",
-    hovealbion: "brightonandhovealbion",
-    fulham: "fulham",
-    brentford: "brentford",
-    southampton: "southampton",
-    burnley: "burnley",
-    everton: "everton",
-    leicester: "leicester",
-    leicestercity: "leicestercity",
-  };
-
-  if (aliasMap[s]) {
-    s = aliasMap[s];
-  }
-
-  return s;
-}
-
-// --- SIMPLE ACCOUNT STORAGE HELPERS ---
-function loadAccounts() {
-  try {
-    const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error("Error reading accounts from localStorage", e);
-    return {};
-  }
-}
-
-function saveAccounts(accounts) {
-  localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
-}
-
-// --- API HELPERS ---
-async function fetchPremierLeagueResults() {
-  // Only when running locally with backend
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname !== "localhost" &&
-    window.location.hostname !== "127.0.0.1"
-  ) {
-    return { matches: [], error: "remote_host" };
-  }
-
-  try {
-    const res = await fetch("http://localhost:5001/api/results");
-
-    if (!res.ok) {
-      console.error("Backend /api/results failed with status:", res.status);
-      return { matches: [], error: `HTTP ${res.status}` };
-    }
-
-    const matches = await res.json();
-    return { matches, error: null };
-  } catch (err) {
-    console.error("Error calling backend /api/results:", err);
-    return { matches: [], error: err.message };
-  }
-}
-
-async function fetchPremierLeagueOdds() {
-  // Only when running locally with backend
-  if (
-    typeof window !== "undefined" &&
-    window.location.hostname !== "localhost" &&
-    window.location.hostname !== "127.0.0.1"
-  ) {
-    return { markets: [], error: "remote_host" };
-  }
-
-  try {
-    const res = await fetch("http://localhost:5001/api/odds");
-    if (!res.ok) {
-      console.error("Backend /api/odds failed with status:", res.status);
-      return { markets: [], error: `HTTP ${res.status}` };
-    }
-    const markets = await res.json();
-    return { markets, error: null };
-  } catch (err) {
-    console.error("Error calling backend /api/odds:", err);
-    return { markets: [], error: err.message };
-  }
-}
-
 // --- DEADLINES ---
 function isPredictionLocked(fixture) {
   const kickoff = new Date(fixture.kickoff).getTime();
@@ -235,13 +294,12 @@ function isPredictionLocked(fixture) {
   return Date.now() > deadline;
 }
 
-// Is a whole gameweek past its prediction deadline?
 function isGameweekLocked(gameweek) {
   const fixtures = FIXTURES.filter((f) => f.gameweek === gameweek);
   if (fixtures.length === 0) return false;
   const earliestDeadline = Math.min(
     ...fixtures.map(
-      (f) => new Date(f.kickoff).getTime() - 60 * 60 * 1000 // 1hr before earliest kickoff
+      (f) => new Date(f.kickoff).getTime() - 60 * 60 * 1000
     )
   );
   return Date.now() > earliestDeadline;
@@ -254,7 +312,6 @@ function computeProbabilities(odds) {
   const home = Number(odds.home);
   const draw = Number(odds.draw);
   const away = Number(odds.away);
-
   if (!home || !draw || !away) return null;
 
   const invHome = 1 / home;
@@ -270,63 +327,162 @@ function computeProbabilities(odds) {
   };
 }
 
-function App() {
-  // Auth / login
+// Helpers
+function formatKickoffShort(kickoff) {
+  if (!kickoff) return "";
+  const d = new Date(kickoff);
+  if (Number.isNaN(d.getTime())) return "";
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const month = monthNames[d.getUTCMonth()];
+  const hours = String(d.getUTCHours()).padStart(2, "0");
+  const mins = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${day} ${month} ${hours}:${mins}`;
+}
+
+function formatOdds(value) {
+  if (value === undefined || value === null || value === "") return "-";
+  const n = Number(value);
+  if (Number.isNaN(n)) return "-";
+  return n.toFixed(2);
+}
+
+function getTeamCode(name) {
+  if (!name) return "";
+
+  const clean = name
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // MASTER NORMALIZATION MAP — flexible matching
+  const map = [
+    { match: ["arsenal"], code: "ARS" },
+    { match: ["aston villa", "villa"], code: "AVL" },
+    { match: ["bournemouth", "afc bournemouth"], code: "BOU" },
+    { match: ["brentford"], code: "BRE" },
+    { match: ["brighton", "brighton and hove", "brighton hove albion", "brighton hove"], code: "BHA" },
+    { match: ["chelsea"], code: "CHE" },
+    { match: ["crystal palace", "palace"], code: "CRY" },
+    { match: ["everton"], code: "EVE" },
+    { match: ["fulham"], code: "FUL" },
+    { match: ["ipswich", "ipswich town"], code: "IPS" },
+    { match: ["leicester", "leicester city"], code: "LEI" },
+    { match: ["liverpool"], code: "LIV" },
+    { match: ["manchester city", "man city", "manchester c"], code: "MCI" },
+    { match: ["manchester united", "man united", "man utd", "united"], code: "MUN" },
+    { match: ["newcastle", "newcastle united"], code: "NEW" },
+    { match: ["nottingham forest", "nottingham", "forest", "nottm forest"], code: "NFO" },
+    { match: ["southampton"], code: "SOU" },
+    { match: ["tottenham", "tottenham hotspur", "spurs"], code: "TOT" },
+    { match: ["west ham", "west ham united"], code: "WHU" },
+    { match: ["wolves", "wolverhampton", "wolverhampton wanderers"], code: "WOL" },
+  ];
+
+  // Flexible fuzzy matcher
+  for (const t of map) {
+    for (const key of t.match) {
+      if (clean.includes(key)) return t.code;
+    }
+  }
+
+  // Fallback = first 3 letters
+  return clean.substring(0, 3).toUpperCase();
+}
+
+// ---------------------------------------------------------------------------
+
+export default function App() {
+  // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authToken, setAuthToken] = useState("");
   const [currentPlayer, setCurrentPlayer] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginMode, setLoginMode] = useState("login"); // 'login' | 'signup'
+  const [loginMode, setLoginMode] = useState("login");
+  // Change password modal state
+const [showPasswordModal, setShowPasswordModal] = useState(false);
+const [oldPasswordInput, setOldPasswordInput] = useState("");
+const [newPasswordInput, setNewPasswordInput] = useState("");
+const [passwordError, setPasswordError] = useState("");
+const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
 
   // App state
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
-  const [odds, setOdds] = useState({}); // { [fixtureId]: { home, draw, away } }
+  const [odds, setOdds] = useState({});
   const [selectedGameweek, setSelectedGameweek] = useState(GAMEWEEKS[0]);
-  const [apiStatus, setApiStatus] = useState("Auto results: not loaded yet");
-  const [activeView, setActiveView] = useState("predictions"); // predictions | results | league | awards | history | winprob | all
+  const [apiStatus, setApiStatus] = useState("Auto results: loading…");
+  const [activeView, setActiveView] = useState("predictions");
+
+  // Mini-league
+  const [myLeagues, setMyLeagues] = useState([]);
+  const [leagueNameInput, setLeagueNameInput] = useState("");
+  const [leagueJoinCode, setLeagueJoinCode] = useState("");
+  const [leagueError, setLeagueError] = useState("");
+  const [leagueSuccess, setLeagueSuccess] = useState("");
+  const [leaguesLoading, setLeaguesLoading] = useState(false);
 
   const gwLocked = isGameweekLocked(selectedGameweek);
+  const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
-  // INIT: load saved data, then fetch from backend and merge in auto results + odds
+  // Prediction key for storage
+  const currentPredictionKey = useMemo(() => {
+    if (PLAYERS.includes(currentPlayer)) return currentPlayer;
+    if (currentUserId) return currentUserId;
+    return currentPlayer;
+  }, [currentPlayer, currentUserId]);
+
+  // ---------- INIT ----------
   useEffect(() => {
     async function init() {
-      // 1) Load from localStorage
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setPredictions(parsed.predictions || {});
-        setResults(parsed.results || {});
-        setOdds(parsed.odds || {});
-        if (parsed.selectedGameweek)
-          setSelectedGameweek(parsed.selectedGameweek);
-      }
+      // 1) restore app cache (pred/results/odds)
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setPredictions(parsed.predictions || {});
+          setResults(parsed.results || {});
+          setOdds(parsed.odds || {});
+          if (parsed.selectedGameweek)
+            setSelectedGameweek(parsed.selectedGameweek);
+        }
+      } catch {}
 
-      // 2) Fetch results from backend
+      // 2) restore auth
+      try {
+        const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (savedAuth) {
+          const parsedAuth = JSON.parse(savedAuth);
+          if (parsedAuth?.token && parsedAuth?.userId && parsedAuth?.username) {
+            setIsLoggedIn(true);
+            setAuthToken(parsedAuth.token);
+            setCurrentUserId(parsedAuth.userId);
+            setCurrentPlayer(parsedAuth.username);
+          }
+        }
+      } catch {}
+
+      // 3) auto results
       const { matches, error } = await fetchPremierLeagueResults();
       if (error) {
-        if (error === "remote_host") {
-          setApiStatus(
-            "Auto results: only available when Phil runs the app on his own computer."
-          );
-        } else {
-          setApiStatus("Auto results: failed to load from API.");
-        }
+        setApiStatus("Auto results: failed to load.");
       } else {
         let matchedCount = 0;
         const updatedResults = {};
 
         matches.forEach((match) => {
           if (!match.homeTeam || !match.awayTeam) return;
+          if (!match.score?.fullTime) return;
           if (
-            !match.score ||
-            !match.score.fullTime ||
             match.score.fullTime.home === null ||
             match.score.fullTime.away === null
-          ) {
-            return; // only finished matches
-          }
+          )
+            return;
 
           const apiHome = normalizeTeamName(match.homeTeam.name);
           const apiAway = normalizeTeamName(match.awayTeam.name);
@@ -346,25 +502,17 @@ function App() {
           }
         });
 
-        setResults((prev) => ({
-          ...prev,
-          ...updatedResults,
-        }));
-
-        setApiStatus(
-          `Auto results: matched ${matchedCount} fixture${
-            matchedCount === 1 ? "" : "s"
-          } from API`
-        );
+        setResults((prev) => ({ ...prev, ...updatedResults }));
+        setApiStatus(`Auto results: matched ${matchedCount} fixtures`);
       }
 
-      // 3) Fetch odds from backend (if available)
+      // 4) odds
       const { markets, error: oddsError } = await fetchPremierLeagueOdds();
-      if (!oddsError && markets && markets.length) {
+      if (!oddsError && markets?.length) {
         const newOdds = {};
-        markets.forEach((market) => {
-          const apiHome = normalizeTeamName(market.homeTeam);
-          const apiAway = normalizeTeamName(market.awayTeam);
+        markets.forEach((m) => {
+          const apiHome = normalizeTeamName(m.homeTeam);
+          const apiAway = normalizeTeamName(m.awayTeam);
 
           const fixture = FIXTURES.find((f) => {
             const localHome = normalizeTeamName(f.homeTeam);
@@ -374,19 +522,15 @@ function App() {
 
           if (fixture) {
             newOdds[fixture.id] = {
-              home: market.homeOdds,
-              draw: market.drawOdds,
-              away: market.awayOdds,
+              home: m.homeOdds,
+              draw: m.drawOdds,
+              away: m.awayOdds,
             };
           }
         });
 
-        if (Object.keys(newOdds).length > 0) {
-          setOdds((prev) => ({
-            ...prev,
-            ...newOdds,
-          }));
-        }
+        if (Object.keys(newOdds).length)
+          setOdds((prev) => ({ ...prev, ...newOdds }));
       }
     }
 
@@ -400,23 +544,173 @@ function App() {
     if (next) setSelectedGameweek(next.gameweek);
   }, []);
 
-  // Save to localStorage (no currentPlayer so login stays per-session)
+  // Persist app cache
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({
-        predictions,
-        results,
-        odds,
-        selectedGameweek,
-      })
+      JSON.stringify({ predictions, results, odds, selectedGameweek })
     );
   }, [predictions, results, odds, selectedGameweek]);
 
-  // Update prediction with captain / triple logic
-  const updatePrediction = (player, fixtureId, newFields) => {
+  // Persist auth
+  useEffect(() => {
+    if (isLoggedIn && authToken && currentUserId && currentPlayer) {
+      localStorage.setItem(
+        AUTH_STORAGE_KEY,
+        JSON.stringify({
+          token: authToken,
+          userId: currentUserId,
+          username: currentPlayer,
+        })
+      );
+    } else {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+    }
+  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+
+  // Load cloud predictions after login/restore
+  useEffect(() => {
+    async function loadCloud() {
+      if (DEV_USE_LOCAL) return;
+      if (!isLoggedIn || !authToken || !currentUserId) return;
+      try {
+        const remote = await apiGetMyPredictions(authToken);
+        const key = PLAYERS.includes(currentPlayer)
+          ? currentPlayer
+          : currentUserId;
+        setPredictions((prev) => ({
+          ...prev,
+          [key]: { ...(prev[key] || {}), ...remote },
+        }));
+      } catch (err) {
+        console.error("Cloud predictions failed:", err);
+      }
+    }
+    loadCloud();
+  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+
+  // ---------- AUTH ----------
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    const name = loginName.trim();
+    const pwd = loginPassword.trim();
+    if (!name || !pwd) return setAuthError("Enter username + password.");
+
+    try {
+      const result =
+        loginMode === "signup"
+          ? await apiSignup(name, pwd)
+          : await apiLogin(name, pwd);
+
+      setIsLoggedIn(true);
+      setAuthToken(result.token);
+      setCurrentUserId(result.userId);
+      setCurrentPlayer(result.username);
+      setLoginPassword("");
+      setMyLeagues([]);
+      setLeagueError("");
+      setLeagueSuccess("");
+
+      if (!DEV_USE_LOCAL && result.token) {
+        const cloudPreds = await apiGetMyPredictions(result.token);
+        const key = PLAYERS.includes(result.username)
+          ? result.username
+          : result.userId;
+        setPredictions((prev) => ({
+          ...prev,
+          [key]: { ...(prev[key] || {}), ...cloudPreds },
+        }));
+      }
+    } catch (err) {
+      setAuthError(err.message || "Auth failed.");
+    }
+  };
+  // ---------- CHANGE PASSWORD ----------
+const handlePasswordChange = async () => {
+  setPasswordError("");
+  setPasswordSuccess("");
+
+  try {
+    const result = await apiChangePassword(
+      authToken,
+      oldPasswordInput,
+      newPasswordInput
+    );
+
+    setPasswordSuccess("Password updated successfully!");
+    setOldPasswordInput("");
+    setNewPasswordInput("");
+  } catch (err) {
+    setPasswordError(err.message || "Failed to update password.");
+  }
+};
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setAuthToken("");
+    setCurrentPlayer("");
+    setCurrentUserId("");
+    setLoginPassword("");
+    setAuthError("");
+    setMyLeagues([]);
+  };
+
+  // ---------- MINI-LEAGUES ----------
+  const handleLoadLeagues = async () => {
+    if (!authToken) return setLeagueError("Please log in again.");
+    setLeaguesLoading(true);
+    setLeagueError("");
+    setLeagueSuccess("");
+    try {
+      const leagues = await apiFetchMyLeagues(authToken);
+      setMyLeagues(leagues);
+      if (!leagues.length) setLeagueSuccess("No mini‑leagues yet.");
+    } catch (err) {
+      setLeagueError(err.message || "Failed to load mini‑leagues.");
+    } finally {
+      setLeaguesLoading(false);
+    }
+  };
+
+  const handleCreateLeague = async (e) => {
+    e.preventDefault();
+    if (!authToken) return setLeagueError("Please log in again.");
+    const name = leagueNameInput.trim();
+    if (!name) return setLeagueError("Enter a league name.");
+    setLeagueError("");
+    setLeagueSuccess("");
+    try {
+      const league = await apiCreateLeague(authToken, name);
+      setLeagueSuccess(`Created "${league.name || name}".`);
+      setLeagueNameInput("");
+      await handleLoadLeagues();
+    } catch (err) {
+      setLeagueError(err.message || "Failed to create league.");
+    }
+  };
+
+  const handleJoinLeague = async (e) => {
+    e.preventDefault();
+    if (!authToken) return setLeagueError("Please log in again.");
+    const code = leagueJoinCode.trim();
+    if (!code) return setLeagueError("Enter a join code.");
+    setLeagueError("");
+    setLeagueSuccess("");
+    try {
+      const league = await apiJoinLeague(authToken, code);
+      setLeagueSuccess(`Joined "${league.name || "league"}".`);
+      setLeagueJoinCode("");
+      await handleLoadLeagues();
+    } catch (err) {
+      setLeagueError(err.message || "Failed to join league.");
+    }
+  };
+
+  // ---------- PREDICTIONS ----------
+  const updatePrediction = (playerKey, fixtureId, newFields) => {
     setPredictions((prev) => {
-      const prevPlayerPreds = prev[player] || {};
+      const prevPlayerPreds = prev[playerKey] || {};
       const prevFixturePred =
         prevPlayerPreds[fixtureId] || {
           homeGoals: "",
@@ -425,10 +719,9 @@ function App() {
           isTriple: false,
         };
 
-      // Basic merge first
       let updated = {
         ...prev,
-        [player]: {
+        [playerKey]: {
           ...prevPlayerPreds,
           [fixtureId]: {
             ...prevFixturePred,
@@ -437,16 +730,14 @@ function App() {
         },
       };
 
-      let playerPreds = updated[player];
+      let playerPreds = updated[playerKey];
 
-      // TRIPLE logic
       if ("isTriple" in newFields) {
         const wantTriple = newFields.isTriple;
         const tripleFixture = FIXTURES.find((f) => f.id === fixtureId);
 
         if (wantTriple && tripleFixture) {
-          // Only this fixture is triple; clear doubles in same GW
-          updated[player] = Object.fromEntries(
+          updated[playerKey] = Object.fromEntries(
             Object.entries(playerPreds).map(([id, pred]) => {
               const f = FIXTURES.find((fx) => fx.id === Number(id));
               const sameGW = f && f.gameweek === tripleFixture.gameweek;
@@ -462,23 +753,20 @@ function App() {
             })
           );
         } else {
-          updated[player][fixtureId] = {
-            ...(updated[player][fixtureId] || {}),
+          updated[playerKey][fixtureId] = {
+            ...(updated[playerKey][fixtureId] || {}),
             isTriple: false,
           };
         }
-
-        playerPreds = updated[player];
+        playerPreds = updated[playerKey];
       }
 
-      // DOUBLE logic
       if ("isDouble" in newFields) {
         const wantDouble = newFields.isDouble;
         const doubleFixture = FIXTURES.find((f) => f.id === fixtureId);
 
         if (wantDouble && doubleFixture) {
-          // Only this fixture is double in this GW; clear triple in same GW
-          updated[player] = Object.fromEntries(
+          updated[playerKey] = Object.fromEntries(
             Object.entries(playerPreds).map(([id, pred]) => {
               const f = FIXTURES.find((fx) => fx.id === Number(id));
               const sameGW = f && f.gameweek === doubleFixture.gameweek;
@@ -494,8 +782,8 @@ function App() {
             })
           );
         } else {
-          updated[player][fixtureId] = {
-            ...(updated[player][fixtureId] || {}),
+          updated[playerKey][fixtureId] = {
+            ...(updated[playerKey][fixtureId] || {}),
             isDouble: false,
           };
         }
@@ -503,9 +791,37 @@ function App() {
 
       return updated;
     });
+
+    if (DEV_USE_LOCAL) return;
+    if (!authToken || !currentUserId) return;
+
+    const currentForFixture =
+      (predictions[playerKey] && predictions[playerKey][fixtureId]) || {
+        homeGoals: "",
+        awayGoals: "",
+        isDouble: false,
+        isTriple: false,
+      };
+
+    const merged = { ...currentForFixture, ...newFields };
+    const cleanPrediction = {
+      homeGoals:
+        merged.homeGoals === "" || merged.homeGoals === null
+          ? ""
+          : String(merged.homeGoals),
+      awayGoals:
+        merged.awayGoals === "" || merged.awayGoals === null
+          ? ""
+          : String(merged.awayGoals),
+      isDouble: !!merged.isDouble,
+      isTriple: !!merged.isTriple,
+    };
+
+    apiSavePrediction(authToken, fixtureId, cleanPrediction).catch((err) =>
+      console.error("Failed to sync prediction:", err)
+    );
   };
 
-  // Update results (manual override allowed)
   const updateResult = (fixtureId, newFields) => {
     setResults((prev) => ({
       ...prev,
@@ -513,7 +829,6 @@ function App() {
     }));
   };
 
-  // Update odds (manual override still allowed)
   const updateOdds = (fixtureId, newFields) => {
     setOdds((prev) => ({
       ...prev,
@@ -524,12 +839,11 @@ function App() {
     }));
   };
 
-  // Visible fixtures for GW
+  // ---------- DERIVED ----------
   const visibleFixtures = FIXTURES.filter(
     (f) => f.gameweek === selectedGameweek
   );
 
-  // Leaderboard
   const leaderboard = useMemo(() => {
     const totals = {};
     PLAYERS.forEach((p) => {
@@ -550,7 +864,6 @@ function App() {
       .sort((a, b) => b.points - a.points);
   }, [predictions, results]);
 
-  // Historical weekly table
   const historicalScores = GAMEWEEKS.map((gw) => {
     const row = { gameweek: gw };
     PLAYERS.forEach((player) => {
@@ -566,698 +879,945 @@ function App() {
     return row;
   });
 
-  const blockScroll = (e) => e.target.blur();
+  // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
+  const theme = {
+    bg: "#0f172a",
+    panel: "#111827",
+    panelHi: "#0b1220",
+    text: "#e5e7eb",
+    muted: "#9ca3af",
+    accent: "#38bdf8",
+    accent2: "#22c55e",
+    warn: "#f59e0b",
+    danger: "#ef4444",
+    line: "rgba(255,255,255,0.08)",
+  };
 
-  const inputStyle = {
-    width: "3rem",
+  const pageStyle = {
+    minHeight: "100vh",
+    background: theme.bg,
+    color: theme.text,
+    fontFamily:
+      "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+    padding: "16px",
+  };
+
+  const cardStyle = {
+    background: theme.panel,
+    borderRadius: 16,
+    padding: 14,
+    border: `1px solid ${theme.line}`,
+    boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
+  };
+
+  const pillBtn = (active) => ({
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: `1px solid ${active ? theme.accent : theme.line}`,
+    background: active ? "rgba(56,189,248,0.15)" : theme.panelHi,
+    color: active ? theme.text : theme.muted,
+    cursor: "pointer",
+    fontSize: 13,
+    whiteSpace: "nowrap",
+  });
+
+  const smallInput = {
+    width: 48,
+    padding: "6px 8px",
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    borderRadius: 8,
     textAlign: "center",
+    fontSize: 14,
   };
 
-  const tableWrapperStyle = {
-    width: "100%",
-    overflowX: "auto",
-  };
-
-  // --- AUTH HANDLERS ---
-  const handleAuthSubmit = (e) => {
-    e.preventDefault();
-    setAuthError("");
-
-    const name = loginName.trim();
-    const pwd = loginPassword.trim();
-
-    if (!name || !pwd) {
-      setAuthError("Please enter a name and password.");
-      return;
-    }
-
-    if (!PLAYERS.includes(name)) {
-      setAuthError(`Name must be one of: ${PLAYERS.join(", ")}`);
-      return;
-    }
-
-    const accounts = loadAccounts();
-
-    if (loginMode === "signup") {
-      if (accounts[name]) {
-        setAuthError("That player already has an account. Please log in.");
-        return;
-      }
-      accounts[name] = { password: pwd };
-      saveAccounts(accounts);
-      setCurrentPlayer(name);
-      setIsLoggedIn(true);
-      setLoginPassword("");
-    } else {
-      const acc = accounts[name];
-      if (!acc || acc.password !== pwd) {
-        setAuthError("Incorrect name or password.");
-        return;
-      }
-      setCurrentPlayer(name);
-      setIsLoggedIn(true);
-      setLoginPassword("");
-    }
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setCurrentPlayer("");
-    setLoginPassword("");
-    setAuthError("");
-  };
-
-  // --- LOGIN SCREEN (with historical data only) ---
+  // ---------- LOGIN PAGE ----------
   if (!isLoggedIn) {
     return (
-      <div
-        style={{
-          maxWidth: "1000px",
-          margin: "0 auto",
-          padding: "1rem 0.75rem",
-        }}
-      >
-        <h1
-          style={{
-            fontSize: "2rem",
-            margin: "10px 0 8px",
-            lineHeight: 1.2,
-          }}
-        >
-          PHILS MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
-        </h1>
-
-        <section
-          style={{
-            marginTop: "0.75rem",
-            marginBottom: "1.25rem",
-            maxWidth: "480px",
-          }}
-        >
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            Log in / Create account
-          </h2>
-          <p style={{ fontSize: "0.9rem", marginBottom: "0.5rem" }}>
-            Only logged-in players can enter or view predictions. Historical
-            weekly scores are visible to everyone.
-          </p>
-
-          <form onSubmit={handleAuthSubmit}>
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label>
-                <strong>Player name:</strong>{" "}
-                <select
-                  value={loginName}
-                  onChange={(e) => setLoginName(e.target.value)}
-                >
-                  <option value="">Select your name…</option>
-                  {PLAYERS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label>
-                <strong>Password:</strong>{" "}
-                <input
-                  type="password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                />
-              </label>
-            </div>
-
+      <div style={pageStyle}>
+        <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
+          <header style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div
               style={{
-                display: "flex",
-                gap: "0.5rem",
-                alignItems: "center",
-                marginBottom: "0.5rem",
-                flexWrap: "wrap",
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: "linear-gradient(135deg,#1d4ed8,#22c55e)",
+                display: "grid",
+                placeItems: "center",
+                fontWeight: 800,
               }}
             >
-              <label style={{ fontSize: "0.9rem" }}>
-                <input
-                  type="radio"
-                  name="mode"
-                  value="login"
-                  checked={loginMode === "login"}
-                  onChange={() => setLoginMode("login")}
-                />{" "}
-                Log in
-              </label>
-              <label style={{ fontSize: "0.9rem" }}>
-                <input
-                  type="radio"
-                  name="mode"
-                  value="signup"
-                  checked={loginMode === "signup"}
-                  onChange={() => setLoginMode("signup")}
-                />{" "}
-                Create account (first time)
-              </label>
+              PL
             </div>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 24, letterSpacing: 0.4 }}>
+                Phil’s Score Prediction Challenge
+              </h1>
+             
+            </div>
+          </header>
 
-            {authError && (
-              <div
-                style={{
-                  color: "red",
-                  fontSize: "0.85rem",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                {authError}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
+            <section style={{ ...cardStyle, maxWidth: 520 }}>
+              <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
+
+              <form onSubmit={handleAuthSubmit} style={{ display: "grid", gap: 10 }}>
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Username
+                  <input
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 15,
+                    }}
+                    type="text"
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                    placeholder="e.g. Phil"
+                    autoComplete="username"
+                  />
+                </label>
+
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Password
+                  <input
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 15,
+                    }}
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="••••"
+                    autoComplete={
+                      loginMode === "signup" ? "new-password" : "current-password"
+                    }
+                  />
+                </label>
+
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setLoginMode("login")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: `1px solid ${
+                        loginMode === "login" ? theme.accent : theme.line
+                      }`,
+                      background:
+                        loginMode === "login"
+                          ? "rgba(56,189,248,0.15)"
+                          : theme.panelHi,
+                      color: theme.text,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Log in
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoginMode("signup")}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: `1px solid ${
+                        loginMode === "signup" ? theme.accent2 : theme.line
+                      }`,
+                      background:
+                        loginMode === "signup"
+                          ? "rgba(34,197,94,0.15)"
+                          : theme.panelHi,
+                      color: theme.text,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Create account
+                  </button>
+                </div>
+
+                {authError && (
+                  <div
+                    style={{
+                      background: "rgba(239,68,68,0.12)",
+                      border: `1px solid rgba(239,68,68,0.5)`,
+                      color: theme.text,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      fontSize: 13,
+                    }}
+                  >
+                    {authError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "none",
+                    background: theme.accent,
+                    color: "#001018",
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    fontSize: 15,
+                  }}
+                >
+                  {loginMode === "login" ? "Log in" : "Create account"}
+                </button>
+              </form>
+
+              <div style={{ marginTop: 10, fontSize: 12, color: theme.muted }}>
+                Legacy players (Tom, Emma, Phil, Steve, Dave, Ian, Anthony) are
+                reserved and already in the system.
               </div>
-            )}
+            </section>
 
-            <button type="submit" style={{ padding: "0.4rem 1rem" }}>
-              {loginMode === "login" ? "Log in" : "Create account"}
-            </button>
-          </form>
-        </section>
-
-        {/* HISTORICAL SCORES VISIBLE WITHOUT LOGIN */}
-        <section style={{ marginTop: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            Historical Weekly Scores
-          </h2>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>GW</th>
-                  {PLAYERS.map((p) => (
-                    <th key={p}>{p}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {historicalScores.map((row) => {
-                  const vals = PLAYERS.map((p) => row[p]);
-                  const max = Math.max(...vals);
-                  const min = Math.min(...vals);
-                  const range = max - min || 1;
-                  return (
-                    <tr key={row.gameweek}>
-                      <td>{row.gameweek}</td>
-                      {PLAYERS.map((p) => {
-                        const v = row[p];
-                        const shade = (v - min) / range;
-                        return (
-                          <td
-                            key={p}
-                            style={{
-                              backgroundColor: `rgba(0,150,0,${
-                                0.2 + 0.3 * shade
-                              })`,
-                              fontWeight: v === max ? "bold" : "normal",
-                            }}
-                          >
-                            {v}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <section style={cardStyle}>
+              <h3 style={{ marginTop: 0 }}>How it works</h3>
+              <ul style={{ margin: 0, paddingLeft: 18, color: theme.muted }}>
+                <li>Predictions lock 1 hour before kickoff.</li>
+                <li>Exact score = 7 points. Goal‑diff = 4. Result = 2.</li>
+                <li>Pick exactly one Captain (double points) each GW.</li>
+                <li>Pick one Triple per season.</li>
+                <li>Everything syncs via cloud instantly.</li>
+              </ul>
+            </section>
           </div>
-        </section>
+        </div>
       </div>
     );
   }
 
-  // --- MAIN APP (AFTER LOGIN) ---
+  // ---------- MAIN APP ----------
   return (
-    <div
+    <div style={pageStyle}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 12 }}>
+        {/* Header */}
+        <header
+          style={{
+            ...cardStyle,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            position: "sticky",
+            top: 8,
+            zIndex: 5,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <div>
+  <h1 style={{ margin: 0, fontSize: 20 }}>
+    PHIL’S MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
+  </h1>
+
+  {isLoggedIn && (
+    <button
+      onClick={() => setShowPasswordModal(true)}
       style={{
-        maxWidth: "1000px",
-        margin: "0 auto",
-        padding: "0.75rem 0.75rem",
+        marginTop: 4,
+        padding: "4px 10px",
+        borderRadius: 6,
+        background: theme.card,
+        color: theme.text,
+        border: "1px solid " + theme.border,
+        cursor: "pointer",
+        fontSize: 12,
       }}
     >
-      <h1
-        style={{
-          fontSize: "2rem",
-          margin: "10px 0 5px",
-          lineHeight: 1.2,
-        }}
-      >
-        PHILS MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
-      </h1>
-      <div
-        style={{
-          marginBottom: "0.4rem",
-          fontSize: "0.85rem",
-          opacity: 0.8,
-        }}
-      >
-        {apiStatus}
-      </div>
-      <div
-        style={{
-          marginBottom: "0.75rem",
-          fontSize: "0.85rem",
-        }}
-      >
-        Logged in as <strong>{currentPlayer}</strong>.{" "}
-        <button
-          onClick={handleLogout}
-          style={{ marginLeft: "0.5rem", fontSize: "0.8rem" }}
-        >
-          Log out
-        </button>
-      </div>
+      Change Password
+    </button>
+  )}
 
-      {/* TOP CONTROLS: PLAYER, GAMEWEEK, VIEW */}
-      <section
-        style={{
-          marginBottom: "0.75rem",
-          display: "flex",
-          gap: "0.75rem",
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <div>
-          <strong>Player:</strong>{" "}
-          {gwLocked ? (
-            // AFTER kickoff: can view other players' predictions (read-only)
-            <select
-              value={currentPlayer}
-              onChange={(e) => setCurrentPlayer(e.target.value)}
+  <div style={{ fontSize: 12, color: theme.muted }}>{apiStatus}</div>
+</div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 13 }}>
+              Logged in as{" "}
+              <strong style={{ color: theme.text }}>{currentPlayer}</strong>
+            </div>
+            <button
+              onClick={handleLogout}
+              style={{
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: `1px solid ${theme.line}`,
+                background: theme.panelHi,
+                color: theme.text,
+                cursor: "pointer",
+                fontSize: 12,
+              }}
             >
-              {PLAYERS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+              Log out
+            </button>
+          </div>
+        </header>
+
+        {/* Controls */}
+        <section
+          style={{
+            ...cardStyle,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
+            {gwLocked && isOriginalPlayer ? (
+              <select
+                value={currentPlayer}
+                onChange={(e) => setCurrentPlayer(e.target.value)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  border: `1px solid ${theme.line}`,
+                  fontSize: 14,
+                }}
+              >
+                {PLAYERS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
+            )}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ fontSize: 13, color: theme.muted }}>Gameweek</div>
+            <select
+              value={selectedGameweek}
+              onChange={(e) => setSelectedGameweek(Number(e.target.value))}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 8,
+                background: theme.panelHi,
+                color: theme.text,
+                border: `1px solid ${theme.line}`,
+                fontSize: 14,
+              }}
+            >
+              {GAMEWEEKS.map((gw) => (
+                <option key={gw} value={gw}>
+                  GW{gw}
                 </option>
               ))}
             </select>
-          ) : (
-            // BEFORE kickoff: only see yourself
-            <span>{currentPlayer}</span>
-          )}
-        </div>
-        <div>
-          <strong>Gameweek:</strong>{" "}
-          <select
-            value={selectedGameweek}
-            onChange={(e) => setSelectedGameweek(Number(e.target.value))}
-          >
-            {GAMEWEEKS.map((gw) => (
-              <option key={gw} value={gw}>
-                GW{gw}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <strong>View:</strong>{" "}
-          <select
-            value={activeView}
-            onChange={(e) => setActiveView(e.target.value)}
-          >
-            <option value="predictions">Predictions</option>
-            <option value="results">Results</option>
-            <option value="league">League table</option>
-            <option value="awards">Special awards</option>
-            <option value="history">Historical scores</option>
-            <option value="winprob">Win probabilities</option>
-            <option value="all">Show everything</option>
-          </select>
-        </div>
-      </section>
-
-      {/* 1. PREDICTIONS */}
-      {(activeView === "predictions" || activeView === "all") && (
-        <section style={{ marginBottom: "1.2rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            1. Enter Predictions (GW{selectedGameweek})
-          </h2>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Fixture</th>
-                  <th>Kickoff</th>
-                  <th>Home</th>
-                  <th>Away</th>
-                  <th>Captain</th>
-                  <th>Triple</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleFixtures.map((fixture) => {
-                  const pred = predictions[currentPlayer]?.[fixture.id] || {};
-                  const locked = isPredictionLocked(fixture);
-                  return (
-                    <tr key={fixture.id}>
-                      <td>
-                        {fixture.homeTeam} vs {fixture.awayTeam}
-                      </td>
-                      <td>{new Date(fixture.kickoff).toUTCString()}</td>
-
-                      {/* HOME GOALS */}
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          onWheel={blockScroll}
-                          style={inputStyle}
-                          value={pred.homeGoals || ""}
-                          disabled={locked}
-                          onChange={(e) =>
-                            updatePrediction(currentPlayer, fixture.id, {
-                              homeGoals: e.target.value,
-                            })
-                          }
-                        />
-                      </td>
-
-                      {/* AWAY GOALS */}
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          onWheel={blockScroll}
-                          style={inputStyle}
-                          value={pred.awayGoals || ""}
-                          disabled={locked}
-                          onChange={(e) =>
-                            updatePrediction(currentPlayer, fixture.id, {
-                              awayGoals: e.target.value,
-                            })
-                          }
-                        />
-                      </td>
-
-                      {/* DOUBLE */}
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={pred.isDouble || false}
-                          disabled={locked || pred.isTriple}
-                          onChange={(e) =>
-                            updatePrediction(currentPlayer, fixture.id, {
-                              isDouble: e.target.checked,
-                            })
-                          }
-                        />
-                      </td>
-
-                      {/* TRIPLE */}
-                      <td>
-                        <input
-                          type="checkbox"
-                          checked={pred.isTriple || false}
-                          disabled={locked || pred.isDouble}
-                          onChange={(e) =>
-                            updatePrediction(currentPlayer, fixture.id, {
-                              isTriple: e.target.checked,
-                            })
-                          }
-                        />
-                      </td>
-
-                      <td>{locked ? "Locked" : "Open"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {gwLocked && (
+              <div style={{ fontSize: 12, color: theme.warn }}>
+                Locked
+              </div>
+            )}
           </div>
         </section>
-      )}
 
-      {/* 2. RESULTS */}
-      {(activeView === "results" || activeView === "all") && (
-        <section style={{ marginBottom: "1.2rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            2. Enter Results (GW{selectedGameweek})
-          </h2>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Fixture</th>
-                  <th>Home</th>
-                  <th>Away</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleFixtures.map((fixture) => {
-                  const res = results[fixture.id] || {};
-                  return (
-                    <tr key={fixture.id}>
-                      <td>
-                        {fixture.homeTeam} vs {fixture.awayTeam}
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          onWheel={blockScroll}
-                          style={inputStyle}
-                          value={
-                            res.homeGoals === 0
-                              ? 0
-                              : res.homeGoals
-                              ? res.homeGoals
-                              : ""
-                          }
-                          onChange={(e) =>
-                            updateResult(fixture.id, {
-                              homeGoals: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          onWheel={blockScroll}
-                          style={inputStyle}
-                          value={
-                            res.awayGoals === 0
-                              ? 0
-                              : res.awayGoals
-                              ? res.awayGoals
-                              : ""
-                          }
-                          onChange={(e) =>
-                            updateResult(fixture.id, {
-                              awayGoals: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+        {/* Tabs */}
+        <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { id: "predictions", label: "Predictions" },
+            { id: "results", label: "Results" },
+            { id: "league", label: "League Table" },
+            { id: "history", label: "History" },
+            { id: "winprob", label: "Win Probabilities" },
+            { id: "leagues", label: "Mini‑Leagues" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              style={pillBtn(activeView === t.id)}
+              onClick={() => setActiveView(t.id)}
+              type="button"
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
 
-      {/* 3. LEAGUE TABLE */}
-      {(activeView === "league" || activeView === "all") && (
-        <section style={{ marginBottom: "1.2rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            3. League Table
-          </h2>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Pos</th>
-                  <th>Player</th>
-                  <th>Points</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard.map((row, i) => (
-                  <tr key={row.player}>
-                    <td>{i + 1}</td>
-                    <td>{row.player}</td>
-                    <td>{row.points}</td>
+        {/* Predictions View */}
+        {activeView === "predictions" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>
+              GW{selectedGameweek} Predictions
+            </h2>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: 8,
+              }}
+            >
+              {visibleFixtures.map((fixture) => {
+                const pred =
+                  predictions[currentPredictionKey]?.[fixture.id] || {};
+                const locked = isPredictionLocked(fixture);
+                const o = odds[fixture.id] || {};
+                const probs = computeProbabilities(o);
+
+                let predictedPercent = "-";
+                let predictedOdds = "-";
+
+                if (pred.homeGoals !== "" && pred.awayGoals !== "") {
+                  const ph = Number(pred.homeGoals);
+                  const pa = Number(pred.awayGoals);
+                  if (!Number.isNaN(ph) && !Number.isNaN(pa)) {
+                    const res = getResult(ph, pa);
+                    if (probs) {
+                      if (res === "H") {
+                        predictedPercent = probs.home.toFixed(1) + "%";
+                        predictedOdds = formatOdds(o.home);
+                      } else if (res === "A") {
+                        predictedPercent = probs.away.toFixed(1) + "%";
+                        predictedOdds = formatOdds(o.away);
+                      } else {
+                        predictedPercent = probs.draw.toFixed(1) + "%";
+                        predictedOdds = formatOdds(o.draw);
+                      }
+                    }
+                  }
+                }
+
+                return (
+                  <div
+                    key={fixture.id}
+                    style={{
+                      background: theme.panelHi,
+                      borderRadius: 12,
+                      border: `1px solid ${theme.line}`,
+                      padding: 10,
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: 10,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ display: "grid", gap: 6 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>
+                          {fixture.homeTeam} vs {fixture.awayTeam}
+                        </div>
+                        <div style={{ fontSize: 12, color: theme.muted }}>
+                          {formatKickoffShort(fixture.kickoff)} GMT
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <span style={{ fontSize: 12, color: theme.muted }}>
+                            {getTeamCode(fixture.homeTeam)}
+                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            style={smallInput}
+                            value={pred.homeGoals || ""}
+                            disabled={locked}
+                            onChange={(e) =>
+                              updatePrediction(currentPredictionKey, fixture.id, {
+                                homeGoals: e.target.value,
+                              })
+                            }
+                          />
+                        </div>
+
+                        <span style={{ color: theme.muted }}>–</span>
+
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            type="number"
+                            min="0"
+                            style={smallInput}
+                            value={pred.awayGoals || ""}
+                            disabled={locked}
+                            onChange={(e) =>
+                              updatePrediction(currentPredictionKey, fixture.id, {
+                                awayGoals: e.target.value,
+                              })
+                            }
+                          />
+                          <span style={{ fontSize: 12, color: theme.muted }}>
+                            {getTeamCode(fixture.awayTeam)}
+                          </span>
+                        </div>
+
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 12,
+                            color: theme.muted,
+                          }}
+                        >
+                          Captain
+                          <input
+                            type="checkbox"
+                            checked={pred.isDouble || false}
+                            disabled={locked || pred.isTriple}
+                            onChange={(e) =>
+                              updatePrediction(currentPredictionKey, fixture.id, {
+                                isDouble: e.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            fontSize: 12,
+                            color: theme.muted,
+                          }}
+                        >
+                          Triple
+                          <input
+                            type="checkbox"
+                            checked={pred.isTriple || false}
+                            disabled={locked || pred.isDouble}
+                            onChange={(e) =>
+                              updatePrediction(currentPredictionKey, fixture.id, {
+                                isTriple: e.target.checked,
+                              })
+                            }
+                          />
+                        </label>
+
+                        <div style={{ fontSize: 12, color: theme.muted }}>
+                          Pred:{" "}
+                          <span style={{ color: theme.text }}>
+                            {predictedPercent}
+                          </span>{" "}
+                          @ {predictedOdds}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: 12,
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        border: `1px solid ${theme.line}`,
+                        color: locked ? theme.warn : theme.accent2,
+                        textAlign: "center",
+                      }}
+                    >
+                      {locked ? "Locked" : "Open"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Results View */}
+        {activeView === "results" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>
+              GW{selectedGameweek} Results
+            </h2>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              {visibleFixtures.map((fixture) => {
+                const res = results[fixture.id] || {};
+                return (
+                  <div
+                    key={fixture.id}
+                    style={{
+                      background: theme.panelHi,
+                      borderRadius: 12,
+                      border: `1px solid ${theme.line}`,
+                      padding: 10,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      {fixture.homeTeam} vs {fixture.awayTeam}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="number"
+                        min="0"
+                        style={smallInput}
+                        value={res.homeGoals === 0 ? 0 : res.homeGoals ?? ""}
+                        onChange={(e) =>
+                          updateResult(fixture.id, {
+                            homeGoals: Number(e.target.value),
+                          })
+                        }
+                      />
+                      <span style={{ color: theme.muted }}>–</span>
+                      <input
+                        type="number"
+                        min="0"
+                        style={smallInput}
+                        value={res.awayGoals === 0 ? 0 : res.awayGoals ?? ""}
+                        onChange={(e) =>
+                          updateResult(fixture.id, {
+                            awayGoals: Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* League Table */}
+        {activeView === "league" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>League Table</h2>
+            <div style={{ display: "grid", gap: 6 }}>
+              {leaderboard.map((row, i) => (
+                <div
+                  key={row.player}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "40px 1fr 80px",
+                    gap: 8,
+                    alignItems: "center",
+                    background: theme.panelHi,
+                    border: `1px solid ${theme.line}`,
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                  }}
+                >
+                  <div style={{ color: theme.muted }}>{i + 1}</div>
+                  <div style={{ fontWeight: 700 }}>{row.player}</div>
+                  <div style={{ textAlign: "right", fontWeight: 800 }}>
+                    {row.points}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* History */}
+        {activeView === "history" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>Historical Weekly Scores</h2>
+
+            <div style={{ overflowX: "auto" }}>
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 13,
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: "left", padding: 6 }}>GW</th>
+                    {PLAYERS.map((p) => (
+                      <th key={p} style={{ textAlign: "left", padding: 6 }}>
+                        {p}
+                      </th>
+                    ))}
                   </tr>
+                </thead>
+                <tbody>
+                  {historicalScores.map((row) => {
+                    const vals = PLAYERS.map((p) => row[p]);
+                    const max = Math.max(...vals);
+                    const min = Math.min(...vals);
+                    const range = max - min || 1;
+
+                    return (
+                      <tr key={row.gameweek}>
+                        <td style={{ padding: 6, color: theme.muted }}>
+                          {row.gameweek}
+                        </td>
+                        {PLAYERS.map((p) => {
+                          const v = row[p];
+                          const shade = (v - min) / range;
+                          return (
+                            <td
+                              key={p}
+                              style={{
+                                padding: 6,
+                                background: `rgba(34,197,94,${
+                                  0.08 + 0.22 * shade
+                                })`,
+                                fontWeight: v === max ? 800 : 400,
+                              }}
+                            >
+                              {v}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {/* Win Probabilities */}
+        {activeView === "winprob" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>
+              Win probabilities — GW{selectedGameweek}
+            </h2>
+            <div style={{ display: "grid", gap: 8 }}>
+              {visibleFixtures.map((fixture) => {
+                const o = odds[fixture.id] || {};
+                const probs = computeProbabilities(o);
+
+                return (
+                  <div
+                    key={fixture.id}
+                    style={{
+                      background: theme.panelHi,
+                      borderRadius: 12,
+                      border: `1px solid ${theme.line}`,
+                      padding: 10,
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>
+                      {fixture.homeTeam} vs {fixture.awayTeam}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="1.01"
+                        style={smallInput}
+                        value={o.home ?? ""}
+                        onChange={(e) =>
+                          updateOdds(fixture.id, { home: e.target.value })
+                        }
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="1.01"
+                        style={smallInput}
+                        value={o.draw ?? ""}
+                        onChange={(e) =>
+                          updateOdds(fixture.id, { draw: e.target.value })
+                        }
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="1.01"
+                        style={smallInput}
+                        value={o.away ?? ""}
+                        onChange={(e) =>
+                          updateOdds(fixture.id, { away: e.target.value })
+                        }
+                      />
+                      <div style={{ fontSize: 12, color: theme.muted }}>
+                        {probs
+                          ? `${probs.home.toFixed(1)}% / ${probs.draw.toFixed(
+                              1
+                            )}% / ${probs.away.toFixed(1)}%`
+                          : "-"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Mini-leagues */}
+        {activeView === "leagues" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>Mini‑leagues</h2>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={handleLoadLeagues}
+                  disabled={leaguesLoading}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    cursor: "pointer",
+                    fontSize: 13,
+                  }}
+                >
+                  {leaguesLoading ? "Loading…" : "Refresh my leagues"}
+                </button>
+                {leagueSuccess && (
+                  <div style={{ fontSize: 13, color: theme.accent2 }}>
+                    {leagueSuccess}
+                  </div>
+                )}
+                {leagueError && (
+                  <div style={{ fontSize: 13, color: theme.danger }}>
+                    {leagueError}
+                  </div>
+                )}
+              </div>
+
+              <form
+                onSubmit={handleCreateLeague}
+                style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+              >
+                <input
+                  value={leagueNameInput}
+                  onChange={(e) => setLeagueNameInput(e.target.value)}
+                  placeholder="New league name"
+                  style={{
+                    flex: "1 1 220px",
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                  }}
+                />
+                <button
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: theme.accent,
+                    cursor: "pointer",
+                    fontWeight: 800,
+                  }}
+                >
+                  Create
+                </button>
+              </form>
+
+              <form
+                onSubmit={handleJoinLeague}
+                style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+              >
+                <input
+                  value={leagueJoinCode}
+                  onChange={(e) => setLeagueJoinCode(e.target.value)}
+                  placeholder="Join code"
+                  style={{
+                    flex: "1 1 180px",
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                  }}
+                />
+                <button
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: theme.accent2,
+                    cursor: "pointer",
+                    fontWeight: 800,
+                  }}
+                >
+                  Join
+                </button>
+              </form>
+
+              <div style={{ display: "grid", gap: 6 }}>
+                {myLeagues.map((l) => (
+                  <div
+                    key={l.id}
+                    style={{
+                      background: theme.panelHi,
+                      borderRadius: 10,
+                      border: `1px solid ${theme.line}`,
+                      padding: 10,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800 }}>{l.name}</div>
+                      <div style={{ fontSize: 12, color: theme.muted }}>
+                        Code: {l.joinCode} • Members: {l.memberCount}
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+                {!myLeagues.length && (
+                  <div style={{ fontSize: 13, color: theme.muted }}>
+                    No leagues yet — create or join one above.
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
-      {/* 4. SPECIAL AWARDS */}
-      {(activeView === "awards" || activeView === "all") && (
-        <section style={{ marginBottom: "1.2rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            4. Special Awards
-          </h2>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Captain Bingpots</th>
-                  <th>Bingpots</th>
-                  <th>Highest Weekly</th>
-                  <th>Lowest Weekly</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Coming soon</td>
-                  <td>Coming soon</td>
-                  <td>Coming soon</td>
-                  <td>Coming soon</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* 5. HISTORICAL SCORES */}
-      {(activeView === "history" || activeView === "all") && (
-        <section style={{ marginBottom: "1.2rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            5. Historical Weekly Scores
-          </h2>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>GW</th>
-                  {PLAYERS.map((p) => (
-                    <th key={p}>{p}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {historicalScores.map((row) => {
-                  const vals = PLAYERS.map((p) => row[p]);
-                  const max = Math.max(...vals);
-                  const min = Math.min(...vals);
-                  const range = max - min || 1;
-                  return (
-                    <tr key={row.gameweek}>
-                      <td>{row.gameweek}</td>
-                      {PLAYERS.map((p) => {
-                        const v = row[p];
-                        const shade = (v - min) / range;
-                        return (
-                          <td
-                            key={p}
-                            style={{
-                              backgroundColor: `rgba(0,150,0,${
-                                0.2 + 0.3 * shade
-                              })`,
-                              fontWeight: v === max ? "bold" : "normal",
-                            }}
-                          >
-                            {v}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* 6. WIN PROBABILITIES */}
-      {(activeView === "winprob" || activeView === "all") && (
-        <section style={{ marginBottom: "1.2rem" }}>
-          <h2 style={{ fontSize: "1.2rem", marginBottom: "0.5rem" }}>
-            6. Win probabilities (GW{selectedGameweek})
-          </h2>
-          <p style={{ fontSize: "0.85rem", marginBottom: "0.5rem" }}>
-            If the backend is running with an odds API key, odds will auto-fill.
-            Otherwise, you can type decimal odds (e.g. 2.10, 3.40, 3.60).
-            Probabilities are normalised from implied odds.
-          </p>
-          <div style={tableWrapperStyle}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Fixture</th>
-                  <th>Home odds</th>
-                  <th>Draw odds</th>
-                  <th>Away odds</th>
-                  <th>Home %</th>
-                  <th>Draw %</th>
-                  <th>Away %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleFixtures.map((fixture) => {
-                  const o = odds[fixture.id] || {};
-                  const probs = computeProbabilities(o);
-
-                  return (
-                    <tr key={fixture.id}>
-                      <td>
-                        {fixture.homeTeam} vs {fixture.awayTeam}
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="1.01"
-                          style={inputStyle}
-                          value={o.home ?? ""}
-                          onChange={(e) =>
-                            updateOdds(fixture.id, { home: e.target.value })
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="1.01"
-                          style={inputStyle}
-                          value={o.draw ?? ""}
-                          onChange={(e) =>
-                            updateOdds(fixture.id, { draw: e.target.value })
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="1.01"
-                          style={inputStyle}
-                          value={o.away ?? ""}
-                          onChange={(e) =>
-                            updateOdds(fixture.id, { away: e.target.value })
-                          }
-                        />
-                      </td>
-                      <td>{probs ? probs.home.toFixed(1) + "%" : "-"}</td>
-                      <td>{probs ? probs.draw.toFixed(1) + "%" : "-"}</td>
-                      <td>{probs ? probs.away.toFixed(1) + "%" : "-"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+        <footer
+          style={{
+            textAlign: "center",
+            fontSize: 12,
+            color: theme.muted,
+            padding: 6,
+          }}
+        >
+          v1 cloud‑sync rebuild • Render backend • Netlify frontend
+        </footer>
+      </div>
     </div>
   );
 }
-
-export default App;
