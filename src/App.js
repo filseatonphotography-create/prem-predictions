@@ -1153,10 +1153,6 @@ setNewPasswordInput("");
         Change Password
       </button>
 
-      <div style={{ fontSize: 13 }}>
-        Logged in as <strong style={{ color: theme.text }}>{currentPlayer}</strong>
-      </div>
-
       <button
         onClick={handleLogout}
         style={{
