@@ -643,6 +643,58 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// PREDICTIONS (league-wide fetch for automated scoring)
+// GET /api/predictions/league/:leagueId
+// Returns predictions for every member in that league
+// ---------------------------------------------------------------------------
+app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const leagueId = (req.params.leagueId || "").trim();
+
+    const leagues = loadLeagues();
+    const league = leagues.find((l) => l.id === leagueId);
+
+    if (!league) {
+      return res.status(404).json({ error: "Mini-league not found." });
+    }
+
+    const members = Array.isArray(league.members)
+      ? league.members
+      : Array.isArray(league.memberUserIds)
+      ? league.memberUserIds
+      : [];
+
+    // only members can fetch league predictions
+    if (!members.includes(userId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const allPreds = loadPredictions();
+    const users = loadUsers();
+
+    const usersInLeague = members
+      .map((id) => users.find((u) => u.id === id))
+      .filter(Boolean)
+      .map((u) => ({ userId: u.id, username: u.username }));
+
+    const predictionsByUserId = {};
+    members.forEach((mid) => {
+      predictionsByUserId[mid] = allPreds[mid] || {};
+    });
+
+    return res.json({
+      leagueId,
+      users: usersInLeague,
+      predictionsByUserId,
+    });
+  } catch (err) {
+    console.error("predictions/league error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
