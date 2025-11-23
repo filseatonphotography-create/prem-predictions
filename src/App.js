@@ -978,7 +978,20 @@ const leaderboard = useMemo(() => {
     .sort((a, b) => b.points - a.points);
 }, [computedLeagueTotals, predictions, results]);
 
-  const historicalScores = GAMEWEEKS.map((gw) => {
+ const historicalScores = useMemo(() => {
+  if (computedWeeklyTotals) {
+    return GAMEWEEKS.map((gw) => {
+      const row = { gameweek: gw };
+      const gwTotals = computedWeeklyTotals[gw] || {};
+      Object.keys(gwTotals).forEach((k) => {
+        row[k] = gwTotals[k];
+      });
+      return row;
+    });
+  }
+
+  // fallback to old logic if computed totals not ready yet
+  return GAMEWEEKS.map((gw) => {
     const row = { gameweek: gw };
     PLAYERS.forEach((player) => {
       let score = SPREADSHEET_WEEKLY_TOTALS[player]?.[gw - 1] || 0;
@@ -992,6 +1005,7 @@ const leaderboard = useMemo(() => {
     });
     return row;
   });
+}, [computedWeeklyTotals, predictions, results]);
 
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
  const theme = {
