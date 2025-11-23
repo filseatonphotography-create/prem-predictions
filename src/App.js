@@ -1075,7 +1075,6 @@ setNewPasswordInput("");
   };
 
     // Points earned on a single fixture for the currently selected player
-  const getPointsForFixture = (fixtureId) => {
     const r = results[fixtureId];
     if (!r || r.homeGoals === "" || r.awayGoals === "") return null; // no result yet
     const pred = predictions[currentPlayer]?.[fixtureId];
