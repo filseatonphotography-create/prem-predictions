@@ -1074,6 +1074,15 @@ setNewPasswordInput("");
     }));
   };
 
+    // Points earned on a single fixture for the currently selected player
+  const getPointsForFixture = (fixtureId) => {
+    const r = results[fixtureId];
+    if (!r || r.homeGoals === "" || r.awayGoals === "") return null; // no result yet
+    const pred = predictions[currentPlayer]?.[fixtureId];
+    if (!pred) return 0; // no prediction -> 0 points
+    return getTotalPoints(pred, r);
+  };
+
   // ---------- DERIVED ----------
   const visibleFixtures = FIXTURES.filter(
     (f) => f.gameweek === selectedGameweek
@@ -1667,6 +1676,13 @@ const leaderboard = useMemo(() => {
                 const locked = isPredictionLocked(fixture);
                 const o = odds[fixture.id] || {};
                 const probs = computeProbabilities(o);
+                  
+                const r = results[fixture.id];
+const hasResult =
+  r && r.homeGoals !== "" && r.awayGoals !== "";
+const pointsForThisFixture = hasResult
+  ? getTotalPoints(pred, r)
+  : null;
 
                 let predictedPercent = "-";
                 let predictedOdds = "-";
@@ -1767,6 +1783,24 @@ const leaderboard = useMemo(() => {
                             {getTeamCode(fixture.awayTeam)}
                           </span>
                         </div>
+                        <div
+  style={{
+    minWidth: 44,
+    height: 36,
+    borderRadius: 8,
+    border: `1px solid ${theme.line}`,
+    background: theme.panel,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    color: theme.text,
+    marginLeft: 6,
+marginRight: 6,
+  }}
+>
+  {pointsForThisFixture == null ? "—" : pointsForThisFixture}
+</div>
 
                         <label
                           style={{
@@ -1831,6 +1865,7 @@ const leaderboard = useMemo(() => {
                         color: locked ? theme.warn : theme.accent2,
                         textAlign: "center",
                       }}
+                      
                     >
                       {locked ? "Locked" : "Open"}
                     </div>
