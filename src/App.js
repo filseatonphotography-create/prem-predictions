@@ -1780,14 +1780,32 @@ const pointsForThisFixture = hasResult
     height: 36,
     borderRadius: 8,
     border: `1px solid ${theme.line}`,
-    background: theme.panel,
+    background:
+      pointsForThisFixture == null
+        ? theme.panel
+        : pred?.isTriple
+        ? "#ffd700"       // gold for triple
+        : pred?.isDouble
+        ? "#C0C0C0"       // silver for double
+        : pointsForThisFixture === 0
+        ? "#e74c3c"       // red for 0 points
+        : "#2ecc71",      // green for >0
+
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontWeight: 800,
-    color: theme.text,
-    marginLeft: 6,
-marginRight: 6,
+
+    color:
+      pointsForThisFixture == null
+        ? theme.text
+        : pred?.isTriple
+        ? "#000"          // black on gold
+        : pred?.isDouble
+        ? "#000"          // black on silver
+        : pointsForThisFixture === 0
+        ? "#fff"          // white on red
+        : "#fff",         // white on green
   }}
 >
   {pointsForThisFixture == null ? "—" : pointsForThisFixture}
