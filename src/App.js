@@ -3,6 +3,15 @@ import "./App.css";
 import FIXTURES from "./fixtures";
 
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
+const legacyMap = {
+  Tom: "1763791297309",
+  Ian: "1763801801288",
+  Dave: "1763801999658",
+  Anthony: "1763802020494",
+  Steve: "1763812904100",
+  Emma: "1763813732635",
+  Phil: "1763873593264",
+};
 
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
 const TEAM_ABBREVIATIONS = {
