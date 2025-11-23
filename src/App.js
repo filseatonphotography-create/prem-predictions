@@ -653,6 +653,24 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
     }
     loadCloud();
   }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+  // Auto-load my leagues after login/restore
+useEffect(() => {
+  async function loadMyLeagues() {
+    if (DEV_USE_LOCAL) return;
+    if (!isLoggedIn || !authToken) return;
+
+    try {
+      const leagues = await apiFetchMyLeagues(authToken);
+      setMyLeagues(leagues);
+    } catch (err) {
+      console.error("Auto league load failed:", err);
+      // optional: show UI message
+      // setLeagueError(err.message || "Failed to load mini-leagues.");
+    }
+  }
+
+  loadMyLeagues();
+}, [isLoggedIn, authToken]);
   // One-time migration: move Phil_legacy local preds into Phil cloud account
 useEffect(() => {
   async function migratePhilLegacy() {
