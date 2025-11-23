@@ -199,6 +199,41 @@ async function apiGetMyPredictions(token) {
   return data.predictions || {};
 }
 
+async function apiGetLeaguePredictions(token, leagueId) {
+  const res = await fetch(
+    `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data; // { leagueId, users, predictionsByUserId }
+}
+
+async function apiGetLeagueTotals(token, leagueId) {
+  const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  return data; // { weeklyTotals, leagueTotals, updatedAt } OR null
+}
+
+async function apiSaveLeagueTotals(token, leagueId, payload) {
+  const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
 async function apiSavePrediction(token, fixtureId, prediction) {
   const res = await fetch(`${BACKEND_BASE}/api/predictions/save`, {
     method: "POST",
@@ -447,6 +482,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [selectedGameweek, setSelectedGameweek] = useState(GAMEWEEKS[0]);
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
   const [activeView, setActiveView] = useState("predictions");
+  const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
+const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
 
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
@@ -617,6 +654,53 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     }
     loadCloud();
   }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+  useEffect(() => {
+  if (DEV_USE_LOCAL) return;
+  if (!isLoggedIn || !authToken) return;
+  if (!myLeagues || myLeagues.length === 0) return;
+
+  const leagueId = myLeagues[0].id;
+  if (!leagueId) return;
+
+  const keys = Array.from(
+    new Set([
+      ...PLAYERS,
+      ...Object.keys(predictions || {}),
+    ])
+  );
+
+  const weeklyTotals = {};
+  GAMEWEEKS.forEach((gw) => {
+    weeklyTotals[gw] = {};
+    keys.forEach((k) => {
+      let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
+      FIXTURES.forEach((fx) => {
+        if (fx.gameweek !== gw) return;
+        const res = results[fx.id];
+        if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+        score += getTotalPoints(predictions[k]?.[fx.id], res);
+      });
+      weeklyTotals[gw][k] = score;
+    });
+  });
+
+  const leagueTotals = {};
+  keys.forEach((k) => {
+    let total = 0;
+    GAMEWEEKS.forEach((gw) => {
+      total += weeklyTotals[gw][k] || 0;
+    });
+    leagueTotals[k] = total;
+  });
+
+  setComputedWeeklyTotals(weeklyTotals);
+  setComputedLeagueTotals(leagueTotals);
+
+  apiSaveLeagueTotals(authToken, leagueId, {
+    weeklyTotals,
+    leagueTotals,
+  }).catch((e) => console.error("Failed to sync totals:", e));
+}, [results, predictions, isLoggedIn, authToken, myLeagues]);
 
   // ---------- AUTH ----------
   const handleAuthSubmit = async (e) => {
@@ -869,25 +953,30 @@ setNewPasswordInput("");
     (f) => f.gameweek === selectedGameweek
   );
 
-  const leaderboard = useMemo(() => {
-    const totals = {};
-    PLAYERS.forEach((p) => {
-      totals[p] =
-        SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0;
-    });
-
-    FIXTURES.forEach((fixture) => {
-      const res = results[fixture.id];
-      if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-      PLAYERS.forEach((p) => {
-        totals[p] += getTotalPoints(predictions[p]?.[fixture.id], res);
-      });
-    });
-
-    return Object.entries(totals)
+const leaderboard = useMemo(() => {
+  if (computedLeagueTotals) {
+    return Object.entries(computedLeagueTotals)
       .map(([player, points]) => ({ player, points }))
       .sort((a, b) => b.points - a.points);
-  }, [predictions, results]);
+  }
+
+  // fallback
+  const totals = {};
+  PLAYERS.forEach((p) => {
+    totals[p] =
+      SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0;
+  });
+  FIXTURES.forEach((fixture) => {
+    const res = results[fixture.id];
+    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    PLAYERS.forEach((p) => {
+      totals[p] += getTotalPoints(predictions[p]?.[fixture.id], res);
+    });
+  });
+  return Object.entries(totals)
+    .map(([player, points]) => ({ player, points }))
+    .sort((a, b) => b.points - a.points);
+}, [computedLeagueTotals, predictions, results]);
 
   const historicalScores = GAMEWEEKS.map((gw) => {
     const row = { gameweek: gw };
