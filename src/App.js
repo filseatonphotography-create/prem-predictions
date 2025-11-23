@@ -744,6 +744,77 @@ useEffect(() => {
       const data = await apiGetLeaguePredictions(authToken, leagueId);
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
+      // Treat legacy users as their legacy display name where possible
+const toLegacyKey = (u) => {
+  const name = (u.username || "").trim();
+  if (PLAYERS.includes(name)) return name;       // real legacy player
+  if (/[_-]legacy$/i.test(name)) {
+    const base = name.replace(/[_-]legacy$/i, "");
+    if (PLAYERS.includes(base)) return base;     // e.g. Phil_legacy -> Phil
+  }
+  return u.userId;                               // modern user fallback
+};
+
+// 2) Only real league members + legacy players
+const memberKeys = users.map(toLegacyKey);
+const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+
+// 3) Merge local + league predictions for calculation
+const predsForCalc = {};
+keys.forEach((k) => {
+  predsForCalc[k] = { ...(predictions[k] || {}) };
+});
+
+users.forEach((u) => {
+  const key = toLegacyKey(u);
+  predsForCalc[key] = {
+    ...(predsForCalc[key] || {}),
+    ...(predictionsByUserId[u.userId] || {}),
+  };
+});
+      // 2) Only real league members + legacy players
+const toLegacyKey = (u) => {
+  const uname = (u.username || "").trim();
+  if (PLAYERS.includes(uname)) return uname;
+
+  const m = uname.match(/^(.+)_legacy$/i);
+  if (m) {
+    const base = m[1];
+    const canonical = PLAYERS.find(
+      (p) => p.toLowerCase() === base.toLowerCase()
+    );
+    if (canonical) return canonical;
+  }
+
+  return u.userId;
+};
+
+const memberKeys = users.map(toLegacyKey);
+const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+
+// 3) Merge local + league predictions for calculation
+const predsForCalc = {};
+keys.forEach((k) => {
+  predsForCalc[k] = { ...(predictions[k] || {}) };
+});
+
+// STEP 2: Build member keys (legacy + modern)
+const memberKeys = users.map(toLegacyKey);
+const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+
+// STEP 3: Prepare predictions for calculation
+const predsForCalc = {};
+keys.forEach((k) => {
+  predsForCalc[k] = { ...(predictions[k] || {}) };
+});
+
+users.forEach((u) => {
+  const key = toLegacyKey(u);
+  predsForCalc[key] = {
+    ...(predsForCalc[key] || {}),
+    ...(predictionsByUserId[u.userId] || {}),
+  };
+});
 
       // 2) Only real league members + legacy players
       // Treat "Phil_legacy" (or any *_legacy) as the legacy player name

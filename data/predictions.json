@@ -1,0 +1,26 @@
+{
+  "1763641544628": {
+    "114": {
+      "homeGoals": "5",
+      "awayGoals": "5",
+      "isDouble": true,
+      "isTriple": false
+    }
+  },
+  "1763717772171": {
+    "114": {
+      "homeGoals": "3",
+      "awayGoals": "3",
+      "isDouble": false,
+      "isTriple": false
+    }
+  },
+  "1763727368940": {
+    "114": {
+      "homeGoals": "4",
+      "awayGoals": "4",
+      "isDouble": true,
+      "isTriple": false
+    }
+  }
+}

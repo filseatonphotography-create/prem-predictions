@@ -1,0 +1,28 @@
+[
+  {
+    "id": "lg_mi35amos",
+    "name": "The Originals",
+    "ownerUserId": null,
+    "memberUserIds": [
+      "1763398844150"
+    ],
+    "inviteCode": "ORIGINALS",
+    "createdAt": "2025-11-17T12:53:04.732Z"
+  },
+  {
+    "id": "league_1763554932861",
+    "name": "banana123",
+    "joinCode": "N9K3PO",
+    "inviteCode": "N9K3PO",
+    "ownerId": "1763554780213",
+    "members": [
+      "1763554780213",
+      "1763555004528"
+    ],
+    "createdAt": "2025-11-19T12:22:12.861Z",
+    "memberUserIds": [
+      "1763554780213",
+      "1763555004528"
+    ]
+  }
+]
