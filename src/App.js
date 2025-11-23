@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 
+const MIGRATION_FLAG = "phil_legacy_migrated_v1";
+
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
 const TEAM_ABBREVIATIONS = {
   Arsenal: "ARS",
@@ -491,7 +493,6 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [leagueError, setLeagueError] = useState("");
   const [leagueSuccess, setLeagueSuccess] = useState("");
   const [leaguesLoading, setLeaguesLoading] = useState(false);
-
   const gwLocked = isGameweekLocked(selectedGameweek);
   const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
