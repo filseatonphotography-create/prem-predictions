@@ -757,18 +757,19 @@ useEffect(() => {
 
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
-      const predsForCalc = {};
-      keys.forEach((k) => {
-        predsForCalc[k] = { ...(predictions[k] || {}) };
-      });
+      // 3) Merge predictions so that USER-ID data always wins
+const predsForCalc = {};
 
-      leagueUsers.forEach((u) => {
-        const key = toLegacyKey(u);
-        predsForCalc[key] = {
-          ...(predsForCalc[key] || {}),
-          ...(predictionsByUserId[u.userId] || {}),
-        };
-      });
+keys.forEach((k) => {
+  const legacyData = predictions[k] || {};
+  const userId = legacyMap[k];
+  const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
+
+  predsForCalc[k] = {
+    ...legacyData,   // spreadsheet/historic
+    ...cloudData     // ACTUAL CLOUD PREDICTIONS WIN
+  };
+});
 
       // 5) Weekly totals
       const weeklyTotals = {};
