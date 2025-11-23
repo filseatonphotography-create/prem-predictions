@@ -765,24 +765,6 @@ const toLegacyKey = (u) => {
   return u.userId;
 };
 
-// 2) Only real league members + legacy players
-const memberKeys = users.map(toLegacyKey);
-const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
-
-// 3) Merge local + league predictions for calculation
-const predsForCalc = {};
-keys.forEach((k) => {
-  predsForCalc[k] = { ...(predictions[k] || {}) };
-});
-
-users.forEach((u) => {
-  const key = toLegacyKey(u);
-  predsForCalc[key] = {
-    ...(predsForCalc[key] || {}),
-    ...(predictionsByUserId[u.userId] || {}),
-  };
-});
-
       // 4) Weekly totals
       const weeklyTotals = {};
       GAMEWEEKS.forEach((gw) => {
