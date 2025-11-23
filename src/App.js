@@ -1081,8 +1081,31 @@ setNewPasswordInput("");
 
 const leaderboard = useMemo(() => {
   // Use backend-computed totals if available
-  if (computedLeagueTotals) {
-    return Object.entries(computedLeagueTotals)
+    if (computedLeagueTotals) {
+    // Collapse any legacy-userId keys into their legacy name
+    const LEGACY_MAP = {
+      Tom: "1763791297309",
+      Ian: "1763801801288",
+      Dave: "1763801999658",
+      Anthony: "1763802020494",
+      Steve: "1763812904100",
+      Emma: "1763813732635",
+      Phil: "1763873593264",
+    };
+
+    const idToLegacyName = (id) => {
+      const found = Object.entries(LEGACY_MAP).find(([, v]) => v === id);
+      return found ? found[0] : null;
+    };
+
+    const collapsed = {};
+    Object.entries(computedLeagueTotals).forEach(([key, points]) => {
+      const legacyName = idToLegacyName(key);
+      const finalKey = legacyName || key;
+      collapsed[finalKey] = (collapsed[finalKey] || 0) + (points || 0);
+    });
+
+    return Object.entries(collapsed)
       .map(([player, points]) => ({ player, points }))
       .sort((a, b) => b.points - a.points);
   }
