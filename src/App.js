@@ -662,9 +662,6 @@ useEffect(() => {
     if (!isLoggedIn || !authToken || !currentUserId) return;
     if (currentPlayer !== "Phil") return;
 
-    const MIGRATION_FLAG = "phil_legacy_migrated_v1";
-    if (localStorage.getItem(MIGRATION_FLAG) === "true") return;
-
     const legacy = predictions["Phil_legacy"];
     if (!legacy || Object.keys(legacy).length === 0) return;
 
@@ -748,24 +745,42 @@ useEffect(() => {
       const predictionsByUserId = data.predictionsByUserId || {};
 
       // 2) Only real league members + legacy players
-      const memberKeys = users.map((u) =>
-        PLAYERS.includes(u.username) ? u.username : u.userId
-      );
-      const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+      // Treat "Phil_legacy" (or any *_legacy) as the legacy player name
+const toLegacyKey = (u) => {
+  const uname = (u.username || "").trim();
+  if (PLAYERS.includes(uname)) return uname;
 
-      // 3) Merge local + league predictions for calculation
-      const predsForCalc = {};
-      keys.forEach((k) => {
-        predsForCalc[k] = { ...(predictions[k] || {}) };
-      });
+  // if username ends with "_legacy" and base is a legacy player, map to base
+  const m = uname.match(/^(.+)_legacy$/i);
+  if (m) {
+    const base = m[1];
+    const canonical = PLAYERS.find(
+      (p) => p.toLowerCase() === base.toLowerCase()
+    );
+    if (canonical) return canonical;
+  }
 
-      users.forEach((u) => {
-        const key = PLAYERS.includes(u.username) ? u.username : u.userId;
-        predsForCalc[key] = {
-          ...(predsForCalc[key] || {}),
-          ...(predictionsByUserId[u.userId] || {}),
-        };
-      });
+  // otherwise treat as normal cloud user
+  return u.userId;
+};
+
+// 2) Only real league members + legacy players
+const memberKeys = users.map(toLegacyKey);
+const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+
+// 3) Merge local + league predictions for calculation
+const predsForCalc = {};
+keys.forEach((k) => {
+  predsForCalc[k] = { ...(predictions[k] || {}) };
+});
+
+users.forEach((u) => {
+  const key = toLegacyKey(u);
+  predsForCalc[key] = {
+    ...(predsForCalc[key] || {}),
+    ...(predictionsByUserId[u.userId] || {}),
+  };
+});
 
       // 4) Weekly totals
       const weeklyTotals = {};
