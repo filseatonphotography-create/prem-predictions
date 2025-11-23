@@ -199,27 +199,6 @@ async function apiGetMyPredictions(token) {
   return data.predictions || {};
 }
 
-async function apiGetLeaguePredictions(token, leagueId) {
-  const res = await fetch(
-    `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data; // { leagueId, users, predictionsByUserId }
-}
-
-async function apiGetLeagueTotals(token, leagueId) {
-  const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
-  return data; // { weeklyTotals, leagueTotals, updatedAt } OR null
-}
-
 async function apiSaveLeagueTotals(token, leagueId, payload) {
   const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
     method: "POST",
