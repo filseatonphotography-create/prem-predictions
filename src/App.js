@@ -653,6 +653,22 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
     }
     loadCloud();
   }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+  // Auto-load my leagues after login/restore
+useEffect(() => {
+  async function loadLeaguesAuto() {
+    if (DEV_USE_LOCAL) return;
+    if (!isLoggedIn || !authToken) return;
+
+    try {
+      const leagues = await apiFetchMyLeagues(authToken);
+      setMyLeagues(leagues);
+    } catch (err) {
+      console.error("Auto load leagues failed:", err);
+    }
+  }
+
+  loadLeaguesAuto();
+}, [isLoggedIn, authToken]);
   
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
