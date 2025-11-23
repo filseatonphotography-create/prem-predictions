@@ -1074,14 +1074,6 @@ setNewPasswordInput("");
     }));
   };
 
-    // Points earned on a single fixture for the currently selected player
-    const r = results[fixtureId];
-    if (!r || r.homeGoals === "" || r.awayGoals === "") return null; // no result yet
-    const pred = predictions[currentPlayer]?.[fixtureId];
-    if (!pred) return 0; // no prediction -> 0 points
-    return getTotalPoints(pred, r);
-  };
-
   // ---------- DERIVED ----------
   const visibleFixtures = FIXTURES.filter(
     (f) => f.gameweek === selectedGameweek
