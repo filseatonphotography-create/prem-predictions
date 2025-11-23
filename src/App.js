@@ -978,18 +978,20 @@ setNewPasswordInput("");
   );
 
 const leaderboard = useMemo(() => {
+  // Use backend-computed totals if available
   if (computedLeagueTotals) {
     return Object.entries(computedLeagueTotals)
       .map(([player, points]) => ({ player, points }))
       .sort((a, b) => b.points - a.points);
   }
 
-  // fallback
+  // fallback (old local logic)
   const totals = {};
   PLAYERS.forEach((p) => {
     totals[p] =
       SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0;
   });
+
   FIXTURES.forEach((fixture) => {
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
@@ -997,6 +999,7 @@ const leaderboard = useMemo(() => {
       totals[p] += getTotalPoints(predictions[p]?.[fixture.id], res);
     });
   });
+
   return Object.entries(totals)
     .map(([player, points]) => ({ player, points }))
     .sort((a, b) => b.points - a.points);
