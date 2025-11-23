@@ -212,15 +212,6 @@ async function apiGetLeaguePredictions(token, leagueId) {
   return data; // { leagueId, users, predictionsByUserId }
 }
 
-async function apiGetLeagueTotals(token, leagueId) {
-  const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
-  return data; // { weeklyTotals, leagueTotals, updatedAt } OR null
-}
-
 async function apiSaveLeagueTotals(token, leagueId, payload) {
   const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
     method: "POST",
