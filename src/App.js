@@ -722,61 +722,56 @@ useEffect(() => {
 
   let cancelled = false;
 
+  const toLegacyKey = (u) => {
+    const uname = (u.username || "").trim();
+
+    // Exact legacy names stay as-is
+    if (PLAYERS.includes(uname)) return uname;
+
+    // Anything like "Phil_legacy" -> "Phil"
+    if (/_legacy$/i.test(uname)) {
+      const base = uname.replace(/_legacy$/i, "");
+      if (PLAYERS.includes(base)) return base;
+      return base; // if not a known legacy player, still use base string
+    }
+
+    // Otherwise use their userId (modern user)
+    return u.userId;
+  };
+
   async function recalcFromLeague() {
     try {
-      // 0) Load existing totals first (fast UI), if any
-      const existingTotals = await apiGetLeagueTotals(
-        authToken,
-        leagueId
-      ).catch(() => null);
-
-      if (
-        !cancelled &&
-        existingTotals &&
-        existingTotals.weeklyTotals &&
-        existingTotals.leagueTotals
-      ) {
-        setComputedWeeklyTotals(existingTotals.weeklyTotals);
-        setComputedLeagueTotals(existingTotals.leagueTotals);
-      }
-
-      // 1) Fetch ALL predictions for the league from backend
+      // 1) Fetch all league predictions from backend
       const data = await apiGetLeaguePredictions(authToken, leagueId);
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
-      // Treat legacy users as their legacy display name where possible
 
-      // 2) Only real league members + legacy players
-      // Map each backend user to a “display key”:
-      // - legacy names (Tom/Emma/etc) stay as names
-      // - *_legacy usernames map to their base legacy name
-      // - everyone else uses userId
-      const toLegacyKey = (u) => {
-        const name = (u.username || "").trim();
+      // 2) Filter to ONLY actual members of this league (if list exists)
+      const leagueObj = myLeagues[0] || {};
+      const memberIds = Array.isArray(leagueObj.members)
+        ? leagueObj.members
+        : Array.isArray(leagueObj.memberUserIds)
+        ? leagueObj.memberUserIds
+        : [];
+      const memberIdSet = new Set(memberIds);
 
-        if (PLAYERS.includes(name)) return name;
+      const leagueUsers =
+        memberIdSet.size === 0
+          ? users
+          : users.filter((u) => memberIdSet.has(u.userId));
 
-        if (/[_-]legacy$/i.test(name)) {
-          const base = name.replace(/[_-]legacy$/i, "");
-          const canonical = PLAYERS.find(
-            (p) => p.toLowerCase() === base.toLowerCase()
-          );
-          if (canonical) return canonical; // e.g. Phil_legacy -> Phil
-        }
-
-        return u.userId;
-      };
-
-      const memberKeys = users.map(toLegacyKey);
+      // 3) Keys = legacy PLAYERS + league members (mapped)
+      const memberKeys = leagueUsers.map(toLegacyKey);
       const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
 
-      // 3) Merge local + league predictions for calculation
+      // 4) Build predictions for calculation:
+      //    start with any local preds for these keys, then overlay remote
       const predsForCalc = {};
       keys.forEach((k) => {
         predsForCalc[k] = { ...(predictions[k] || {}) };
       });
 
-      users.forEach((u) => {
+      leagueUsers.forEach((u) => {
         const key = toLegacyKey(u);
         predsForCalc[key] = {
           ...(predsForCalc[key] || {}),
@@ -784,7 +779,7 @@ useEffect(() => {
         };
       });
 
-      // 4) Weekly totals
+      // 5) Weekly totals
       const weeklyTotals = {};
       GAMEWEEKS.forEach((gw) => {
         weeklyTotals[gw] = {};
@@ -795,7 +790,6 @@ useEffect(() => {
             if (fx.gameweek !== gw) return;
             const r = results[fx.id];
             if (!r || r.homeGoals === "" || r.awayGoals === "") return;
-
             score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
           });
 
@@ -803,22 +797,21 @@ useEffect(() => {
         });
       });
 
-      // 5) League totals
+      // 6) League totals (sum of weekly)
       const leagueTotals = {};
       keys.forEach((k) => {
-        let total = 0;
-        GAMEWEEKS.forEach((gw) => {
-          total += weeklyTotals[gw][k] || 0;
-        });
-        leagueTotals[k] = total;
+        leagueTotals[k] = GAMEWEEKS.reduce(
+          (sum, gw) => sum + (weeklyTotals[gw][k] || 0),
+          0
+        );
       });
 
       if (cancelled) return;
 
-      // 6) Update UI + sync back
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
 
+      // 7) Sync totals back to backend
       apiSaveLeagueTotals(authToken, leagueId, {
         weeklyTotals,
         leagueTotals,
@@ -834,7 +827,6 @@ useEffect(() => {
     cancelled = true;
   };
 }, [results, predictions, isLoggedIn, authToken, myLeagues]);
-
   // ---------- AUTH ----------
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
