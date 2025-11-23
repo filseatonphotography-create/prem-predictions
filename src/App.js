@@ -745,15 +745,6 @@ useEffect(() => {
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
       // Treat legacy users as their legacy display name where possible
-const toLegacyKey = (u) => {
-  const name = (u.username || "").trim();
-  if (PLAYERS.includes(name)) return name;       // real legacy player
-  if (/[_-]legacy$/i.test(name)) {
-    const base = name.replace(/[_-]legacy$/i, "");
-    if (PLAYERS.includes(base)) return base;     // e.g. Phil_legacy -> Phil
-  }
-  return u.userId;                               // modern user fallback
-};
 
 // 2) Only real league members + legacy players
 const memberKeys = users.map(toLegacyKey);
@@ -774,18 +765,21 @@ users.forEach((u) => {
 });
       // 2) Only real league members + legacy players
 const toLegacyKey = (u) => {
-  const uname = (u.username || "").trim();
-  if (PLAYERS.includes(uname)) return uname;
+  const name = (u.username || "").trim();
 
-  const m = uname.match(/^(.+)_legacy$/i);
-  if (m) {
-    const base = m[1];
+  // Real legacy player username
+  if (PLAYERS.includes(name)) return name;
+
+  // If username ends with _legacy or -legacy, map to legacy base name
+  if (/[_-]legacy$/i.test(name)) {
+    const base = name.replace(/[_-]legacy$/i, "");
     const canonical = PLAYERS.find(
       (p) => p.toLowerCase() === base.toLowerCase()
     );
-    if (canonical) return canonical;
+    if (canonical) return canonical; // e.g. Phil_legacy -> Phil
   }
 
+  // Otherwise treat as normal cloud user
   return u.userId;
 };
 
@@ -818,19 +812,6 @@ users.forEach((u) => {
 
       // 2) Only real league members + legacy players
       // Treat "Phil_legacy" (or any *_legacy) as the legacy player name
-const toLegacyKey = (u) => {
-  const uname = (u.username || "").trim();
-  if (PLAYERS.includes(uname)) return uname;
-
-  // if username ends with "_legacy" and base is a legacy player, map to base
-  const m = uname.match(/^(.+)_legacy$/i);
-  if (m) {
-    const base = m[1];
-    const canonical = PLAYERS.find(
-      (p) => p.toLowerCase() === base.toLowerCase()
-    );
-    if (canonical) return canonical;
-  }
 
   // otherwise treat as normal cloud user
   return u.userId;
