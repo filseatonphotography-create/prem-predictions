@@ -641,44 +641,89 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const leagueId = myLeagues[0].id;
   if (!leagueId) return;
 
-  const keys = Array.from(
-    new Set([
-      ...PLAYERS,
-      ...Object.keys(predictions || {}),
-    ])
-  );
+  let cancelled = false;
 
-  const weeklyTotals = {};
-  GAMEWEEKS.forEach((gw) => {
-    weeklyTotals[gw] = {};
-    keys.forEach((k) => {
-      let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
-      FIXTURES.forEach((fx) => {
-        if (fx.gameweek !== gw) return;
-        const res = results[fx.id];
-        if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-        score += getTotalPoints(predictions[k]?.[fx.id], res);
+  async function recalcFromLeague() {
+    try {
+      // 1) Fetch ALL predictions for the league from backend
+      const res = await fetch(
+        `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+      const users = data.users || [];
+      const predictionsByUserId = data.predictionsByUserId || {};
+
+      // 2) Build the list of *only real league members*
+      const memberKeys = users.map((u) =>
+        PLAYERS.includes(u.username) ? u.username : u.userId
+      );
+
+      // Always include legacy PLAYERS too
+      const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+
+      // 3) Build a local predictions object for calculation
+      const predsForCalc = {};
+      keys.forEach((k) => {
+        predsForCalc[k] = { ...(predictions[k] || {}) };
       });
-      weeklyTotals[gw][k] = score;
-    });
-  });
 
-  const leagueTotals = {};
-  keys.forEach((k) => {
-    let total = 0;
-    GAMEWEEKS.forEach((gw) => {
-      total += weeklyTotals[gw][k] || 0;
-    });
-    leagueTotals[k] = total;
-  });
+      users.forEach((u) => {
+        const key = PLAYERS.includes(u.username) ? u.username : u.userId;
+        predsForCalc[key] = {
+          ...(predsForCalc[key] || {}),
+          ...(predictionsByUserId[u.userId] || {}),
+        };
+      });
 
-  setComputedWeeklyTotals(weeklyTotals);
-  setComputedLeagueTotals(leagueTotals);
+      // 4) Weekly totals
+      const weeklyTotals = {};
+      GAMEWEEKS.forEach((gw) => {
+        weeklyTotals[gw] = {};
+        keys.forEach((k) => {
+          let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
+          FIXTURES.forEach((fx) => {
+            if (fx.gameweek !== gw) return;
+            const r = results[fx.id];
+            if (!r || r.homeGoals === "" || r.awayGoals === "") return;
+            score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
+          });
+          weeklyTotals[gw][k] = score;
+        });
+      });
 
-  apiSaveLeagueTotals(authToken, leagueId, {
-    weeklyTotals,
-    leagueTotals,
-  }).catch((e) => console.error("Failed to sync totals:", e));
+      // 5) League totals
+      const leagueTotals = {};
+      keys.forEach((k) => {
+        let total = 0;
+        GAMEWEEKS.forEach((gw) => {
+          total += weeklyTotals[gw][k] || 0;
+        });
+        leagueTotals[k] = total;
+      });
+
+      if (cancelled) return;
+
+      setComputedWeeklyTotals(weeklyTotals);
+      setComputedLeagueTotals(leagueTotals);
+
+      // 6) Sync totals to backend
+      apiSaveLeagueTotals(authToken, leagueId, {
+        weeklyTotals,
+        leagueTotals,
+      }).catch((e) => console.error("Failed to sync totals:", e));
+    } catch (err) {
+      console.error("Recalc from league failed:", err);
+    }
+  }
+
+  recalcFromLeague();
+
+  return () => {
+    cancelled = true;
+  };
 }, [results, predictions, isLoggedIn, authToken, myLeagues]);
 
   // ---------- AUTH ----------
