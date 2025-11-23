@@ -746,76 +746,43 @@ useEffect(() => {
       const predictionsByUserId = data.predictionsByUserId || {};
       // Treat legacy users as their legacy display name where possible
 
-// 2) Only real league members + legacy players
-const memberKeys = users.map(toLegacyKey);
-const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
-
-// 3) Merge local + league predictions for calculation
-const predsForCalc = {};
-keys.forEach((k) => {
-  predsForCalc[k] = { ...(predictions[k] || {}) };
-});
-
-users.forEach((u) => {
-  const key = toLegacyKey(u);
-  predsForCalc[key] = {
-    ...(predsForCalc[key] || {}),
-    ...(predictionsByUserId[u.userId] || {}),
-  };
-});
       // 2) Only real league members + legacy players
-const toLegacyKey = (u) => {
-  const name = (u.username || "").trim();
+      // Map each backend user to a “display key”:
+      // - legacy names (Tom/Emma/etc) stay as names
+      // - *_legacy usernames map to their base legacy name
+      // - everyone else uses userId
+      const toLegacyKey = (u) => {
+        const name = (u.username || "").trim();
 
-  // Real legacy player username
-  if (PLAYERS.includes(name)) return name;
+        if (PLAYERS.includes(name)) return name;
 
-  // If username ends with _legacy or -legacy, map to legacy base name
-  if (/[_-]legacy$/i.test(name)) {
-    const base = name.replace(/[_-]legacy$/i, "");
-    const canonical = PLAYERS.find(
-      (p) => p.toLowerCase() === base.toLowerCase()
-    );
-    if (canonical) return canonical; // e.g. Phil_legacy -> Phil
-  }
+        if (/[_-]legacy$/i.test(name)) {
+          const base = name.replace(/[_-]legacy$/i, "");
+          const canonical = PLAYERS.find(
+            (p) => p.toLowerCase() === base.toLowerCase()
+          );
+          if (canonical) return canonical; // e.g. Phil_legacy -> Phil
+        }
 
-  // Otherwise treat as normal cloud user
-  return u.userId;
-};
+        return u.userId;
+      };
 
-const memberKeys = users.map(toLegacyKey);
-const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+      const memberKeys = users.map(toLegacyKey);
+      const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
 
-// 3) Merge local + league predictions for calculation
-const predsForCalc = {};
-keys.forEach((k) => {
-  predsForCalc[k] = { ...(predictions[k] || {}) };
-});
+      // 3) Merge local + league predictions for calculation
+      const predsForCalc = {};
+      keys.forEach((k) => {
+        predsForCalc[k] = { ...(predictions[k] || {}) };
+      });
 
-// STEP 2: Build member keys (legacy + modern)
-const memberKeys = users.map(toLegacyKey);
-const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
-
-// STEP 3: Prepare predictions for calculation
-const predsForCalc = {};
-keys.forEach((k) => {
-  predsForCalc[k] = { ...(predictions[k] || {}) };
-});
-
-users.forEach((u) => {
-  const key = toLegacyKey(u);
-  predsForCalc[key] = {
-    ...(predsForCalc[key] || {}),
-    ...(predictionsByUserId[u.userId] || {}),
-  };
-});
-
-      // 2) Only real league members + legacy players
-      // Treat "Phil_legacy" (or any *_legacy) as the legacy player name
-
-  // otherwise treat as normal cloud user
-  return u.userId;
-};
+      users.forEach((u) => {
+        const key = toLegacyKey(u);
+        predsForCalc[key] = {
+          ...(predsForCalc[key] || {}),
+          ...(predictionsByUserId[u.userId] || {}),
+        };
+      });
 
       // 4) Weekly totals
       const weeklyTotals = {};
