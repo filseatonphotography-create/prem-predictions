@@ -287,6 +287,7 @@ async function apiJoinLeague(token, code) {
 }
 
 // Results & Odds (unchanged)
+// eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults() {
   try {
     const res = await fetch(`${BACKEND_BASE}/api/results`);
@@ -481,6 +482,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [results, setResults] = useState({});
   const [odds, setOdds] = useState({});
   const [selectedGameweek, setSelectedGameweek] = useState(GAMEWEEKS[0]);
+  // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
   const [activeView, setActiveView] = useState("predictions");
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
