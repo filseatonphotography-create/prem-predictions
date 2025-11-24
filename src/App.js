@@ -575,32 +575,42 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
       }
 
       // 4) odds
-      const { markets, error: oddsError } = await fetchPremierLeagueOdds();
-      if (!oddsError && markets?.length) {
-        const newOdds = {};
-        markets.forEach((m) => {
-          const apiHome = normalizeTeamName(m.homeTeam);
-          const apiAway = normalizeTeamName(m.awayTeam);
+const { markets, error: oddsError } = await fetchPremierLeagueOdds();
 
-          const fixture = FIXTURES.find((f) => {
-            const localHome = normalizeTeamName(f.homeTeam);
-            const localAway = normalizeTeamName(f.awayTeam);
-            return localHome === apiHome && localAway === apiAway;
-          });
+if (oddsError) {
+  setApiStatus(`Odds: FAILED (${oddsError})`);
+} else if (!markets || markets.length === 0) {
+  setApiStatus("Odds: loaded 0 markets");
+} else {
+  const newOdds = {};
+  let matched = 0;
 
-          if (fixture) {
-            newOdds[fixture.id] = {
-              home: m.homeOdds,
-              draw: m.drawOdds,
-              away: m.awayOdds,
-            };
-          }
-        });
+  markets.forEach((m) => {
+    const apiHome = normalizeTeamName(m.homeTeam);
+    const apiAway = normalizeTeamName(m.awayTeam);
 
-        if (Object.keys(newOdds).length)
-          setOdds((prev) => ({ ...prev, ...newOdds }));
-      }
+    const fixture = FIXTURES.find((f) => {
+      const localHome = normalizeTeamName(f.homeTeam);
+      const localAway = normalizeTeamName(f.awayTeam);
+      return localHome === apiHome && localAway === apiAway;
+    });
+
+    if (fixture) {
+      matched += 1;
+      newOdds[fixture.id] = {
+        home: m.homeOdds,
+        draw: m.drawOdds,
+        away: m.awayOdds,
+      };
     }
+  });
+
+  setApiStatus(`Odds: markets ${markets.length}, matched ${matched}`);
+
+  if (Object.keys(newOdds).length) {
+    setOdds((prev) => ({ ...prev, ...newOdds }));
+  }
+}
 
     init();
   }, []);
