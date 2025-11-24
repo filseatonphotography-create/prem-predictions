@@ -644,49 +644,39 @@ useEffect(() => {
 
     const newOdds = {};
     markets.forEach((m) => {
-      const apiHome = normalizeTeamName(
-  typeof m.homeTeam === "string"
-    ? m.homeTeam
-    : (m.homeTeam?.name || m.homeTeam?.tla || "")
-);
-const apiAway = normalizeTeamName(
-  typeof m.awayTeam === "string"
-    ? m.awayTeam
-    : (m.awayTeam?.name || m.awayTeam?.tla || "")
-);
+  const apiHome = normalizeTeamName(
+    typeof m.homeTeam === "string"
+      ? m.homeTeam
+      : (m.homeTeam?.name || m.homeTeam?.tla || "")
+  );
+  const apiAway = normalizeTeamName(
+    typeof m.awayTeam === "string"
+      ? m.awayTeam
+      : (m.awayTeam?.name || m.awayTeam?.tla || "")
+  );
 
-const localHome = normalizeTeamName(
-  typeof f.homeTeam === "string"
-    ? f.homeTeam
-    : (f.homeTeam?.name || f.homeTeam?.tla || "")
-);
-const localAway = normalizeTeamName(
-  typeof f.awayTeam === "string"
-    ? f.awayTeam
-    : (f.awayTeam?.name || f.awayTeam?.tla || "")
-);
-      const fixture = FIXTURES.find((f) => {
-        const localHome = normalizeTeamName(
-          typeof f.homeTeam === "string"
-            ? f.homeTeam
-            : (f.homeTeam?.name || f.homeTeam?.tla || "")
-        );
-        const localAway = normalizeTeamName(
-          typeof f.awayTeam === "string"
-            ? f.awayTeam
-            : (f.awayTeam?.name || f.awayTeam?.tla || "")
-        );
-        return localHome === apiHome && localAway === apiAway;
-      });
+  const fixture = FIXTURES.find((f) => {
+    const localHome = normalizeTeamName(
+      typeof f.homeTeam === "string"
+        ? f.homeTeam
+        : (f.homeTeam?.name || f.homeTeam?.tla || "")
+    );
+    const localAway = normalizeTeamName(
+      typeof f.awayTeam === "string"
+        ? f.awayTeam
+        : (f.awayTeam?.name || f.awayTeam?.tla || "")
+    );
+    return localHome === apiHome && localAway === apiAway;
+  });
 
-      if (fixture) {
-        newOdds[fixture.id] = {
-          home: m.homeOdds,
-          draw: m.drawOdds,
-          away: m.awayOdds,
-        };
-      }
-    });
+  if (fixture) {
+    newOdds[fixture.id] = {
+      home: m.homeOdds,
+      draw: m.drawOdds,
+      away: m.awayOdds,
+    };
+  }
+});
 
     if (Object.keys(newOdds).length) {
       setOdds((prev) => ({ ...prev, ...newOdds }));
