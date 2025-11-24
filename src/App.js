@@ -86,14 +86,7 @@ const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
 // --- TEAM NAME NORMALISATION (kept from your version) ---
 function normalizeTeamName(name) {
   if (!name) return "";
-
-  // NEW: handle strings OR API team objects safely
-  const raw =
-    typeof name === "string"
-      ? name
-      : (name.name || name.shortName || name.tla || name.code || "");
-
-  let s = String(raw).toLowerCase().trim();
+  let s = name.toLowerCase().trim();
 
   if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
   if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
