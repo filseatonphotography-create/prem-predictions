@@ -1787,14 +1787,14 @@ const pointsForThisFixture = hasResult
                       background: theme.panelHi,
                       borderRadius: 12,
                       border: `1px solid ${theme.line}`,
-                      padding: 10,
+                      padding: 8,
                       display: "grid",
-                      gridTemplateColumns: "1fr auto",
+                      gridTemplateColumns: "1fr 28px",
                       gap: 10,
                       alignItems: "center",
                     }}
                   >
-                    <div style={{ display: "grid", gap: 6 }}>
+                    <div style={{ display: "grid", gap: 6, minHeight: 92 }}>
                       <div
                         style={{
                           display: "flex",
@@ -1803,13 +1803,18 @@ const pointsForThisFixture = hasResult
                           gap: 6,
                         }}
                       >
-                        <div style={{ fontWeight: 700, textAlign: "center" }}>
-                          {fixture.homeTeam.tla} vs {fixture.awayTeam.tla}
-                        </div>
-                        <div style={{ fontSize: 12, color: theme.muted }}>
-                          {formatKickoffShort(fixture.kickoff)} GMT
-                        </div>
-                      </div>
+                      
+                        <div
+  style={{
+    width: "100%",
+    textAlign: "center",
+    fontSize: 12,
+    color: theme.muted,
+    marginBottom: 6,
+  }}
+>
+  {formatKickoffShort(fixture.kickoff)} GMT
+</div>
 
                       <div
                         style={{
@@ -1837,7 +1842,7 @@ const pointsForThisFixture = hasResult
                           />
                         </div>
 
-                        <span style={{ color: theme.muted }}>–</span>
+                        <span style={{ color: theme.muted, fontWeight: 700 }}>VS</span>
 
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           <input
@@ -1904,7 +1909,7 @@ const pointsForThisFixture = hasResult
     justifyContent: "space-between",
     flexWrap: "nowrap",
     width: "100%",
-    marginTop: 6,
+    marginTop: 10,
   }}
 >
 
@@ -1963,18 +1968,20 @@ const pointsForThisFixture = hasResult
                     </div>
 
                     <div
-                      style={{
-                        fontSize: 12,
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        border: `1px solid ${theme.line}`,
-                        color: locked ? theme.warn : theme.accent2,
-                        textAlign: "center",
-                      }}
-                      
-                    >
-                      {locked ? "Locked" : "Open"}
-                    </div>
+  style={{
+    width: 28,
+    height: 28,
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: "50%",
+    background: locked ? "#ff4d4d" : "#2ecc71", // red = locked, green = open
+    color: "#fff",
+    fontSize: 16,
+  }}
+>
+  {locked ? "🔒" : "🔑"}
+</div>
                   </div>
                 );
               })}
