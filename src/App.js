@@ -1815,6 +1815,7 @@ const pointsForThisFixture = hasResult
 >
   {formatKickoffShort(fixture.kickoff)} GMT
 </div>
+</div>
 
                       <div
                         style={{
