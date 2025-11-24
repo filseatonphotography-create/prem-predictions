@@ -588,8 +588,16 @@ useEffect(() => {
     if (!oddsError && markets?.length) {
       const newOdds = {};
       markets.forEach((m) => {
-        const apiHome = normalizeTeamName(m.homeTeam);
-        const apiAway = normalizeTeamName(m.awayTeam);
+        const apiHome = normalizeTeamName(
+  typeof m.homeTeam === "string"
+    ? m.homeTeam
+    : (m.homeTeam?.name || m.homeTeam?.tla || "")
+);
+const apiAway = normalizeTeamName(
+  typeof m.awayTeam === "string"
+    ? m.awayTeam
+    : (m.awayTeam?.name || m.awayTeam?.tla || "")
+);
 
         const fixture = FIXTURES.find((f) => {
           const localHome = normalizeTeamName(
@@ -636,8 +644,27 @@ useEffect(() => {
 
     const newOdds = {};
     markets.forEach((m) => {
-      const apiHome = normalizeTeamName(m.homeTeam);
-      const apiAway = normalizeTeamName(m.awayTeam);
+      const apiHome = normalizeTeamName(
+  typeof m.homeTeam === "string"
+    ? m.homeTeam
+    : (m.homeTeam?.name || m.homeTeam?.tla || "")
+);
+const apiAway = normalizeTeamName(
+  typeof m.awayTeam === "string"
+    ? m.awayTeam
+    : (m.awayTeam?.name || m.awayTeam?.tla || "")
+);
+
+const localHome = normalizeTeamName(
+  typeof f.homeTeam === "string"
+    ? f.homeTeam
+    : (f.homeTeam?.name || f.homeTeam?.tla || "")
+);
+const localAway = normalizeTeamName(
+  typeof f.awayTeam === "string"
+    ? f.awayTeam
+    : (f.awayTeam?.name || f.awayTeam?.tla || "")
+);
 
       const fixture = FIXTURES.find((f) => {
         const localHome = normalizeTeamName(
