@@ -1816,7 +1816,7 @@ const pointsForThisFixture = hasResult
                           display: "flex",
                           gap: 8,
                           alignItems: "center",
-                          flexWrap: "wrap",
+                          flexWrap: "nowrap",
                         }}
                       >
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -1860,6 +1860,7 @@ const pointsForThisFixture = hasResult
   style={{
     minWidth: 44,
     height: 36,
+    marginLeft: "auto",
     borderRadius: 8,
     border: `1px solid ${theme.line}`,
     background:
@@ -1892,8 +1893,22 @@ const pointsForThisFixture = hasResult
 >
   {pointsForThisFixture == null ? "—" : pointsForThisFixture}
 </div>
+</div>
 
-                        <label
+{/* Controls row (new line) */}
+<div
+  style={{
+    display: "flex",
+    gap: 12,
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "nowrap",
+    width: "100%",
+    marginTop: 6,
+  }}
+>
+
+<label
                           style={{
                             display: "flex",
                             alignItems: "center",
