@@ -483,6 +483,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [selectedGameweek, setSelectedGameweek] = useState(GAMEWEEKS[0]);
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
   const [activeView, setActiveView] = useState("predictions");
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
+const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
 const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
 
@@ -609,6 +611,17 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
     const next = FIXTURES.find((f) => new Date(f.kickoff) > now);
     if (next) setSelectedGameweek(next.gameweek);
   }, []);
+
+  // Detect mobile + close menu if switching to desktop
+useEffect(() => {
+  const onResize = () => {
+    const mobile = window.innerWidth <= 600;
+    setIsMobile(mobile);
+    if (!mobile) setShowMobileMenu(false);
+  };
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
+}, []);
 
   // Persist app cache
   useEffect(() => {
@@ -1627,25 +1640,94 @@ const leaderboard = useMemo(() => {
         </section>
 
         {/* Tabs */}
-        <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {[
-            { id: "predictions", label: "Predictions" },
-            { id: "results", label: "Results" },
-            { id: "league", label: "League Table" },
-            { id: "history", label: "History" },
-            { id: "winprob", label: "Win Probabilities" },
-            { id: "leagues", label: "Mini‑Leagues" },
-          ].map((t) => (
-            <button
-              key={t.id}
-              style={pillBtn(activeView === t.id)}
-              onClick={() => setActiveView(t.id)}
-              type="button"
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+{(() => {
+  const TABS = [
+    { id: "predictions", label: "Predictions" },
+    { id: "results", label: "Results" },
+    { id: "league", label: "League Table" },
+    { id: "history", label: "History" },
+    { id: "winprob", label: "Win Probabilities" },
+    { id: "leagues", label: "Mini-Leagues" },
+  ];
+
+  // ---- MOBILE: one "Menu" pill that drops down ----
+  if (isMobile) {
+    const currentLabel =
+      TABS.find((t) => t.id === activeView)?.label || "Menu";
+
+    return (
+      <div style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          onClick={() => setShowMobileMenu((v) => !v)}
+          style={{
+            ...pillBtn(true),
+            width: "100%",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            fontSize: 14,
+            fontWeight: 800,
+          }}
+        >
+          <span>Menu — {currentLabel}</span>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>
+            {showMobileMenu ? "▲" : "▼"}
+          </span>
+        </button>
+
+        {showMobileMenu && (
+          <div
+            style={{
+              marginTop: 6,
+              display: "grid",
+              gap: 6,
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 8,
+            }}
+          >
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => {
+                  setActiveView(t.id);
+                  setShowMobileMenu(false);
+                }}
+                style={{
+                  ...pillBtn(activeView === t.id),
+                  width: "100%",
+                  textAlign: "left",
+                  fontSize: 14,
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---- DESKTOP: keep your pill buttons exactly as before ----
+  return (
+    <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          style={pillBtn(activeView === t.id)}
+          onClick={() => setActiveView(t.id)}
+          type="button"
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+})()}
 
         {/* Predictions View */}
         {activeView === "predictions" && (
