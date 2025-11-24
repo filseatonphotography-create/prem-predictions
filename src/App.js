@@ -605,6 +605,44 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
     init();
   }, []);
 
+  // If odds didn’t load on first mount (some mobile browsers do this),
+// refetch them when user opens Win Probabilities.
+useEffect(() => {
+  if (activeView !== "winprob") return;
+
+  const noOddsYet = !odds || Object.keys(odds).length === 0;
+  if (!noOddsYet) return;
+
+  (async () => {
+    const { markets, error } = await fetchPremierLeagueOdds();
+    if (error || !markets?.length) return;
+
+    const newOdds = {};
+    markets.forEach((m) => {
+      const apiHome = normalizeTeamName(m.homeTeam);
+      const apiAway = normalizeTeamName(m.awayTeam);
+
+      const fixture = FIXTURES.find((f) => {
+        const localHome = normalizeTeamName(f.homeTeam);
+        const localAway = normalizeTeamName(f.awayTeam);
+        return localHome === apiHome && localAway === apiAway;
+      });
+
+      if (fixture) {
+        newOdds[fixture.id] = {
+          home: m.homeOdds,
+          draw: m.drawOdds,
+          away: m.awayOdds,
+        };
+      }
+    });
+
+    if (Object.keys(newOdds).length) {
+      setOdds((prev) => ({ ...prev, ...newOdds }));
+    }
+  })();
+}, [activeView, odds]);
+
   // Auto select next gameweek
   useEffect(() => {
     const now = new Date();
