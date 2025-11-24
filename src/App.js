@@ -556,8 +556,16 @@ useEffect(() => {
         const apiAway = normalizeTeamName(match.awayTeam.name);
 
         const fixture = FIXTURES.find((f) => {
-          const localHome = normalizeTeamName(f.homeTeam);
-          const localAway = normalizeTeamName(f.awayTeam);
+          const localHome = normalizeTeamName(
+  typeof f.homeTeam === "string"
+    ? f.homeTeam
+    : (f.homeTeam?.name || f.homeTeam?.tla || "")
+);
+          const localAway = normalizeTeamName(
+  typeof f.awayTeam === "string"
+    ? f.awayTeam
+    : (f.awayTeam?.name || f.awayTeam?.tla || "")
+);
           return localHome === apiHome && localAway === apiAway;
         });
 
@@ -584,8 +592,16 @@ useEffect(() => {
         const apiAway = normalizeTeamName(m.awayTeam);
 
         const fixture = FIXTURES.find((f) => {
-          const localHome = normalizeTeamName(f.homeTeam);
-          const localAway = normalizeTeamName(f.awayTeam);
+          const localHome = normalizeTeamName(
+  typeof f.homeTeam === "string"
+    ? f.homeTeam
+    : (f.homeTeam?.name || f.homeTeam?.tla || "")
+);
+          const localAway = normalizeTeamName(
+  typeof f.awayTeam === "string"
+    ? f.awayTeam
+    : (f.awayTeam?.name || f.awayTeam?.tla || "")
+);
           return localHome === apiHome && localAway === apiAway;
         });
 
@@ -624,8 +640,16 @@ useEffect(() => {
       const apiAway = normalizeTeamName(m.awayTeam);
 
       const fixture = FIXTURES.find((f) => {
-        const localHome = normalizeTeamName(f.homeTeam);
-        const localAway = normalizeTeamName(f.awayTeam);
+        const localHome = normalizeTeamName(
+  typeof f.homeTeam === "string"
+    ? f.homeTeam
+    : (f.homeTeam?.name || f.homeTeam?.tla || "")
+);
+        const localAway = normalizeTeamName(
+  typeof f.awayTeam === "string"
+    ? f.awayTeam
+    : (f.awayTeam?.name || f.awayTeam?.tla || "")
+);
         return localHome === apiHome && localAway === apiAway;
       });
 
