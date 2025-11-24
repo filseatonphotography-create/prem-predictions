@@ -1577,15 +1577,24 @@ const leaderboard = useMemo(() => {
         {/* Controls */}
         <section
           style={{
-            ...cardStyle,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 12,
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
+  ...cardStyle,
+  display: "grid",
+  gridTemplateColumns: isMobile ? "1fr" : "auto auto",
+  gap: 12,
+  alignItems: "center",
+  justifyItems: isMobile ? "center" : "start",
+  textAlign: isMobile ? "center" : "left",
+}}
         >
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div
+  style={{
+    display: "flex",
+    gap: 12,
+    alignItems: "center",
+    justifyContent: isMobile ? "center" : "flex-start",
+    width: "100%",
+  }}
+>
             <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
             {gwLocked && isOriginalPlayer ? (
               <select
@@ -2088,14 +2097,26 @@ const pointsForThisFixture = hasResult
             <div style={{ overflowX: "auto" }}>
               <table
                 style={{
-                  width: "100%",
+                  width: "max-content",
+minWidth: "100%",
                   borderCollapse: "collapse",
                   fontSize: 13,
                 }}
               >
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", padding: 6 }}>GW</th>
+                    <th
+  style={{
+    textAlign: "left",
+    padding: 6,
+    position: "sticky",
+    left: 0,
+    zIndex: 3,
+    background: theme.panelHi,
+  }}
+>
+  GW
+</th>
                     {PLAYERS.map((p) => (
                       <th key={p} style={{ textAlign: "left", padding: 6 }}>
                         {p}
@@ -2112,9 +2133,18 @@ const pointsForThisFixture = hasResult
 
                     return (
                       <tr key={row.gameweek}>
-                        <td style={{ padding: 6, color: theme.muted }}>
-                          {row.gameweek}
-                        </td>
+                        <td
+  style={{
+    padding: 6,
+    color: theme.muted,
+    position: "sticky",
+    left: 0,
+    zIndex: 2,
+    background: theme.panelHi,
+  }}
+>
+  {row.gameweek}
+</td>
                         {PLAYERS.map((p) => {
                           const v = row[p];
                           const shade = (v - min) / range;
