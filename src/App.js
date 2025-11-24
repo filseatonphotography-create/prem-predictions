@@ -2091,7 +2091,13 @@ const pointsForThisFixture = hasResult
 
         {/* History */}
         {activeView === "history" && (
-          <section style={cardStyle}>
+          <section
+  style={{
+    ...cardStyle,
+    overflowX: "hidden",
+    maxWidth: "100%",
+  }}
+>
             <h2 style={{ marginTop: 0, fontSize: 18 }}>Historical Weekly Scores</h2>
 
             <div style={{ overflowX: "auto" }}>
