@@ -508,7 +508,104 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   }, [currentPlayer, currentUserId]);
 
   // ---------- INIT ----------
+useEffect(() => {
+  async function init() {
+    // 1) restore app cache (pred/results/odds)
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setPredictions(parsed.predictions || {});
+        setResults(parsed.results || {});
+        setOdds(parsed.odds || {});
+        if (parsed.selectedGameweek)
+          setSelectedGameweek(parsed.selectedGameweek);
+      }
+    } catch {}
 
+    // 2) restore auth
+    try {
+      const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
+      if (savedAuth) {
+        const parsedAuth = JSON.parse(savedAuth);
+        if (parsedAuth?.token && parsedAuth?.userId && parsedAuth?.username) {
+          setIsLoggedIn(true);
+          setAuthToken(parsedAuth.token);
+          setCurrentUserId(parsedAuth.userId);
+          setCurrentPlayer(parsedAuth.username);
+        }
+      }
+    } catch {}
+
+    // 3) auto results
+    const { matches, error } = await fetchPremierLeagueResults();
+    if (!error && matches?.length) {
+      let matchedCount = 0;
+      const updatedResults = {};
+
+      matches.forEach((match) => {
+        if (!match.homeTeam || !match.awayTeam) return;
+        if (!match.score?.fullTime) return;
+        if (
+          match.score.fullTime.home === null ||
+          match.score.fullTime.away === null
+        )
+          return;
+
+        const apiHome = normalizeTeamName(match.homeTeam.name);
+        const apiAway = normalizeTeamName(match.awayTeam.name);
+
+        const fixture = FIXTURES.find((f) => {
+          const localHome = normalizeTeamName(f.homeTeam);
+          const localAway = normalizeTeamName(f.awayTeam);
+          return localHome === apiHome && localAway === apiAway;
+        });
+
+        if (fixture) {
+          matchedCount += 1;
+          updatedResults[fixture.id] = {
+            homeGoals: match.score.fullTime.home,
+            awayGoals: match.score.fullTime.away,
+          };
+        }
+      });
+
+      if (matchedCount) {
+        setResults((prev) => ({ ...prev, ...updatedResults }));
+      }
+    }
+
+    // 4) odds (initial load)
+    const { markets, error: oddsError } = await fetchPremierLeagueOdds();
+    if (!oddsError && markets?.length) {
+      const newOdds = {};
+      markets.forEach((m) => {
+        const apiHome = normalizeTeamName(m.homeTeam);
+        const apiAway = normalizeTeamName(m.awayTeam);
+
+        const fixture = FIXTURES.find((f) => {
+          const localHome = normalizeTeamName(f.homeTeam);
+          const localAway = normalizeTeamName(f.awayTeam);
+          return localHome === apiHome && localAway === apiAway;
+        });
+
+        if (fixture) {
+          newOdds[fixture.id] = {
+            home: m.homeOdds,
+            draw: m.drawOdds,
+            away: m.awayOdds,
+          };
+        }
+      });
+
+      if (Object.keys(newOdds).length) {
+        setOdds((prev) => ({ ...prev, ...newOdds }));
+      }
+    }
+  }
+
+  init();
+}, []);
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
 useEffect(() => {
