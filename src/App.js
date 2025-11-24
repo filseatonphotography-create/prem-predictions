@@ -665,18 +665,17 @@ const localAway = normalizeTeamName(
     ? f.awayTeam
     : (f.awayTeam?.name || f.awayTeam?.tla || "")
 );
-
       const fixture = FIXTURES.find((f) => {
         const localHome = normalizeTeamName(
-  typeof f.homeTeam === "string"
-    ? f.homeTeam
-    : (f.homeTeam?.name || f.homeTeam?.tla || "")
-);
+          typeof f.homeTeam === "string"
+            ? f.homeTeam
+            : (f.homeTeam?.name || f.homeTeam?.tla || "")
+        );
         const localAway = normalizeTeamName(
-  typeof f.awayTeam === "string"
-    ? f.awayTeam
-    : (f.awayTeam?.name || f.awayTeam?.tla || "")
-);
+          typeof f.awayTeam === "string"
+            ? f.awayTeam
+            : (f.awayTeam?.name || f.awayTeam?.tla || "")
+        );
         return localHome === apiHome && localAway === apiAway;
       });
 
