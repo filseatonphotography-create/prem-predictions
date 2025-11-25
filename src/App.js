@@ -1955,7 +1955,6 @@ const leaderboard = useMemo(() => {
                           style={{
                             color: theme.muted,
                             fontWeight: 700,
-                            marginTop: 3,
                           }}
                         >
                           VS
