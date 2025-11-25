@@ -1977,10 +1977,12 @@ const pointsForThisFixture = hasResult
     POINTS
   </div>
 
-  <div
+    <div
     style={{
-      width: 48,          // same width as score boxes
-      height: 36,         // same height as score boxes
+      width: 48,
+      height: 36,
+      padding: 0,
+      boxSizing: "border-box",
       borderRadius: 8,
       border: `1px solid ${theme.line}`,
       background:
