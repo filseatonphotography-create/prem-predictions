@@ -1189,7 +1189,7 @@ setNewPasswordInput("");
 
 const leaderboard = useMemo(() => {
   // Use backend-computed totals if available
-    if (computedLeagueTotals) {
+    if (computedLeagueTotals && false) {
     // Collapse any legacy-userId keys into their legacy name
     const LEGACY_MAP = {
       Tom: "1763791297309",
