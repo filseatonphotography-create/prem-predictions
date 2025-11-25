@@ -1965,42 +1965,48 @@ const pointsForThisFixture = hasResult
                             {getTeamCode(fixture.awayTeam)}
                           </span>
                         </div>
-                        <div
-  style={{
-    minWidth: 44,
-    height: 36,
-    marginLeft: "auto",
-    borderRadius: 8,
-    border: `1px solid ${theme.line}`,
-    background:
-      pointsForThisFixture == null
-        ? theme.panel
-        : pred?.isTriple
-        ? "#ffd700"       // gold for triple
-        : pred?.isDouble
-        ? "#C0C0C0"       // silver for double
-        : pointsForThisFixture === 0
-        ? "#e74c3c"       // red for 0 points
-        : "#2ecc71",      // green for >0
+                        <div style={{ display: "grid", marginLeft: "auto" }}>
+  <div
+    style={{
+      fontSize: 10,
+      textAlign: "center",
+      color: theme.muted,
+      marginBottom: 2,
+    }}
+  >
+    POINTS
+  </div>
 
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: 800,
-
-    color:
-      pointsForThisFixture == null
-        ? theme.text
-        : pred?.isTriple
-        ? "#000"          // black on gold
-        : pred?.isDouble
-        ? "#000"          // black on silver
-        : pointsForThisFixture === 0
-        ? "#fff"          // white on red
-        : "#fff",         // white on green
-  }}
->
+  <div
+    style={{
+      width: 48,          // same width as score boxes
+      height: 36,         // same height as score boxes
+      borderRadius: 8,
+      border: `1px solid ${theme.line}`,
+      background:
+        pointsForThisFixture == null
+          ? theme.panel
+          : pred?.isTriple
+          ? "#ffd700"
+          : pred?.isDouble
+          ? "#C0C0C0"
+          : pointsForThisFixture === 0
+          ? "#e74c3c"
+          : "#2ecc71",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 800,
+      color:
+        pointsForThisFixture == null
+          ? theme.text
+          : pred?.isTriple || pred?.isDouble
+          ? "#000"
+          : "#fff",
+    }}
+  >
     {pointsForThisFixture == null ? "" : pointsForThisFixture}
+  </div>
 </div>
 </div>
 
