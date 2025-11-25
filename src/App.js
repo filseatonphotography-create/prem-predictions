@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
+const BUILD_ID = "2025-11-26-a";
 
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const legacyMap = {
@@ -2537,6 +2538,10 @@ minWidth: "100%",
           </section>
         )}
 
+        <div style={{ textAlign: "center", fontSize: 12, color: theme.muted, marginTop: 10 }}>
+  Build: {BUILD_ID}
+</div>
+
         <footer
           style={{
             textAlign: "center",
@@ -2548,6 +2553,7 @@ minWidth: "100%",
           v1 cloud‑sync rebuild • Render backend • Netlify frontend
         </footer>
       </div>
+      
     </div>
   );
 }
