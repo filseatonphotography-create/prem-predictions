@@ -1993,6 +1993,7 @@ const leaderboard = useMemo(() => {
                         {/* POINTS box */}
                         <div
                           style={{
+                            marginLeft: "auto",
                             display: "flex",
                             flexDirection: "column",
                             alignItems: "center",
