@@ -2000,7 +2000,7 @@ const pointsForThisFixture = hasResult
         : "#fff",         // white on green
   }}
 >
-  {pointsForThisFixture == null ? "—" : pointsForThisFixture}
+    {pointsForThisFixture == null ? "" : pointsForThisFixture}
 </div>
 </div>
 
