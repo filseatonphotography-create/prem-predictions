@@ -70,8 +70,8 @@ const DEV_USE_LOCAL = false; // set true ONLY for offline/dev localStorage testi
 
 const BACKEND_BASE =
   window.location.hostname === "localhost"
-    ? "https://prem-predictions-1.onrender.com"
-    : "https://prem-predictions-1.onrender.com";
+    ? "https://prem-predictions-p9fy.onrender.com"
+    : "https://prem-predictions-p9fy.onrender.com";
 
 const STORAGE_KEY = "pl_prediction_game_v1";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
