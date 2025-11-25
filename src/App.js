@@ -1957,7 +1957,7 @@ const leaderboard = useMemo(() => {
                             fontWeight: 700,
                             alignSelf: "center",
                             lineHeight: "32px",
-                            marginTop: 8,  
+                            marginTop: 9,  
                           }}
                         >
                           VS
