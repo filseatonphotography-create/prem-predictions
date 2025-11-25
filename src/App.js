@@ -1833,7 +1833,7 @@ const leaderboard = useMemo(() => {
 })()}
 
         {/* Predictions View */}
-        {activeView === "predictions" && (
+                {activeView === "predictions" && (
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18 }}>
               GW{selectedGameweek} Predictions
@@ -1852,13 +1852,13 @@ const leaderboard = useMemo(() => {
                 const locked = isPredictionLocked(fixture);
                 const o = odds[fixture.id] || {};
                 const probs = computeProbabilities(o);
-                  
+
                 const r = results[fixture.id];
-const hasResult =
-  r && r.homeGoals !== "" && r.awayGoals !== "";
-const pointsForThisFixture = hasResult
-  ? getTotalPoints(pred, r)
-  : null;
+                const hasResult =
+                  r && r.homeGoals !== "" && r.awayGoals !== "";
+                const pointsForThisFixture = hasResult
+                  ? getTotalPoints(pred, r)
+                  : null;
 
                 let predictedPercent = "-";
                 let predictedOdds = "-";
@@ -1897,29 +1897,22 @@ const pointsForThisFixture = hasResult
                       alignItems: "center",
                     }}
                   >
+                    {/* Left content column */}
                     <div style={{ display: "grid", gap: 6, minHeight: 92 }}>
+                      {/* Kickoff time */}
                       <div
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          flexWrap: "wrap",
-                          gap: 6,
+                          width: "100%",
+                          textAlign: "center",
+                          fontSize: 12,
+                          color: theme.muted,
+                          marginBottom: 6,
                         }}
                       >
-                      
-                        <div
-  style={{
-    width: "100%",
-    textAlign: "center",
-    fontSize: 12,
-    color: theme.muted,
-    marginBottom: 6,
-  }}
->
-  {formatKickoffShort(fixture.kickoff)} GMT
-</div>
-</div>
+                        {formatKickoffShort(fixture.kickoff)} GMT
+                      </div>
 
+                      {/* Main score + POINTS row */}
                       <div
                         style={{
                           display: "flex",
@@ -1928,8 +1921,16 @@ const pointsForThisFixture = hasResult
                           flexWrap: "nowrap",
                         }}
                       >
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <span style={{ fontSize: 12, color: theme.muted }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            alignItems: "center",
+                          }}
+                        >
+                          <span
+                            style={{ fontSize: 12, color: theme.muted }}
+                          >
                             {getTeamCode(fixture.homeTeam)}
                           </span>
                           <input
@@ -1939,16 +1940,33 @@ const pointsForThisFixture = hasResult
                             value={pred.homeGoals || ""}
                             disabled={locked}
                             onChange={(e) =>
-                              updatePrediction(currentPredictionKey, fixture.id, {
-                                homeGoals: e.target.value,
-                              })
+                              updatePrediction(
+                                currentPredictionKey,
+                                fixture.id,
+                                {
+                                  homeGoals: e.target.value,
+                                }
+                              )
                             }
                           />
                         </div>
 
-                        <span style={{ color: theme.muted, fontWeight: 700 }}>VS</span>
+                        <span
+                          style={{
+                            color: theme.muted,
+                            fontWeight: 700,
+                          }}
+                        >
+                          VS
+                        </span>
 
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: 6,
+                            alignItems: "center",
+                          }}
+                        >
                           <input
                             type="number"
                             min="0"
@@ -1956,77 +1974,88 @@ const pointsForThisFixture = hasResult
                             value={pred.awayGoals || ""}
                             disabled={locked}
                             onChange={(e) =>
-                              updatePrediction(currentPredictionKey, fixture.id, {
-                                awayGoals: e.target.value,
-                              })
+                              updatePrediction(
+                                currentPredictionKey,
+                                fixture.id,
+                                {
+                                  awayGoals: e.target.value,
+                                }
+                              )
                             }
                           />
-                          <span style={{ fontSize: 12, color: theme.muted }}>
+                          <span
+                            style={{ fontSize: 12, color: theme.muted }}
+                          >
                             {getTeamCode(fixture.awayTeam)}
                           </span>
                         </div>
+
+                        {/* POINTS box */}
                         <div
-  style={{
-    marginLeft: "auto",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    alignSelf: "center",
-  }}
->
-  <div
-    style={{
-      fontSize: 10,
-      textAlign: "center",
-      color: theme.muted,
-      marginBottom: 2,
-      lineHeight: "10px",
-    }}
-  >
-    POINTS
-  </div>
+                          style={{
+                            marginLeft: "auto",
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            alignSelf: "center",
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 10,
+                              textAlign: "center",
+                              color: theme.muted,
+                              marginBottom: 2,
+                              lineHeight: "10px",
+                            }}
+                          >
+                            POINTS
+                          </div>
+                          <input
+                            type="text"
+                            readOnly
+                            value={
+                              pointsForThisFixture == null
+                                ? ""
+                                : pointsForThisFixture
+                            }
+                            style={{
+                              ...smallInput,
+                              fontWeight: 800,
+                              background:
+                                pointsForThisFixture == null
+                                  ? theme.panel
+                                  : pred?.isTriple
+                                  ? "#ffd700"
+                                  : pred?.isDouble
+                                  ? "#C0C0C0"
+                                  : pointsForThisFixture === 0
+                                  ? "#e74c3c"
+                                  : "#2ecc71",
+                              color:
+                                pointsForThisFixture == null
+                                  ? theme.text
+                                  : pred?.isTriple || pred?.isDouble
+                                  ? "#000"
+                                  : "#fff",
+                            }}
+                          />
+                        </div>
+                      </div>
 
-  <input
-    type="text"
-    readOnly
-    value={pointsForThisFixture == null ? "" : pointsForThisFixture}
-    style={{
-      ...smallInput, // EXACT same width/height/padding/border as the score boxes
-      fontWeight: 800,
-      background:
-        pointsForThisFixture == null
-          ? theme.panel
-          : pred?.isTriple
-          ? "#ffd700"
-          : pred?.isDouble
-          ? "#C0C0C0"
-          : pointsForThisFixture === 0
-          ? "#e74c3c"
-          : "#2ecc71",
-      color:
-        pointsForThisFixture == null
-          ? theme.text
-          : pred?.isTriple || pred?.isDouble
-          ? "#000"
-          : "#fff",
-    }}
-  />
-</div>
-
-{/* Controls row (new line) */}
-<div
-  style={{
-    display: "flex",
-    gap: 12,
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "nowrap",
-    width: "100%",
-    marginTop: 10,
-  }}
->
-
-<label
+                      {/* Controls row: captain/triple + predicted %/odds */}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 12,
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          flexWrap: "nowrap",
+                          width: "100%",
+                          marginTop: 10,
+                        }}
+                      >
+                        <label
                           style={{
                             display: "flex",
                             alignItems: "center",
@@ -2041,9 +2070,13 @@ const pointsForThisFixture = hasResult
                             checked={pred.isDouble || false}
                             disabled={locked || pred.isTriple}
                             onChange={(e) =>
-                              updatePrediction(currentPredictionKey, fixture.id, {
-                                isDouble: e.target.checked,
-                              })
+                              updatePrediction(
+                                currentPredictionKey,
+                                fixture.id,
+                                {
+                                  isDouble: e.target.checked,
+                                }
+                              )
                             }
                           />
                         </label>
@@ -2063,9 +2096,13 @@ const pointsForThisFixture = hasResult
                             checked={pred.isTriple || false}
                             disabled={locked || pred.isDouble}
                             onChange={(e) =>
-                              updatePrediction(currentPredictionKey, fixture.id, {
-                                isTriple: e.target.checked,
-                              })
+                              updatePrediction(
+                                currentPredictionKey,
+                                fixture.id,
+                                {
+                                  isTriple: e.target.checked,
+                                }
+                              )
                             }
                           />
                         </label>
@@ -2080,21 +2117,22 @@ const pointsForThisFixture = hasResult
                       </div>
                     </div>
 
+                    {/* Right column: lock status */}
                     <div
-  style={{
-    width: 28,
-    height: 28,
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: "50%",
-    background: locked ? "#ff4d4d" : "#2ecc71", // red = locked, green = open
-    color: "#fff",
-    fontSize: 16,
-  }}
->
-  {locked ? "🔒" : "🔑"}
-</div>
+                      style={{
+                        width: 28,
+                        height: 28,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        borderRadius: "50%",
+                        background: locked ? "#ff4d4d" : "#2ecc71",
+                        color: "#fff",
+                        fontSize: 16,
+                      }}
+                    >
+                      {locked ? "🔒" : "🔑"}
+                    </div>
                   </div>
                 );
               })}
