@@ -1965,7 +1965,13 @@ const pointsForThisFixture = hasResult
                             {getTeamCode(fixture.awayTeam)}
                           </span>
                         </div>
-                        <div style={{ display: "grid", marginLeft: "auto", alignSelf: "center" }}>
+                        <div
+  style={{
+    display: "grid",
+    marginLeft: "auto",
+    alignSelf: "flex-end",
+  }}
+>
   <div
     style={{
       fontSize: 10,
