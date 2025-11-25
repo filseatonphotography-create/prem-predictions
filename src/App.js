@@ -27,8 +27,13 @@ const TEAM_ABBREVIATIONS = {
   Fulham: "FUL",
   Liverpool: "LIV",
   Luton: "LUT",
+
+  // ↓↓↓ MANCHESTER TEAMS ↓↓↓
   "Man City": "MCI",
   "Man United": "MUN",
+  "Manchester United": "MUN",
+  "Man Utd": "MUN",
+
   Newcastle: "NEW",
   Nottingham: "NOT",
   Southampton: "SOU",
@@ -36,10 +41,15 @@ const TEAM_ABBREVIATIONS = {
   "West Ham": "WHU",
   Wolves: "WOL",
   "Sunderland": "SUN",
-"Nott'm Forest": "NFO",
-"Nottingham Forest": "NFO",
-"Spurs": "TOT",
-"Tottenham Hotspur": "TOT",
+
+  // ↓↓↓ FOREST + LEEDS ↓↓↓
+  "Nott'm Forest": "NFO",
+  "Nottingham Forest": "NFO",
+  Leeds: "LEE",
+  "Leeds United": "LEE",
+
+  Spurs: "TOT",
+  "Tottenham Hotspur": "TOT",
 };
 
 /**
