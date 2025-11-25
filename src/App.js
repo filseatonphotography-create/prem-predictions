@@ -2022,6 +2022,9 @@ const leaderboard = useMemo(() => {
                             }
                             style={{
                               ...smallInput,
+                              width: smallInput.width,
+height: smallInput.height,
+padding: smallInput.padding,
                               fontWeight: 800,
                               background:
                                 pointsForThisFixture == null
