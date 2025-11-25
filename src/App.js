@@ -1838,6 +1838,49 @@ const leaderboard = useMemo(() => {
             <h2 style={{ marginTop: 0, fontSize: 18 }}>
               GW{selectedGameweek} Predictions
             </h2>
+            <div
+  style={{
+    display: "flex",
+    gap: 12,
+    padding: 12,
+  }}
+>
+  {/* Example home badge */}
+  <div
+    style={{
+      width: 24,
+      height: 24,
+      borderRadius: "50%",
+      background: theme.badgeBg || theme.panelHi,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 11,
+      fontWeight: 700,
+      color: theme.text,
+    }}
+  >
+    MCI
+  </div>
+
+  {/* Example away badge */}
+  <div
+    style={{
+      width: 24,
+      height: 24,
+      borderRadius: "50%",
+      background: theme.badgeBg || theme.panelHi,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 11,
+      fontWeight: 700,
+      color: theme.text,
+    }}
+  >
+    LIV
+  </div>
+</div>
 
             <div
               style={{
