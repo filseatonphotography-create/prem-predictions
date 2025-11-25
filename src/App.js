@@ -539,6 +539,11 @@ useEffect(() => {
 
     // 3) auto results
     const { matches, error } = await fetchPremierLeagueResults();
+        if (error) {
+      setApiStatus(`Auto results: failed (${error})`);
+    } else {
+      setApiStatus("Auto results: loaded");
+    }
     if (!error && matches?.length) {
       let matchedCount = 0;
       const updatedResults = {};
