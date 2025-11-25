@@ -1967,51 +1967,50 @@ const pointsForThisFixture = hasResult
                         </div>
                         <div
   style={{
-    display: "grid",
     marginLeft: "auto",
-    alignSelf: "flex-end",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    alignSelf: "center",
   }}
 >
-  <div style={{ marginLeft: "auto", height: "100%", display: "flex", alignItems: "center" }}>
-  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-    <div
-      style={{
-        fontSize: 10,
-        textAlign: "center",
-        color: theme.muted,
-        marginBottom: 2,
-        lineHeight: "10px",
-      }}
-    >
-      POINTS
-    </div>
-
-    <input
-      type="text"
-      readOnly
-      value={pointsForThisFixture == null ? "" : pointsForThisFixture}
-      style={{
-        ...smallInput,
-        fontWeight: 800,
-        background:
-          pointsForThisFixture == null
-            ? theme.panel
-            : pred?.isTriple
-            ? "#ffd700"
-            : pred?.isDouble
-            ? "#C0C0C0"
-            : pointsForThisFixture === 0
-            ? "#e74c3c"
-            : "#2ecc71",
-        color:
-          pointsForThisFixture == null
-            ? theme.text
-            : pred?.isTriple || pred?.isDouble
-            ? "#000"
-            : "#fff",
-      }}
-    />
+  <div
+    style={{
+      fontSize: 10,
+      textAlign: "center",
+      color: theme.muted,
+      marginBottom: 2,
+      lineHeight: "10px",
+    }}
+  >
+    POINTS
   </div>
+
+  <input
+    type="text"
+    readOnly
+    value={pointsForThisFixture == null ? "" : pointsForThisFixture}
+    style={{
+      ...smallInput, // EXACT same width/height/padding/border as the score boxes
+      fontWeight: 800,
+      background:
+        pointsForThisFixture == null
+          ? theme.panel
+          : pred?.isTriple
+          ? "#ffd700"
+          : pred?.isDouble
+          ? "#C0C0C0"
+          : pointsForThisFixture === 0
+          ? "#e74c3c"
+          : "#2ecc71",
+      color:
+        pointsForThisFixture == null
+          ? theme.text
+          : pred?.isTriple || pred?.isDouble
+          ? "#000"
+          : "#fff",
+    }}
+  />
 </div>
 
 {/* Controls row (new line) */}
