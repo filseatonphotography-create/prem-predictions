@@ -1978,37 +1978,33 @@ const pointsForThisFixture = hasResult
   </div>
 
     <div
-    style={{
-      width: 48,
-      height: 36,
-      padding: 0,
-      boxSizing: "border-box",
-      borderRadius: 8,
-      border: `1px solid ${theme.line}`,
-      background:
-        pointsForThisFixture == null
-          ? theme.panel
-          : pred?.isTriple
-          ? "#ffd700"
-          : pred?.isDouble
-          ? "#C0C0C0"
-          : pointsForThisFixture === 0
-          ? "#e74c3c"
-          : "#2ecc71",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontWeight: 800,
-      color:
-        pointsForThisFixture == null
-          ? theme.text
-          : pred?.isTriple || pred?.isDouble
-          ? "#000"
-          : "#fff",
-    }}
-  >
-    {pointsForThisFixture == null ? "" : pointsForThisFixture}
-  </div>
+  style={{
+    ...smallInput,           // ← this makes it match EXACTLY
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    border: `1px solid ${theme.line}`,
+    background:
+      pointsForThisFixture == null
+        ? theme.panel
+        : pred?.isTriple
+        ? "#ffd700"
+        : pred?.isDouble
+        ? "#C0C0C0"
+        : pointsForThisFixture === 0
+        ? "#e74c3c"
+        : "#2ecc71",
+    color:
+      pointsForThisFixture == null
+        ? theme.text
+        : pred?.isTriple || pred?.isDouble
+        ? "#000"
+        : "#fff",
+  }}
+>
+  {pointsForThisFixture == null ? "" : pointsForThisFixture}
+</div>
 </div>
 </div>
 
