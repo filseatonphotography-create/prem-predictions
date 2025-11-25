@@ -2012,7 +2012,8 @@ const leaderboard = useMemo(() => {
                             POINTS
                           </div>
                           <input
-                            type="text"
+                            type="number"
+                            min="0"
                             readOnly
                             value={
                               pointsForThisFixture == null
