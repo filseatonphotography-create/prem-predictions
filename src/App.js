@@ -1972,43 +1972,46 @@ const pointsForThisFixture = hasResult
     alignSelf: "flex-end",
   }}
 >
-  <div
-    style={{
-      fontSize: 10,
-      textAlign: "center",
-      color: theme.muted,
-      marginBottom: 2,
-    }}
-  >
-    POINTS
+  <div style={{ marginLeft: "auto", height: "100%", display: "flex", alignItems: "center" }}>
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+    <div
+      style={{
+        fontSize: 10,
+        textAlign: "center",
+        color: theme.muted,
+        marginBottom: 2,
+        lineHeight: "10px",
+      }}
+    >
+      POINTS
+    </div>
+
+    <input
+      type="text"
+      readOnly
+      value={pointsForThisFixture == null ? "" : pointsForThisFixture}
+      style={{
+        ...smallInput,
+        fontWeight: 800,
+        background:
+          pointsForThisFixture == null
+            ? theme.panel
+            : pred?.isTriple
+            ? "#ffd700"
+            : pred?.isDouble
+            ? "#C0C0C0"
+            : pointsForThisFixture === 0
+            ? "#e74c3c"
+            : "#2ecc71",
+        color:
+          pointsForThisFixture == null
+            ? theme.text
+            : pred?.isTriple || pred?.isDouble
+            ? "#000"
+            : "#fff",
+      }}
+    />
   </div>
-  <input
-    type="text"
-    readOnly
-    value={pointsForThisFixture == null ? "" : pointsForThisFixture}
-    style={{
-      ...smallInput, // EXACT same base style as your score inputs
-      fontWeight: 800,
-      background:
-        pointsForThisFixture == null
-          ? theme.panel
-          : pred?.isTriple
-          ? "#ffd700"
-          : pred?.isDouble
-          ? "#C0C0C0"
-          : pointsForThisFixture === 0
-          ? "#e74c3c"
-          : "#2ecc71",
-      color:
-        pointsForThisFixture == null
-          ? theme.text
-          : pred?.isTriple || pred?.isDouble
-          ? "#000"
-          : "#fff",
-    }}
-  />
-      
-</div>
 </div>
 
 {/* Controls row (new line) */}
