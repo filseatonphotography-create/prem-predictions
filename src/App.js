@@ -1917,7 +1917,7 @@ const leaderboard = useMemo(() => {
                         style={{
                           display: "flex",
                           gap: 8,
-                          alignItems: "center",
+                          alignItems: "flex-end",
                           flexWrap: "nowrap",
                         }}
                       >
