@@ -1918,7 +1918,7 @@ const leaderboard = useMemo(() => {
                           display: "flex",
                           gap: 8,
                           alignItems: "center",
-                          flexWrap: "nowrap",
+                          flexWrap: "wrap",
                         }}
                       >
                         <div
