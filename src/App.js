@@ -2001,30 +2001,7 @@ const pointsForThisFixture = hasResult
           : "#fff",
     }}
   />
-      <div
-    style={{
-      ...smallInput, // ← exactly the same size as the score boxes
-      fontWeight: 800,
-      background:
-        pointsForThisFixture == null
-          ? theme.panel
-          : pred?.isTriple
-          ? "#ffd700"
-          : pred?.isDouble
-          ? "#C0C0C0"
-          : pointsForThisFixture === 0
-          ? "#e74c3c"
-          : "#2ecc71",
-      color:
-        pointsForThisFixture == null
-          ? theme.text
-          : pred?.isTriple || pred?.isDouble
-          ? "#000"
-          : "#fff",
-    }}
-  >
-    {pointsForThisFixture == null ? "" : pointsForThisFixture}
-  </div>
+      
 </div>
 </div>
 
