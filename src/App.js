@@ -85,16 +85,7 @@ const TEAM_BADGES = {
   Arsenal: "/badges/arsenal.png",
   Liverpool: "/badges/liverpool.png",
   // Add more teams later as you add files
-};
-
-// Optional team badges – flat icons to show above team codes.
-// These paths assume you'll put PNG files in public/badges, e.g. public/badges/arsenal.png
-const TEAM_BADGES = {
-  Arsenal: "/badges/arsenal.png",
-  Liverpool: "/badges/liverpool.png",
-  // Add more teams later as you add files:
-  // "Manchester City": "/badges/man_city.png",
-  // "Tottenham Hotspur": "/badges/spurs.png",
+  
 };
 
 // Spreadsheet weekly totals (historic seed)
