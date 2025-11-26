@@ -84,8 +84,9 @@ const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const TEAM_BADGES = {
   Arsenal: "/badges/arsenal.png",
   Liverpool: "/badges/liverpool.png",
-  // Add more teams later as you add files
-  
+  Chelsea: "/badges/chelsea.png",
+  "Manchester City": "/badges/man_city.png",
+  Spurs: "/badges/spurs.png",
 };
 
 // Spreadsheet weekly totals (historic seed)
@@ -1932,32 +1933,25 @@ const leaderboard = useMemo(() => {
                           flexWrap: "nowrap",
                         }}
                       >
-                        <div
-  style={{
-    display: "flex",
-    gap: 6,
-    alignItems: "center",
-  }}
->
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
   <div
     style={{
       display: "flex",
-      flexDirection: "column",
       alignItems: "center",
       minWidth: 32,
     }}
   >
     {TEAM_BADGES[fixture.homeTeam] && (
       <img
-        src={TEAM_BADGES[fixture.homeTeam]}
-        alt={fixture.homeTeam}
-        style={{
-          width: 24,
-          height: 24,
-          objectFit: "contain",
-          marginBottom: 2,
-        }}
-      />
+  src={TEAM_BADGES[fixture.homeTeam]}
+  alt={fixture.homeTeam}
+  style={{
+    width: fixture.homeTeam === "Arsenal" ? 32 : 17,
+    height: fixture.homeTeam === "Arsenal" ? 32 : 17,
+    objectFit: "contain",
+    marginRight: 4,
+  }}
+/>
     )}
     <span style={{ fontSize: 12, color: theme.muted }}>
       {getTeamCode(fixture.homeTeam)}
@@ -2013,11 +2007,32 @@ const leaderboard = useMemo(() => {
                               )
                             }
                           />
-                          <span
-                            style={{ fontSize: 12, color: theme.muted }}
-                          >
-                            {getTeamCode(fixture.awayTeam)}
-                          </span>
+                          <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    minWidth: 32,
+  }}
+>
+  <span
+    style={{ fontSize: 12, color: theme.muted }}
+  >
+    {getTeamCode(fixture.awayTeam)}
+  </span>
+
+  {TEAM_BADGES[fixture.awayTeam] && (
+    <img
+      src={TEAM_BADGES[fixture.awayTeam]}
+      alt={fixture.awayTeam}
+      style={{
+        width: fixture.awayTeam === "Arsenal" ? 32 : 17,
+        height: fixture.awayTeam === "Arsenal" ? 32 : 17,
+        objectFit: "contain",
+        marginLeft: 4,
+      }}
+    />
+  )}
+</div>
                         </div>
 
                         {/* POINTS box */}
