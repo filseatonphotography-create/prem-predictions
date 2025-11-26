@@ -231,7 +231,7 @@ async function apiGetLeaguePredictions(token, leagueId) {
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data; // { leagueId, users, predictionsByUserId }
 }
-
+// eslint-disable-next-line no-unused-vars
 async function apiSaveLeagueTotals(token, leagueId, payload) {
   const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
     method: "POST",
