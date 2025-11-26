@@ -79,6 +79,14 @@ const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 // Legacy/original players for history/league views
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 
+// Optional team badges – flat icons stored in /public/badges
+// (We'll add the actual image files in the next step.)
+const TEAM_BADGES = {
+  Arsenal: "/badges/arsenal.png",
+  Liverpool: "/badges/liverpool.png",
+  // Add more teams later as you add files
+};
+
 // Spreadsheet weekly totals (historic seed)
 const SPREADSHEET_WEEKLY_TOTALS = {
   Tom: [8, 14, 33, 8, 42, 11, 34, 16, 14, 8, 26],
@@ -1924,34 +1932,50 @@ const leaderboard = useMemo(() => {
                         }}
                       >
                         <div
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                            alignItems: "center",
-                          }}
-                        >
-                          <span
-                            style={{ fontSize: 12, color: theme.muted }}
-                          >
-                            {getTeamCode(fixture.homeTeam)}
-                          </span>
-                          <input
-                            type="number"
-                            min="0"
-                            style={smallInput}
-                            value={pred.homeGoals || ""}
-                            disabled={locked}
-                            onChange={(e) =>
-                              updatePrediction(
-                                currentPredictionKey,
-                                fixture.id,
-                                {
-                                  homeGoals: e.target.value,
-                                }
-                              )
-                            }
-                          />
-                        </div>
+  style={{
+    display: "flex",
+    gap: 6,
+    alignItems: "center",
+  }}
+>
+  <div
+    style={{
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      minWidth: 32,
+    }}
+  >
+    {TEAM_BADGES[fixture.homeTeam] && (
+      <img
+        src={TEAM_BADGES[fixture.homeTeam]}
+        alt={fixture.homeTeam}
+        style={{
+          width: 24,
+          height: 24,
+          objectFit: "contain",
+          marginBottom: 2,
+        }}
+      />
+    )}
+    <span style={{ fontSize: 12, color: theme.muted }}>
+      {getTeamCode(fixture.homeTeam)}
+    </span>
+  </div>
+
+  <input
+    type="number"
+    min="0"
+    style={smallInput}
+    value={pred.homeGoals || ""}
+    disabled={locked}
+    onChange={(e) =>
+      updatePrediction(currentPredictionKey, fixture.id, {
+        homeGoals: e.target.value,
+      })
+    }
+  />
+</div>
 
                         <span
                           style={{
