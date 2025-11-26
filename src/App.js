@@ -73,7 +73,7 @@ const BACKEND_BASE =
     ? "https://prem-predictions-1.onrender.com"
     : "https://prem-predictions-1.onrender.com";
 
-const STORAGE_KEY = "pl_prediction_game_v1";
+const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 
 // Legacy/original players for history/league views
