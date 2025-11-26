@@ -921,10 +921,10 @@ keys.forEach((k) => {
       setComputedLeagueTotals(leagueTotals);
 
       // 7) Sync totals back to backend
-      apiSaveLeagueTotals(authToken, leagueId, {
-        weeklyTotals,
-        leagueTotals,
-      }).catch((e) => console.error("Failed to sync totals:", e));
+      // apiSaveLeagueTotals(authToken, leagueId, {
+//   weeklyTotals,
+//   leagueTotals,
+// }).catch((e) => console.error("Failed to sync totals:", e));
     } catch (err) {
       console.error("Recalc from league failed:", err);
     }
@@ -1189,7 +1189,7 @@ setNewPasswordInput("");
 
 const leaderboard = useMemo(() => {
   // Use backend-computed totals if available
-    if (computedLeagueTotals && false) {
+    if (computedLeagueTotals) {
     // Collapse any legacy-userId keys into their legacy name
     const LEGACY_MAP = {
       Tom: "1763791297309",
