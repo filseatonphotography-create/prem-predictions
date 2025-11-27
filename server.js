@@ -58,6 +58,7 @@ const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
+const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 
 const RESERVED_LEGACY_NAMES = [
@@ -136,7 +137,9 @@ const saveUsers = (users) => saveJson(USERS_FILE, users);
 // Predictions (userId -> { fixtureId -> prediction })
 const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
 const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
-
+// Totals/history (leagueId -> { weeklyTotals, leagueTotals, updatedAt })
+const loadTotals = () => loadJson(TOTALS_FILE, {});
+const saveTotals = (t) => saveJson(TOTALS_FILE, t);
 // Legacy map (legacyName -> userId)
 const loadLegacyMap = () => loadJson(LEGACY_MAP_FILE, {});
 const saveLegacyMap = (m) => saveJson(LEGACY_MAP_FILE, m);
@@ -690,6 +693,71 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
     });
   } catch (err) {
     console.error("predictions/league error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// TOTALS (computed weekly totals + league totals, synced from frontend)
+// ---------------------------------------------------------------------------
+app.get("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const leagueId = (req.params.leagueId || "").trim();
+
+    const leagues = loadLeagues();
+    const league = leagues.find((l) => l.id === leagueId);
+    if (!league) return res.status(404).json({ error: "Mini-league not found." });
+
+    const members = Array.isArray(league.members)
+      ? league.members
+      : Array.isArray(league.memberUserIds)
+      ? league.memberUserIds
+      : [];
+
+    if (!members.includes(userId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const totals = loadTotals();
+    return res.json(totals[leagueId] || null);
+  } catch (err) {
+    console.error("totals/league get error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const leagueId = (req.params.leagueId || "").trim();
+    const { weeklyTotals, leagueTotals } = req.body || {};
+
+    const leagues = loadLeagues();
+    const league = leagues.find((l) => l.id === leagueId);
+    if (!league) return res.status(404).json({ error: "Mini-league not found." });
+
+    const members = Array.isArray(league.members)
+      ? league.members
+      : Array.isArray(league.memberUserIds)
+      ? league.memberUserIds
+      : [];
+
+    if (!members.includes(userId)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const totals = loadTotals();
+    totals[leagueId] = {
+      weeklyTotals: weeklyTotals || {},
+      leagueTotals: leagueTotals || {},
+      updatedAt: new Date().toISOString(),
+    };
+    saveTotals(totals);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("totals/league save error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

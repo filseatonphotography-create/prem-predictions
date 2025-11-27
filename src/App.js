@@ -1326,7 +1326,7 @@ const leaderboard = useMemo(() => {
   });
 
   const smallInput = {
-    width: 48,
+    width: 38,
     padding: "6px 8px",
     background: theme.panelHi,
     color: theme.text,
