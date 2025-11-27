@@ -1514,49 +1514,88 @@ const leaderboard = useMemo(() => {
     <div style={pageStyle}>
       <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 12 }}>
         {/* Header */}
+                {/* Header */}
         <header
-  style={{
-    ...cardStyle,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 10,
-    position: "sticky",
-    top: 8,
-    zIndex: 5,
-    backdropFilter: "blur(6px)",
-    flexWrap: "wrap"
-  }}
->
-  {/* LEFT SIDE: Title + API status */}
-  <div style={{ display: "flex", flexDirection: "column" }}>
-    <h1 style={{ margin: 0, fontSize: 20 }}>
-      PHIL’S MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
-    </h1>
-    <div style={{ fontSize: 12, color: theme.muted }}>{apiStatus}</div>
-  </div>
+          style={{
+            ...cardStyle,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 10,
+            position: "sticky",
+            top: 8,
+            zIndex: 5,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          {/* Title + API status (centered) */}
+          <div style={{ textAlign: "center" }}>
+            <h1 style={{ margin: 0, fontSize: 20 }}>
+              PHIL’S MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
+            </h1>
+            <div
+              style={{
+                fontSize: 12,
+                color: theme.muted,
+                marginTop: 4,
+              }}
+            >
+              {apiStatus}
+            </div>
+          </div>
 
-  {/* RIGHT SIDE: Change password / Logged in as / Logout */}
-  {isLoggedIn && (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
-      <button
-        onClick={() => setShowPasswordModal(true)}
-        style={{
-          padding: "4px 10px",
-          borderRadius: 6,
-          background: theme.card,
-          color: theme.text,
-          border: "1px solid " + theme.border,
-          cursor: "pointer",
-          fontSize: 12,
-          height: 30
-        }}
-      >
-        Change Password
-      </button>
+          {/* Change password / Logout / Menu (uniform buttons, centered) */}
+          {isLoggedIn && (
+  <div
+    style={{
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: isMobile ? 6 : 8,
+      width: "100%",
+      flexWrap: "nowrap", // stay on one line
+    }}
+  >
+    <button
+      onClick={() => setShowPasswordModal(true)}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 8,
+        background: theme.panelHi,
+        color: theme.text,
+        border: `1px solid ${theme.line}`,
+        cursor: "pointer",
+        fontSize: 12,
+        height: 32,
+        minWidth: isMobile ? 96 : 118,
+        textAlign: "center",
+      }}
+    >
+      {isMobile ? "Password" : "Change Password"}
+    </button>
 
+    <button
+      onClick={handleLogout}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: `1px solid ${theme.line}`,
+        background: theme.panelHi,
+        color: theme.text,
+        cursor: "pointer",
+        fontSize: 12,
+        height: 32,
+        minWidth: isMobile ? 96 : 118,
+        textAlign: "center",
+      }}
+    >
+      Log out
+    </button>
+
+    {isMobile && (
       <button
-        onClick={handleLogout}
+        type="button"
+        onClick={() => setShowMobileMenu((v) => !v)}
         style={{
           padding: "6px 10px",
           borderRadius: 8,
@@ -1565,14 +1604,17 @@ const leaderboard = useMemo(() => {
           color: theme.text,
           cursor: "pointer",
           fontSize: 12,
-          height: 30
-        }}
+          height: 32,
+          minWidth: isMobile ? 96 : 118,
+          textAlign: "center",
+      }}
       >
-        Log out
+        Menu
       </button>
-    </div>
-  )}
-</header>
+    )}
+  </div>
+)}
+        </header>
         {showPasswordModal && (
   <div
     style={{
@@ -1678,28 +1720,101 @@ const leaderboard = useMemo(() => {
     </div>
   </div>
 )}
+ {/* Tabs */}
+{(() => {
+  const TABS = [
+    { id: "predictions", label: "Predictions" },
+    { id: "results", label: "Results" },
+    { id: "league", label: "League Table" },
+    { id: "history", label: "History" },
+    { id: "winprob", label: "Win Probabilities" },
+    { id: "leagues", label: "Mini-Leagues" },
+  ];
 
-        {/* Controls */}
-        <section
+  // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
+  if (isMobile) {
+    if (!showMobileMenu) return null;
+
+    return (
+      <div
+        style={{
+          position: "fixed",
+          top: 88,          // tweak up/down if needed
+          right: 16,        // keeps it near the Menu button
+          zIndex: 1000,
+        }}
+      >
+        <div
           style={{
-  ...cardStyle,
-  display: "grid",
-  gridTemplateColumns: isMobile ? "1fr" : "auto auto",
-  gap: 12,
-  alignItems: "center",
-  justifyItems: isMobile ? "center" : "start",
-  textAlign: isMobile ? "center" : "left",
-}}
+            background: theme.panel,
+            border: `1px solid ${theme.line}`,
+            borderRadius: 10,
+            padding: 6,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+          }}
         >
-          <div
-  style={{
-    display: "flex",
-    gap: 12,
-    alignItems: "center",
-    justifyContent: isMobile ? "center" : "flex-start",
-    width: "100%",
-  }}
->
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setActiveView(t.id);
+                setShowMobileMenu(false);
+              }}
+              style={{
+                ...pillBtn(activeView === t.id),
+                display: "block",
+                textAlign: "left",
+                padding: "6px 10px",
+                fontSize: 14,
+                whiteSpace: "nowrap", // menu width = longest label
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ---- DESKTOP: keep your pill buttons exactly as before ----
+  return (
+    <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          style={pillBtn(activeView === t.id)}
+          onClick={() => setActiveView(t.id)}
+          type="button"
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+})()}
+        {/* Controls */}
+                <section
+          style={{
+            ...cardStyle,
+            display: "grid",
+            gridTemplateColumns: "auto auto",
+            gap: 12,
+            alignItems: "center",
+            justifyContent: "center",
+            justifyItems: "center",
+            textAlign: "left",
+          }}
+        >
+                    <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
             <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
             {gwLocked && isOriginalPlayer ? (
               <select
@@ -1730,14 +1845,16 @@ const leaderboard = useMemo(() => {
             <select
               value={selectedGameweek}
               onChange={(e) => setSelectedGameweek(Number(e.target.value))}
-              style={{
-                padding: "8px 10px",
-                borderRadius: 8,
-                background: theme.panelHi,
-                color: theme.text,
-                border: `1px solid ${theme.line}`,
-                fontSize: 14,
-              }}
+                style={{
+    padding: "6px 14px",
+    borderRadius: 8,
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    fontSize: 14,
+    minWidth: 82,          // keeps “GW13” fully visible with arrow
+    textAlignLast: "center",
+  }}
             >
               {GAMEWEEKS.map((gw) => (
                 <option key={gw} value={gw}>
@@ -1752,96 +1869,6 @@ const leaderboard = useMemo(() => {
             )}
           </div>
         </section>
-
-        {/* Tabs */}
-{(() => {
-  const TABS = [
-    { id: "predictions", label: "Predictions" },
-    { id: "results", label: "Results" },
-    { id: "league", label: "League Table" },
-    { id: "history", label: "History" },
-    { id: "winprob", label: "Win Probabilities" },
-    { id: "leagues", label: "Mini-Leagues" },
-  ];
-
-  // ---- MOBILE: one "Menu" pill that drops down ----
-  if (isMobile) {
-    const currentLabel =
-      TABS.find((t) => t.id === activeView)?.label || "Menu";
-
-    return (
-      <div style={{ marginTop: 8 }}>
-        <button
-          type="button"
-          onClick={() => setShowMobileMenu((v) => !v)}
-          style={{
-            ...pillBtn(true),
-            width: "100%",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 14,
-            fontWeight: 800,
-          }}
-        >
-          <span>Menu — {currentLabel}</span>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>
-            {showMobileMenu ? "▲" : "▼"}
-          </span>
-        </button>
-
-        {showMobileMenu && (
-          <div
-            style={{
-              marginTop: 6,
-              display: "grid",
-              gap: 6,
-              background: theme.panel,
-              border: `1px solid ${theme.line}`,
-              borderRadius: 12,
-              padding: 8,
-            }}
-          >
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  setActiveView(t.id);
-                  setShowMobileMenu(false);
-                }}
-                style={{
-                  ...pillBtn(activeView === t.id),
-                  width: "100%",
-                  textAlign: "left",
-                  fontSize: 14,
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ---- DESKTOP: keep your pill buttons exactly as before ----
-  return (
-    <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {TABS.map((t) => (
-        <button
-          key={t.id}
-          style={pillBtn(activeView === t.id)}
-          onClick={() => setActiveView(t.id)}
-          type="button"
-        >
-          {t.label}
-        </button>
-      ))}
-    </nav>
-  );
-})()}
 
         {/* Predictions View */}
                 {activeView === "predictions" && (
@@ -1946,8 +1973,8 @@ const leaderboard = useMemo(() => {
   src={TEAM_BADGES[fixture.homeTeam]}
   alt={fixture.homeTeam}
   style={{
-    width: fixture.homeTeam === "Arsenal" ? 32 : 17,
-    height: fixture.homeTeam === "Arsenal" ? 32 : 17,
+    width: fixture.homeTeam === "Arsenal" ? 28 : 20,
+  height: fixture.homeTeam === "Arsenal" ? 28 : 20,
     objectFit: "contain",
     marginRight: 4,
   }}
@@ -2025,8 +2052,8 @@ const leaderboard = useMemo(() => {
       src={TEAM_BADGES[fixture.awayTeam]}
       alt={fixture.awayTeam}
       style={{
-        width: fixture.awayTeam === "Arsenal" ? 32 : 17,
-        height: fixture.awayTeam === "Arsenal" ? 32 : 17,
+        width: fixture.awayTeam === "Arsenal" ? 28 : 20,
+        height: fixture.awayTeam === "Arsenal" ? 28 : 20,
         objectFit: "contain",
         marginLeft: 4,
       }}
