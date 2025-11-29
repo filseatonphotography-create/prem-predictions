@@ -83,11 +83,54 @@ const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 // (We'll add the actual image files in the next step.)
 const TEAM_BADGES = {
   Arsenal: "/badges/arsenal.png",
-  Liverpool: "/badges/liverpool.png",
+  "Aston Villa": "/badges/aston_ville.png",
+  Bournemouth: "/badges/bournemouth.png",
+  Brentford: "/badges/brentford.png",
+  Brighton: "/badges/brighton.png",
+  Burnley: "/badges/burnley.png",
   Chelsea: "/badges/chelsea.png",
+  "Crystal Palace": "/badges/crystal_palace.png",
+  Everton: "/badges/everton.png",
+  Fulham: "/badges/fulham.png",
+  Leicester: "/badges/leicester.png",
+  Liverpool: "/badges/liverpool.png",
   "Manchester City": "/badges/man_city.png",
+  "Man City": "/badges/man_city.png",
+  "Manchester United": "/badges/man_united.png",
+  "Man Utd": "/badges/man_united.png",
+  "Manchester Utd": "/badges/man_united.png",
+  Newcastle: "/badges/newcastle.png",
+  "Nottingham Forest": "/badges/nottingham_forest.png",
+Forest: "/badges/nottingham_forest.png",
+Nottingham: "/badges/nottingham_forest.png",
+"Nott'm Forest": "/badges/nottingham_forest.png",
+  Sunderland: "/badges/sunderland.png",
   Spurs: "/badges/spurs.png",
+  "West Ham": "/badges/west_ham.png",
+  Leeds: "/badges/leeds.png",
+  "Leeds United": "/badges/leeds.png",
+  Wolves: "/badges/wolves.png",
 };
+function getBadgeForTeam(name) {
+  if (!name) return null;
+
+  // Normalise apostrophes and extra spaces
+  const cleaned = name.replace(/[’]/g, "'").trim();
+
+  // Exact match first
+  if (TEAM_BADGES[cleaned]) {
+    return TEAM_BADGES[cleaned];
+  }
+
+  const lower = cleaned.toLowerCase();
+
+  // Catch any weird Forest variants
+  if (lower.includes("forest")) {
+    return TEAM_BADGES["Nottingham Forest"];
+  }
+
+  return null;
+}
 
 // Spreadsheet weekly totals (historic seed)
 const SPREADSHEET_WEEKLY_TOTALS = {
@@ -1886,6 +1929,7 @@ const leaderboard = useMemo(() => {
               }}
             >
               {visibleFixtures.map((fixture) => {
+                console.log("TEAM:", fixture.homeTeam, fixture.awayTeam);
                 const pred =
                   predictions[currentPredictionKey]?.[fixture.id] || {};
                 const locked = isPredictionLocked(fixture);
@@ -1962,28 +2006,43 @@ const leaderboard = useMemo(() => {
                       >
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
   <div
-    style={{
-      display: "flex",
-      alignItems: "center",
-      minWidth: 32,
-    }}
-  >
-    {TEAM_BADGES[fixture.homeTeam] && (
-      <img
-  src={TEAM_BADGES[fixture.homeTeam]}
-  alt={fixture.homeTeam}
   style={{
-    width: fixture.homeTeam === "Arsenal" ? 28 : 20,
-  height: fixture.homeTeam === "Arsenal" ? 28 : 20,
-    objectFit: "contain",
-    marginRight: 4,
+    display: "flex",
+    alignItems: "center",
+    minWidth: 32,
   }}
-/>
-    )}
-    <span style={{ fontSize: 12, color: theme.muted }}>
-      {getTeamCode(fixture.homeTeam)}
-    </span>
-  </div>
+>
+  {(TEAM_BADGES[fixture.homeTeam] ||
+    getTeamCode(fixture.homeTeam) === "NFO") && (
+    <img
+      src={
+        getTeamCode(fixture.homeTeam) === "NFO"
+          ? "/badges/nottingham_forest.png"
+          : TEAM_BADGES[fixture.homeTeam]
+      }
+      alt={fixture.homeTeam}
+      style={{
+        width:
+          fixture.homeTeam === "Arsenal"
+            ? 36
+            : fixture.homeTeam === "West Ham"
+            ? 30
+            : 20,
+        height:
+          fixture.homeTeam === "Arsenal"
+            ? 36
+            : fixture.homeTeam === "West Ham"
+            ? 30
+            : 20,
+        objectFit: "contain",
+        marginRight: 4,
+      }}
+    />
+  )}
+  <span style={{ fontSize: 12, color: theme.muted }}>
+    {getTeamCode(fixture.homeTeam)}
+  </span>
+</div>
 
   <input
     type="number"
@@ -2047,13 +2106,28 @@ const leaderboard = useMemo(() => {
     {getTeamCode(fixture.awayTeam)}
   </span>
 
-  {TEAM_BADGES[fixture.awayTeam] && (
+  {(TEAM_BADGES[fixture.awayTeam] ||
+    getTeamCode(fixture.awayTeam) === "NFO") && (
     <img
-      src={TEAM_BADGES[fixture.awayTeam]}
+      src={
+        getTeamCode(fixture.awayTeam) === "NFO"
+          ? "/badges/nottingham_forest.png"
+          : TEAM_BADGES[fixture.awayTeam]
+      }
       alt={fixture.awayTeam}
       style={{
-        width: fixture.awayTeam === "Arsenal" ? 28 : 20,
-        height: fixture.awayTeam === "Arsenal" ? 28 : 20,
+        width:
+          fixture.awayTeam === "Arsenal"
+            ? 36
+            : fixture.awayTeam === "West Ham"
+            ? 30
+            : 20,
+        height:
+          fixture.awayTeam === "Arsenal"
+            ? 36
+            : fixture.awayTeam === "West Ham"
+            ? 30
+            : 20,
         objectFit: "contain",
         marginLeft: 4,
       }}
