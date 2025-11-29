@@ -794,7 +794,7 @@ app.get("/api/results", async (req, res) => {
 app.get("/api/odds", async (req, res) => {
   try {
     // API-FOOTBALL odds endpoint: league 39 = Premier League, season 2024
-    const url = "https://v3.football.api-sports.io/odds?league=39&season=2024";
+    const url = "https://v3.football.api-sports.io/odds?league=39&season=2025&bookmaker=8";
 
     const apiRes = await fetch(url, {
       headers: {
