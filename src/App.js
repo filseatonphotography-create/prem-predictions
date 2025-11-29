@@ -450,13 +450,14 @@ function formatKickoffShort(kickoff) {
   const mins = String(d.getUTCMinutes()).padStart(2, "0");
   return `${day} ${month} ${hours}:${mins}`;
 }
-
+// eslint-disable-next-line no-unused-vars
 function formatOdds(value) {
   if (value === undefined || value === null || value === "") return "-";
   const n = Number(value);
   if (Number.isNaN(n)) return "-";
   return n.toFixed(2);
 }
+
 
 function getTeamCode(name) {
   if (!name) return "";
@@ -1884,7 +1885,9 @@ const leaderboard = useMemo(() => {
                   predictions[currentPredictionKey]?.[fixture.id] || {};
                 const locked = isPredictionLocked(fixture);
                 const o = odds[fixture.id] || {};
-                const probs = computeProbabilities(o);
+                
+                // eslint-disable-next-line no-unused-vars
+const probs = computeProbabilities(o);
 
                 const r = results[fixture.id];
                 const hasResult =
