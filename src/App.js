@@ -682,6 +682,7 @@ const apiAway = normalizeTeamName(
 }, []);
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
+/*
 useEffect(() => {
   const noOddsYet = !odds || Object.keys(odds).length === 0;
   if (!noOddsYet) return;
@@ -692,45 +693,15 @@ useEffect(() => {
 
     const newOdds = {};
     markets.forEach((m) => {
-  const apiHome = normalizeTeamName(
-    typeof m.homeTeam === "string"
-      ? m.homeTeam
-      : (m.homeTeam?.name || m.homeTeam?.tla || "")
-  );
-  const apiAway = normalizeTeamName(
-    typeof m.awayTeam === "string"
-      ? m.awayTeam
-      : (m.awayTeam?.name || m.awayTeam?.tla || "")
-  );
-
-  const fixture = FIXTURES.find((f) => {
-    const localHome = normalizeTeamName(
-      typeof f.homeTeam === "string"
-        ? f.homeTeam
-        : (f.homeTeam?.name || f.homeTeam?.tla || "")
-    );
-    const localAway = normalizeTeamName(
-      typeof f.awayTeam === "string"
-        ? f.awayTeam
-        : (f.awayTeam?.name || f.awayTeam?.tla || "")
-    );
-    return localHome === apiHome && localAway === apiAway;
-  });
-
-  if (fixture) {
-    newOdds[fixture.id] = {
-      home: m.homeOdds,
-      draw: m.drawOdds,
-      away: m.awayOdds,
-    };
-  }
-});
+      // ... mapping logic ...
+    });
 
     if (Object.keys(newOdds).length) {
       setOdds((prev) => ({ ...prev, ...newOdds }));
     }
   })();
 }, []);
+*/
 
   // Auto select next gameweek
   useEffect(() => {
@@ -1923,30 +1894,14 @@ const leaderboard = useMemo(() => {
                   : null;
 
                 // eslint-disable-next-line no-unused-vars
+/*
 let predictedPercent = "-";
-
-// eslint-disable-next-line no-unused-vars
 let predictedOdds = "-";
 
-                if (pred.homeGoals !== "" && pred.awayGoals !== "") {
-                  const ph = Number(pred.homeGoals);
-                  const pa = Number(pred.awayGoals);
-                  if (!Number.isNaN(ph) && !Number.isNaN(pa)) {
-                    const res = getResult(ph, pa);
-                    if (probs) {
-                      if (res === "H") {
-                        predictedPercent = probs.home.toFixed(1) + "%";
-                        predictedOdds = formatOdds(o.home);
-                      } else if (res === "A") {
-                        predictedPercent = probs.away.toFixed(1) + "%";
-                        predictedOdds = formatOdds(o.away);
-                      } else {
-                        predictedPercent = probs.draw.toFixed(1) + "%";
-                        predictedOdds = formatOdds(o.draw);
-                      }
-                    }
-                  }
-                }
+if (pred.homeGoals !== "" && pred.awayGoals !== "") {
+  // ... existing probability logic ...
+}
+*/
 
                 return (
                       <div
