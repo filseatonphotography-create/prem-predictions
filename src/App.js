@@ -2012,15 +2012,15 @@ const leaderboard = useMemo(() => {
       style={{
         width:
           fixture.homeTeam === "Arsenal"
-            ? 36
+            ? 20
             : fixture.homeTeam === "West Ham"
-            ? 30
+            ? 20
             : 20,
         height:
           fixture.homeTeam === "Arsenal"
-            ? 36
+            ? 20
             : fixture.homeTeam === "West Ham"
-            ? 30
+            ? 20
             : 20,
         objectFit: "contain",
         marginRight: 4,
@@ -2106,15 +2106,15 @@ const leaderboard = useMemo(() => {
       style={{
         width:
           fixture.awayTeam === "Arsenal"
-            ? 36
+            ? 20
             : fixture.awayTeam === "West Ham"
-            ? 30
+            ? 20
             : 20,
         height:
           fixture.awayTeam === "Arsenal"
-            ? 36
+            ? 20
             : fixture.awayTeam === "West Ham"
-            ? 30
+            ? 20
             : 20,
         objectFit: "contain",
         marginLeft: 4,

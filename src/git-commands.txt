@@ -1,0 +1,31 @@
+# Git Commands Cheat Sheet (Safe to Copy/Paste)
+
+# Stage all changes
+git add .
+
+# Commit with a message (use straight quotes)
+git commit -m "Your commit message here"
+
+# Push changes to the remote repository
+git push
+
+# Check git status
+git status
+
+# See recent commits
+git log --oneline
+
+# Undo the last local commit (without losing changes)
+git reset --soft HEAD~1
+
+# Discard all local changes (CAREFUL)
+git reset --hard
+
+# Pull latest changes
+git pull
+
+# Create and switch to a new branch
+git checkout -b new-branch-name
+
+# Switch back to main
+git checkout main
