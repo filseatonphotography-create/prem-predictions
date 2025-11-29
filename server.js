@@ -793,46 +793,81 @@ app.get("/api/results", async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/odds", async (req, res) => {
   try {
-    const url =
-      "https://api.the-odds-api.com/v4/sports/soccer_epl/odds" +
-      `?apiKey=${ODDS_API_KEY}&regions=uk&markets=h2h&oddsFormat=decimal`;
+    // API-FOOTBALL odds endpoint: league 39 = Premier League, season 2024
+    const url = "https://v3.football.api-sports.io/odds?league=39&season=2024";
 
-    const apiRes = await fetch(url);
+    const apiRes = await fetch(url, {
+      headers: {
+        "x-apisports-key": ODDS_API_KEY,
+      },
+    });
+
     if (!apiRes.ok) {
       const errorText = await apiRes.text().catch(() => "");
-      console.error("Odds API error:", apiRes.status, errorText);
-      return res
-        .status(apiRes.status)
-        .json({ error: "The Odds API error", status: apiRes.status });
+      console.error("API-FOOTBALL odds error:", apiRes.status, errorText);
+      return res.status(apiRes.status).json({
+        error: "API-FOOTBALL error",
+        status: apiRes.status,
+        details: errorText,
+      });
     }
 
     const data = await apiRes.json();
-    if (!Array.isArray(data)) return res.json([]);
 
+    // data.response is an array of odds entries
     const markets = [];
-    for (const event of data) {
-      const homeTeam = event.home_team;
-      const awayTeam = event.away_team;
+
+    for (const item of data.response || []) {
+      const homeTeam = item.teams?.home?.name;
+      const awayTeam = item.teams?.away?.name;
+
       if (!homeTeam || !awayTeam) continue;
 
-      const bm = event.bookmakers?.[0];
-      const h2h = bm?.markets?.find((m) => m.key === "h2h");
-      const outcomes = h2h?.outcomes;
-      if (!outcomes) continue;
+      // Take first bookmaker / bet that looks like match winner
+      const bookmaker = item.bookmakers?.[0];
+      if (!bookmaker) continue;
 
-      const home = outcomes.find((o) => o.name === homeTeam)?.price;
-      const away = outcomes.find((o) => o.name === awayTeam)?.price;
-      const draw = outcomes.find(
-        (o) => String(o.name).toLowerCase() === "draw"
-      )?.price;
+      const matchWinnerBet =
+        bookmaker.bets?.find(
+          (b) =>
+            b.name === "Match Winner" ||
+            b.name === "1X2" ||
+            b.name === "Winner"
+        ) || bookmaker.bets?.[0];
 
-      if (home && away && draw) {
+      if (!matchWinnerBet || !Array.isArray(matchWinnerBet.values)) continue;
+
+      // Values usually look like: [{value: 'Home', odd: '1.80'}, {value: 'Draw', odd: '3.5'}, ...]
+      const values = matchWinnerBet.values;
+
+      const homeOdd =
+        values.find(
+          (v) =>
+            v.value === "Home" ||
+            v.value === homeTeam ||
+            v.value === "1"
+        )?.odd || null;
+
+      const drawOdd =
+        values.find(
+          (v) => v.value === "Draw" || v.value === "X"
+        )?.odd || null;
+
+      const awayOdd =
+        values.find(
+          (v) =>
+            v.value === "Away" ||
+            v.value === awayTeam ||
+            v.value === "2"
+        )?.odd || null;
+
+      if (homeOdd && drawOdd && awayOdd) {
         markets.push({
           homeTeam,
           awayTeam,
-          homeOdds: home,
-          drawOdds: draw,
-          awayOdds: away,
+          homeOdds: Number(homeOdd),
+          drawOdds: Number(drawOdd),
+          awayOdds: Number(awayOdd),
         });
       }
     }
