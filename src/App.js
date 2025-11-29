@@ -111,26 +111,7 @@ Nottingham: "/badges/nottingham_forest.png",
   "Leeds United": "/badges/leeds.png",
   Wolves: "/badges/wolves.png",
 };
-function getBadgeForTeam(name) {
-  if (!name) return null;
 
-  // Normalise apostrophes and extra spaces
-  const cleaned = name.replace(/[’]/g, "'").trim();
-
-  // Exact match first
-  if (TEAM_BADGES[cleaned]) {
-    return TEAM_BADGES[cleaned];
-  }
-
-  const lower = cleaned.toLowerCase();
-
-  // Catch any weird Forest variants
-  if (lower.includes("forest")) {
-    return TEAM_BADGES["Nottingham Forest"];
-  }
-
-  return null;
-}
 
 // Spreadsheet weekly totals (historic seed)
 const SPREADSHEET_WEEKLY_TOTALS = {
