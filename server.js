@@ -15,7 +15,7 @@ const app = express();
 const FOOTBALL_DATA_TOKEN =
   process.env.FOOTBALL_DATA_TOKEN || "18351cddefba4334a5edb3a60ea84ba3";
 const ODDS_API_KEY =
-  process.env.ODDS_API_KEY || "72209b9a1ab8337b046a7a1a3996f1bc";
+  process.env.ODDS_API_KEY || "6659ed614cb33000eca5166d4bfc9bd3";
 
 // ---------------------------------------------------------------------------
 // CORS (allow Netlify + localhost + Render backend)
