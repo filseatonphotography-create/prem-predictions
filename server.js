@@ -793,8 +793,9 @@ app.get("/api/results", async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/odds", async (req, res) => {
   try {
-    // API-FOOTBALL odds endpoint: league 39 = Premier League, season 2024
-    const url = "https://v3.football.api-sports.io/odds?league=39&season=2025&bookmaker=8";
+    // API-FOOTBALL odds endpoint: league 39 = Premier League, season 2023 (free plan)
+    const url =
+      "https://v3.football.api-sports.io/odds?league=39&season=2023&bookmaker=8";
 
     const apiRes = await fetch(url, {
       headers: {
@@ -814,65 +815,11 @@ app.get("/api/odds", async (req, res) => {
 
     const data = await apiRes.json();
 
-    // data.response is an array of odds entries
-    const markets = [];
+    // TEMP: log raw data so we can see the real structure
+    console.log("API-FOOTBALL RAW ODDS:", JSON.stringify(data, null, 2));
 
-    for (const item of data.response || []) {
-      const homeTeam = item.teams?.home?.name;
-      const awayTeam = item.teams?.away?.name;
-
-      if (!homeTeam || !awayTeam) continue;
-
-      // Take first bookmaker / bet that looks like match winner
-      const bookmaker = item.bookmakers?.[0];
-      if (!bookmaker) continue;
-
-      const matchWinnerBet =
-        bookmaker.bets?.find(
-          (b) =>
-            b.name === "Match Winner" ||
-            b.name === "1X2" ||
-            b.name === "Winner"
-        ) || bookmaker.bets?.[0];
-
-      if (!matchWinnerBet || !Array.isArray(matchWinnerBet.values)) continue;
-
-      // Values usually look like: [{value: 'Home', odd: '1.80'}, {value: 'Draw', odd: '3.5'}, ...]
-      const values = matchWinnerBet.values;
-
-      const homeOdd =
-        values.find(
-          (v) =>
-            v.value === "Home" ||
-            v.value === homeTeam ||
-            v.value === "1"
-        )?.odd || null;
-
-      const drawOdd =
-        values.find(
-          (v) => v.value === "Draw" || v.value === "X"
-        )?.odd || null;
-
-      const awayOdd =
-        values.find(
-          (v) =>
-            v.value === "Away" ||
-            v.value === awayTeam ||
-            v.value === "2"
-        )?.odd || null;
-
-      if (homeOdd && drawOdd && awayOdd) {
-        markets.push({
-          homeTeam,
-          awayTeam,
-          homeOdds: Number(homeOdd),
-          drawOdds: Number(drawOdd),
-          awayOdds: Number(awayOdd),
-        });
-      }
-    }
-
-    res.json(markets);
+    // TEMP: return raw data so you can see it in the browser
+    res.json(data);
   } catch (err) {
     console.error("odds error", err);
     res.status(500).json({ error: "Internal server error" });

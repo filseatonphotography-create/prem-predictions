@@ -683,8 +683,6 @@ const apiAway = normalizeTeamName(
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
 useEffect(() => {
-  if (activeView !== "winprob") return;
-
   const noOddsYet = !odds || Object.keys(odds).length === 0;
   if (!noOddsYet) return;
 
@@ -732,7 +730,7 @@ useEffect(() => {
       setOdds((prev) => ({ ...prev, ...newOdds }));
     }
   })();
-}, [activeView, odds]);
+}, []);
 
   // Auto select next gameweek
   useEffect(() => {
@@ -1924,8 +1922,11 @@ const leaderboard = useMemo(() => {
                   ? getTotalPoints(pred, r)
                   : null;
 
-                let predictedPercent = "-";
-                let predictedOdds = "-";
+                // eslint-disable-next-line no-unused-vars
+let predictedPercent = "-";
+
+// eslint-disable-next-line no-unused-vars
+let predictedOdds = "-";
 
                 if (pred.homeGoals !== "" && pred.awayGoals !== "") {
                   const ph = Number(pred.homeGoals);
@@ -2211,78 +2212,45 @@ const leaderboard = useMemo(() => {
                         </div>
                       </div>
 
-                       {/* Controls row: captain/triple + predicted %/odds */}
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 12,
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          flexWrap: "nowrap",
-                          width: "100%",
-                          marginTop: 10,
-                        }}
-                      >
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            fontSize: 12,
-                            color: theme.muted,
-                          }}
-                        >
-                          Captain
-                          <input
-                            type="checkbox"
-                            checked={pred.isDouble || false}
-                            disabled={locked || pred.isTriple}
-                            onChange={(e) =>
-                              updatePrediction(
-                                currentPredictionKey,
-                                fixture.id,
-                                {
-                                  isDouble: e.target.checked,
-                                }
-                              )
-                            }
-                          />
-                        </label>
+                       {/* Controls row: captain/triple */}
+<div
+  style={{
+    display: "flex",
+    flexDirection: "column",
+    width: "100%",
+    marginTop: 10,
+    gap: 4,
+  }}
+>
+  {/* Centre group: Captain + Triple */}
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 24,
+    }}
+  >
+    {/* Captain + Triple labels... */}
+  </div>
 
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            fontSize: 12,
-                            color: theme.muted,
-                          }}
-                        >
-                          Triple
-                          <input
-                            type="checkbox"
-                            checked={pred.isTriple || false}
-                            disabled={locked || pred.isDouble}
-                            onChange={(e) =>
-                              updatePrediction(
-                                currentPredictionKey,
-                                fixture.id,
-                                {
-                                  isTriple: e.target.checked,
-                                }
-                              )
-                            }
-                          />
-                        </label>
+  {/*
+  // Hide this until we have a paid odds API with real data
 
-                        <div style={{ fontSize: 12, color: theme.muted }}>
-                          Pred:{" "}
-                          <span style={{ color: theme.text }}>
-                            {predictedPercent}
-                          </span>{" "}
-                          @ {predictedOdds}
-                        </div>
-                      </div>
+  <div
+    style={{
+      fontSize: 12,
+      color: theme.muted,
+      alignSelf: "center",
+      textAlign: "center",
+    }}
+  >
+    Pred:{" "}
+    <span style={{ color: theme.text }}>{predictedPercent}</span> @{" "}
+    {predictedOdds}
+  </div>
+  */}
+</div>
                     </div>
 
                     
@@ -2294,65 +2262,136 @@ const leaderboard = useMemo(() => {
         )}
 
         {/* Results View */}
-        {activeView === "results" && (
-          <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>
-              GW{selectedGameweek} Results
-            </h2>
+{activeView === "results" && (
+  <section style={cardStyle}>
+    <h2 style={{ marginTop: 0, fontSize: 18 }}>
+      GW{selectedGameweek} Results
+    </h2>
 
-            <div style={{ display: "grid", gap: 8 }}>
-              {visibleFixtures.map((fixture) => {
-                const res = results[fixture.id] || {};
-                return (
-                  <div
-                    key={fixture.id}
+    <div style={{ display: "grid", gap: 8 }}>
+      {visibleFixtures.map((fixture) => {
+        const res = results[fixture.id] || {};
+
+        const homeCode = getTeamCode(fixture.homeTeam);
+        const awayCode = getTeamCode(fixture.awayTeam);
+
+        // Badge sources, using your current TEAM_BADGES + NFO fallback
+        const homeBadgeSrc =
+          homeCode === "NFO"
+            ? "/badges/nottingham_forest.png"
+            : TEAM_BADGES[fixture.homeTeam];
+
+        const awayBadgeSrc =
+          awayCode === "NFO"
+            ? "/badges/nottingham_forest.png"
+            : TEAM_BADGES[fixture.awayTeam];
+
+        return (
+          <div
+            key={fixture.id}
+            style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 10,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            {/* Inner row, centered */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+                justifyContent: "center",
+              }}
+            >
+              {/* Home badge + code */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                {homeBadgeSrc && (
+                  <img
+                    src={homeBadgeSrc}
+                    alt={fixture.homeTeam}
                     style={{
-                      background: theme.panelHi,
-                      borderRadius: 12,
-                      border: `1px solid ${theme.line}`,
-                      padding: 10,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: 8,
+                      width: 20,
+                      height: 20,
+                      objectFit: "contain",
                     }}
-                  >
-                    <div style={{ fontWeight: 700 }}>
-                      {getTeamCode(fixture.homeTeam)} vs {getTeamCode(fixture.awayTeam)}
-                    </div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input
-                        type="number"
-                        min="0"
-                        style={smallInput}
-                        value={res.homeGoals === 0 ? 0 : res.homeGoals ?? ""}
-                        onChange={(e) =>
-                          updateResult(fixture.id, {
-                            homeGoals: Number(e.target.value),
-                          })
-                        }
-                      />
-                      <span style={{ color: theme.muted }}>–</span>
-                      <input
-                        type="number"
-                        min="0"
-                        style={smallInput}
-                        value={res.awayGoals === 0 ? 0 : res.awayGoals ?? ""}
-                        onChange={(e) =>
-                          updateResult(fixture.id, {
-                            awayGoals: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        )}
+                  />
+                )}
+                <span style={{ fontWeight: 700 }}>{homeCode}</span>
+              </div>
 
+              {/* Score inputs */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  type="number"
+                  min="0"
+                  style={smallInput}
+                  value={res.homeGoals === 0 ? 0 : res.homeGoals ?? ""}
+                  onChange={(e) =>
+                    updateResult(fixture.id, {
+                      homeGoals: Number(e.target.value),
+                    })
+                  }
+                />
+                <span style={{ color: theme.muted }}>–</span>
+                <input
+                  type="number"
+                  min="0"
+                  style={smallInput}
+                  value={res.awayGoals === 0 ? 0 : res.awayGoals ?? ""}
+                  onChange={(e) =>
+                    updateResult(fixture.id, {
+                      awayGoals: Number(e.target.value),
+                    })
+                  }
+                />
+              </div>
+
+              {/* Away code + badge */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span style={{ fontWeight: 700 }}>{awayCode}</span>
+                {awayBadgeSrc && (
+                  <img
+                    src={awayBadgeSrc}
+                    alt={fixture.awayTeam}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      objectFit: "contain",
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </section>
+)}
         {/* League Table */}
         {activeView === "league" && (
           <section style={cardStyle}>
@@ -2392,7 +2431,7 @@ const leaderboard = useMemo(() => {
     maxWidth: "100%",
   }}
 >
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>Historical Weekly Scores</h2>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>Weekly Scores</h2>
 
             <div style={{ overflowX: "auto" }}>
               <table
