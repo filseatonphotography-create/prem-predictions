@@ -1956,7 +1956,7 @@ const leaderboard = useMemo(() => {
                       border: `1px solid ${theme.line}`,
                       padding: 8,
                       display: "grid",
-                      gridTemplateColumns: "1fr 28px",
+                      gridTemplateColumns: "minmax(0, 1fr) 28px",
                       gap: 10,
                       alignItems: "center",
                     }}
@@ -1982,7 +1982,7 @@ const leaderboard = useMemo(() => {
                           display: "flex",
                           gap: 8,
                           alignItems: "flex-end",
-                          flexWrap: "nowrap",
+                          flexWrap: "wrap",
                         }}
                       >
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -2120,7 +2120,7 @@ const leaderboard = useMemo(() => {
                         {/* POINTS box */}
                         <div
                           style={{
-                            marginLeft: "auto",
+                            marginLeft: 8,
                             display: "flex",
                             flexDirection: "column",
                             alignItems: "center",

@@ -1,7 +1,7 @@
 /* Global Styles */
 body {
   font-family: 'Arial', sans-serif; /* More bold + readable */
-  background-color: #f5f5f5;
+  background-color: #0f172a;
   color: #222; /* Darker text */
   margin: 0;
   padding: 0;
@@ -219,4 +219,13 @@ footer {
   display: flex;
   gap: 8px;
   flex-wrap: nowrap;
+}
+html, body {
+  overflow-x: hidden;
+}
+html, body {
+  overflow-x: hidden;
+}
+* {
+  outline: 1px solid red !important;
 }
