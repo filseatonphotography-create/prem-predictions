@@ -1536,7 +1536,7 @@ const leaderboard = useMemo(() => {
   // ---------- MAIN APP ----------
   return (
     <div style={pageStyle}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", display: "grid", gap: 12 }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", display: "grid", gap: 12 }}>
         {/* Header */}
                 {/* Header */}
         <header
@@ -1948,19 +1948,19 @@ const leaderboard = useMemo(() => {
                 }
 
                 return (
-                  <div
-                    key={fixture.id}
-                    style={{
-                      background: theme.panelHi,
-                      borderRadius: 12,
-                      border: `1px solid ${theme.line}`,
-                      padding: 8,
-                      display: "grid",
-                      gridTemplateColumns: "minmax(0, 1fr) 28px",
-                      gap: 10,
-                      alignItems: "center",
-                    }}
-                  >
+                      <div
+      key={fixture.id}
+      style={{
+        background: theme.panelHi,
+        borderRadius: 12,
+        border: `1px solid ${theme.line}`,
+        padding: 8,
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gap: 8,
+        alignItems: "flex-start",
+      }}
+    >
                     {/* Left content column */}
                     <div style={{ display: "grid", gap: 6, minHeight: 92 }}>
                       {/* Kickoff time */}
@@ -1976,16 +1976,23 @@ const leaderboard = useMemo(() => {
                         {formatKickoffShort(fixture.kickoff)} GMT
                       </div>
 
-                      {/* Main score + POINTS row */}
+                                            {/* Main score + POINTS row */}
                       <div
                         style={{
                           display: "flex",
-                          gap: 8,
+                          gap: 6,
                           alignItems: "flex-end",
-                          flexWrap: "wrap",
+                          flexWrap: "nowrap",
+                          justifyContent: "center",
                         }}
                       >
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                                <div
+  style={{
+    display: "flex",
+    gap: 6,
+    alignItems: "center",
+  }}
+>
   <div
   style={{
     display: "flex",
@@ -2117,64 +2124,94 @@ const leaderboard = useMemo(() => {
 </div>
                         </div>
 
-                        {/* POINTS box */}
-                        <div
+                                                {/* Right-side row: POINTS + lock key */}
+                                                <div
                           style={{
-                            marginLeft: 8,
                             display: "flex",
-                            flexDirection: "column",
                             alignItems: "center",
+                            gap: 6,
+                            marginLeft: 8,
                             alignSelf: "center",
+                            flexShrink: 0,
                           }}
                         >
+                          {/* POINTS box */}
                           <div
                             style={{
-                              fontSize: 10,
-                              textAlign: "center",
-                              color: theme.muted,
-                              marginBottom: 2,
-                              lineHeight: "10px",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
                             }}
                           >
-                            POINTS
+                            <div
+                              style={{
+                                fontSize: 10,
+                                textAlign: "center",
+                                color: theme.muted,
+                                marginBottom: 2,
+                                lineHeight: "10px",
+                              }}
+                            >
+                              POINTS
+                            </div>
+                            <input
+                              type="number"
+                              min="0"
+                              readOnly
+                              value={
+                                pointsForThisFixture == null
+                                  ? ""
+                                  : pointsForThisFixture
+                              }
+                              style={{
+                                ...smallInput,
+                                width: smallInput.width,
+                                height: smallInput.height,
+                                padding: smallInput.padding,
+                                fontWeight: 800,
+                                background:
+                                  pointsForThisFixture == null
+                                    ? theme.panel
+                                    : pred?.isTriple
+                                    ? "#ffd700"
+                                    : pred?.isDouble
+                                    ? "#C0C0C0"
+                                    : pointsForThisFixture === 0
+                                    ? "#e74c3c"
+                                    : "#2ecc71",
+                                color:
+                                  pointsForThisFixture == null
+                                    ? theme.text
+                                    : pred?.isTriple || pred?.isDouble
+                                    ? "#000"
+                                    : "#fff",
+                              }}
+                            />
                           </div>
-                          <input
-                            type="number"
-                            min="0"
-                            readOnly
-                            value={
-                              pointsForThisFixture == null
-                                ? ""
-                                : pointsForThisFixture
-                            }
+
+                          {/* Lock status key */}
+                          <div
                             style={{
-                              ...smallInput,
-                              width: smallInput.width,
-height: smallInput.height,
-padding: smallInput.padding,
-                              fontWeight: 800,
-                              background:
-                                pointsForThisFixture == null
-                                  ? theme.panel
-                                  : pred?.isTriple
-                                  ? "#ffd700"
-                                  : pred?.isDouble
-                                  ? "#C0C0C0"
-                                  : pointsForThisFixture === 0
-                                  ? "#e74c3c"
-                                  : "#2ecc71",
-                              color:
-                                pointsForThisFixture == null
-                                  ? theme.text
-                                  : pred?.isTriple || pred?.isDouble
-                                  ? "#000"
-                                  : "#fff",
+                              width: 22,
+                              height: 22,
+                              display: "flex",
+                              justifyContent: "center",
+                              alignItems: "center",
+                              borderRadius: "50%",
+                              background: locked ? "#ff4d4d" : "#2ecc71",
+                              color: "#fff",
+                              fontSize: 14,
+                              lineHeight: 1,
+                              flexShrink: 0,
+                              marginTop: 12,
                             }}
-                          />
+                          >
+                            {locked ? "🔒" : "🔑"}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Controls row: captain/triple + predicted %/odds */}
+                       {/* Controls row: captain/triple + predicted %/odds */}
                       <div
                         style={{
                           display: "flex",
@@ -2248,22 +2285,7 @@ padding: smallInput.padding,
                       </div>
                     </div>
 
-                    {/* Right column: lock status */}
-                    <div
-                      style={{
-                        width: 28,
-                        height: 28,
-                        display: "flex",
-                        justifyContent: "center",
-                        alignItems: "center",
-                        borderRadius: "50%",
-                        background: locked ? "#ff4d4d" : "#2ecc71",
-                        color: "#fff",
-                        fontSize: 16,
-                      }}
-                    >
-                      {locked ? "🔒" : "🔑"}
-                    </div>
+                    
                   </div>
                 );
               })}
