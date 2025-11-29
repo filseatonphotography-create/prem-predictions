@@ -2189,25 +2189,50 @@ if (pred.homeGoals !== "" && pred.awayGoals !== "") {
       gap: 24,
     }}
   >
-    {/* Captain + Triple labels... */}
-  </div>
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 12,
+        color: theme.muted,
+      }}
+    >
+      Captain
+      <input
+        type="checkbox"
+        checked={pred.isDouble || false}
+        disabled={locked || pred.isTriple}
+        onChange={(e) =>
+          updatePrediction(currentPredictionKey, fixture.id, {
+            isDouble: e.target.checked,
+          })
+        }
+      />
+    </label>
 
-  {/*
-  // Hide this until we have a paid odds API with real data
-
-  <div
-    style={{
-      fontSize: 12,
-      color: theme.muted,
-      alignSelf: "center",
-      textAlign: "center",
-    }}
-  >
-    Pred:{" "}
-    <span style={{ color: theme.text }}>{predictedPercent}</span> @{" "}
-    {predictedOdds}
+    <label
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 12,
+        color: theme.muted,
+      }}
+    >
+      Triple
+      <input
+        type="checkbox"
+        checked={pred.isTriple || false}
+        disabled={locked || pred.isDouble}
+        onChange={(e) =>
+          updatePrediction(currentPredictionKey, fixture.id, {
+            isTriple: e.target.checked,
+          })
+        }
+      />
+    </label>
   </div>
-  */}
 </div>
                     </div>
 
