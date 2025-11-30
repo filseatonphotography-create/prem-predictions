@@ -1586,11 +1586,11 @@ const leaderboard = useMemo(() => {
             <h1
   style={{
     marginTop: "0.8rem",
-    marginBottom: "0.3rem",
+    marginBottom: "1.5rem",
     fontSize: "2rem",
     fontWeight: 700,
     letterSpacing: "0.5px",
-    whiteSpace: "nowrap"
+    whiteSpace: "normal"
   }}
 >
 
