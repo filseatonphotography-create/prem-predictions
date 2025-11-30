@@ -2031,7 +2031,7 @@ if (pred.homeGoals !== "" && pred.awayGoals !== "") {
                           display: "flex",
                           gap: 6,
                           alignItems: "flex-end",
-                          flexWrap: "nowrap",
+                          flexWrap: "wrap",
                           justifyContent: "center",
                         }}
                       >
