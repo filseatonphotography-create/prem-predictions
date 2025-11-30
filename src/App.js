@@ -505,7 +505,12 @@ function getTeamCode(name) {
 }
 
 // ---------------------------------------------------------------------------
+const TAGLINES = [
+  "Where Every Score Matters",
+  "Think You Know Football? Prove It."
+];
 
+const randomTagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
 export default function App() {
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -1335,75 +1340,129 @@ const leaderboard = useMemo(() => {
     return (
       <div style={pageStyle}>
         <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
-          <header style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: "linear-gradient(135deg,#1d4ed8,#22c55e)",
-                display: "grid",
-                placeItems: "center",
-                fontWeight: 800,
-              }}
-            >
-              PL
-            </div>
-            <div>
-              <h1 style={{ margin: 0, fontSize: 24, letterSpacing: 0.4 }}>
-                Phil’s Score Prediction Challenge
-              </h1>
-             
-            </div>
-          </header>
+          <header
+  style={{
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginBottom: 10,
+  }}
+>
+  <div
+    style={{
+      width: 44,
+      height: 44,
+      borderRadius: 12,
+      overflow: "hidden",
+    }}
+  >
+    <img
+      src="/icon_64.png"
+      alt="Prediction Addiction logo"
+      style={{ width: "100%", height: "100%" }}
+    />
+  </div>
+  <div>
+    <h1
+  style={{
+    margin: 0,
+    fontSize: 22,
+    letterSpacing: 0.4,
+    display: "flex",
+    alignItems: "center",
+    gap: 2,
+  }}
+>
+  PREDICTI
+  <span
+    role="img"
+    aria-label="football"
+    style={{
+      fontSize: "1.3rem",
+      position: "relative",
+      top: "1px",
+      margin: "0 -2px",
+    }}
+  >
+    ⚽
+  </span>
+  N ADDICTI
+  <span
+    role="img"
+    aria-label="football"
+    style={{
+      fontSize: "1.3rem",
+      position: "relative",
+      top: "1px",
+      margin: "0 -2px",
+    }}
+  >
+    ⚽
+  </span>
+  N
+</h1>
+  </div>
+</header>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-            <section style={{ ...cardStyle, maxWidth: 520 }}>
-              <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
+  <section
+    style={{
+      ...cardStyle,
+      maxWidth: 360,
+      width: "100%",
+      margin: "0 auto",
+    }}
+  >
+    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
 
               <form onSubmit={handleAuthSubmit} style={{ display: "grid", gap: 10 }}>
                 <label style={{ fontSize: 13, color: theme.muted }}>
                   Username
                   <input
-                    style={{
-                      width: "100%",
-                      marginTop: 6,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: theme.panelHi,
-                      color: theme.text,
-                      border: `1px solid ${theme.line}`,
-                      fontSize: 15,
-                    }}
-                    type="text"
-                    value={loginName}
-                    onChange={(e) => setLoginName(e.target.value)}
-                    placeholder="e.g. Phil"
-                    autoComplete="username"
-                  />
+  style={{
+    width: "92%",
+    marginTop: 6,
+    marginLeft: "auto",
+    marginRight: "auto",
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    fontSize: 15,
+  }}
+  type="text"
+  value={loginName}
+  onChange={(e) => setLoginName(e.target.value)}
+  placeholder="e.g. Phil"
+  autoComplete="username"
+/>
                 </label>
 
                 <label style={{ fontSize: 13, color: theme.muted }}>
                   Password
                   <input
-                    style={{
-                      width: "100%",
-                      marginTop: 6,
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: theme.panelHi,
-                      color: theme.text,
-                      border: `1px solid ${theme.line}`,
-                      fontSize: 15,
-                    }}
-                    type="password"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="••••"
-                    autoComplete={
-                      loginMode === "signup" ? "new-password" : "current-password"
-                    }
-                  />
+  style={{
+    width: "92%",
+    marginTop: 6,
+    marginLeft: "auto",
+    marginRight: "auto",
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    fontSize: 15,
+  }}
+  type="password"
+  value={loginPassword}
+  onChange={(e) => setLoginPassword(e.target.value)}
+  placeholder="••••"
+  autoComplete={
+    loginMode === "signup" ? "new-password" : "current-password"
+  }
+/>
                 </label>
 
                 <div style={{ display: "flex", gap: 8 }}>
@@ -1524,9 +1583,40 @@ const leaderboard = useMemo(() => {
         >
           {/* Title + API status (centered) */}
           <div style={{ textAlign: "center" }}>
-            <h1 style={{ margin: 0, fontSize: 20 }}>
-              PHIL’S MAGICAL FUNTASTICAL SCORE PREDICTION CHALLENGE!
-            </h1>
+            <h1
+  style={{
+    marginTop: "0.8rem",
+    marginBottom: "0.3rem",
+    fontSize: "2rem",
+    fontWeight: 700,
+    letterSpacing: "0.5px",
+    whiteSpace: "nowrap"
+  }}
+>
+
+  Predicti
+  <span
+  className="football-icon"
+  role="img"
+  aria-label="football"
+  style={{ fontSize: "1.7rem", position: "relative", top: "-2px" }}
+>
+    ⚽
+  </span>
+  n Addicti
+  <span
+  className="football-icon"
+  role="img"
+  aria-label="football"
+  style={{ fontSize: "1.7rem", position: "relative", top: "-2px" }}
+>
+    ⚽
+  </span>
+  n
+</h1>
+<p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
+  {randomTagline}
+</p>
             <div
               style={{
                 fontSize: 12,

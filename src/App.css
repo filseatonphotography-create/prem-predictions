@@ -1,3 +1,23 @@
+.football-icon {
+  display: inline-block;
+  animation: football-bounce 0.7s ease-out;
+}
+
+@keyframes football-bounce {
+  0% {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(4px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* Global Styles */
 body {
   font-family: 'Arial', sans-serif; /* More bold + readable */
