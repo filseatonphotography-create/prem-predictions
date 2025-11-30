@@ -23,14 +23,16 @@ const ODDS_API_KEY =
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",
 
-  // Your Netlify live site
+  // Netlify live site
   "https://scintillating-macaron-cfbf04.netlify.app",
-
-  // Netlify branch deploys
   "https://main--scintillating-macaron-cfbf04.netlify.app",
   "https://deploy-preview--scintillating-macaron-cfbf04.netlify.app",
 
-  // Render backend
+  // New custom domains
+  "https://predictionaddiction.net",
+  "https://www.predictionaddiction.net",
+
+  // Render backend (old domains)
   "https://prem-predictions-1.onrender.com",
   "https://prem-predictions-p9fy.onrender.com",
 ]);
