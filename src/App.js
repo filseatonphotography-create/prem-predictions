@@ -1296,15 +1296,16 @@ const leaderboard = useMemo(() => {
   button: "#38bdf8",            // same as accent
 };
 
-  const pageStyle = {
-  minHeight: "100vh",
-  background: theme.bg,
-  color: theme.text,
-  fontFamily:
-    "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-  padding: "12px 8px",
-  boxSizing: "border-box",
-};
+    const pageStyle = {
+    minHeight: "100vh",
+    background: theme.bg,
+    color: theme.text,
+    fontFamily:
+      "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+    padding: "16px 0",        // no left/right gap
+    boxSizing: "border-box",
+    overflowX: "hidden",      // stop any horizontal scroll / offset
+  };
 
   const cardStyle = {
     background: theme.panel,
@@ -1566,26 +1567,30 @@ if (!isLoggedIn) {
         >
           {/* Title + API status (centered) */}
           <div style={{ textAlign: "center" }}>
-                <h1
-      style={{
-        marginTop: "0.8rem",
-        marginBottom: "1.5rem",
-        fontSize: isMobile ? "1.6rem" : "2rem",
-        fontWeight: 700,
-        letterSpacing: "0.5px",
-        whiteSpace: "nowrap",       // keep it on one line
-        maxWidth: "100%",           // don’t grow wider than the screen
-        overflow: "hidden",         // if it ever is too wide, clip inside
-        textOverflow: "ellipsis",   // avoid pushing the layout wider
-      }}
-    >
+                            <h1
+  style={{
+    marginTop: "0.8rem",
+    marginBottom: "1.5rem",
+    fontSize: isMobile ? "1.4rem" : "2rem",
+    fontWeight: 700,
+    letterSpacing: "0.5px",
+    whiteSpace: "nowrap",     // keep it on one line
+    maxWidth: "100%",         // never wider than the viewport
+    overflow: "hidden",       // clip instead of pushing layout wider
+    textOverflow: "clip",
+  }}
+>
 
   Predicti
   <span
   className="football-icon"
   role="img"
   aria-label="football"
-  style={{ fontSize: "1.7rem", position: "relative", top: "-2px" }}
+  style={{
+    fontSize: isMobile ? "1.2rem" : "1.9rem",
+    position: "relative",
+    top: "-1px",
+  }}
 >
     ⚽
   </span>
@@ -1594,7 +1599,11 @@ if (!isLoggedIn) {
   className="football-icon"
   role="img"
   aria-label="football"
-  style={{ fontSize: "1.7rem", position: "relative", top: "-2px" }}
+  style={{
+    fontSize: isMobile ? "1.2rem" : "1.9rem",
+    position: "relative",
+    top: "-1px",
+  }}
 >
     ⚽
   </span>
