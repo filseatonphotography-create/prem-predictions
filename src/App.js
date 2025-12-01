@@ -1297,13 +1297,14 @@ const leaderboard = useMemo(() => {
 };
 
   const pageStyle = {
-    minHeight: "100vh",
-    background: theme.bg,
-    color: theme.text,
-    fontFamily:
-      "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-    padding: "16px",
-  };
+  minHeight: "100vh",
+  background: theme.bg,
+  color: theme.text,
+  fontFamily:
+    "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
+  padding: "16px 18px",
+  boxSizing: "border-box",
+};
 
   const cardStyle = {
     background: theme.panel,
@@ -1379,15 +1380,16 @@ const leaderboard = useMemo(() => {
   </h1>
 </header>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-  <section
-    style={{
-      ...cardStyle,
-      maxWidth: 360,
-      width: "100%",
-      margin: "0 auto",
-    }}
-  >
+          <div
+  style={{
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 12,
+    maxWidth: 480,
+    margin: "0 auto",
+  }}
+>
+  <section style={cardStyle}>
     <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
 
               <form onSubmit={handleAuthSubmit} style={{ display: "grid", gap: 10 }}>
