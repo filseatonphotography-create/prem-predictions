@@ -28,6 +28,9 @@ const ALLOWED_ORIGINS = new Set([
   "https://main--scintillating-macaron-cfbf04.netlify.app",
   "https://deploy-preview--scintillating-macaron-cfbf04.netlify.app",
 
+  // Current Netlify site
+  "https://predictionaddiction.netlify.app",
+
   // New custom domain (frontend)
   "https://predictionaddiction.net",
   "https://www.predictionaddiction.net",
