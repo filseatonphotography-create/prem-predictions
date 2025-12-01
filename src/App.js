@@ -1566,16 +1566,19 @@ if (!isLoggedIn) {
         >
           {/* Title + API status (centered) */}
           <div style={{ textAlign: "center" }}>
-            <h1
-  style={{
-    marginTop: "0.8rem",
-    marginBottom: "1.5rem",
-    fontSize: "2rem",
-    fontWeight: 700,
-    letterSpacing: "0.5px",
-    whiteSpace: "nowrap"
-  }}
->
+                <h1
+      style={{
+        marginTop: "0.8rem",
+        marginBottom: "1.5rem",
+        fontSize: isMobile ? "1.6rem" : "2rem",
+        fontWeight: 700,
+        letterSpacing: "0.5px",
+        whiteSpace: "nowrap",       // keep it on one line
+        maxWidth: "100%",           // don’t grow wider than the screen
+        overflow: "hidden",         // if it ever is too wide, clip inside
+        textOverflow: "ellipsis",   // avoid pushing the layout wider
+      }}
+    >
 
   Predicti
   <span
