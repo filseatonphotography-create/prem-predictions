@@ -1363,46 +1363,20 @@ const leaderboard = useMemo(() => {
       style={{ width: "100%", height: "100%" }}
     />
   </div>
-  <div>
-    <h1
-  style={{
-    margin: 0,
-    fontSize: 22,
-    letterSpacing: 0.4,
-    display: "flex",
-    alignItems: "center",
-    gap: 2,
-  }}
->
-  PREDICTI
-  <span
-    role="img"
-    aria-label="football"
+
+  <h1
     style={{
-      fontSize: "1.3rem",
-      position: "relative",
-      top: "1px",
-      margin: "0 -2px",
+      margin: 0,
+      fontSize: 22,
+      letterSpacing: 0.4,
+      textTransform: "uppercase",
+      color: theme.accent,
+      textAlign: "center",
+      whiteSpace: "nowrap",
     }}
   >
-    ⚽
-  </span>
-  N ADDICTI
-  <span
-    role="img"
-    aria-label="football"
-    style={{
-      fontSize: "1.3rem",
-      position: "relative",
-      top: "1px",
-      margin: "0 -2px",
-    }}
-  >
-    ⚽
-  </span>
-  N
-</h1>
-  </div>
+    PREDICTION ADDICTION
+  </h1>
 </header>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
