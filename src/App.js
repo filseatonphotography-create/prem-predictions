@@ -1302,7 +1302,7 @@ const leaderboard = useMemo(() => {
   color: theme.text,
   fontFamily:
     "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-  padding: "16px 18px",
+  padding: "12px 8px",
   boxSizing: "border-box",
 };
 
@@ -1337,19 +1337,26 @@ const leaderboard = useMemo(() => {
   };
 
   // ---------- LOGIN PAGE ----------
-  if (!isLoggedIn) {
-    return (
-      <div style={pageStyle}>
-        <div style={{ maxWidth: 980, margin: "0 auto", display: "grid", gap: 12 }}>
-          <header
-  style={{
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    marginBottom: 10,
-  }}
->
+if (!isLoggedIn) {
+  return (
+    <div style={{ 
+      ...pageStyle,
+      maxWidth: 980,
+      margin: "0 auto"
+    }}>
+      <div style={{ 
+        display: "grid",
+        gap: 12 
+      }}>
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            marginBottom: 10,
+          }}
+        >
   <div
     style={{
       width: 44,
@@ -1566,7 +1573,7 @@ const leaderboard = useMemo(() => {
     fontSize: "2rem",
     fontWeight: 700,
     letterSpacing: "0.5px",
-    whiteSpace: "normal"
+    whiteSpace: "nowrap"
   }}
 >
 
