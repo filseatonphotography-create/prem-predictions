@@ -1375,7 +1375,7 @@ if (!isLoggedIn) {
   <h1
     style={{
       margin: 0,
-      fontSize: 22,
+          fontSize: isMobile ? 20 : 22,
       letterSpacing: 0.4,
       textTransform: "uppercase",
       color: theme.accent,
