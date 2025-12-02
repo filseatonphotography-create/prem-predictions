@@ -89,6 +89,7 @@ const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
 const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
+const COINS_FILE = path.join(DATA_DIR, "coins.json");
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -166,12 +167,18 @@ const saveUsers = (users) => saveJson(USERS_FILE, users);
 // Predictions (userId -> { fixtureId -> prediction })
 const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
 const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
+
 // Totals/history (leagueId -> { weeklyTotals, leagueTotals, updatedAt })
 const loadTotals = () => loadJson(TOTALS_FILE, {});
 const saveTotals = (t) => saveJson(TOTALS_FILE, t);
+
 // Legacy map (legacyName -> userId)
 const loadLegacyMap = () => loadJson(LEGACY_MAP_FILE, {});
 const saveLegacyMap = (m) => saveJson(LEGACY_MAP_FILE, m);
+
+// Coins game (userId -> { [gameweek]: { ...bets }, totals: {...} })
+const loadCoins = () => loadJson(COINS_FILE, {});
+const saveCoins = (coins) => saveJson(COINS_FILE, coins);
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -806,6 +813,210 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error("totals/league save error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COINS GAME (read-only summary for one user + gameweek)
+// ---------------------------------------------------------------------------
+app.get("/api/coins/my", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const rawGw = (req.query.gameweek || "").toString().trim();
+
+    if (!rawGw) {
+      return res
+        .status(400)
+        .json({ error: "gameweek query parameter is required." });
+    }
+
+    const gameweekKey = String(rawGw);
+    const MAX_COINS_PER_GAMEWEEK = 10;
+
+    const allCoins = loadCoins();
+    const userCoins = allCoins[userId] || {};
+    const betsForGw = userCoins[gameweekKey] || {};
+
+    // Sum all stakes for this gameweek
+    let used = 0;
+    Object.values(betsForGw).forEach((bet) => {
+      if (!bet || typeof bet.stake !== "number") return;
+      used += bet.stake;
+    });
+
+    const remaining = Math.max(0, MAX_COINS_PER_GAMEWEEK - used);
+
+    return res.json({
+      gameweek: gameweekKey,
+      used,
+      remaining,
+      bets: betsForGw,
+    });
+  } catch (err) {
+    console.error("coins/my error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// COINS GAME (read-only summary for one user + gameweek)
+// ---------------------------------------------------------------------------
+app.get("/api/coins/my", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const rawGw = (req.query.gameweek || "").toString().trim();
+
+    if (!rawGw) {
+      return res
+        .status(400)
+        .json({ error: "gameweek query parameter is required." });
+    }
+
+    const gameweekKey = String(rawGw);
+    const MAX_COINS_PER_GAMEWEEK = 10;
+
+    const allCoins = loadCoins();
+    const userCoins = allCoins[userId] || {};
+    const betsForGw = userCoins[gameweekKey] || {};
+
+    // Sum all stakes for this gameweek
+    let used = 0;
+    Object.values(betsForGw).forEach((bet) => {
+      if (!bet || typeof bet.stake !== "number") return;
+      used += bet.stake;
+    });
+
+    const remaining = Math.max(0, MAX_COINS_PER_GAMEWEEK - used);
+
+    return res.json({
+      gameweek: gameweekKey,
+      used,
+      remaining,
+      bets: betsForGw,
+    });
+  } catch (err) {
+    console.error("coins/my error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Place or update a bet for one fixture in one gameweek
+app.post("/api/coins/place", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      gameweek,
+      fixtureId,
+      side, // "H" | "D" | "A"
+      stake, // number of coins
+      odds, // optional snapshot: { home, draw, away }
+    } = req.body || {};
+
+    const MAX_COINS_PER_GAMEWEEK = 10;
+
+    // Basic validation
+    const gwKey = (gameweek !== undefined && gameweek !== null
+      ? String(gameweek)
+      : ""
+    ).trim();
+    const fxId = (fixtureId || "").toString().trim();
+    const sideKey = (side || "").toUpperCase();
+    const stakeNum = Number.isFinite(stake) ? Number(stake) : parseInt(stake, 10);
+
+    if (!gwKey) {
+      return res.status(400).json({ error: "gameweek is required." });
+    }
+    if (!fxId) {
+      return res.status(400).json({ error: "fixtureId is required." });
+    }
+    if (!Number.isFinite(stakeNum) || stakeNum < 0) {
+      return res.status(400).json({ error: "stake must be a non-negative number." });
+    }
+    if (stakeNum > 0 && !["H", "D", "A"].includes(sideKey)) {
+      return res
+        .status(400)
+        .json({ error: "side must be 'H', 'D', or 'A' when stake > 0." });
+    }
+
+    // Load existing coins
+    const allCoins = loadCoins();
+    const userCoins = allCoins[userId] || {};
+    const betsForGw = userCoins[gwKey] || {};
+
+    // Calculate total coins used in this GW *excluding* this fixture
+    let usedOther = 0;
+    Object.entries(betsForGw).forEach(([id, bet]) => {
+      if (!bet || typeof bet.stake !== "number") return;
+      if (id === fxId) return; // skip current fixture
+      usedOther += bet.stake;
+    });
+
+    const newTotal = usedOther + stakeNum;
+    if (newTotal > MAX_COINS_PER_GAMEWEEK) {
+      const remainingBefore = Math.max(0, MAX_COINS_PER_GAMEWEEK - usedOther);
+      return res.status(400).json({
+        error: `Not enough coins remaining for this gameweek. You can only add up to ${remainingBefore} more.`,
+        used: usedOther,
+        remaining: remainingBefore,
+      });
+    }
+
+    // If stake is 0, treat it as "remove bet" for this fixture
+    if (stakeNum === 0) {
+      delete betsForGw[fxId];
+    } else {
+      // Normalise odds snapshot if provided
+      let oddsSnapshot = null;
+      if (odds && typeof odds === "object") {
+        oddsSnapshot = {
+          home:
+            odds.home !== undefined && odds.home !== null
+              ? Number(odds.home)
+              : null,
+          draw:
+            odds.draw !== undefined && odds.draw !== null
+              ? Number(odds.draw)
+              : null,
+          away:
+            odds.away !== undefined && odds.away !== null
+              ? Number(odds.away)
+              : null,
+        };
+      }
+
+      betsForGw[fxId] = {
+        fixtureId: fxId,
+        gameweek: gwKey,
+        side: sideKey,
+        stake: stakeNum,
+        oddsSnapshot,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    // Attach back and save
+    userCoins[gwKey] = betsForGw;
+    allCoins[userId] = userCoins;
+    saveCoins(allCoins);
+
+    // Recalculate used + remaining for this GW
+    let used = 0;
+    Object.values(betsForGw).forEach((bet) => {
+      if (!bet || typeof bet.stake !== "number") return;
+      used += bet.stake;
+    });
+    const remaining = Math.max(0, MAX_COINS_PER_GAMEWEEK - used);
+
+    return res.json({
+      gameweek: gwKey,
+      used,
+      remaining,
+      bets: betsForGw,
+      currentBet: betsForGw[fxId] || null,
+    });
+  } catch (err) {
+    console.error("coins/place error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
