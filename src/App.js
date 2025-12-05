@@ -1,7 +1,19 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 const BUILD_ID = "2025-11-26-a";
+const CoinIcon = () => (
+  <img
+    src="/coin.png"
+    alt="coin"
+    style={{
+      width: 18,
+      height: 18,
+      verticalAlign: "middle",
+      marginRight: 4,
+    }}
+  />
+);
 
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const legacyMap = {
@@ -355,6 +367,54 @@ async function fetchPremierLeagueOdds() {
   }
 }
 
+// --- COINS GAME API HELPERS ---
+async function apiGetMyCoins(token, gameweek) {
+  const gw = gameweek != null ? String(gameweek) : "";
+  const url = `${BACKEND_BASE}/api/coins/my?gameweek=${encodeURIComponent(gw)}`;
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return {
+    gameweek: data.gameweek,
+    used: data.used ?? 0,
+    remaining: data.remaining ?? 10,
+    bets: data.bets || {},
+  };
+}
+
+async function apiPlaceCoinsBet(token, payload) {
+  // payload: { gameweek, fixtureId, side, stake, odds }
+  const res = await fetch(`${BACKEND_BASE}/api/coins/place`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload || {}),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || data.message || `HTTP ${res.status}`);
+  }
+
+  return {
+    gameweek: data.gameweek,
+    used: data.used ?? 0,
+    remaining: data.remaining ?? 10,
+    bets: data.bets || {},
+    currentBet: data.currentBet || null,
+  };
+}
+
 // --- SCORING ---
 function getResult(home, away) {
   if (home > away) return "H";
@@ -416,6 +476,97 @@ function isGameweekLocked(gameweek) {
   return Date.now() > earliestDeadline;
 }
 
+// --- TEAM RATINGS FOR MODELLED ODDS ---
+// Based on the 2025/26 table + current form snapshot you sent
+const TEAM_RATINGS = {
+  Arsenal: 98,
+  "Man City": 96,
+  "Aston Villa": 92,
+  Chelsea: 90,
+  "Crystal Palace": 86,
+  Sunderland: 86,
+  Brighton: 85,
+  "Man Utd": 84,
+  Liverpool: 84,
+  Everton: 83,
+  Spurs: 82,
+  Newcastle: 82,
+  Brentford: 81,
+  Bournemouth: 81,
+  Fulham: 79,
+  "Nott'm Forest": 78,
+  Leeds: 77,
+  "West Ham": 75,
+  Burnley: 73,
+  Wolves: 70,
+};
+
+function getTeamRating(name) {
+  const rating = TEAM_RATINGS[name];
+  if (typeof rating === "number") return rating;
+  // Fallback: mid-table-ish team
+  return 82;
+}
+
+/**
+ * Generate realistic-ish decimal odds for a fixture
+ * using team ratings, home advantage and a draw baseline.
+ * This feeds both the Win Probabilities view and the coins game.
+ */
+function generateModelOddsForFixture(fixture) {
+  if (!fixture) {
+    // Safe fallback, roughly 33/33/33
+    return { home: 2.6, draw: 3.2, away: 2.6 };
+  }
+
+  const homeName = fixture.homeTeam;
+  const awayName = fixture.awayTeam;
+
+  const BASE_DRAW = 0.28;   // typical PL draw rate
+  const MIN_DRAW = 0.20;    // never let draw get too tiny
+  const HOME_ADV = 3;       // rating points for home advantage
+  const SCALE = 10;         // how fast the model reacts to strength gaps
+  const OVERROUND = 0.94;   // bookie margin – lower = bigger prices
+
+  const homeRating = getTeamRating(homeName);
+  const awayRating = getTeamRating(awayName);
+
+  // Positive diff = home stronger, negative = away stronger
+  const diff = (homeRating + HOME_ADV) - awayRating;
+
+  // Logistic curve for win chance (before draw is considered)
+  const homeRaw = 1 / (1 + Math.exp(-diff / SCALE));
+  const awayRaw = 1 - homeRaw;
+
+  // Draw is highest when teams are similar, lower when the gap is big
+  const gap = Math.min(Math.abs(diff), 20);
+  let drawProb = BASE_DRAW - gap * 0.004; // 0.28 → ~0.20 as gap grows
+  if (drawProb < MIN_DRAW) drawProb = MIN_DRAW;
+
+  const nonDraw = 1 - drawProb;
+  let homeProb = homeRaw * nonDraw;
+  let awayProb = awayRaw * nonDraw;
+
+  // Normalise so home + draw + away = 1
+  const sum = homeProb + drawProb + awayProb;
+  if (sum > 0) {
+    homeProb /= sum;
+    drawProb /= sum;
+    awayProb /= sum;
+  }
+
+  // Convert probabilities to decimal odds with a small overround
+  const homeOdds = Number((OVERROUND / homeProb).toFixed(2));
+  const drawOdds = Number((OVERROUND / drawProb).toFixed(2));
+  const awayOdds = Number((OVERROUND / awayProb).toFixed(2));
+
+  return {
+    home: homeOdds,
+    draw: drawOdds,
+    away: awayOdds,
+  };
+}
+
 // --- ODDS → PROBABILITIES ---
 function computeProbabilities(odds) {
   if (!odds || !odds.home || !odds.draw || !odds.away) return null;
@@ -435,6 +586,70 @@ function computeProbabilities(odds) {
     home: (invHome / total) * 100,
     draw: (invDraw / total) * 100,
     away: (invAway / total) * 100,
+  };
+}
+
+const TEAM_STRENGTH = {
+  "Man City": 96,
+
+  Arsenal: 92,
+  Liverpool: 90,
+  Spurs: 88,
+
+  "Aston Villa": 85,
+  Chelsea: 84,
+  Newcastle: 83,
+  "Man Utd": 82,
+
+  Brighton: 80,
+  "West Ham": 78,
+  Brentford: 76,
+  Wolves: 75,
+  "Crystal Palace": 74,
+  Fulham: 73,
+  Bournemouth: 72,
+  Everton: 71,
+
+  "Nott'm Forest": 69,
+  Leeds: 68,
+  Burnley: 67,
+  Sunderland: 65,
+};
+
+// Generate free built-in odds so we don't depend on external APIs
+function generatePseudoOddsForFixture(fixture) {
+  const homeTeam = fixture.homeTeam;
+  const awayTeam = fixture.awayTeam;
+
+  const homeStrength = TEAM_STRENGTH[homeTeam] ?? 75;
+  const awayStrength = TEAM_STRENGTH[awayTeam] ?? 75;
+
+  // Home advantage
+  const homeAdvantage = 6;
+
+  // Expected power values
+  const homePower = homeStrength + homeAdvantage;
+  const awayPower = awayStrength;
+
+  // Raw win probabilities (no draw yet)
+  let homeProb = homePower / (homePower + awayPower);
+  let awayProb = awayPower / (homePower + awayPower);
+
+  // Draw stays fairly stable
+  let drawProb = 0.23;
+
+  // Normalize probabilities
+  const total = homeProb + drawProb + awayProb;
+  homeProb /= total;
+  drawProb /= total;
+  awayProb /= total;
+
+  // Convert to decimal odds with slight bookmaker margin
+  const margin = 1.05;
+  return {
+    home: Number((margin / homeProb).toFixed(2)),
+    draw: Number((margin / drawProb).toFixed(2)),
+    away: Number((margin / awayProb).toFixed(2)),
   };
 }
 
@@ -541,6 +756,112 @@ const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
 const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
 
+  // If we don't have any odds yet, generate free built-in odds for all fixtures
+  useEffect(() => {
+    if (odds && Object.keys(odds).length > 0) return;
+
+    const generated = {};
+    FIXTURES.forEach((f) => {
+      generated[f.id] = generatePseudoOddsForFixture(f);
+    });
+    setOdds(generated);
+  }, [odds]);
+
+// Coins League data from backend
+const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
+
+// Coins game state
+const [coinsState, setCoinsState] = useState({
+  gameweek: null,
+  used: 0,
+  remaining: 10,
+  bets: {},
+  loading: false,
+  error: "",
+});
+
+  // --- COINS: derive outcome (stake, return, profit) for current GW ---
+  const coinsOutcome = useMemo(() => {
+    if (!selectedGameweek) {
+      return null;
+    }
+
+    const bets = coinsState.bets || {};
+    const fixturesThisGw = FIXTURES.filter(
+      (f) => f.gameweek === selectedGameweek
+    );
+
+    if (!bets || Object.keys(bets).length === 0) {
+      return {
+        totalStake: 0,
+        totalReturn: 0,
+        profit: 0,
+        byFixture: [],
+      };
+    }
+
+    let totalStake = 0;
+    let totalReturn = 0;
+    const byFixture = [];
+
+    fixturesThisGw.forEach((fixture) => {
+      const bet = bets[fixture.id];
+      if (!bet || !bet.stake || bet.stake <= 0) return;
+
+      const stake = Number(bet.stake) || 0;
+      totalStake += stake;
+
+      const res = results[fixture.id];
+      let resultSide = null;
+      let payout = 0;
+
+      // Do we have a final score?
+      if (res && res.homeGoals !== "" && res.awayGoals !== "") {
+        const rh = Number(res.homeGoals);
+        const ra = Number(res.awayGoals);
+
+        if (!Number.isNaN(rh) && !Number.isNaN(ra)) {
+          resultSide = getResult(rh, ra); // "H" | "D" | "A"
+
+          // Only pay out if side matches result AND we have odds
+          if (bet.side && bet.side === resultSide) {
+            const oddsSnap = bet.oddsSnapshot || {};
+            let price = null;
+
+            if (resultSide === "H") price = oddsSnap.home ?? null;
+            else if (resultSide === "D") price = oddsSnap.draw ?? null;
+            else if (resultSide === "A") price = oddsSnap.away ?? null;
+
+            if (price != null && Number(price) > 0) {
+              payout = stake * Number(price);
+            } else {
+              // If odds missing, treat as 0 payout for now (no free coins)
+              payout = 0;
+            }
+          }
+        }
+      }
+
+      totalReturn += payout;
+
+      byFixture.push({
+        fixtureId: fixture.id,
+        label: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        stake,
+        side: bet.side || null,
+        resultSide,
+        payout,
+      });
+    });
+
+    return {
+      totalStake,
+      totalReturn,
+      profit: totalReturn - totalStake,
+      byFixture,
+    };
+  }, [selectedGameweek, coinsState.bets, results]);
+
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
   const [leagueNameInput, setLeagueNameInput] = useState("");
@@ -639,53 +960,107 @@ useEffect(() => {
       }
     }
 
-    // 4) odds (initial load)
-    const { markets, error: oddsError } = await fetchPremierLeagueOdds();
-    if (!oddsError && markets?.length) {
-      const newOdds = {};
-      markets.forEach((m) => {
-        const apiHome = normalizeTeamName(
-  typeof m.homeTeam === "string"
-    ? m.homeTeam
-    : (m.homeTeam?.name || m.homeTeam?.tla || "")
-);
-const apiAway = normalizeTeamName(
-  typeof m.awayTeam === "string"
-    ? m.awayTeam
-    : (m.awayTeam?.name || m.awayTeam?.tla || "")
-);
+        // 4) odds (initial load) — use in-app model instead of backend
+    const generatedOdds = {};
+    FIXTURES.forEach((f) => {
+      generatedOdds[f.id] = generateModelOddsForFixture(f);
+    });
 
-        const fixture = FIXTURES.find((f) => {
-          const localHome = normalizeTeamName(
-  typeof f.homeTeam === "string"
-    ? f.homeTeam
-    : (f.homeTeam?.name || f.homeTeam?.tla || "")
-);
-          const localAway = normalizeTeamName(
-  typeof f.awayTeam === "string"
-    ? f.awayTeam
-    : (f.awayTeam?.name || f.awayTeam?.tla || "")
-);
-          return localHome === apiHome && localAway === apiAway;
-        });
-
-        if (fixture) {
-          newOdds[fixture.id] = {
-            home: m.homeOdds,
-            draw: m.drawOdds,
-            away: m.awayOdds,
-          };
-        }
-      });
-
-      if (Object.keys(newOdds).length) {
-        setOdds((prev) => ({ ...prev, ...newOdds }));
-      }
-    }
+    // Model odds are defaults; any stored/manual odds still override them
+    setOdds((prev) => ({
+  ...prev,
+  ...generatedOdds,
+}));
   }
 
   init();
 }, []);
+
+// ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
+useEffect(() => {
+  // If not logged in, just reset coins state for this gameweek
+  if (!authToken || !selectedGameweek) {
+    setCoinsState((prev) => ({
+      ...prev,
+      gameweek: selectedGameweek || null,
+      used: 0,
+      remaining: 10,
+      bets: {},
+      loading: false,
+      error: "",
+    }));
+    return;
+  }
+
+  let cancelled = false;
+
+  setCoinsState((prev) => ({
+    ...prev,
+    gameweek: selectedGameweek,
+    loading: true,
+    error: "",
+  }));
+
+  apiGetMyCoins(authToken, selectedGameweek)
+    .then((data) => {
+      if (cancelled) return;
+      setCoinsState({
+        gameweek: data.gameweek,
+        used: data.used ?? 0,
+        remaining: data.remaining ?? 10,
+        bets: data.bets || {},
+        loading: false,
+        error: "",
+      });
+    })
+    .catch((err) => {
+      if (cancelled) return;
+      setCoinsState((prev) => ({
+        ...prev,
+        gameweek: selectedGameweek,
+        loading: false,
+        error: err?.message || "Failed to load coins",
+        used: 0,
+        remaining: 10,
+        bets: {},
+      }));
+    });
+
+  return () => {
+    cancelled = true;
+  };
+}, [authToken, selectedGameweek]);
+
+// Fetch multi-player coins leaderboard from backend
+useEffect(() => {
+  if (activeView !== "coinsLeague") return;
+  if (!authToken) return;
+
+  const fetchCoinsLeaderboard = async () => {
+    try {
+      const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        console.error("coins leaderboard failed", res.status);
+        return;
+      }
+
+      const data = await res.json();
+      if (data && Array.isArray(data.leaderboard)) {
+        setCoinsLeagueRows(data.leaderboard);
+      }
+    } catch (err) {
+      console.error("coins leaderboard error", err);
+    }
+  };
+
+  fetchCoinsLeaderboard();
+}, [activeView, authToken]);
+
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
 /*
@@ -751,6 +1126,35 @@ useEffect(() => {
     }
   }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
 
+  // Ensure at most one captain (isDouble) per gameweek for a single user
+function normalizeCaptainsByGameweek(predsForUser) {
+  if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
+
+  const byGw = {};
+  for (const [fixtureId, pred] of Object.entries(predsForUser)) {
+    if (!pred || !pred.isDouble) continue;
+    const fx = FIXTURES.find((f) => f.id === Number(fixtureId));
+    if (!fx) continue;
+    const gw = fx.gameweek;
+    if (!byGw[gw]) byGw[gw] = [];
+    byGw[gw].push(fixtureId);
+  }
+
+  const cloned = { ...predsForUser };
+  Object.values(byGw).forEach((ids) => {
+    if (ids.length <= 1) return;
+    const keepId = ids[ids.length - 1]; // keep last one
+    ids.forEach((id) => {
+      if (id === keepId) return;
+      const prev = cloned[id];
+      if (!prev) return;
+      cloned[id] = { ...prev, isDouble: false };
+    });
+  });
+
+  return cloned;
+}
+
   // Load cloud predictions after login/restore
   useEffect(() => {
     async function loadCloud() {
@@ -758,13 +1162,16 @@ useEffect(() => {
       if (!isLoggedIn || !authToken || !currentUserId) return;
       try {
         const remote = await apiGetMyPredictions(authToken);
-        const key = PLAYERS.includes(currentPlayer)
-          ? currentPlayer
-          : currentUserId;
-        setPredictions((prev) => ({
-          ...prev,
-          [key]: { ...(prev[key] || {}), ...remote },
-        }));
+const key = PLAYERS.includes(currentPlayer)
+  ? currentPlayer
+  : currentUserId;
+
+const normalized = normalizeCaptainsByGameweek(remote);
+
+setPredictions((prev) => ({
+  ...prev,
+  [key]: { ...(prev[key] || {}), ...normalized },
+}));
       } catch (err) {
         console.error("Cloud predictions failed:", err);
       }
@@ -975,7 +1382,7 @@ keys.forEach((k) => {
           : result.userId;
         setPredictions((prev) => ({
           ...prev,
-          [key]: { ...(prev[key] || {}), ...cloudPreds },
+          ...(prev[key] || {}), ...normalizeCaptainsByGameweek(cloudPreds)
         }));
       }
     } catch (err) {
@@ -1059,8 +1466,15 @@ setNewPasswordInput("");
     }
   };
 
+  function playerAlreadyUsedTriple(allPredictionsForPlayer) {
+  return Object.values(allPredictionsForPlayer || {}).some(
+    (p) => p && p.isTriple
+  );
+}
+
   // ---------- PREDICTIONS ----------
   const updatePrediction = (playerKey, fixtureId, newFields) => {
+    let fixturesToClearDouble = [];   // <-- ADD THIS LINE
     setPredictions((prev) => {
       const prevPlayerPreds = prev[playerKey] || {};
       const prevFixturePred =
@@ -1071,6 +1485,7 @@ setNewPasswordInput("");
           isTriple: false,
         };
 
+      // First apply the raw field changes to this fixture
       let updated = {
         ...prev,
         [playerKey]: {
@@ -1084,66 +1499,135 @@ setNewPasswordInput("");
 
       let playerPreds = updated[playerKey];
 
+      // ----- TRIPLE LOGIC: once per season -----
       if ("isTriple" in newFields) {
-        const wantTriple = newFields.isTriple;
-        const tripleFixture = FIXTURES.find((f) => f.id === fixtureId);
+        const wantTriple = !!newFields.isTriple;
 
-        if (wantTriple && tripleFixture) {
-          updated[playerKey] = Object.fromEntries(
-            Object.entries(playerPreds).map(([id, pred]) => {
-              const f = FIXTURES.find((fx) => fx.id === Number(id));
-              const sameGW = f && f.gameweek === tripleFixture.gameweek;
-              const isThis = Number(id) === fixtureId;
-              return [
-                id,
-                {
-                  ...pred,
-                  isTriple: isThis,
-                  isDouble: sameGW ? false : pred.isDouble,
-                },
-              ];
-            })
-          );
+        if (wantTriple) {
+          // Does this player already have a triple on a DIFFERENT fixture?
+          const hasUsedTripleBefore = playerAlreadyUsedTriple(prevPlayerPreds);
+const hasTripleElsewhere = Object.entries(prevPlayerPreds).some(
+  ([id, pred]) => pred.isTriple && Number(id) !== fixtureId
+);
+
+// If player already used triple ANYWHERE historically
+if (hasUsedTripleBefore && !prevFixturePred.isTriple) {
+  return prev; // block selecting a new one
+}
+
+          // If triple already used elsewhere, block this change
+          if (hasTripleElsewhere) {
+            return prev;
+          }
+
+          const tripleFixture = FIXTURES.find((f) => f.id === fixtureId);
+
+          // Ensure this is the ONLY triple, and clear double on same gameweek
+          if (tripleFixture) {
+            updated[playerKey] = Object.fromEntries(
+              Object.entries(playerPreds).map(([id, pred]) => {
+                const f = FIXTURES.find((fx) => fx.id === Number(id));
+                const sameGW =
+                  f && f.gameweek === tripleFixture.gameweek;
+                const isThis = Number(id) === fixtureId;
+
+                return [
+                  id,
+                  {
+                    ...pred,
+                    isTriple: isThis, // only this fixture can be triple
+                    // Can't also be captain in same GW as triple
+                    isDouble: sameGW ? false : pred.isDouble,
+                  },
+                ];
+              })
+            );
+          }
         } else {
-          updated[playerKey][fixtureId] = {
-            ...(updated[playerKey][fixtureId] || {}),
-            isTriple: false,
+          // Unticking triple on this fixture (allowed before lock)
+          updated[playerKey] = {
+            ...playerPreds,
+            [fixtureId]: {
+              ...(playerPreds[fixtureId] || {}),
+              isTriple: false,
+            },
           };
         }
+
         playerPreds = updated[playerKey];
       }
 
+            // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
       if ("isDouble" in newFields) {
-        const wantDouble = newFields.isDouble;
-        const doubleFixture = FIXTURES.find((f) => f.id === fixtureId);
+        const wantDouble = !!newFields.isDouble;
+        const doubleFixture = FIXTURES.find(
+          (f) => f.id === Number(fixtureId)
+        );
 
         if (wantDouble && doubleFixture) {
+          const targetGW = doubleFixture.gameweek;
+
           updated[playerKey] = Object.fromEntries(
-            Object.entries(playerPreds).map(([id, pred]) => {
-              const f = FIXTURES.find((fx) => fx.id === Number(id));
-              const sameGW = f && f.gameweek === doubleFixture.gameweek;
-              const isThis = Number(id) === fixtureId;
-              return [
-                id,
-                {
-                  ...pred,
-                  isDouble: sameGW && isThis,
-                  isTriple: sameGW ? false : pred.isTriple,
-                },
-              ];
-            })
-          );
+  Object.entries(playerPreds).map(([id, pred]) => {
+    const f = FIXTURES.find((fx) => fx.id === Number(id));
+    const sameGW = f && f.gameweek === doubleFixture.gameweek;
+    const isThis = Number(id) === fixtureId;
+
+    const wasDouble = !!pred.isDouble;
+    const newIsDouble = sameGW && isThis;
+
+    if (sameGW && wasDouble && !newIsDouble) {
+      fixturesToClearDouble.push(Number(id));
+    }
+
+    return [
+      id,
+      {
+        ...pred,
+        isDouble: newIsDouble,
+        isTriple: sameGW ? false : pred.isTriple,
+      },
+    ];
+  })
+);
+
+// *** Sync: remove captain from other fixtures in the same gameweek ***
+if (!DEV_USE_LOCAL && authToken && fixturesToClearDouble.length > 0) {
+  fixturesToClearDouble.forEach((idToClear) => {
+    const pred =
+      (predictions[playerKey] && predictions[playerKey][idToClear]) || {};
+
+    apiSavePrediction(authToken, Number(idToClear), {
+      homeGoals:
+        pred.homeGoals === "" || pred.homeGoals === null
+          ? ""
+          : String(pred.homeGoals),
+      awayGoals:
+        pred.awayGoals === "" || pred.awayGoals === null
+          ? ""
+          : String(pred.awayGoals),
+      isDouble: false,
+      isTriple: !!pred.isTriple,
+    }).catch((err) =>
+      console.error("Failed to clear old captain:", err)
+    );
+  });
+}
         } else {
+          // Unticking captain on this fixture only
           updated[playerKey][fixtureId] = {
             ...(updated[playerKey][fixtureId] || {}),
             isDouble: false,
           };
         }
+
+        playerPreds = updated[playerKey];
       }
 
       return updated;
     });
 
+    // ----- Sync to backend -----
     if (DEV_USE_LOCAL) return;
     if (!authToken || !currentUserId) return;
 
@@ -1173,6 +1657,7 @@ setNewPasswordInput("");
       console.error("Failed to sync prediction:", err)
     );
   };
+
 
   const updateResult = (fixtureId, newFields) => {
     setResults((prev) => ({
@@ -1246,6 +1731,22 @@ const leaderboard = useMemo(() => {
     .map(([player, points]) => ({ player, points }))
     .sort((a, b) => b.points - a.points);
 }, [computedLeagueTotals, predictions, results]);
+
+  const coinsLeaderboard = useMemo(() => {
+    if (!coinsOutcome || !currentPlayer) return [];
+
+    const profit =
+      typeof coinsOutcome.profit === "number"
+        ? coinsOutcome.profit
+        : 0;
+
+    return [
+      {
+        player: currentPlayer,
+        points: profit,
+      },
+    ];
+  }, [coinsOutcome, currentPlayer]);
 
  const historicalScores = useMemo(() => {
   if (computedWeeklyTotals) {
@@ -1335,6 +1836,148 @@ const leaderboard = useMemo(() => {
     borderRadius: 8,
     textAlign: "center",
     fontSize: 14,
+  };
+
+        const handleCoinsChange = async (fixtureId, stake, side, oddsSnapshot) => {
+    if (!authToken || !selectedGameweek) {
+      return;
+    }
+
+    const MAX_COINS = 10;
+
+    // Normalise stake
+    const rawStake =
+      typeof stake === "number" ? stake : parseInt(stake, 10);
+    let finalStake = Number.isFinite(rawStake) ? rawStake : 0;
+    if (finalStake < 0) finalStake = 0;
+    if (finalStake > MAX_COINS) finalStake = MAX_COINS;
+
+    // 1. Clone bets
+    const currentBets = { ...(coinsState?.bets || {}) };
+    const existingBet = currentBets[fixtureId] || {};
+
+    // ---- NEW LOGIC: default "D" when adding coins ----
+    let resolvedSide = side || existingBet.side || null;
+
+    const wasZeroBefore = !existingBet.stake || existingBet.stake <= 0;
+    const nowPositive = finalStake > 0;
+
+    if (wasZeroBefore && nowPositive && !resolvedSide) {
+      // Stake introduced AND there was no side yet → default to "D"
+      resolvedSide = "D";
+    }
+    // ----------------------------------------------------
+
+    // 2. Update ONLY this fixtureId
+    if (finalStake <= 0) {
+      // Remove fixture entirely -> clears side automatically
+      delete currentBets[fixtureId];
+    } else {
+      currentBets[fixtureId] = {
+        ...existingBet,
+        fixtureId,
+        gameweek: selectedGameweek,
+        stake: finalStake,
+        side: resolvedSide,
+        oddsSnapshot: oddsSnapshot || existingBet.oddsSnapshot || null,
+      };
+    }
+
+    // 3. Recompute totalUsed
+    let totalUsed = 0;
+    Object.values(currentBets).forEach((bet) => {
+      const v = Number(bet.stake);
+      if (Number.isFinite(v) && v > 0) totalUsed += v;
+    });
+
+    // 4. Reject silently if > 10
+    if (totalUsed > MAX_COINS) {
+      return;
+    }
+
+    // Prepare odds
+    let odds = null;
+    if (oddsSnapshot && typeof oddsSnapshot === "object") {
+      odds = {
+        home:
+          oddsSnapshot.home !== undefined && oddsSnapshot.home !== null
+            ? Number(oddsSnapshot.home)
+            : null,
+        draw:
+          oddsSnapshot.draw !== undefined && oddsSnapshot.draw !== null
+            ? Number(oddsSnapshot.draw)
+            : null,
+        away:
+          oddsSnapshot.away !== undefined && oddsSnapshot.away !== null
+            ? Number(oddsSnapshot.away)
+            : null,
+      };
+    }
+
+    // Always sync local state FIRST
+    setCoinsState((prev) => ({
+      ...prev,
+      gameweek: selectedGameweek,
+      used: totalUsed,
+      remaining: MAX_COINS - totalUsed,
+      bets: currentBets,
+    }));
+
+    // Decide whether to call backend
+    const validSide = resolvedSide === "H" || resolvedSide === "D" || resolvedSide === "A";
+
+    let payload = null;
+
+    if (finalStake > 0 && validSide) {
+      payload = {
+        gameweek: selectedGameweek,
+        fixtureId,
+        stake: finalStake,
+        side: resolvedSide,
+        odds,
+      };
+    } else if (finalStake === 0) {
+      if (existingBet && existingBet.stake > 0) {
+        payload = {
+          gameweek: selectedGameweek,
+          fixtureId,
+          stake: 0,
+          side: existingBet.side || null,
+          odds,
+        };
+      }
+    }
+
+    if (!payload) {
+      return;
+    }
+
+    try {
+      setCoinsState((prev) => ({
+        ...prev,
+        loading: true,
+        error: "",
+      }));
+
+      await apiPlaceCoinsBet(authToken, payload);
+
+      setCoinsState((prev) => ({
+        ...prev,
+        loading: false,
+        error: "",
+      }));
+    } catch (err) {
+      console.error("handleCoinsChange error", err);
+      const msg = err?.message || "Failed to place coins bet";
+
+      setCoinsState((prev) => ({
+        ...prev,
+        loading: false,
+        error: msg,
+      }));
+
+      alert(msg);
+    }
   };
 
   // ---------- LOGIN PAGE ----------
@@ -1624,6 +2267,8 @@ if (!isLoggedIn) {
           </div>
 
           {/* Change password / Logout / Menu (uniform buttons, centered) */}
+
+          {/* Change password / Logout / Menu (uniform buttons, centered) */}
           {isLoggedIn && (
   <div
     style={{
@@ -1694,6 +2339,7 @@ if (!isLoggedIn) {
   </div>
 )}
         </header>
+        
         {showPasswordModal && (
   <div
     style={{
@@ -1802,13 +2448,14 @@ if (!isLoggedIn) {
  {/* Tabs */}
 {(() => {
   const TABS = [
-    { id: "predictions", label: "Predictions" },
-    { id: "results", label: "Results" },
-    { id: "league", label: "League Table" },
-    { id: "history", label: "History" },
-    { id: "winprob", label: "Win Probabilities" },
-    { id: "leagues", label: "Mini-Leagues" },
-  ];
+  { id: "predictions", label: "Predictions" },
+  { id: "results", label: "Results" },
+  { id: "league", label: "League Table" },
+  { id: "coinsLeague", label: "Coins League" }, // NEW
+  { id: "history", label: "History" },
+  { id: "winprob", label: "Win Probabilities" },
+  { id: "leagues", label: "Mini-Leagues" },
+];
 
   // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
   if (isMobile) {
@@ -1859,7 +2506,14 @@ if (!isLoggedIn) {
 
   // ---- DESKTOP: keep your pill buttons exactly as before ----
   return (
-    <nav style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+    <nav
+  style={{
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+    justifyContent: "center",  // <--- add this
+  }}
+>
       {TABS.map((t) => (
         <button
           key={t.id}
@@ -1949,385 +2603,557 @@ if (!isLoggedIn) {
           </div>
         </section>
 
-        {/* Predictions View */}
-                {activeView === "predictions" && (
-          <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>
-              GW{selectedGameweek} Predictions
-            </h2>
-            
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr",
-                gap: 8,
-              }}
-            >
-              {visibleFixtures.map((fixture) => {
-                console.log("TEAM:", fixture.homeTeam, fixture.awayTeam);
-                const pred =
-                  predictions[currentPredictionKey]?.[fixture.id] || {};
-                const locked = isPredictionLocked(fixture);
-                const o = odds[fixture.id] || {};
-                
-                // eslint-disable-next-line no-unused-vars
-const probs = computeProbabilities(o);
-
-                const r = results[fixture.id];
-                const hasResult =
-                  r && r.homeGoals !== "" && r.awayGoals !== "";
-                const pointsForThisFixture = hasResult
-                  ? getTotalPoints(pred, r)
-                  : null;
-
-                // eslint-disable-next-line no-unused-vars
-/*
-let predictedPercent = "-";
-let predictedOdds = "-";
-
-if (pred.homeGoals !== "" && pred.awayGoals !== "") {
-  // ... existing probability logic ...
-}
-*/
-
-                return (
-                      <div
-      key={fixture.id}
+                        {/* Predictions View */}
+{activeView === "predictions" && (
+  <section style={cardStyle}>
+    {/* GW title + coins summary (normal header for now) */}
+    <div
       style={{
-        background: theme.panelHi,
+        padding: 10,
+        marginBottom: 8,
+        background: theme.panel,
+        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.4)",
         borderRadius: 12,
-        border: `1px solid ${theme.line}`,
-        padding: 8,
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr)",
-        gap: 8,
-        alignItems: "flex-start",
       }}
     >
-                    {/* Left content column */}
-                    <div style={{ display: "grid", gap: 6, minHeight: 92 }}>
-                      {/* Kickoff time */}
-                      <div
-                        style={{
-                          width: "100%",
-                          textAlign: "center",
-                          fontSize: 12,
-                          color: theme.muted,
-                          marginBottom: 6,
-                        }}
-                      >
-                        {formatKickoffShort(fixture.kickoff)} GMT
-                      </div>
+      <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>
+        GW{selectedGameweek} Predictions
+      </h2>
 
-                                            {/* Main score + POINTS row */}
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          alignItems: "flex-end",
-                          flexWrap: "wrap",
-                          justifyContent: "center",
-                        }}
-                      >
-                                                <div
-  style={{
-    display: "flex",
-    gap: 6,
-    alignItems: "center",
-  }}
->
+      {/* Coins game summary */}
+      {authToken && (
   <div
+    style={{
+      fontSize: 12,
+      color: theme.muted,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+    }}
+  >
+    {/* USED */}
+    <span
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+      }}
+    >
+      <CoinIcon />
+      <strong>{coinsState.used}</strong>
+      <span style={{ color: theme.muted }}>used</span>
+    </span>
+
+    {/* REMAINING */}
+    <span
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+      }}
+    >
+      <CoinIcon />
+      <strong>{coinsState.remaining}</strong>
+      <span style={{ color: theme.muted }}>remaining</span>
+    </span>
+  </div>
+)}
+    </div>
+
+    {/* Predictions card with fixtures list */}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr",
+        gap: 8,
+      }}
+    >
+      {visibleFixtures.map((fixture) => {
+        console.log("TEAM:", fixture.homeTeam, fixture.awayTeam);
+
+        const pred =
+          predictions[currentPredictionKey]?.[fixture.id] || {};
+        const locked = isPredictionLocked(fixture);
+        const o = odds[fixture.id] || {};
+        // eslint-disable-next-line no-unused-vars
+        const probs = computeProbabilities(o);
+
+        const r = results[fixture.id];
+        const hasResult =
+          r && r.homeGoals !== "" && r.awayGoals !== "";
+        const pointsForThisFixture = hasResult
+          ? getTotalPoints(pred, r)
+          : null;
+
+        const coinsBet =
+          (coinsState.bets && coinsState.bets[fixture.id]) || {};
+        const coinsStake = coinsBet.stake ?? 0;
+        const coinsSide = coinsBet.side || "D";
+
+        // Possible win/return for this fixture (based on current stake + side)
+let coinsPossibleReturn = "";
+const oddsSnap = coinsBet.oddsSnapshot || null;
+
+if (coinsStake > 0 && coinsSide && oddsSnap) {
+  let price = null;
+
+  if (coinsSide === "H") {
+    price =
+      oddsSnap.home !== undefined && oddsSnap.home !== null
+        ? Number(oddsSnap.home)
+        : null;
+  } else if (coinsSide === "D") {
+    price =
+      oddsSnap.draw !== undefined && oddsSnap.draw !== null
+        ? Number(oddsSnap.draw)
+        : null;
+  } else if (coinsSide === "A") {
+    price =
+      oddsSnap.away !== undefined && oddsSnap.away !== null
+        ? Number(oddsSnap.away)
+        : null;
+  }
+
+  if (price != null && Number.isFinite(price) && price > 0) {
+    coinsPossibleReturn = (coinsStake * price).toFixed(2);
+  }
+}
+
+        return (
+          <div
+            key={fixture.id}
+            style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 8,
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr)",
+              gap: 8,
+              alignItems: "flex-start",
+            }}
+          >
+            {/* Left content column */}
+            <div style={{ display: "grid", gap: 6, minHeight: 92 }}>
+              {/* Kickoff time */}
+              <div
+                style={{
+                  width: "100%",
+                  textAlign: "center",
+                  fontSize: 12,
+                  color: theme.muted,
+                  marginBottom: 6,
+                }}
+              >
+                {formatKickoffShort(fixture.kickoff)} GMT
+              </div>
+
+              {/* Main score + POINTS row */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "flex-end",
+                  flexWrap: "wrap",
+                  justifyContent: "center",
+                }}
+              >
+                {/* HOME */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      minWidth: 32,
+                    }}
+                  >
+                    {(TEAM_BADGES[fixture.homeTeam] ||
+                      getTeamCode(fixture.homeTeam) === "NFO") && (
+                      <img
+                        src={
+                          getTeamCode(fixture.homeTeam) === "NFO"
+                            ? "/badges/nottingham_forest.png"
+                            : TEAM_BADGES[fixture.homeTeam]
+                        }
+                        alt={fixture.homeTeam}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          objectFit: "contain",
+                          marginRight: 4,
+                        }}
+                      />
+                    )}
+                    <span
+                      style={{ fontSize: 12, color: theme.muted }}
+                    >
+                      {getTeamCode(fixture.homeTeam)}
+                    </span>
+                  </div>
+
+                  <input
+                    type="number"
+                    min="0"
+                    style={smallInput}
+                    value={pred.homeGoals || ""}
+                    disabled={locked}
+                    onChange={(e) =>
+                      updatePrediction(currentPredictionKey, fixture.id, {
+                        homeGoals: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                {/* VS */}
+                <span
+                  style={{
+                    color: theme.muted,
+                    fontWeight: 700,
+                    alignSelf: "center",
+                    lineHeight: "32px",
+                    marginTop: 11,
+                  }}
+                >
+                  VS
+                </span>
+
+                {/* AWAY */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    style={smallInput}
+                    value={pred.awayGoals || ""}
+                    disabled={locked}
+                    onChange={(e) =>
+                      updatePrediction(
+                        currentPredictionKey,
+                        fixture.id,
+                        { awayGoals: e.target.value }
+                      )
+                    }
+                  />
+
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      minWidth: 32,
+                    }}
+                  >
+                    <span
+                      style={{ fontSize: 12, color: theme.muted }}
+                    >
+                      {getTeamCode(fixture.awayTeam)}
+                    </span>
+
+                    {(TEAM_BADGES[fixture.awayTeam] ||
+                      getTeamCode(fixture.awayTeam) === "NFO") && (
+                      <img
+                        src={
+                          getTeamCode(fixture.awayTeam) === "NFO"
+                            ? "/badges/nottingham_forest.png"
+                            : TEAM_BADGES[fixture.awayTeam]
+                        }
+                        alt={fixture.awayTeam}
+                        style={{
+                          width: 20,
+                          height: 20,
+                          objectFit: "contain",
+                          marginLeft: 4,
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* POINTS + LOCK */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginLeft: 8,
+                    alignSelf: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 10,
+                        textAlign: "center",
+                        color: theme.muted,
+                        marginBottom: 2,
+                        lineHeight: "10px",
+                      }}
+                    >
+                      POINTS
+                    </div>
+                    <input
+                      type="number"
+                      readOnly
+                      value={
+                        pointsForThisFixture == null
+                          ? ""
+                          : pointsForThisFixture
+                      }
+                      style={{
+                        ...smallInput,
+                        fontWeight: 800,
+                        background:
+                          pointsForThisFixture == null
+                            ? theme.panel
+                            : pred?.isTriple
+                            ? "#ffd700"
+                            : pred?.isDouble
+                            ? "#C0C0C0"
+                            : pointsForThisFixture === 0
+                            ? "#e74c3c"
+                            : "#2ecc71",
+                        color:
+                          pointsForThisFixture == null
+                            ? theme.text
+                            : pred?.isTriple || pred?.isDouble
+                            ? "#000"
+                            : "#fff",
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      width: 22,
+                      height: 22,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      borderRadius: "50%",
+                      background: locked ? "#ff4d4d" : "#2ecc71",
+                      color: "#fff",
+                      fontSize: 14,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      marginTop: 12,
+                    }}
+                  >
+                    {locked ? "🔒" : "🔑"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Captain / Triple + Coins */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  width: "100%",
+                  marginTop: 10,
+                  gap: 6,
+                }}
+              >
+                {/* Captain + Triple */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 24,
+                  }}
+                >
+                  <label
   style={{
     display: "flex",
     alignItems: "center",
-    minWidth: 32,
+    gap: 6,
+    fontSize: 12,
+    color: theme.muted,
   }}
 >
-  {(TEAM_BADGES[fixture.homeTeam] ||
-    getTeamCode(fixture.homeTeam) === "NFO") && (
-    <img
-      src={
-        getTeamCode(fixture.homeTeam) === "NFO"
-          ? "/badges/nottingham_forest.png"
-          : TEAM_BADGES[fixture.homeTeam]
-      }
-      alt={fixture.homeTeam}
-      style={{
-        width:
-          fixture.homeTeam === "Arsenal"
-            ? 20
-            : fixture.homeTeam === "West Ham"
-            ? 20
-            : 20,
-        height:
-          fixture.homeTeam === "Arsenal"
-            ? 20
-            : fixture.homeTeam === "West Ham"
-            ? 20
-            : 20,
-        objectFit: "contain",
-        marginRight: 4,
-      }}
-    />
-  )}
-  <span style={{ fontSize: 12, color: theme.muted }}>
-    {getTeamCode(fixture.homeTeam)}
-  </span>
-</div>
+  Captain
+  <input
+    type="checkbox"
+    checked={!!pred.isDouble}
+    disabled={locked}
+    style={{
+      opacity: locked ? 0.4 : 1,
+      cursor: locked ? "not-allowed" : "pointer",
+    }}
+    onChange={(e) =>
+      updatePrediction(
+        currentPredictionKey,
+        fixture.id,
+        { isDouble: e.target.checked }
+      )
+    }
+  />
+</label>
+
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      fontSize: 12,
+                      color: theme.muted,
+                    }}
+                  >
+                    Triple
+                    {(() => {
+  const playerPreds = predictions[currentPredictionKey] || {};
+
+  // Find if a triple exists anywhere
+  const tripleFixtureId = Object.entries(playerPreds).find(
+    ([id, p]) => p?.isTriple
+  )?.[0];
+
+  // Is this the fixture holding the triple?
+  const isCurrentTriple =
+    String(tripleFixtureId) === String(fixture.id);
+
+  const lockedTriple = locked;
+
+  const tripleUsedElsewhere =
+    tripleFixtureId && !isCurrentTriple;
+
+  const disableTripleBox =
+    lockedTriple || tripleUsedElsewhere || pred.isDouble;
+
+  return (
+    <input
+  type="checkbox"
+  disabled={disableTripleBox}
+  style={{
+    opacity: disableTripleBox ? 0.4 : 1,
+    cursor: disableTripleBox ? "not-allowed" : "pointer",
+  }}
+  checked={!!pred.isTriple}
+  onChange={(e) =>
+    updatePrediction(
+      currentPredictionKey,
+      fixture.id,
+      e.target.checked
+        ? { isTriple: true, isDouble: false } // triple ON → captain OFF
+        : { isTriple: false }                 // triple OFF → leave captain alone
+    )
+  }
+/>
+  );
+})()}
+                  </label>
+                </div>
+
+                {/* Coins */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                    fontSize: 12,
+                    color: theme.muted,
+                  }}
+                >
+                  {/* MINI WRAPPER to reduce spacing between coin and input */}
+<div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+  <CoinIcon />
 
   <input
     type="number"
     min="0"
-    style={smallInput}
-    value={pred.homeGoals || ""}
-    disabled={locked}
+    max="10"
+    value={coinsStake}
     onChange={(e) =>
-      updatePrediction(currentPredictionKey, fixture.id, {
-        homeGoals: e.target.value,
-      })
+      handleCoinsChange(
+        fixture.id,
+        e.target.value,
+        coinsSide,
+        o
+      )
     }
+    style={{
+      width: 45,
+      textAlign: "center",
+      padding: "2px 4px",
+      borderRadius: 4,
+      border: `1px solid ${theme.border}`,
+      background: theme.input,
+      color: "#000",
+    }}
   />
 </div>
 
-                        <span
-                          style={{
-                            color: theme.muted,
-                            fontWeight: 700,
-                            alignSelf: "center",
-                            lineHeight: "32px",
-                            marginTop: 11,  
-                          }}
-                        >
-                          VS
-                        </span>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: 6,
-                            alignItems: "center",
-                          }}
-                        >
-                          <input
-                            type="number"
-                            min="0"
-                            style={smallInput}
-                            value={pred.awayGoals || ""}
-                            disabled={locked}
-                            onChange={(e) =>
-                              updatePrediction(
-                                currentPredictionKey,
-                                fixture.id,
-                                {
-                                  awayGoals: e.target.value,
-                                }
-                              )
-                            }
-                          />
-                          <div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    minWidth: 32,
-  }}
->
-  <span
-    style={{ fontSize: 12, color: theme.muted }}
-  >
-    {getTeamCode(fixture.awayTeam)}
-  </span>
-
-  {(TEAM_BADGES[fixture.awayTeam] ||
-    getTeamCode(fixture.awayTeam) === "NFO") && (
-    <img
-      src={
-        getTeamCode(fixture.awayTeam) === "NFO"
-          ? "/badges/nottingham_forest.png"
-          : TEAM_BADGES[fixture.awayTeam]
+<div style={{ display: "flex", gap: 4 }}>
+  {["H", "D", "A"].map((s) => (
+    <button
+      key={s}
+      type="button"
+      disabled={locked}
+      onClick={() =>
+        handleCoinsChange(
+          fixture.id,
+          coinsStake,
+          s,
+          o
+        )
       }
-      alt={fixture.awayTeam}
       style={{
-        width:
-          fixture.awayTeam === "Arsenal"
-            ? 20
-            : fixture.awayTeam === "West Ham"
-            ? 20
-            : 20,
-        height:
-          fixture.awayTeam === "Arsenal"
-            ? 20
-            : fixture.awayTeam === "West Ham"
-            ? 20
-            : 20,
-        objectFit: "contain",
-        marginLeft: 4,
+        padding: "2px 6px",
+        borderRadius: 999,
+        border: `1px solid ${theme.line}`,
+        backgroundColor:
+          coinsSide === s ? theme.accent : "transparent",
+        color: coinsSide === s ? theme.buttonText : theme.text,
+        fontSize: 11,
+        cursor: locked ? "default" : "pointer",
       }}
-    />
-  )}
+    >
+      {s}
+    </button>
+  ))}
 </div>
-                        </div>
 
-                                                {/* Right-side row: POINTS + lock key */}
-                                                <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            marginLeft: 8,
-                            alignSelf: "center",
-                            flexShrink: 0,
-                          }}
-                        >
-                          {/* POINTS box */}
-                          <div
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              alignItems: "center",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontSize: 10,
-                                textAlign: "center",
-                                color: theme.muted,
-                                marginBottom: 2,
-                                lineHeight: "10px",
-                              }}
-                            >
-                              POINTS
-                            </div>
-                            <input
-                              type="number"
-                              min="0"
-                              readOnly
-                              value={
-                                pointsForThisFixture == null
-                                  ? ""
-                                  : pointsForThisFixture
-                              }
-                              style={{
-                                ...smallInput,
-                                width: smallInput.width,
-                                height: smallInput.height,
-                                padding: smallInput.padding,
-                                fontWeight: 800,
-                                background:
-                                  pointsForThisFixture == null
-                                    ? theme.panel
-                                    : pred?.isTriple
-                                    ? "#ffd700"
-                                    : pred?.isDouble
-                                    ? "#C0C0C0"
-                                    : pointsForThisFixture === 0
-                                    ? "#e74c3c"
-                                    : "#2ecc71",
-                                color:
-                                  pointsForThisFixture == null
-                                    ? theme.text
-                                    : pred?.isTriple || pred?.isDouble
-                                    ? "#000"
-                                    : "#fff",
-                              }}
-                            />
-                          </div>
-
-                          {/* Lock status key */}
-                          <div
-                            style={{
-                              width: 22,
-                              height: 22,
-                              display: "flex",
-                              justifyContent: "center",
-                              alignItems: "center",
-                              borderRadius: "50%",
-                              background: locked ? "#ff4d4d" : "#2ecc71",
-                              color: "#fff",
-                              fontSize: 14,
-                              lineHeight: 1,
-                              flexShrink: 0,
-                              marginTop: 12,
-                            }}
-                          >
-                            {locked ? "🔒" : "🔑"}
-                          </div>
-                        </div>
-                      </div>
-
-                       {/* Controls row: captain/triple */}
-<div
-  style={{
-    display: "flex",
-    flexDirection: "column",
-    width: "100%",
-    marginTop: 10,
-    gap: 4,
-  }}
->
-  {/* Centre group: Captain + Triple */}
-  <div
+{coinsPossibleReturn && (
+  <span
     style={{
       display: "flex",
       alignItems: "center",
-      justifyContent: "center",
-      gap: 24,
+      gap: 4,
+      fontSize: 11,
     }}
   >
-    <label
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 12,
-        color: theme.muted,
-      }}
-    >
-      Captain
-      <input
-        type="checkbox"
-        checked={pred.isDouble || false}
-        disabled={locked || pred.isTriple}
-        onChange={(e) =>
-          updatePrediction(currentPredictionKey, fixture.id, {
-            isDouble: e.target.checked,
-          })
-        }
-      />
-    </label>
-
-    <label
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 12,
-        color: theme.muted,
-      }}
-    >
-      Triple
-      <input
-        type="checkbox"
-        checked={pred.isTriple || false}
-        disabled={locked || pred.isDouble}
-        onChange={(e) =>
-          updatePrediction(currentPredictionKey, fixture.id, {
-            isTriple: e.target.checked,
-          })
-        }
-      />
-    </label>
-  </div>
-</div>
-                    </div>
-
-                    
-                  </div>
-                );
-              })}
+    = {coinsPossibleReturn}
+    <CoinIcon />
+  </span>
+)}
+                </div>
+              </div>
             </div>
-          </section>
-        )}
+          </div>
+        );
+      })}
+    </div>
+  </section>
+)}
 
         {/* Results View */}
 {activeView === "results" && (
@@ -2335,6 +3161,61 @@ if (pred.homeGoals !== "" && pred.awayGoals !== "") {
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
       GW{selectedGameweek} Results
     </h2>
+
+    {/* Coins outcome summary for this gameweek */}
+    {authToken && coinsOutcome && (
+      <div
+        style={{
+          marginTop: 8,
+          paddingBottom: 8,
+          borderBottom: `1px solid ${theme.line}`,
+          fontSize: 12,
+          color: theme.muted,
+        }}
+      >
+        <div style={{ marginBottom: 4 }}>
+          <strong style={{ display: "flex", alignItems: "center", gap: 6 }}>
+  <img
+    src="/coin_PA_32.png"
+    alt="Coins"
+    style={{ width: 18, height: 18 }}
+  />
+  <span>GW{selectedGameweek}</span>
+</strong>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 6,
+          }}
+        >
+          <span>
+            Staked: <strong>{coinsOutcome.totalStake}</strong>
+          </span>
+          <span>
+            Returned:{" "}
+            <strong>{coinsOutcome.totalReturn.toFixed(2)}</strong>
+          </span>
+          <span>
+            Profit:{" "}
+            <strong
+              style={{
+                color:
+                  coinsOutcome.profit > 0
+                    ? theme.accent2
+                    : coinsOutcome.profit < 0
+                    ? theme.danger
+                    : theme.muted,
+              }}
+            >
+              {coinsOutcome.profit.toFixed(2)}
+            </strong>
+          </span>
+        </div>
+      </div>
+    )}
 
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
@@ -2372,9 +3253,10 @@ if (pred.homeGoals !== "" && pred.awayGoals !== "") {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 10,
-                flexWrap: "wrap",
-                justifyContent: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                width: "100%",
+                maxWidth: 520,
               }}
             >
               {/* Home badge + code */}
@@ -2407,32 +3289,16 @@ if (pred.homeGoals !== "" && pred.awayGoals !== "") {
                   alignItems: "center",
                 }}
               >
-                <input
-                  type="number"
-                  min="0"
-                  style={smallInput}
-                  value={res.homeGoals === 0 ? 0 : res.homeGoals ?? ""}
-                  onChange={(e) =>
-                    updateResult(fixture.id, {
-                      homeGoals: Number(e.target.value),
-                    })
-                  }
-                />
-                <span style={{ color: theme.muted }}>–</span>
-                <input
-                  type="number"
-                  min="0"
-                  style={smallInput}
-                  value={res.awayGoals === 0 ? 0 : res.awayGoals ?? ""}
-                  onChange={(e) =>
-                    updateResult(fixture.id, {
-                      awayGoals: Number(e.target.value),
-                    })
-                  }
-                />
+                <span style={{ minWidth: 14, textAlign: "right" }}>
+                  {res.homeGoals ?? "-"}
+                </span>
+                <span>-</span>
+                <span style={{ minWidth: 14 }}>
+                  {res.awayGoals ?? "-"}
+                </span>
               </div>
 
-              {/* Away code + badge */}
+              {/* Away badge + code */}
               <div
                 style={{
                   display: "flex",
@@ -2490,6 +3356,81 @@ if (pred.homeGoals !== "" && pred.awayGoals !== "") {
           </section>
         )}
 
+                        {activeView === "coinsLeague" && (
+          <section style={cardStyle}>
+            <h2
+              style={{
+                marginTop: 0,
+                fontSize: 18,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+              }}
+            >
+              <img
+                src="/coin_PA_32.png"
+                alt="Coins"
+                style={{ width: 20, height: 20 }}
+              />
+              <span>League Table</span>
+            </h2>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              {/* Show "no data" only if BOTH server + local are empty */}
+              {(!coinsLeagueRows || coinsLeagueRows.length === 0) &&
+                (!coinsLeaderboard || coinsLeaderboard.length === 0) && (
+                  <div
+                    style={{
+                      background: theme.panelHi,
+                      border: `1px solid ${theme.line}`,
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      fontSize: 13,
+                      color: theme.muted,
+                    }}
+                  >
+                    No coins data yet.
+                  </div>
+                )}
+
+              {/* Prefer server leaderboard; fall back to local single-player leaderboard */}
+              {(coinsLeagueRows && coinsLeagueRows.length > 0
+                ? coinsLeagueRows
+                : coinsLeaderboard || []
+              ).map((row, i) => {
+                const value =
+                  typeof row.profit === "number"
+                    ? row.profit
+                    : typeof row.points === "number"
+                    ? row.points
+                    : 0;
+
+                return (
+                  <div
+                    key={row.userId || row.player}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "40px 1fr 80px",
+                      gap: 8,
+                      alignItems: "center",
+                      background: theme.panelHi,
+                      border: `1px solid ${theme.line}`,
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                    }}
+                  >
+                    <div style={{ color: theme.muted }}>{i + 1}</div>
+                    <div style={{ fontWeight: 700 }}>{row.player}</div>
+                    <div style={{ textAlign: "right", fontWeight: 800 }}>
+                      {value.toFixed ? value.toFixed(2) : value}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
         {/* History */}
         {activeView === "history" && (
           <section

@@ -29,3 +29,33 @@ git checkout -b new-branch-name
 
 # Switch back to main
 git checkout main
+
+# Full git push
+git add .
+git commit -m "smaller text for mobile"
+git push
+
+# reset password in shell
+
+node
+
+const bcrypt = require("bcryptjs");
+bcrypt.hash("Steve1234", 10).then(h => console.log(h));
+
+•	Replace "NEW_TEMP_PASSWORD" with whatever you want to give them (e.g. "Phil123!").
+	•	Copy the long hash string that prints out.
+Type .exit to leave the Node prompt.
+
+Edit data/users.json
+	•	Open the file in nano:
+
+    cd /opt/render/project/src/data
+nano users.json
+
+Find the user (e.g. "username": "Tom").
+	•	Replace their existing "passwordHash": "...." with the new hash you copied.
+	•	Save & exit (Ctrl+O, Enter, Ctrl+X in nano).
+
+    kill 1
+
+
