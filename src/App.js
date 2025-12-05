@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 const BUILD_ID = "2025-11-26-a";
@@ -353,17 +353,6 @@ async function fetchPremierLeagueResults() {
     return { matches, error: null };
   } catch (err) {
     return { matches: [], error: err.message };
-  }
-}
-
-async function fetchPremierLeagueOdds() {
-  try {
-    const res = await fetch(`${BACKEND_BASE}/api/odds`);
-    if (!res.ok) return { markets: [], error: `HTTP ${res.status}` };
-    const markets = await res.json();
-    return { markets, error: null };
-  } catch (err) {
-    return { markets: [], error: err.message };
   }
 }
 
@@ -1472,9 +1461,10 @@ setNewPasswordInput("");
   );
 }
 
-  // ---------- PREDICTIONS ----------
+    // ---------- PREDICTIONS ----------
   const updatePrediction = (playerKey, fixtureId, newFields) => {
-    let fixturesToClearDouble = [];   // <-- ADD THIS LINE
+    let fixturesToClearDouble = [];
+
     setPredictions((prev) => {
       const prevPlayerPreds = prev[playerKey] || {};
       const prevFixturePred =
@@ -1506,14 +1496,14 @@ setNewPasswordInput("");
         if (wantTriple) {
           // Does this player already have a triple on a DIFFERENT fixture?
           const hasUsedTripleBefore = playerAlreadyUsedTriple(prevPlayerPreds);
-const hasTripleElsewhere = Object.entries(prevPlayerPreds).some(
-  ([id, pred]) => pred.isTriple && Number(id) !== fixtureId
-);
+          const hasTripleElsewhere = Object.entries(prevPlayerPreds).some(
+            ([id, pred]) => pred.isTriple && Number(id) !== fixtureId
+          );
 
-// If player already used triple ANYWHERE historically
-if (hasUsedTripleBefore && !prevFixturePred.isTriple) {
-  return prev; // block selecting a new one
-}
+          // If player already used triple ANYWHERE historically
+          if (hasUsedTripleBefore && !prevFixturePred.isTriple) {
+            return prev; // block selecting a new one
+          }
 
           // If triple already used elsewhere, block this change
           if (hasTripleElsewhere) {
@@ -1557,75 +1547,81 @@ if (hasUsedTripleBefore && !prevFixturePred.isTriple) {
         playerPreds = updated[playerKey];
       }
 
-            // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
+      // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
       if ("isDouble" in newFields) {
         const wantDouble = !!newFields.isDouble;
         const doubleFixture = FIXTURES.find(
           (f) => f.id === Number(fixtureId)
         );
 
-        if (wantDouble && doubleFixture) {
-          const targetGW = doubleFixture.gameweek;
+        if (doubleFixture) {
+          if (wantDouble) {
+            // Set this as the only captain in that gameweek
+            updated[playerKey] = Object.fromEntries(
+              Object.entries(playerPreds).map(([id, pred]) => {
+                const f = FIXTURES.find((fx) => fx.id === Number(id));
+                const sameGW =
+                  f && f.gameweek === doubleFixture.gameweek;
+                const isThis = Number(id) === Number(fixtureId);
 
-          updated[playerKey] = Object.fromEntries(
-  Object.entries(playerPreds).map(([id, pred]) => {
-    const f = FIXTURES.find((fx) => fx.id === Number(id));
-    const sameGW = f && f.gameweek === doubleFixture.gameweek;
-    const isThis = Number(id) === fixtureId;
+                const wasDouble = !!pred.isDouble;
+                const newIsDouble = sameGW && isThis;
 
-    const wasDouble = !!pred.isDouble;
-    const newIsDouble = sameGW && isThis;
+                if (sameGW && wasDouble && !newIsDouble) {
+                  fixturesToClearDouble.push(Number(id));
+                }
 
-    if (sameGW && wasDouble && !newIsDouble) {
-      fixturesToClearDouble.push(Number(id));
-    }
+                return [
+                  id,
+                  {
+                    ...pred,
+                    isDouble: newIsDouble,
+                    // can't be triple in same GW as captain
+                    isTriple: sameGW ? false : pred.isTriple,
+                  },
+                ];
+              })
+            );
+          } else {
+            // Unticking captain on this fixture only
+            updated[playerKey] = {
+              ...playerPreds,
+              [fixtureId]: {
+                ...(playerPreds[fixtureId] || {}),
+                isDouble: false,
+              },
+            };
+          }
 
-    return [
-      id,
-      {
-        ...pred,
-        isDouble: newIsDouble,
-        isTriple: sameGW ? false : pred.isTriple,
-      },
-    ];
-  })
-);
-
-// *** Sync: remove captain from other fixtures in the same gameweek ***
-if (!DEV_USE_LOCAL && authToken && fixturesToClearDouble.length > 0) {
-  fixturesToClearDouble.forEach((idToClear) => {
-    const pred =
-      (predictions[playerKey] && predictions[playerKey][idToClear]) || {};
-
-    apiSavePrediction(authToken, Number(idToClear), {
-      homeGoals:
-        pred.homeGoals === "" || pred.homeGoals === null
-          ? ""
-          : String(pred.homeGoals),
-      awayGoals:
-        pred.awayGoals === "" || pred.awayGoals === null
-          ? ""
-          : String(pred.awayGoals),
-      isDouble: false,
-      isTriple: !!pred.isTriple,
-    }).catch((err) =>
-      console.error("Failed to clear old captain:", err)
-    );
-  });
-}
-        } else {
-          // Unticking captain on this fixture only
-          updated[playerKey][fixtureId] = {
-            ...(updated[playerKey][fixtureId] || {}),
-            isDouble: false,
-          };
+          playerPreds = updated[playerKey];
         }
-
-        playerPreds = updated[playerKey];
       }
 
       return updated;
     });
+
+    // *** Sync: remove captain from other fixtures in the same gameweek ***
+    if (!DEV_USE_LOCAL && authToken && fixturesToClearDouble.length > 0) {
+      fixturesToClearDouble.forEach((idToClear) => {
+        const pred =
+          (predictions[playerKey] && predictions[playerKey][idToClear]) || {};
+
+        apiSavePrediction(authToken, Number(idToClear), {
+          homeGoals:
+            pred.homeGoals === "" || pred.homeGoals === null
+              ? ""
+              : String(pred.homeGoals),
+          awayGoals:
+            pred.awayGoals === "" || pred.awayGoals === null
+              ? ""
+              : String(pred.awayGoals),
+          isDouble: false,
+          isTriple: !!pred.isTriple,
+        }).catch((err) =>
+          console.error("Failed to clear old captain:", err)
+        );
+      });
+    }
 
     // ----- Sync to backend -----
     if (DEV_USE_LOCAL) return;
@@ -1656,14 +1652,6 @@ if (!DEV_USE_LOCAL && authToken && fixturesToClearDouble.length > 0) {
     apiSavePrediction(authToken, fixtureId, cleanPrediction).catch((err) =>
       console.error("Failed to sync prediction:", err)
     );
-  };
-
-
-  const updateResult = (fixtureId, newFields) => {
-    setResults((prev) => ({
-      ...prev,
-      [fixtureId]: { ...prev[fixtureId], ...newFields },
-    }));
   };
 
   const updateOdds = (fixtureId, newFields) => {
