@@ -91,6 +91,7 @@ const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 
+
 const RESERVED_LEGACY_NAMES = [
   "Tom",
   "Emma",
@@ -1088,6 +1089,69 @@ app.get("/api/odds", async (req, res) => {
 // ---------------------------------------------------------------------------
 // START SERVER
 // ---------------------------------------------------------------------------
+
+// -------------------- COINS LEADERBOARD --------------------
+app.get("/api/coins/leaderboard", authOptional, (req, res) => {
+  try {
+    const coins = loadCoins(); // { userId: { gw: { fixtureId: {...} } } }
+    const results = loadResults(); // existing results file
+    const users = loadUsers();
+
+    const userMap = {};
+    users.forEach(u => { userMap[u.id] = u.username; });
+
+    const leaderboard = [];
+
+    Object.entries(coins).forEach(([userId, gwObj]) => {
+      let totalStake = 0;
+      let totalReturn = 0;
+
+      Object.values(gwObj).forEach(fixObj => {
+        Object.values(fixObj).forEach(bet => {
+          const { fixtureId, stake, side, oddsSnapshot } = bet;
+
+          const res = results[fixtureId];
+          if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+
+          const hg = Number(res.homeGoals);
+          const ag = Number(res.awayGoals);
+          const resultSide = hg > ag ? "H" : hg < ag ? "A" : "D";
+
+          totalStake += stake;
+
+          if (side === resultSide && oddsSnapshot) {
+            const price =
+              resultSide === "H" ? oddsSnapshot.home :
+              resultSide === "D" ? oddsSnapshot.draw :
+              oddsSnapshot.away;
+
+            if (typeof price === "number") {
+              totalReturn += stake * price;
+            }
+          }
+        });
+      });
+
+      const profit = totalReturn - totalStake;
+
+      leaderboard.push({
+        userId,
+        player: userMap[userId] || "Unknown",
+        totalStake,
+        totalReturn,
+        profit,
+      });
+    });
+
+    leaderboard.sort((a, b) => b.profit - a.profit);
+
+    res.json({ leaderboard });
+  } catch (err) {
+    console.error("coins leaderboard error", err);
+    res.status(500).json({ error: "Failed to build coins leaderboard" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
