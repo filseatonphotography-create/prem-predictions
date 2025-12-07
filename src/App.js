@@ -17,12 +17,6 @@ const CoinIcon = () => (
 
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 
-// DEBUG helper – DO NOT REMOVE UNTIL WE FIX STEVE'S SCORES
-window.__PA_debugPreds = function(player) {
-  const p = window._allPreds || {};
-  console.log("Debug predictions for", player, p[player]);
-};
-
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
 const TEAM_ABBREVIATIONS = {
   Arsenal: "ARS",
@@ -77,7 +71,7 @@ const TEAM_ABBREVIATIONS = {
 // ---- CONFIG ----
 const DEV_USE_LOCAL = false; // always use cloud backend
 
-const BACKEND_BASE = "https://prem-predictions-1.onrender.com";
+const BACKEND_BASE = "http://localhost:5001";
 
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
@@ -1323,9 +1317,6 @@ useEffect(() => {
           ...cloudDataStr,  // ACTUAL CLOUD PREDICTIONS WIN
         };
       });
-
-      // Expose for debugging (used by __PA_debugPreds)
-      window._allPreds = predsForCalc;
 
       // 5) Compute weekly totals (spreadsheet base + recalculated points)
       const weeklyTotals = {};
@@ -3487,40 +3478,52 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   </div>
                 )}
 
-              {/* Prefer server leaderboard; fall back to local single-player leaderboard */}
-              {(coinsLeagueRows && coinsLeagueRows.length > 0
-                ? coinsLeagueRows
-                : coinsLeaderboard || []
-              ).map((row, i) => {
-                const value =
-                  typeof row.profit === "number"
-                    ? row.profit
-                    : typeof row.points === "number"
-                    ? row.points
-                    : 0;
+              {/* Local-only coins leaderboard (as before) */}
+{(!coinsLeaderboard || coinsLeaderboard.length === 0) && (
+  <div
+    style={{
+      background: theme.panelHi,
+      border: `1px solid ${theme.line}`,
+      padding: "8px 10px",
+      borderRadius: 10,
+      fontSize: 13,
+      color: theme.muted,
+    }}
+  >
+    No coins data yet.
+  </div>
+)}
 
-                return (
-                  <div
-                    key={row.userId || row.player}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "40px 1fr 80px",
-                      gap: 8,
-                      alignItems: "center",
-                      background: theme.panelHi,
-                      border: `1px solid ${theme.line}`,
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                    }}
-                  >
-                    <div style={{ color: theme.muted }}>{i + 1}</div>
-                    <div style={{ fontWeight: 700 }}>{row.player}</div>
-                    <div style={{ textAlign: "right", fontWeight: 800 }}>
-                      {value.toFixed ? value.toFixed(2) : value}
-                    </div>
-                  </div>
-                );
-              })}
+{(coinsLeaderboard || []).map((row, i) => {
+  const value =
+    typeof row.profit === "number"
+      ? row.profit
+      : typeof row.points === "number"
+      ? row.points
+      : 0;
+
+  return (
+    <div
+      key={row.userId || row.player}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "40px 1fr 80px",
+        gap: 8,
+        alignItems: "center",
+        background: theme.panelHi,
+        border: `1px solid ${theme.line}`,
+        padding: "8px 10px",
+        borderRadius: 10,
+      }}
+    >
+      <div style={{ color: theme.muted }}>{i + 1}</div>
+      <div style={{ fontWeight: 700 }}>{row.player}</div>
+      <div style={{ textAlign: "right", fontWeight: 800 }}>
+        {value.toFixed ? value.toFixed(2) : value}
+      </div>
+    </div>
+  );
+})}
             </div>
           </section>
         )}
