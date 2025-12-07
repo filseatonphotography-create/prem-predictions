@@ -26,6 +26,12 @@ const legacyMap = {
   Phil: "1763873593264",
 };
 
+// DEBUG helper – DO NOT REMOVE UNTIL WE FIX STEVE'S SCORES
+window._debugPreds = function(player) {
+  const p = window._allPreds || {};
+  console.log("Debug predictions for", player, p[player]);
+};
+
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
 const TEAM_ABBREVIATIONS = {
   Arsenal: "ARS",
@@ -1312,6 +1318,8 @@ keys.forEach((k) => {
     ...cloudData     // ACTUAL CLOUD PREDICTIONS WIN
   };
 });
+
+      window._allPreds = predsForCalc;
 
       // 5) Weekly totals
       const weeklyTotals = {};
