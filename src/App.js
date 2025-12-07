@@ -27,7 +27,7 @@ const legacyMap = {
 };
 
 // DEBUG helper – DO NOT REMOVE UNTIL WE FIX STEVE'S SCORES
-window._debugPreds = function(player) {
+window.__PA_debugPreds = function(player) {
   const p = window._allPreds || {};
   console.log("Debug predictions for", player, p[player]);
 };
