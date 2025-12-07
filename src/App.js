@@ -1306,6 +1306,14 @@ useEffect(() => {
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
       // 3) Merge predictions so that USER-ID data always wins
+// 4) Build predictions for calculation:
+//    start with any local preds for these keys, then overlay remote
+const legacyMap = {};
+leagueUsers.forEach((u) => {
+  const key = toLegacyKey(u);
+  if (!legacyMap[key]) legacyMap[key] = u.userId;
+});
+
 const predsForCalc = {};
 
 keys.forEach((k) => {
@@ -1313,13 +1321,23 @@ keys.forEach((k) => {
   const userId = legacyMap[k];
   const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
 
+  // --- FIX: Normalise all fixture IDs to STRING keys ---
+  const legacyDataStr = Object.fromEntries(
+    Object.entries(legacyData).map(([id, val]) => [String(id), val])
+  );
+  const cloudDataStr = Object.fromEntries(
+    Object.entries(cloudData).map(([id, val]) => [String(id), val])
+  );
+
+  // Now merge cleanly
   predsForCalc[k] = {
-    ...legacyData,   // spreadsheet/historic
-    ...cloudData     // ACTUAL CLOUD PREDICTIONS WIN
+    ...legacyDataStr,
+    ...cloudDataStr,
   };
 });
 
-      window._allPreds = predsForCalc;
+// Make debug available
+window._allPreds = predsForCalc;
 
       // 5) Weekly totals
       const weeklyTotals = {};
