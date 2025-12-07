@@ -1,5 +1,4 @@
-{
-  "1763398844150": {
+    },
     "137": {
       "homeGoals": "1",
       "awayGoals": "1",
@@ -1018,91 +1017,4 @@
       "isDouble": false,
       "isTriple": false
     }
-  },
-  "1763789072925": {
-    "137": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "138": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "139": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "140": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "141": {
-      "homeGoals": "0",
-      "awayGoals": "2",
-      "isDouble": true,
-      "isTriple": false
-    },
-    "142": {
-      "homeGoals": "1",
-      "awayGoals": "2",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "143": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "144": {
-      "homeGoals": "0",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "145": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "146": {
-      "homeGoals": "2",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "147": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "148": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "149": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "150": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    }
   }
-}

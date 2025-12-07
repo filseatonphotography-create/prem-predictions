@@ -80,10 +80,7 @@ const TEAM_ABBREVIATIONS = {
 // ---- CONFIG ----
 const DEV_USE_LOCAL = false; // set true ONLY for offline/dev localStorage testing
 
-const BACKEND_BASE =
-  window.location.hostname === "localhost"
-    ? "https://prem-predictions-1.onrender.com"
-    : "https://prem-predictions-1.onrender.com";
+const BACKEND_BASE = "http://localhost:5001";
 
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
@@ -295,6 +292,7 @@ async function apiSaveLeagueTotals(token, leagueId, payload) {
 async function apiSavePrediction(token, fixtureId, prediction) {
   const res = await fetch(`${BACKEND_BASE}/api/predictions/save`, {
     method: "POST",
+    keepalive: true,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
@@ -1119,25 +1117,37 @@ useEffect(() => {
 function normalizeCaptainsByGameweek(predsForUser) {
   if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
 
+  // Group captain fixtures by gameweek, including their updatedAt timestamp
   const byGw = {};
   for (const [fixtureId, pred] of Object.entries(predsForUser)) {
     if (!pred || !pred.isDouble) continue;
+
     const fx = FIXTURES.find((f) => f.id === Number(fixtureId));
     if (!fx) continue;
+
     const gw = fx.gameweek;
+    const ts =
+      pred && typeof pred.updatedAt === "number" ? pred.updatedAt : 0;
+
     if (!byGw[gw]) byGw[gw] = [];
-    byGw[gw].push(fixtureId);
+    byGw[gw].push({ fixtureId, ts });
   }
 
   const cloned = { ...predsForUser };
-  Object.values(byGw).forEach((ids) => {
-    if (ids.length <= 1) return;
-    const keepId = ids[ids.length - 1]; // keep last one
-    ids.forEach((id) => {
-      if (id === keepId) return;
-      const prev = cloned[id];
+
+  // For any gameweek with multiple captains, keep the latest one
+  Object.values(byGw).forEach((arr) => {
+    if (arr.length <= 1) return;
+
+    // Sort by timestamp and keep the one with the highest updatedAt
+    arr.sort((a, b) => a.ts - b.ts);
+    const keepId = arr[arr.length - 1].fixtureId;
+
+    arr.forEach(({ fixtureId }) => {
+      if (fixtureId === keepId) return;
+      const prev = cloned[fixtureId];
       if (!prev) return;
-      cloned[id] = { ...prev, isDouble: false };
+      cloned[fixtureId] = { ...prev, isDouble: false };
     });
   });
 
@@ -1145,28 +1155,34 @@ function normalizeCaptainsByGameweek(predsForUser) {
 }
 
   // Load cloud predictions after login/restore
-  useEffect(() => {
-    async function loadCloud() {
-      if (DEV_USE_LOCAL) return;
-      if (!isLoggedIn || !authToken || !currentUserId) return;
-      try {
-        const remote = await apiGetMyPredictions(authToken);
-const key = PLAYERS.includes(currentPlayer)
-  ? currentPlayer
-  : currentUserId;
+useEffect(() => {
+  async function loadCloud() {
+    if (DEV_USE_LOCAL) return;
+    if (!isLoggedIn || !authToken || !currentUserId) return;
 
-const normalized = normalizeCaptainsByGameweek(remote);
+    try {
+      const remote = await apiGetMyPredictions(authToken);
+      if (!remote || typeof remote !== "object") return;
 
-setPredictions((prev) => ({
-  ...prev,
-  [key]: { ...(prev[key] || {}), ...normalized },
-}));
-      } catch (err) {
-        console.error("Cloud predictions failed:", err);
-      }
+      const key = PLAYERS.includes(currentPlayer)
+        ? currentPlayer
+        : currentUserId;
+
+      // Normalize: keep only ONE captain per gameweek (latest updatedAt wins)
+      const normalized = normalizeCaptainsByGameweek(remote);
+
+      // Replace this player's predictions with the normalized cloud data
+      setPredictions((prev) => ({
+        ...prev,
+        [key]: { ...normalized },
+      }));
+    } catch (err) {
+      console.error("Cloud predictions failed:", err);
     }
-    loadCloud();
-  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+  }
+
+  loadCloud();
+}, [isLoggedIn, authToken, currentUserId, currentPlayer]);
   
  
   // One-time migration: move Phil_legacy local preds into Phil cloud account
@@ -1206,8 +1222,8 @@ useEffect(() => {
     }
   }
 
-  migratePhilLegacy();
-}, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
+      // migratePhilLegacy(); // disabled to stop legacy data overriding current predictions
+  }, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
   // Auto-load my leagues after login/restore
 useEffect(() => {
   async function loadLeaguesAuto() {
@@ -1365,15 +1381,19 @@ keys.forEach((k) => {
       setLeagueSuccess("");
 
       if (!DEV_USE_LOCAL && result.token) {
-        const cloudPreds = await apiGetMyPredictions(result.token);
-        const key = PLAYERS.includes(result.username)
-          ? result.username
-          : result.userId;
-        setPredictions((prev) => ({
-          ...prev,
-          ...(prev[key] || {}), ...normalizeCaptainsByGameweek(cloudPreds)
-        }));
-      }
+  const cloudPreds = await apiGetMyPredictions(result.token);
+  const key = PLAYERS.includes(result.username)
+    ? result.username
+    : result.userId;
+
+  setPredictions((prev) => ({
+    ...prev,
+    [key]: {
+      ...(prev[key] || {}),
+      ...normalizeCaptainsByGameweek(cloudPreds),
+    },
+  }));
+}
     } catch (err) {
       setAuthError(err.message || "Auth failed.");
     }
@@ -1455,71 +1475,100 @@ setNewPasswordInput("");
     }
   };
 
-  function playerAlreadyUsedTriple(allPredictionsForPlayer) {
-  return Object.values(allPredictionsForPlayer || {}).some(
-    (p) => p && p.isTriple
-  );
-}
+    function playerAlreadyUsedTriple(allPredictionsForPlayer) {
+    return Object.values(allPredictionsForPlayer || {}).some(
+      (p) => p && p.isTriple
+    );
+  }
 
-    // ---------- PREDICTIONS ----------
+  // ---------- PREDICTIONS ----------
   const updatePrediction = (playerKey, fixtureId, newFields) => {
-    let fixturesToClearDouble = [];
+    console.log("updatePrediction called", { playerKey, fixtureId, newFields });
+    if (!playerKey || fixtureId == null) return;
+
+    const fixtureIdNum = Number(fixtureId);
+    const changesToPersist = [];
 
     setPredictions((prev) => {
       const prevPlayerPreds = prev[playerKey] || {};
       const prevFixturePred =
-        prevPlayerPreds[fixtureId] || {
+        prevPlayerPreds[fixtureIdNum] || {
           homeGoals: "",
           awayGoals: "",
           isDouble: false,
           isTriple: false,
         };
 
-      // First apply the raw field changes to this fixture
-      let updated = {
-        ...prev,
-        [playerKey]: {
-          ...prevPlayerPreds,
-          [fixtureId]: {
-            ...prevFixturePred,
-            ...newFields,
-          },
+      // ----- LOCKED CAPTAIN RULE -----
+      // If trying to set a new captain (isDouble = true),
+      // and a different locked fixture in this GW is already captain,
+      // block the change.
+      if ("isDouble" in newFields && !!newFields.isDouble) {
+        const metaFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+
+        if (metaFixture) {
+          const gw = metaFixture.gameweek;
+
+          const lockedCaptainElsewhere = Object.entries(prevPlayerPreds).some(
+            ([id, pred]) => {
+              if (!pred || !pred.isDouble) return false;
+
+              const idNum = Number(id);
+              if (idNum === fixtureIdNum) return false; // ignore this fixture
+
+              const f = FIXTURES.find((fx) => fx.id === idNum);
+              if (!f || f.gameweek !== gw) return false;
+
+              return isPredictionLocked(f);
+            }
+          );
+
+          if (lockedCaptainElsewhere && !prevFixturePred.isDouble) {
+            console.log(
+              "Captain change blocked: already used on locked fixture in this gameweek"
+            );
+            return prev;
+          }
+        }
+      }
+
+      // 1) Apply the raw field changes to this fixture
+      let updatedPlayerPreds = {
+        ...prevPlayerPreds,
+        [fixtureIdNum]: {
+          ...prevFixturePred,
+          ...newFields,
         },
       };
-
-      let playerPreds = updated[playerKey];
 
       // ----- TRIPLE LOGIC: once per season -----
       if ("isTriple" in newFields) {
         const wantTriple = !!newFields.isTriple;
 
         if (wantTriple) {
-          // Does this player already have a triple on a DIFFERENT fixture?
           const hasUsedTripleBefore = playerAlreadyUsedTriple(prevPlayerPreds);
           const hasTripleElsewhere = Object.entries(prevPlayerPreds).some(
-            ([id, pred]) => pred.isTriple && Number(id) !== fixtureId
+            ([id, pred]) => pred.isTriple && Number(id) !== fixtureIdNum
           );
 
-          // If player already used triple ANYWHERE historically
+          // If player already used triple ANYWHERE historically and this fixture
+          // wasn't already triple, block selecting a new one
           if (hasUsedTripleBefore && !prevFixturePred.isTriple) {
-            return prev; // block selecting a new one
+            return prev;
           }
 
-          // If triple already used elsewhere, block this change
+          // If triple already used elsewhere in current state, block this change
           if (hasTripleElsewhere) {
             return prev;
           }
 
-          const tripleFixture = FIXTURES.find((f) => f.id === fixtureId);
-
-          // Ensure this is the ONLY triple, and clear double on same gameweek
+          const tripleFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
           if (tripleFixture) {
-            updated[playerKey] = Object.fromEntries(
-              Object.entries(playerPreds).map(([id, pred]) => {
+            updatedPlayerPreds = Object.fromEntries(
+              Object.entries(updatedPlayerPreds).map(([id, pred]) => {
                 const f = FIXTURES.find((fx) => fx.id === Number(id));
-                const sameGW =
-                  f && f.gameweek === tripleFixture.gameweek;
-                const isThis = Number(id) === fixtureId;
+                const sameGW = f && f.gameweek === tripleFixture.gameweek;
+                const isThis = Number(id) === fixtureIdNum;
 
                 return [
                   id,
@@ -1535,123 +1584,156 @@ setNewPasswordInput("");
           }
         } else {
           // Unticking triple on this fixture (allowed before lock)
-          updated[playerKey] = {
-            ...playerPreds,
-            [fixtureId]: {
-              ...(playerPreds[fixtureId] || {}),
+          updatedPlayerPreds = {
+            ...updatedPlayerPreds,
+            [fixtureIdNum]: {
+              ...(updatedPlayerPreds[fixtureIdNum] || {}),
               isTriple: false,
             },
           };
         }
-
-        playerPreds = updated[playerKey];
       }
 
-      // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
-      if ("isDouble" in newFields) {
-        const wantDouble = !!newFields.isDouble;
-        const doubleFixture = FIXTURES.find(
-          (f) => f.id === Number(fixtureId)
-        );
+          // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
+    if ("isDouble" in newFields) {
+      const wantDouble = !!newFields.isDouble;
+      const doubleFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
 
-        if (doubleFixture) {
-          if (wantDouble) {
-            // Set this as the only captain in that gameweek
-            updated[playerKey] = Object.fromEntries(
-              Object.entries(playerPreds).map(([id, pred]) => {
-                const f = FIXTURES.find((fx) => fx.id === Number(id));
-                const sameGW =
-                  f && f.gameweek === doubleFixture.gameweek;
-                const isThis = Number(id) === Number(fixtureId);
+      if (doubleFixture) {
+        const gw = doubleFixture.gameweek;
 
-                const wasDouble = !!pred.isDouble;
-                const newIsDouble = sameGW && isThis;
+        if (wantDouble) {
+          // If there is already a locked captain in this gameweek
+          // on a different fixture, or the whole gameweek is locked,
+          // and this fixture was not already captain, block moving/adding captain.
+          const gwLocked = isGameweekLocked(gw);
 
-                if (sameGW && wasDouble && !newIsDouble) {
-                  fixturesToClearDouble.push(Number(id));
-                }
+          const lockedCaptainElsewhere = Object.entries(prevPlayerPreds).some(
+            ([id, pred]) => {
+              if (!pred || !pred.isDouble) return false;
 
-                return [
-                  id,
-                  {
-                    ...pred,
-                    isDouble: newIsDouble,
-                    // can't be triple in same GW as captain
-                    isTriple: sameGW ? false : pred.isTriple,
-                  },
-                ];
-              })
+              const f = FIXTURES.find((fx) => fx.id === Number(id));
+              if (!f || f.gameweek !== gw) return false;
+
+              const isThis = Number(id) === fixtureIdNum;
+              const locked = isPredictionLocked(f);
+
+              // "Elsewhere" = same GW, locked, and not this fixture
+              return locked && !isThis;
+            }
+          );
+
+          if (!prevFixturePred.isDouble && (gwLocked || lockedCaptainElsewhere)) {
+            console.log(
+              "Captain change blocked: already used on locked fixture or locked gameweek"
             );
-          } else {
-            // Unticking captain on this fixture only
-            updated[playerKey] = {
-              ...playerPreds,
-              [fixtureId]: {
-                ...(playerPreds[fixtureId] || {}),
-                isDouble: false,
-              },
-            };
+            return prev;
           }
 
-          playerPreds = updated[playerKey];
+          // Set this as the only captain in that gameweek
+          updatedPlayerPreds = Object.fromEntries(
+            Object.entries(updatedPlayerPreds).map(([id, pred]) => {
+              const f = FIXTURES.find((fx) => fx.id === Number(id));
+              const sameGW = f && f.gameweek === doubleFixture.gameweek;
+              const isThis = Number(id) === fixtureIdNum;
+
+              return [
+                id,
+                {
+                  ...pred,
+                  isDouble: sameGW && isThis,
+                  // can't be triple in same GW as captain
+                  isTriple: sameGW ? false : pred.isTriple,
+                },
+              ];
+            })
+          );
+        } else {
+          // Unticking captain on this fixture only
+          updatedPlayerPreds = {
+            ...updatedPlayerPreds,
+            [fixtureIdNum]: {
+              ...(updatedPlayerPreds[fixtureIdNum] || {}),
+              isDouble: false,
+            },
+          };
         }
       }
-
-      return updated;
-    });
-
-    // *** Sync: remove captain from other fixtures in the same gameweek ***
-    if (!DEV_USE_LOCAL && authToken && fixturesToClearDouble.length > 0) {
-      fixturesToClearDouble.forEach((idToClear) => {
-        const pred =
-          (predictions[playerKey] && predictions[playerKey][idToClear]) || {};
-
-        apiSavePrediction(authToken, Number(idToClear), {
-          homeGoals:
-            pred.homeGoals === "" || pred.homeGoals === null
-              ? ""
-              : String(pred.homeGoals),
-          awayGoals:
-            pred.awayGoals === "" || pred.awayGoals === null
-              ? ""
-              : String(pred.awayGoals),
-          isDouble: false,
-          isTriple: !!pred.isTriple,
-        }).catch((err) =>
-          console.error("Failed to clear old captain:", err)
-        );
-      });
     }
 
-    // ----- Sync to backend -----
-    if (DEV_USE_LOCAL) return;
-    if (!authToken || !currentUserId) return;
+      // 2) Work out which fixtures actually changed for this player
+      Object.entries(updatedPlayerPreds).forEach(([id, pred]) => {
+        const before =
+          prevPlayerPreds[id] || {
+            homeGoals: "",
+            awayGoals: "",
+            isDouble: false,
+            isTriple: false,
+          };
 
-    const currentForFixture =
-      (predictions[playerKey] && predictions[playerKey][fixtureId]) || {
-        homeGoals: "",
-        awayGoals: "",
-        isDouble: false,
-        isTriple: false,
+        if (Number(id) === fixtureIdNum) {
+          console.log("DIFF CHECK", {
+            id,
+            before,
+            after: pred,
+          });
+        }
+
+        const changed =
+          String(before.homeGoals ?? "") !== String(pred.homeGoals ?? "") ||
+          String(before.awayGoals ?? "") !== String(pred.awayGoals ?? "") ||
+          !!before.isDouble !== !!pred.isDouble ||
+          !!before.isTriple !== !!pred.isTriple;
+
+        if (changed) {
+          changesToPersist.push({
+            fixtureId: Number(id),
+            prediction: { ...pred },
+          });
+        }
+      });
+
+      console.log("PERSIST INNER", {
+        DEV_USE_LOCAL,
+        authToken,
+        changesToPersistLength: Array.isArray(changesToPersist)
+          ? changesToPersist.length
+          : "not array",
+      });
+
+      if (
+        !DEV_USE_LOCAL &&
+        authToken &&
+        Array.isArray(changesToPersist) &&
+        changesToPersist.length > 0
+      ) {
+        const toSave = [...changesToPersist];
+
+        setTimeout(() => {
+          try {
+            // Save the current fixture last (helps captain ordering later)
+            toSave.sort((a, b) => {
+              if (a.fixtureId === fixtureIdNum && b.fixtureId !== fixtureIdNum) return 1;
+              if (b.fixtureId === fixtureIdNum && a.fixtureId !== fixtureIdNum) return -1;
+              return 0;
+            });
+
+            toSave.forEach(({ fixtureId: id, prediction }) => {
+              apiSavePrediction(authToken, id, prediction).catch((err) => {
+                console.error("apiSavePrediction error", { fixtureId: id, err });
+              });
+            });
+          } catch (err) {
+            console.error("PERSIST INNER error", err);
+          }
+        }, 0);
+      }
+
+      return {
+        ...prev,
+        [playerKey]: updatedPlayerPreds,
       };
-
-    const merged = { ...currentForFixture, ...newFields };
-    const cleanPrediction = {
-      homeGoals:
-        merged.homeGoals === "" || merged.homeGoals === null
-          ? ""
-          : String(merged.homeGoals),
-      awayGoals:
-        merged.awayGoals === "" || merged.awayGoals === null
-          ? ""
-          : String(merged.awayGoals),
-      isDouble: !!merged.isDouble,
-      isTriple: !!merged.isTriple,
-    };
-
-    apiSavePrediction(authToken, fixtureId, cleanPrediction).catch((err) =>
-      console.error("Failed to sync prediction:", err)
-    );
+    });
   };
 
   const updateOdds = (fixtureId, newFields) => {
@@ -3070,6 +3152,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
     min="0"
     max="10"
     value={coinsStake}
+    disabled={gwLocked || locked}
     onChange={(e) =>
       handleCoinsChange(
         fixture.id,
@@ -3095,7 +3178,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
     <button
       key={s}
       type="button"
-      disabled={locked}
+      disabled={gwLocked || locked}
       onClick={() =>
         handleCoinsChange(
           fixture.id,
@@ -3112,7 +3195,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
           coinsSide === s ? theme.accent : "transparent",
         color: coinsSide === s ? theme.buttonText : theme.text,
         fontSize: 11,
-        cursor: locked ? "default" : "pointer",
+        cursor: gwLocked || locked ? "default" : "pointer",
       }}
     >
       {s}
@@ -3120,19 +3203,23 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
   ))}
 </div>
 
-{coinsPossibleReturn && (
-  <span
-    style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 4,
-      fontSize: 11,
-    }}
-  >
-    = {coinsPossibleReturn}
-    <CoinIcon />
-  </span>
-)}
+<div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    fontSize: 11,
+    width: 60,          // ← reserve space so it never shifts
+    justifyContent: "flex-end",
+  }}
+>
+  {coinsPossibleReturn && (
+    <>
+      = {coinsPossibleReturn}
+      <CoinIcon />
+    </>
+  )}
+</div>
                 </div>
               </div>
             </div>

@@ -258,6 +258,32 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+function authOptional(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.replace("Bearer ", "").trim();
+
+  if (!token) {
+    req.user = null;
+    return next();
+  }
+
+  const data = verifyToken(token);
+  if (!data) {
+    req.user = null;
+    return next();
+  }
+
+  const users = loadUsers();
+  const user = users.find((u) => u.id === data.id);
+  if (!user) {
+    req.user = null;
+    return next();
+  }
+
+  req.user = { id: user.id, username: user.username };
+  next();
+}
+
 // ---------------------------------------------------------------------------
 // HEALTH
 // ---------------------------------------------------------------------------
@@ -308,7 +334,7 @@ app.post("/api/signup", (req, res) => {
     }
 
     const newUser = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       username: name,
       passwordHash: hashPassword(pwd),
       createdAt: new Date().toISOString(),
@@ -365,7 +391,7 @@ app.post("/api/login", (req, res) => {
         .json({ error: "Username and password are required." });
     }
 
-        const users = loadUsers();
+            const users = loadUsers();
     const user = users.find(
       (u) => u.username.toLowerCase() === name.toLowerCase()
     );
@@ -373,11 +399,23 @@ app.post("/api/login", (req, res) => {
       return res.status(401).json({ error: "Incorrect username or password." });
     }
 
-    // Temporary Steve override: allow Steve / Steve1234 even though his hash is bcrypt
+    // Temporary overrides: allow some plain-text dev passwords locally
     const isSteveOverride =
       user.username.toLowerCase() === "steve" && pwd === "Steve1234";
 
-    if (!isSteveOverride && !verifyPassword(pwd, user.passwordHash)) {
+    const isPhilOverride =
+      user.username.toLowerCase() === "phil" && pwd === "phil";
+
+    // Local dev override: when NOT running on Render, allow any user
+    // to log in with password "dev" so you can test locally
+    const isLocalDevOverride = !process.env.RENDER && pwd === "dev";
+
+    if (
+      !isLocalDevOverride &&
+      !isSteveOverride &&
+      !isPhilOverride &&
+      !verifyPassword(pwd, user.passwordHash)
+    ) {
       return res.status(401).json({ error: "Incorrect username or password." });
     }
 
@@ -656,6 +694,10 @@ app.get("/api/predictions/my", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
     const allPreds = loadPredictions();
+    console.log("MY PREDICTIONS:", {
+  userId,
+  predictions: allPreds[userId] || {}
+});
     return res.json({ predictions: allPreds[userId] || {} });
   } catch (err) {
     console.error("predictions/my error", err);
@@ -675,8 +717,10 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
       return res.status(400).json({ error: "prediction object is required." });
     }
 
-    const allPreds = loadPredictions();
+        const allPreds = loadPredictions();
     if (!allPreds[userId]) allPreds[userId] = {};
+
+    const now = Date.now();
 
     const clean = {
       homeGoals:
@@ -689,7 +733,14 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
           : String(prediction.awayGoals),
       isDouble: !!prediction.isDouble,
       isTriple: !!prediction.isTriple,
+      updatedAt: now,
     };
+
+    console.log("SAVE incoming:", {
+  userId,
+  fixtureId,
+  clean
+});
 
     allPreds[userId][fixtureId] = clean;
     savePredictions(allPreds);

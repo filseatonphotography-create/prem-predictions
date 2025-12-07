@@ -1,0 +1,55 @@
+{
+  "1763789072925": {
+    "15": {},
+    "16": {
+      "151": {
+        "fixtureId": "151",
+        "gameweek": "16",
+        "side": "H",
+        "stake": 2,
+        "oddsSnapshot": {
+          "home": 1.23,
+          "draw": 4.7,
+          "away": 27.26
+        },
+        "updatedAt": "2025-12-07T07:05:28.619Z"
+      },
+      "153": {
+        "fixtureId": "153",
+        "gameweek": "16",
+        "side": "D",
+        "stake": 2,
+        "oddsSnapshot": {
+          "home": 3.02,
+          "draw": 3.51,
+          "away": 2.24
+        },
+        "updatedAt": "2025-12-07T07:05:26.298Z"
+      },
+      "154": {
+        "fixtureId": "154",
+        "gameweek": "16",
+        "side": "D",
+        "stake": 1,
+        "oddsSnapshot": {
+          "home": 1.69,
+          "draw": 3.92,
+          "away": 4.6
+        },
+        "updatedAt": "2025-12-07T07:06:09.663Z"
+      },
+      "156": {
+        "fixtureId": "156",
+        "gameweek": "16",
+        "side": "D",
+        "stake": 2,
+        "oddsSnapshot": {
+          "home": 2.35,
+          "draw": 3.46,
+          "away": 2.87
+        },
+        "updatedAt": "2025-12-07T07:36:50.677Z"
+      }
+    }
+  }
+}
