@@ -78,9 +78,9 @@ const TEAM_ABBREVIATIONS = {
  */
 
 // ---- CONFIG ----
-const DEV_USE_LOCAL = false; // set true ONLY for offline/dev localStorage testing
+const DEV_USE_LOCAL = false; // always use cloud backend
 
-const BACKEND_BASE = "http://localhost:5001";
+const BACKEND_BASE = "https://predictionaddiction.onrender.com";
 
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
@@ -1185,45 +1185,49 @@ useEffect(() => {
 }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
   
  
-  // One-time migration: move Phil_legacy local preds into Phil cloud account
-useEffect(() => {
-  async function migratePhilLegacy() {
-    if (DEV_USE_LOCAL) return;
-    if (!isLoggedIn || !authToken || !currentUserId) return;
-    if (currentPlayer !== "Phil") return;
+    // One-time migration: move Phil_legacy local preds into Phil cloud account
+  useEffect(() => {
+    async function migratePhilLegacy() {
+      if (DEV_USE_LOCAL) return;
+      if (!isLoggedIn || !authToken || !currentUserId) return;
+      if (currentPlayer !== "Phil") return;
 
-    const legacy = predictions["Phil_legacy"];
-    if (!legacy || Object.keys(legacy).length === 0) return;
+      // Already migrated once? Do nothing.
+      if (localStorage.getItem(MIGRATION_FLAG) === "true") return;
 
-    try {
-      // push each legacy prediction to backend under Phil's real userId
-      const fixtureIds = Object.keys(legacy);
-      for (const fixtureId of fixtureIds) {
-        const pred = legacy[fixtureId];
-        if (!pred) continue;
+      const legacy = predictions["Phil_legacy"];
+      if (!legacy || Object.keys(legacy).length === 0) return;
 
-        await apiSavePrediction(authToken, fixtureId, pred);
+      try {
+        // push each legacy prediction to backend under Phil's real userId
+        const fixtureIds = Object.keys(legacy);
+        for (const fixtureId of fixtureIds) {
+          const pred = legacy[fixtureId];
+          if (!pred) continue;
+
+          await apiSavePrediction(authToken, fixtureId, pred);
+        }
+
+        // merge locally too (so UI shows them under Phil)
+        setPredictions((prev) => ({
+          ...prev,
+          Phil: {
+            ...(prev.Phil || {}),
+            ...legacy,
+          },
+        }));
+
+        // mark migrated so it never repeats
+        localStorage.setItem(MIGRATION_FLAG, "true");
+        console.log("✅ Phil legacy predictions migrated:", fixtureIds.length);
+      } catch (e) {
+        console.error("❌ Phil legacy migration failed:", e);
       }
-
-      // merge locally too (so UI shows them under Phil)
-      setPredictions((prev) => ({
-        ...prev,
-        Phil: {
-          ...(prev.Phil || {}),
-          ...legacy,
-        },
-      }));
-
-      // mark migrated so it never repeats
-      localStorage.setItem(MIGRATION_FLAG, "true");
-      console.log("✅ Phil legacy predictions migrated:", fixtureIds.length);
-    } catch (e) {
-      console.error("❌ Phil legacy migration failed:", e);
     }
-  }
 
-      // migratePhilLegacy(); // disabled to stop legacy data overriding current predictions
-  }, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
+    // actually run the migration once the right user is logged in
+    migratePhilLegacy();
+  }, [DEV_USE_LOCAL, isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
   // Auto-load my leagues after login/restore
 useEffect(() => {
   async function loadLeaguesAuto() {
