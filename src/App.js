@@ -16,15 +16,6 @@ const CoinIcon = () => (
 );
 
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
-const legacyMap = {
-  Tom: "1763791297309",
-  Ian: "1763801801288",
-  Dave: "1763801999658",
-  Anthony: "1763802020494",
-  Steve: "1763812904100",
-  Emma: "1763813732635",
-  Phil: "1763873593264",
-};
 
 // DEBUG helper – DO NOT REMOVE UNTIL WE FIX STEVE'S SCORES
 window.__PA_debugPreds = function(player) {
@@ -1299,72 +1290,60 @@ useEffect(() => {
           ? users
           : users.filter((u) => memberIdSet.has(u.userId));
 
-      // 3) Keys = legacy PLAYERS + league members (mapped)
+            // 3) Keys = legacy PLAYERS + league members (mapped)
       const memberKeys = leagueUsers.map(toLegacyKey);
       const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
 
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
-      // 3) Merge predictions so that USER-ID data always wins
-// 4) Build predictions for calculation:
-//    start with any local preds for these keys, then overlay remote
-const legacyMap = {};
-leagueUsers.forEach((u) => {
-  const key = toLegacyKey(u);
-  if (!legacyMap[key]) legacyMap[key] = u.userId;
-});
+      const userIdByKey = {};
+      leagueUsers.forEach((u) => {
+        const key = toLegacyKey(u);
+        if (!userIdByKey[key]) userIdByKey[key] = u.userId;
+      });
 
-const predsForCalc = {};
+      const predsForCalc = {};
 
-keys.forEach((k) => {
-  const legacyData = predictions[k] || {};
-  const userId = legacyMap[k];
-  const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
+      keys.forEach((k) => {
+        const legacyData = predictions[k] || {};
+        const userId = userIdByKey[k];
+        const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
 
-  // --- FIX: Normalise all fixture IDs to STRING keys ---
-  const legacyDataStr = Object.fromEntries(
-    Object.entries(legacyData).map(([id, val]) => [String(id), val])
-  );
-  const cloudDataStr = Object.fromEntries(
-    Object.entries(cloudData).map(([id, val]) => [String(id), val])
-  );
+        // Normalise all fixture IDs to STRING keys to avoid captain shifting
+        const legacyDataStr = Object.fromEntries(
+          Object.entries(legacyData).map(([id, val]) => [String(id), val])
+        );
+        const cloudDataStr = Object.fromEntries(
+          Object.entries(cloudData).map(([id, val]) => [String(id), val])
+        );
 
-  // Now merge cleanly
-  predsForCalc[k] = {
-    ...legacyDataStr,
-    ...cloudDataStr,
-  };
-});
+        // Merge local + cloud, with cloud winning
+        predsForCalc[k] = {
+          ...legacyDataStr, // spreadsheet/historic
+          ...cloudDataStr,  // ACTUAL CLOUD PREDICTIONS WIN
+        };
+      });
 
-// Make debug available
-window._allPreds = predsForCalc;
+      // Expose for debugging (used by __PA_debugPreds)
+      window._allPreds = predsForCalc;
 
-      // 5) Weekly totals
+      // 5) Compute weekly totals (spreadsheet base + recalculated points)
       const weeklyTotals = {};
-GAMEWEEKS.forEach((gw) => {
-  weeklyTotals[gw] = {};
-  keys.forEach((k) => {
-    // GW 1–11: trust spreadsheet only
-    const sheetVal = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1];
+      GAMEWEEKS.forEach((gw) => {
+        weeklyTotals[gw] = {};
+        keys.forEach((k) => {
+          let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
 
-    if (gw <= 11 && typeof sheetVal === "number" && !Number.isNaN(sheetVal)) {
-      weeklyTotals[gw][k] = sheetVal;
-      return;
-    }
+          FIXTURES.forEach((fx) => {
+            if (fx.gameweek !== gw) return;
+            const r = results[fx.id];
+            if (!r || r.homeGoals === "" || r.awayGoals === "") return;
+            score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
+          });
 
-    // GW 12+: ignore spreadsheet, calculate from predictions + results only
-    let score = 0;
-
-    FIXTURES.forEach((fx) => {
-      if (fx.gameweek !== gw) return;
-      const r = results[fx.id];
-      if (!r || r.homeGoals === "" || r.awayGoals === "") return;
-      score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
-    });
-
-    weeklyTotals[gw][k] = score;
-  });
-});
+          weeklyTotals[gw][k] = score;
+        });
+      });
 
       // 6) League totals (sum of weekly)
       const leagueTotals = {};
