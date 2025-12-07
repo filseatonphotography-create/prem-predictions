@@ -1185,7 +1185,7 @@ useEffect(() => {
 }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
   
  
-    // One-time migration: move Phil_legacy local preds into Phil cloud account
+    //  // One-time migration: move Phil_legacy local preds into Phil cloud account
   useEffect(() => {
     async function migratePhilLegacy() {
       if (DEV_USE_LOCAL) return;
@@ -1227,7 +1227,7 @@ useEffect(() => {
 
     // actually run the migration once the right user is logged in
     migratePhilLegacy();
-  }, [DEV_USE_LOCAL, isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
+  }, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
   // Auto-load my leagues after login/restore
 useEffect(() => {
   async function loadLeaguesAuto() {
