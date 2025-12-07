@@ -1315,21 +1315,30 @@ keys.forEach((k) => {
 
       // 5) Weekly totals
       const weeklyTotals = {};
-      GAMEWEEKS.forEach((gw) => {
-        weeklyTotals[gw] = {};
-        keys.forEach((k) => {
-          let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
+GAMEWEEKS.forEach((gw) => {
+  weeklyTotals[gw] = {};
+  keys.forEach((k) => {
+    // GW 1–11: trust spreadsheet only
+    const sheetVal = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1];
 
-          FIXTURES.forEach((fx) => {
-            if (fx.gameweek !== gw) return;
-            const r = results[fx.id];
-            if (!r || r.homeGoals === "" || r.awayGoals === "") return;
-            score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
-          });
+    if (gw <= 11 && typeof sheetVal === "number" && !Number.isNaN(sheetVal)) {
+      weeklyTotals[gw][k] = sheetVal;
+      return;
+    }
 
-          weeklyTotals[gw][k] = score;
-        });
-      });
+    // GW 12+: ignore spreadsheet, calculate from predictions + results only
+    let score = 0;
+
+    FIXTURES.forEach((fx) => {
+      if (fx.gameweek !== gw) return;
+      const r = results[fx.id];
+      if (!r || r.homeGoals === "" || r.awayGoals === "") return;
+      score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
+    });
+
+    weeklyTotals[gw][k] = score;
+  });
+});
 
       // 6) League totals (sum of weekly)
       const leagueTotals = {};
