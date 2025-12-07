@@ -90,7 +90,7 @@ const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
 const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
-
+const RESULTS_FILE = path.join(DATA_DIR, "results.json");
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -180,6 +180,8 @@ const saveLegacyMap = (m) => saveJson(LEGACY_MAP_FILE, m);
 // Coins game (userId -> { [gameweek]: { ...bets }, totals: {...} })
 const loadCoins = () => loadJson(COINS_FILE, {});
 const saveCoins = (coins) => saveJson(COINS_FILE, coins);
+// Results (for coins leaderboard)
+const loadResults = () => loadJson(RESULTS_FILE, {});
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -1149,7 +1151,9 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const users = loadUsers();
 
     const userMap = {};
-    users.forEach(u => { userMap[u.id] = u.username; });
+    users.forEach((u) => {
+      userMap[u.id] = u.username;
+    });
 
     const leaderboard = [];
 
@@ -1157,8 +1161,9 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       let totalStake = 0;
       let totalReturn = 0;
 
-      Object.values(gwObj).forEach(fixObj => {
-        Object.values(fixObj).forEach(bet => {
+      Object.values(gwObj).forEach((fixObj) => {
+        Object.values(fixObj).forEach((bet) => {
+          if (!bet) return;
           const { fixtureId, stake, side, oddsSnapshot } = bet;
 
           const res = results[fixtureId];
@@ -1172,9 +1177,11 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
           if (side === resultSide && oddsSnapshot) {
             const price =
-              resultSide === "H" ? oddsSnapshot.home :
-              resultSide === "D" ? oddsSnapshot.draw :
-              oddsSnapshot.away;
+              resultSide === "H"
+                ? oddsSnapshot.home
+                : resultSide === "D"
+                ? oddsSnapshot.draw
+                : oddsSnapshot.away;
 
             if (typeof price === "number") {
               totalReturn += stake * price;
@@ -1202,6 +1209,8 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     res.status(500).json({ error: "Failed to build coins leaderboard" });
   }
 });
+
+
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
