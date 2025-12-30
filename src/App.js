@@ -7,8 +7,8 @@ const CoinIcon = () => (
     src="/coin.png"
     alt="coin"
     style={{
-      width: 18,
-      height: 18,
+      width: 22,
+      height: 22,
       verticalAlign: "middle",
       marginRight: 4,
     }}
@@ -721,6 +721,49 @@ const [passwordError, setPasswordError] = useState("");
 const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
 
+  // Debug banner for Copilot chat test — unobtrusive floating element
+  const DEBUG_BANNER_ENABLED = true; // set false to disable locally
+  useEffect(() => {
+    if (!DEBUG_BANNER_ENABLED) return;
+    console.log("Copilot chat test — Phil: App mounted");
+
+    const banner = document.createElement("div");
+    banner.textContent = "Copilot chat test — Phil";
+    Object.assign(banner.style, {
+      position: "fixed",
+      top: "8px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "#fff7e6",
+      color: "#001018",
+      padding: "6px 10px",
+      borderRadius: "8px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+      zIndex: 9999,
+      fontSize: "12px",
+      cursor: "pointer",
+    });
+    banner.title = "Click to dismiss";
+    banner.onclick = () => {
+      banner.remove();
+      try {
+        localStorage.setItem("copilot_test_banner_dismissed", "true");
+      } catch (e) {}
+    };
+
+    try {
+      if (!localStorage.getItem("copilot_test_banner_dismissed")) document.body.appendChild(banner);
+    } catch (e) {
+      document.body.appendChild(banner);
+    }
+
+    return () => {
+      try {
+        banner.remove();
+      } catch (e) {}
+    };
+  }, []);
+
   // App state
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
@@ -842,6 +885,7 @@ const [coinsState, setCoinsState] = useState({
 
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
+  const [leagueUsers, setLeagueUsers] = useState([]);
   const [leagueNameInput, setLeagueNameInput] = useState("");
   const [leagueJoinCode, setLeagueJoinCode] = useState("");
   const [leagueError, setLeagueError] = useState("");
@@ -1016,6 +1060,7 @@ useEffect(() => {
 
   const fetchCoinsLeaderboard = async () => {
     try {
+      // Fetch leaderboard
       const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -1031,13 +1076,20 @@ useEffect(() => {
       if (data && Array.isArray(data.leaderboard)) {
         setCoinsLeagueRows(data.leaderboard);
       }
+
+      // Fetch league users if league exists
+      if (myLeagues.length > 0) {
+        const leagueId = myLeagues[0].id;
+        const leagueData = await apiGetLeaguePredictions(authToken, leagueId);
+        setLeagueUsers(leagueData.users || []);
+      }
     } catch (err) {
       console.error("coins leaderboard error", err);
     }
   };
 
   fetchCoinsLeaderboard();
-}, [activeView, authToken]);
+}, [activeView, authToken, myLeagues]);
 
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
@@ -1283,6 +1335,8 @@ useEffect(() => {
         memberIdSet.size === 0
           ? users
           : users.filter((u) => memberIdSet.has(u.userId));
+
+      setLeagueUsers(leagueUsers);
 
             // 3) Keys = legacy PLAYERS + league members (mapped)
       const memberKeys = leagueUsers.map(toLegacyKey);
@@ -3262,7 +3316,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
   <img
     src="/coin_PA_32.png"
     alt="Coins"
-    style={{ width: 18, height: 18 }}
+    style={{ width: 22, height: 22 }}
   />
   <span>GW{selectedGameweek}</span>
 </strong>
@@ -3455,7 +3509,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
               <img
                 src="/coin_PA_32.png"
                 alt="Coins"
-                style={{ width: 20, height: 20 }}
+                style={{ width: 22, height: 22 }}
               />
               <span>League Table</span>
             </h2>
@@ -3478,28 +3532,59 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   </div>
                 )}
 
-              {/* Local-only coins leaderboard (as before) */}
-{(!coinsLeaderboard || coinsLeaderboard.length === 0) && (
-  <div
-    style={{
-      background: theme.panelHi,
-      border: `1px solid ${theme.line}`,
-      padding: "8px 10px",
-      borderRadius: 10,
-      fontSize: 13,
-      color: theme.muted,
-    }}
-  >
-    No coins data yet.
-  </div>
+              {/* Prefer server season leaderboard; fall back to local single-player winnings */}
+{(
+  (coinsLeagueRows && coinsLeagueRows.length > 0
+    ? coinsLeagueRows
+    : coinsLeaderboard || [])
+  .length === 0 && (
+    <div
+      style={{
+        background: theme.panelHi,
+        border: `1px solid ${theme.line}`,
+        padding: "8px 10px",
+        borderRadius: 10,
+        fontSize: 13,
+        color: theme.muted,
+      }}
+    >
+      No coins data yet.
+    </div>
+  )
 )}
 
-{(coinsLeaderboard || []).map((row, i) => {
-  const value =
+{(() => {
+  const leagueMembers = myLeagues[0]?.members || [];
+  const mergedRows = leagueMembers.map(memberId => {
+    const user = leagueUsers.find(u => u.userId === memberId);
+    const username = user ? user.username : 'Unknown';
+    const existing = coinsLeagueRows.find(r => r.userId === memberId);
+    if (existing) {
+      return { ...existing, player: username };
+    } else {
+      return { userId: memberId, player: username, profit: 0, totalStake: 0 };
+    }
+  }).sort((a, b) => (b.profit || 0) - (a.profit || 0)); // sort by profit descending
+
+  const rowsToShow = mergedRows.length > 0 ? mergedRows : (
+    coinsLeagueRows && coinsLeagueRows.length > 0
+      ? coinsLeagueRows
+      : coinsLeaderboard || []
+  );
+
+  return rowsToShow.map((row, i) => {
+  const profit =
     typeof row.profit === "number"
       ? row.profit
       : typeof row.points === "number"
       ? row.points
+      : 0;
+
+  const totalStake =
+    typeof row.totalStake === "number"
+      ? row.totalStake
+      : typeof row.coinsUsed === "number"
+      ? row.coinsUsed
       : 0;
 
   return (
@@ -3516,14 +3601,25 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         borderRadius: 10,
       }}
     >
+      {/* Position in the leaderboard */}
       <div style={{ color: theme.muted }}>{i + 1}</div>
-      <div style={{ fontWeight: 700 }}>{row.player}</div>
+
+      {/* Player name + coins used */}
+      <div>
+        <div style={{ fontWeight: 700 }}>{row.player}</div>
+        <div style={{ fontSize: 11, color: theme.muted }}>
+          Coins used: {totalStake}
+        </div>
+      </div>
+
+      {/* Profit / winnings */}
       <div style={{ textAlign: "right", fontWeight: 800 }}>
-        {value.toFixed ? value.toFixed(2) : value}
+        {profit.toFixed ? profit.toFixed(2) : profit}
       </div>
     </div>
   );
-})}
+});
+})()}
             </div>
           </section>
         )}
