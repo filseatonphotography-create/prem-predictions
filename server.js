@@ -1344,12 +1344,20 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     // Exclude test/inactive users
     const excludedUsernames = ["philtest", "Panto"];
 
+    // Track usernames to handle duplicates
+    const seenUsernames = new Set();
+
     users.forEach((user) => {
       if (excludedUsernames.includes(user.username)) return;
 
       const userIdKey = String(user.id);
       const coinsForUser = coins[userIdKey] || {};
       const summary = computeSeasonCoinsForUser(coinsForUser, results);
+
+      // If username already seen and this one has 0 stake, skip (prefer the active one)
+      if (seenUsernames.has(user.username) && summary.totalStake === 0) return;
+
+      seenUsernames.add(user.username);
 
       leaderboard.push({
         userId: userIdKey,
