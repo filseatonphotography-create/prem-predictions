@@ -1341,7 +1341,12 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
     const leaderboard = [];
 
+    // Exclude test/inactive users
+    const excludedUsernames = ["philtest", "Panto"];
+
     users.forEach((user) => {
+      if (excludedUsernames.includes(user.username)) return;
+
       const userIdKey = String(user.id);
       const coinsForUser = coins[userIdKey] || {};
       const summary = computeSeasonCoinsForUser(coinsForUser, results);
