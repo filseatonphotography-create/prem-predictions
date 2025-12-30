@@ -979,6 +979,17 @@ useEffect(() => {
 
       if (matchedCount) {
         setResults((prev) => ({ ...prev, ...updatedResults }));
+
+        // Save results snapshot to backend for coins computation
+        try {
+          await fetch(`${BACKEND_BASE}/api/results/snapshot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ resultsByFixtureId: updatedResults }),
+          });
+        } catch (err) {
+          console.error("Failed to save results snapshot", err);
+        }
       }
     }
 
