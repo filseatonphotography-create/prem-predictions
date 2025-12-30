@@ -762,7 +762,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         banner.remove();
       } catch (e) {}
     };
-  }, []);
+  }, [DEBUG_BANNER_ENABLED]);
 
   // App state
   const [predictions, setPredictions] = useState({});
