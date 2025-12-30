@@ -721,49 +721,6 @@ const [passwordError, setPasswordError] = useState("");
 const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
 
-  // Debug banner for Copilot chat test — unobtrusive floating element
-  const DEBUG_BANNER_ENABLED = true; // set false to disable locally
-  useEffect(() => {
-    if (!DEBUG_BANNER_ENABLED) return;
-    console.log("Copilot chat test — Phil: App mounted");
-
-    const banner = document.createElement("div");
-    banner.textContent = "Copilot chat test — Phil";
-    Object.assign(banner.style, {
-      position: "fixed",
-      top: "8px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      background: "#fff7e6",
-      color: "#001018",
-      padding: "6px 10px",
-      borderRadius: "8px",
-      boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-      zIndex: 9999,
-      fontSize: "12px",
-      cursor: "pointer",
-    });
-    banner.title = "Click to dismiss";
-    banner.onclick = () => {
-      banner.remove();
-      try {
-        localStorage.setItem("copilot_test_banner_dismissed", "true");
-      } catch (e) {}
-    };
-
-    try {
-      if (!localStorage.getItem("copilot_test_banner_dismissed")) document.body.appendChild(banner);
-    } catch (e) {
-      document.body.appendChild(banner);
-    }
-
-    return () => {
-      try {
-        banner.remove();
-      } catch (e) {}
-    };
-  }, [DEBUG_BANNER_ENABLED]);
-
   // App state
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
