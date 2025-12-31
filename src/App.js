@@ -1550,13 +1550,13 @@ setNewPasswordInput("");
               const f = FIXTURES.find((fx) => fx.id === idNum);
               if (!f || f.gameweek !== gw) return false;
 
-              return isPredictionLocked(f);
+              return true; // any captain elsewhere in GW
             }
           );
 
           if (lockedCaptainElsewhere && !prevFixturePred.isDouble) {
             console.log(
-              "Captain change blocked: already used on locked fixture in this gameweek"
+              "Captain change blocked: already used in this gameweek"
             );
             return prev;
           }
@@ -1647,16 +1647,15 @@ setNewPasswordInput("");
               if (!f || f.gameweek !== gw) return false;
 
               const isThis = Number(id) === fixtureIdNum;
-              const locked = isPredictionLocked(f);
 
-              // "Elsewhere" = same GW, locked, and not this fixture
-              return locked && !isThis;
+              // "Elsewhere" = same GW, and not this fixture
+              return !isThis;
             }
           );
 
-          if (!prevFixturePred.isDouble && (gwLocked || lockedCaptainElsewhere)) {
+          if (!prevFixturePred.isDouble && lockedCaptainElsewhere) {
             console.log(
-              "Captain change blocked: already used on locked fixture or locked gameweek"
+              "Captain change blocked: already used in this gameweek"
             );
             return prev;
           }
@@ -2195,7 +2194,7 @@ if (!isLoggedIn) {
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
-                    type="button"
+                    type="submit"
                     onClick={() => setLoginMode("login")}
                     style={{
                       flex: 1,
@@ -2215,7 +2214,7 @@ if (!isLoggedIn) {
                     Log in
                   </button>
                   <button
-                    type="button"
+                    type="submit"
                     onClick={() => setLoginMode("signup")}
                     style={{
                       flex: 1,
@@ -2235,43 +2234,7 @@ if (!isLoggedIn) {
                     Create account
                   </button>
                 </div>
-
-                {authError && (
-                  <div
-                    style={{
-                      background: "rgba(239,68,68,0.12)",
-                      border: `1px solid rgba(239,68,68,0.5)`,
-                      color: theme.text,
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      fontSize: 13,
-                    }}
-                  >
-                    {authError}
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: theme.accent,
-                    color: "#001018",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontSize: 15,
-                  }}
-                >
-                  {loginMode === "login" ? "Log in" : "Create account"}
-                </button>
               </form>
-
-              <div style={{ marginTop: 10, fontSize: 12, color: theme.muted }}>
-                Legacy players (Tom, Emma, Phil, Steve, Dave, Ian, Anthony) are
-                reserved and already in the system.
-              </div>
             </section>
 
             <section style={cardStyle}>
@@ -2779,6 +2742,10 @@ if (!isLoggedIn) {
         // eslint-disable-next-line no-unused-vars
         const probs = computeProbabilities(o);
 
+        const playerPreds = predictions[currentPredictionKey] || {};
+        const hasCaptainInGW = Object.entries(playerPreds).some(([fid, p]) => p.isDouble && FIXTURES.find(f => f.id === fid)?.gameweek === selectedGameweek);
+        const captainLocked = locked || (hasCaptainInGW && !pred.isDouble);
+
         const r = results[fixture.id];
         const hasResult =
           r && r.homeGoals !== "" && r.awayGoals !== "";
@@ -3094,10 +3061,10 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
   <input
     type="checkbox"
     checked={!!pred.isDouble}
-    disabled={locked}
+    disabled={captainLocked}
     style={{
-      opacity: locked ? 0.4 : 1,
-      cursor: locked ? "not-allowed" : "pointer",
+      opacity: captainLocked ? 0.4 : 1,
+      cursor: captainLocked ? "not-allowed" : "pointer",
     }}
     onChange={(e) =>
       updatePrediction(
