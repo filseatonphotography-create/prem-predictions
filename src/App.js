@@ -719,7 +719,6 @@ const [oldPasswordInput, setOldPasswordInput] = useState("");
 const [newPasswordInput, setNewPasswordInput] = useState("");
 const [passwordError, setPasswordError] = useState("");
 const [passwordSuccess, setPasswordSuccess] = useState("");
-  const [authError, setAuthError] = useState("");
 
   // App state
   const [predictions, setPredictions] = useState({});
@@ -1391,10 +1390,12 @@ useEffect(() => {
   // ---------- AUTH ----------
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    setAuthError("");
     const name = loginName.trim();
     const pwd = loginPassword.trim();
-    if (!name || !pwd) return setAuthError("Enter username + password.");
+    if (!name || !pwd) {
+      alert("Enter username + password.");
+      return;
+    }
 
     try {
       const result =
@@ -1426,7 +1427,7 @@ useEffect(() => {
   }));
 }
     } catch (err) {
-      setAuthError(err.message || "Auth failed.");
+      alert(err.message || "Auth failed.");
     }
   };
   // ---------- CHANGE PASSWORD ----------
@@ -1451,7 +1452,6 @@ setNewPasswordInput("");
     setCurrentPlayer("");
     setCurrentUserId("");
     setLoginPassword("");
-    setAuthError("");
     setMyLeagues([]);
   };
 
