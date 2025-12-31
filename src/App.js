@@ -858,7 +858,7 @@ const [coinsState, setCoinsState] = useState({
     // Fallback: if logged in, use own userId
     if (currentUserId) return currentUserId;
     return currentPlayer;
-  }, [currentPlayer, currentUserId]);
+  }, [currentPlayer, currentUserId, leagueUsers]);
 
   // ---------- INIT ----------
 useEffect(() => {
