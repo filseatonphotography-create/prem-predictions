@@ -848,7 +848,6 @@ const [coinsState, setCoinsState] = useState({
   const [leagueSuccess, setLeagueSuccess] = useState("");
   const [leaguesLoading, setLeaguesLoading] = useState(false);
   const gwLocked = isGameweekLocked(selectedGameweek);
-  const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
   const currentPredictionKey = useMemo(() => {
