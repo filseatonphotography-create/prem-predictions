@@ -1634,10 +1634,8 @@ setNewPasswordInput("");
         const gw = doubleFixture.gameweek;
 
         if (wantDouble) {
-          // If there is already a locked captain in this gameweek
-          // on a different fixture, or the whole gameweek is locked,
-          // and this fixture was not already captain, block moving/adding captain.
-          const gwLocked = isGameweekLocked(gw);
+          // If there is already a captain in this gameweek
+          // on a different fixture, block adding captain.
 
           const lockedCaptainElsewhere = Object.entries(prevPlayerPreds).some(
             ([id, pred]) => {
@@ -1648,14 +1646,14 @@ setNewPasswordInput("");
 
               const isThis = Number(id) === fixtureIdNum;
 
-              // "Elsewhere" = same GW, and not this fixture
-              return !isThis;
+              // "Elsewhere" = same GW, locked, and not this fixture
+              return isPredictionLocked(f) && !isThis;
             }
           );
 
           if (!prevFixturePred.isDouble && lockedCaptainElsewhere) {
             console.log(
-              "Captain change blocked: already used in this gameweek"
+              "Captain change blocked: already used on locked fixture in this gameweek"
             );
             return prev;
           }
@@ -2743,8 +2741,11 @@ if (!isLoggedIn) {
         const probs = computeProbabilities(o);
 
         const playerPreds = predictions[currentPredictionKey] || {};
-        const hasCaptainInGW = Object.entries(playerPreds).some(([fid, p]) => p.isDouble && FIXTURES.find(f => f.id === fid)?.gameweek === selectedGameweek);
-        const captainLocked = locked || (hasCaptainInGW && !pred.isDouble);
+        const captainEntry = Object.entries(playerPreds).find(([fid, p]) => p.isDouble && FIXTURES.find(f => f.id === fid)?.gameweek === selectedGameweek);
+        const hasCaptainInGW = !!captainEntry;
+        const captainFixture = captainEntry ? FIXTURES.find(f => f.id === captainEntry[0]) : null;
+        const captainFixtureLocked = captainFixture ? isPredictionLocked(captainFixture) : false;
+        const captainLocked = locked || (hasCaptainInGW && !pred.isDouble && captainFixtureLocked);
 
         const r = results[fixture.id];
         const hasResult =
