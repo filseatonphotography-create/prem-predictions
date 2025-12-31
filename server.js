@@ -7,6 +7,9 @@ const crypto = require("crypto");
 const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
 
+// Legacy players
+const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
+
 const PORT = process.env.PORT || 5001;
 
 const app = express();
@@ -686,12 +689,18 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
         return { raw: league, members, joinCode };
       })
       .filter((w) => w.members.includes(userId))
-      .map((w) => ({
-        id: w.raw.id,
-        name: w.raw.name,
-        joinCode: w.joinCode,
-        memberCount: w.members.length,
-      }));
+      .map((w) => {
+        let memberCount = w.members.length;
+        if (w.raw.name === "The Originals") {
+          memberCount += PLAYERS.length;
+        }
+        return {
+          id: w.raw.id,
+          name: w.raw.name,
+          joinCode: w.joinCode,
+          memberCount,
+        };
+      });
 
     return res.json({ leagues: myLeagues });
   } catch (err) {
@@ -866,6 +875,11 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
       ? league.memberUserIds
       : [];
 
+    // For "The Originals" league, include legacy players
+    if (league.name === "The Originals") {
+      members.push(...PLAYERS);
+    }
+
     // only members can fetch league predictions
     if (!members.includes(userId)) {
       return res.status(403).json({ error: "Forbidden" });
@@ -875,9 +889,14 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
     const users = loadUsers();
 
     const usersInLeague = members
-      .map((id) => users.find((u) => u.id === id))
+      .map((id) => {
+        if (PLAYERS.includes(id)) {
+          return { userId: id, username: id };
+        }
+        return users.find((u) => u.id === id);
+      })
       .filter(Boolean)
-      .map((u) => ({ userId: u.id, username: u.username }));
+      .map((u) => ({ userId: u.userId, username: u.username }));
 
     const predictionsByUserId = {};
     members.forEach((mid) => {

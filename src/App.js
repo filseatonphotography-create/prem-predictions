@@ -332,6 +332,17 @@ async function apiJoinLeague(token, code) {
   return data.league || data;
 }
 
+async function apiGetLeaguePredictions(token, leagueId) {
+  const res = await fetch(`${BACKEND_BASE}/api/predictions/league/${leagueId}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load league predictions.");
+  return data;
+}
+
 // Results & Odds (unchanged)
 // eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults() {
@@ -852,9 +863,12 @@ const [coinsState, setCoinsState] = useState({
   // Prediction key for storage
   const currentPredictionKey = useMemo(() => {
     if (PLAYERS.includes(currentPlayer)) return currentPlayer;
+    // For league users, find the userId by username
+    const leagueUser = leagueUsers.find(u => u.username === currentPlayer);
+    if (leagueUser) return leagueUser.userId;
     if (currentUserId) return currentUserId;
     return currentPlayer;
-  }, [currentPlayer, currentUserId]);
+  }, [currentPlayer, currentUserId, leagueUsers]);
 
   // ---------- INIT ----------
 useEffect(() => {
