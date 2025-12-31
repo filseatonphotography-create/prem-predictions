@@ -2623,7 +2623,7 @@ if (!isLoggedIn) {
                   fontSize: 14,
                 }}
               >
-                {leagueUsers.map((u) => (
+                {[...new Map(leagueUsers.map(u => [u.username, u])).values()].map((u) => (
                   <option key={u.userId} value={u.username}>
                     {u.username}
                   </option>
