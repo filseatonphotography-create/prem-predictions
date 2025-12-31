@@ -2611,7 +2611,7 @@ if (!isLoggedIn) {
             }}
           >
             <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
-            {gwLocked && isOriginalPlayer ? (
+            {activeView === "predictions" && gwLocked && myLeagues.length > 0 ? (
               <select
                 value={currentPlayer}
                 onChange={(e) => setCurrentPlayer(e.target.value)}
@@ -2624,9 +2624,9 @@ if (!isLoggedIn) {
                   fontSize: 14,
                 }}
               >
-                {PLAYERS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
+                {leagueUsers.map((u) => (
+                  <option key={u.userId} value={u.username}>
+                    {u.username}
                   </option>
                 ))}
               </select>
