@@ -851,7 +851,11 @@ const [coinsState, setCoinsState] = useState({
 
   // Prediction key for storage
   const currentPredictionKey = useMemo(() => {
+    // If currentPlayer is a legacy username, use that as key
     if (PLAYERS.includes(currentPlayer)) return currentPlayer;
+    // If currentPlayer matches a userId in leagueUsers, use that
+    if (leagueUsers && leagueUsers.some(u => u.userId === currentPlayer)) return currentPlayer;
+    // Fallback: if logged in, use own userId
     if (currentUserId) return currentUserId;
     return currentPlayer;
   }, [currentPlayer, currentUserId]);
@@ -881,7 +885,12 @@ useEffect(() => {
           setIsLoggedIn(true);
           setAuthToken(parsedAuth.token);
           setCurrentUserId(parsedAuth.userId);
-          setCurrentPlayer(parsedAuth.username);
+          // Use userId for modern users, username for legacy
+          if (PLAYERS.includes(parsedAuth.username)) {
+            setCurrentPlayer(parsedAuth.username);
+          } else {
+            setCurrentPlayer(parsedAuth.userId);
+          }
         }
       }
     } catch {}
@@ -1288,6 +1297,17 @@ useEffect(() => {
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
 
+      // Merge league predictions into main predictions state for dropdown
+      setPredictions(prev => {
+        const merged = { ...prev };
+        users.forEach(u => {
+          // Use userId for modern users, username for legacy
+          const key = PLAYERS.includes(u.username) ? u.username : u.userId;
+          merged[key] = predictionsByUserId[u.userId] || {};
+        });
+        return merged;
+      });
+
       // 2) Filter to ONLY actual members of this league (if list exists)
       const leagueObj = myLeagues[0] || {};
       const memberIds = Array.isArray(leagueObj.members)
@@ -1405,7 +1425,12 @@ useEffect(() => {
       setIsLoggedIn(true);
       setAuthToken(result.token);
       setCurrentUserId(result.userId);
-      setCurrentPlayer(result.username);
+      // Use userId for modern users, username for legacy
+      if (PLAYERS.includes(result.username)) {
+        setCurrentPlayer(result.username);
+      } else {
+        setCurrentPlayer(result.userId);
+      }
       setLoginPassword("");
       setMyLeagues([]);
       setLeagueError("");
@@ -2610,25 +2635,42 @@ if (!isLoggedIn) {
             }}
           >
             <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
-            {activeView === "predictions" && gwLocked && myLeagues.length > 0 ? (
-              <select
-                value={currentPlayer}
-                onChange={(e) => setCurrentPlayer(e.target.value)}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  background: theme.panelHi,
-                  color: theme.text,
-                  border: `1px solid ${theme.line}`,
-                  fontSize: 14,
-                }}
-              >
-                {[...new Map(leagueUsers.map(u => [u.username, u])).values()].map((u) => (
-                  <option key={u.userId} value={u.username}>
-                    {u.username}
-                  </option>
-                ))}
-              </select>
+            {activeView === "predictions" && myLeagues.length > 0 ? (
+              gwLocked ? (
+                <select
+                  value={currentPlayer}
+                  onChange={e => {
+                    const val = e.target.value;
+                    // If legacy player, use username; else, use userId
+                    const user = leagueUsers.find(u => u.userId === val || u.username === val);
+                    if (user) {
+                      if (PLAYERS.includes(user.username)) {
+                        setCurrentPlayer(user.username);
+                      } else {
+                        setCurrentPlayer(user.userId);
+                      }
+                    } else {
+                      setCurrentPlayer(val);
+                    }
+                  }}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                    fontSize: 14,
+                  }}
+                >
+                  {[...new Map(leagueUsers.map(u => [PLAYERS.includes(u.username) ? u.username : u.userId, u])).values()].map((u) => (
+                    <option key={PLAYERS.includes(u.username) ? u.username : u.userId} value={PLAYERS.includes(u.username) ? u.username : u.userId}>
+                      {u.username}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
+              )
             ) : (
               <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
             )}
