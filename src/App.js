@@ -723,7 +723,6 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginMode, setLoginMode] = useState("login");
   // Change password modal state
 const [showPasswordModal, setShowPasswordModal] = useState(false);
 const [oldPasswordInput, setOldPasswordInput] = useState("");
@@ -1823,22 +1822,7 @@ const leaderboard = useMemo(() => {
     .sort((a, b) => b.points - a.points);
 }, [computedLeagueTotals, predictions, results]);
 
-  const coinsLeaderboard = useMemo(() => {
-    if (!coinsOutcome || !currentPlayer) return [];
-
-    const profit =
-      typeof coinsOutcome.profit === "number"
-        ? coinsOutcome.profit
-        : 0;
-
-    return [
-      {
-        player: currentPlayer,
-        points: profit,
-      },
-    ];
-  }, [coinsOutcome, currentPlayer]);
-
+  // Coins league rows
  const historicalScores = useMemo(() => {
   if (computedWeeklyTotals) {
     return GAMEWEEKS.map((gw) => {
