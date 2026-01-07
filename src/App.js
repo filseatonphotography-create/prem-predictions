@@ -1379,7 +1379,7 @@ useEffect(() => {
   };
 }, [results, predictions, isLoggedIn, authToken, myLeagues]);
   // ---------- AUTH ----------
-  const handleAuthSubmit = async (e, mode = loginMode) => {
+  const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError("");
     const name = loginName.trim();
@@ -2161,9 +2161,7 @@ if (!isLoggedIn) {
   value={loginPassword}
   onChange={(e) => setLoginPassword(e.target.value)}
   placeholder="••••"
-  autoComplete={
-    loginMode === "signup" ? "new-password" : "current-password"
-  }
+  autoComplete="current-password"
 />
                 </label>
 
@@ -2175,13 +2173,8 @@ if (!isLoggedIn) {
                       flex: 1,
                       padding: "8px 10px",
                       borderRadius: 10,
-                      border: `1px solid ${
-                        loginMode === "login" ? theme.accent : theme.line
-                      }`,
-                      background:
-                        loginMode === "login"
-                          ? "rgba(56,189,248,0.15)"
-                          : theme.panelHi,
+                      border: `1px solid ${theme.accent}`,
+                      background: "rgba(56,189,248,0.15)",
                       color: theme.text,
                       cursor: "pointer",
                     }}
@@ -2195,13 +2188,8 @@ if (!isLoggedIn) {
                       flex: 1,
                       padding: "8px 10px",
                       borderRadius: 10,
-                      border: `1px solid ${
-                        loginMode === "signup" ? theme.accent2 : theme.line
-                      }`,
-                      background:
-                        loginMode === "signup"
-                          ? "rgba(34,197,94,0.15)"
-                          : theme.panelHi,
+                      border: `1px solid ${theme.accent2}`,
+                      background: "rgba(34,197,94,0.15)",
                       color: theme.text,
                       cursor: "pointer",
                     }}
