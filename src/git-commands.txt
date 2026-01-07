@@ -32,7 +32,7 @@ git checkout main
 
 # Full git push
 git add .
-git commit -m "smaller text for mobile"
+git commit -m "scores from spreadsheet"
 git push
 
 # reset password in shell
@@ -59,3 +59,7 @@ Find the user (e.g. "username": "Tom").
     kill 1
 
 
+const BACKEND_BASE =
+  window.location.hostname === "localhost"
+    ? "https://prem-predictions-1.onrender.com"
+    : "https://prem-predictions-1.onrender.com";

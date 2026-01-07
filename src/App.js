@@ -705,6 +705,17 @@ const TAGLINES = [
 
 const randomTagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
 export default function App() {
+  // Sound effects for coins
+  const playCoinSound = (isAdding) => {
+    try {
+      const audio = new Audio(isAdding ? '/coin.mp3' : '/negative coin.mp3');
+      audio.volume = 0.3;
+      audio.play().catch(err => console.log('Audio play failed:', err));
+    } catch (err) {
+      console.log('Audio error:', err);
+    }
+  };
+
   // Auth state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState("");
@@ -1012,7 +1023,6 @@ useEffect(() => {
 // Fetch multi-player coins leaderboard from backend
 useEffect(() => {
   if (activeView !== "coinsLeague") return;
-  if (!authToken) return;
 
   const fetchCoinsLeaderboard = async () => {
     try {
@@ -1347,6 +1357,9 @@ useEffect(() => {
 
       if (cancelled) return;
 
+      // Store all players' predictions so they can be viewed
+      setPredictions((prev) => ({ ...prev, ...predsForCalc }));
+
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
 
@@ -1367,7 +1380,7 @@ useEffect(() => {
   };
 }, [results, predictions, isLoggedIn, authToken, myLeagues]);
   // ---------- AUTH ----------
-  const handleAuthSubmit = async (e) => {
+  const handleAuthSubmit = async (e, mode = loginMode) => {
     e.preventDefault();
     setAuthError("");
     const name = loginName.trim();
@@ -1376,7 +1389,7 @@ useEffect(() => {
 
     try {
       const result =
-        loginMode === "signup"
+        mode === "signup"
           ? await apiSignup(name, pwd)
           : await apiLogin(name, pwd);
 
@@ -1613,9 +1626,8 @@ setNewPasswordInput("");
 
         if (wantDouble) {
           // If there is already a locked captain in this gameweek
-          // on a different fixture, or the whole gameweek is locked,
-          // and this fixture was not already captain, block moving/adding captain.
-          const gwLocked = isGameweekLocked(gw);
+          // on a different fixture, block moving/adding captain.
+          // Players can change captain until their chosen captain's fixture locks.
 
           const lockedCaptainElsewhere = Object.entries(prevPlayerPreds).some(
             ([id, pred]) => {
@@ -1632,9 +1644,9 @@ setNewPasswordInput("");
             }
           );
 
-          if (!prevFixturePred.isDouble && (gwLocked || lockedCaptainElsewhere)) {
+          if (!prevFixturePred.isDouble && lockedCaptainElsewhere) {
             console.log(
-              "Captain change blocked: already used on locked fixture or locked gameweek"
+              "Captain change blocked: already used on locked fixture in this gameweek"
             );
             return prev;
           }
@@ -2173,8 +2185,8 @@ if (!isLoggedIn) {
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
-                    type="button"
-                    onClick={() => setLoginMode("login")}
+                    type="submit"
+                    onClick={(e) => handleAuthSubmit(e, "login")}
                     style={{
                       flex: 1,
                       padding: "8px 10px",
@@ -2193,8 +2205,8 @@ if (!isLoggedIn) {
                     Log in
                   </button>
                   <button
-                    type="button"
-                    onClick={() => setLoginMode("signup")}
+                    type="submit"
+                    onClick={(e) => handleAuthSubmit(e, "signup")}
                     style={{
                       flex: 1,
                       padding: "8px 10px",
@@ -2228,28 +2240,7 @@ if (!isLoggedIn) {
                     {authError}
                   </div>
                 )}
-
-                <button
-                  type="submit"
-                  style={{
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "none",
-                    background: theme.accent,
-                    color: "#001018",
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontSize: 15,
-                  }}
-                >
-                  {loginMode === "login" ? "Log in" : "Create account"}
-                </button>
               </form>
-
-              <div style={{ marginTop: 10, fontSize: 12, color: theme.muted }}>
-                Legacy players (Tom, Emma, Phil, Steve, Dave, Ian, Anthony) are
-                reserved and already in the system.
-              </div>
             </section>
 
             <section style={cardStyle}>
@@ -2748,8 +2739,6 @@ if (!isLoggedIn) {
       }}
     >
       {visibleFixtures.map((fixture) => {
-        console.log("TEAM:", fixture.homeTeam, fixture.awayTeam);
-
         const pred =
           predictions[currentPredictionKey]?.[fixture.id] || {};
         const locked = isPredictionLocked(fixture);
@@ -3152,34 +3141,87 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     color: theme.muted,
                   }}
                 >
-                  {/* MINI WRAPPER to reduce spacing between coin and input */}
-<div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  {/* MINI WRAPPER with +/- buttons */}
+<div style={{ display: "flex", alignItems: "center", gap: 6 }}>
   <CoinIcon />
 
-  <input
-    type="number"
-    min="0"
-    max="10"
-    value={coinsStake}
-    disabled={gwLocked || locked}
-    onChange={(e) =>
-      handleCoinsChange(
-        fixture.id,
-        e.target.value,
-        coinsSide,
-        o
-      )
-    }
-    style={{
-      width: 45,
-      textAlign: "center",
-      padding: "2px 4px",
-      borderRadius: 4,
-      border: `1px solid ${theme.border}`,
-      background: theme.input,
-      color: "#000",
-    }}
-  />
+  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+    <button
+      type="button"
+      disabled={locked || coinsStake <= 0}
+      onClick={() => {
+        const newValue = Math.max(0, coinsStake - 1);
+        if (newValue !== coinsStake) {
+          playCoinSound(false);
+          handleCoinsChange(fixture.id, newValue, coinsSide, o);
+        }
+      }}
+      style={{
+        width: 24,
+        height: 24,
+        padding: 0,
+        borderRadius: 6,
+        border: `1px solid ${theme.line}`,
+        background: (locked || coinsStake <= 0) ? theme.panelHi : theme.accent,
+        color: (locked || coinsStake <= 0) ? theme.muted : "#fff",
+        fontSize: 16,
+        fontWeight: 700,
+        cursor: (locked || coinsStake <= 0) ? "not-allowed" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: (locked || coinsStake <= 0) ? 0.4 : 1,
+      }}
+    >
+      −
+    </button>
+
+    <div
+      style={{
+        width: 32,
+        textAlign: "center",
+        padding: "2px 4px",
+        borderRadius: 6,
+        border: `1px solid ${theme.line}`,
+        background: theme.panelHi,
+        color: theme.text,
+        fontWeight: 700,
+        fontSize: 14,
+      }}
+    >
+      {coinsStake}
+    </div>
+
+    <button
+      type="button"
+      disabled={locked || coinsStake >= 10}
+      onClick={() => {
+        const newValue = Math.min(10, coinsStake + 1);
+        if (newValue !== coinsStake) {
+          playCoinSound(true);
+          handleCoinsChange(fixture.id, newValue, coinsSide, o);
+        }
+      }}
+      style={{
+        width: 24,
+        height: 24,
+        padding: 0,
+        borderRadius: 6,
+        border: `1px solid ${theme.line}`,
+        background: (locked || coinsStake >= 10) ? theme.panelHi : theme.accent2,
+        color: (locked || coinsStake >= 10) ? theme.muted : "#fff",
+        fontSize: 16,
+        fontWeight: 700,
+        cursor: (locked || coinsStake >= 10) ? "not-allowed" : "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        opacity: (locked || coinsStake >= 10) ? 0.4 : 1,
+      }}
+    >
+      +
+    </button>
+  </div>
 </div>
 
 <div style={{ display: "flex", gap: 4 }}>
@@ -3187,7 +3229,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
     <button
       key={s}
       type="button"
-      disabled={gwLocked || locked}
+      disabled={locked}
       onClick={() =>
         handleCoinsChange(
           fixture.id,
@@ -3204,7 +3246,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
           coinsSide === s ? theme.accent : "transparent",
         color: coinsSide === s ? theme.buttonText : theme.text,
         fontSize: 11,
-        cursor: gwLocked || locked ? "default" : "pointer",
+        cursor: locked ? "default" : "pointer",
       }}
     >
       {s}
@@ -3461,9 +3503,8 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
             </h2>
 
             <div style={{ display: "grid", gap: 6 }}>
-              {/* Show "no data" only if BOTH server + local are empty */}
-              {(!coinsLeagueRows || coinsLeagueRows.length === 0) &&
-                (!coinsLeaderboard || coinsLeaderboard.length === 0) && (
+              {/* Show "no data" only if server data is empty */}
+              {(!coinsLeagueRows || coinsLeagueRows.length === 0) && (
                   <div
                     style={{
                       background: theme.panelHi,
@@ -3478,23 +3519,8 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   </div>
                 )}
 
-              {/* Local-only coins leaderboard (as before) */}
-{(!coinsLeaderboard || coinsLeaderboard.length === 0) && (
-  <div
-    style={{
-      background: theme.panelHi,
-      border: `1px solid ${theme.line}`,
-      padding: "8px 10px",
-      borderRadius: 10,
-      fontSize: 13,
-      color: theme.muted,
-    }}
-  >
-    No coins data yet.
-  </div>
-)}
-
-{(coinsLeaderboard || []).map((row, i) => {
+              {/* Server coins leaderboard with all users */}
+{(coinsLeagueRows || []).map((row, i) => {
   const value =
     typeof row.profit === "number"
       ? row.profit
@@ -3532,44 +3558,71 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
           <section
   style={{
     ...cardStyle,
-    overflowX: "hidden",
-    maxWidth: "100%",
+    padding: 0,
+    overflow: "hidden",
   }}
 >
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>Weekly Scores</h2>
+            <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>Weekly Scores</h2>
 
-            <div style={{ overflowX: "auto" }}>
+            <div style={{ 
+              overflowX: "auto", 
+              overflowY: "auto",
+              maxHeight: "70vh",
+              position: "relative"
+            }}>
               <table
                 style={{
-                  width: "max-content",
-minWidth: "100%",
-                  borderCollapse: "collapse",
+                  width: "100%",
+                  borderCollapse: "separate",
+                  borderSpacing: 0,
                   fontSize: 13,
                 }}
               >
                 <thead>
-                  <tr>
+                  <tr style={{ 
+                    position: "sticky", 
+                    top: 0, 
+                    zIndex: 4,
+                    background: theme.panel
+                  }}>
                     <th
   style={{
-    textAlign: "left",
-    padding: 6,
+    textAlign: "center",
+    padding: "10px 12px",
     position: "sticky",
     left: 0,
-    zIndex: 3,
-    background: theme.panelHi,
+    zIndex: 5,
+    background: theme.panel,
+    borderRight: `2px solid ${theme.line}`,
+    borderBottom: `2px solid ${theme.line}`,
+    fontWeight: 700,
+    color: theme.accent,
+    width: "60px",
+    minWidth: "60px",
   }}
 >
   GW
 </th>
                     {PLAYERS.map((p) => (
-                      <th key={p} style={{ textAlign: "left", padding: 6 }}>
-                        {p}
+                      <th key={p} style={{ 
+                        textAlign: "center", 
+                        padding: "10px 6px",
+                        borderBottom: `2px solid ${theme.line}`,
+                        fontWeight: 700,
+                        color: theme.accent,
+                        background: theme.panel,
+                        minWidth: "50px",
+                        maxWidth: "70px",
+                      }}
+                      title={p}
+                      >
+                        {p.slice(0, 4)}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {historicalScores.map((row) => {
+                  {historicalScores.map((row, idx) => {
                     const vals = PLAYERS.map((p) => row[p]);
                     const max = Math.max(...vals);
                     const min = Math.min(...vals);
@@ -3579,12 +3632,15 @@ minWidth: "100%",
                       <tr key={row.gameweek}>
                         <td
   style={{
-    padding: 6,
-    color: theme.muted,
+    padding: "10px 12px",
+    color: theme.accent,
     position: "sticky",
     left: 0,
-    zIndex: 2,
-    background: theme.panelHi,
+    zIndex: 3,
+    background: theme.panel,
+    borderRight: `2px solid ${theme.line}`,
+    fontWeight: 700,
+    textAlign: "center",
   }}
 >
   {row.gameweek}
@@ -3592,15 +3648,19 @@ minWidth: "100%",
                         {PLAYERS.map((p) => {
                           const v = row[p];
                           const shade = (v - min) / range;
+                          const isWinner = v === max && max > 0;
                           return (
                             <td
                               key={p}
                               style={{
-                                padding: 6,
-                                background: `rgba(34,197,94,${
-                                  0.08 + 0.22 * shade
-                                })`,
-                                fontWeight: v === max ? 800 : 400,
+                                padding: "10px 12px",
+                                textAlign: "center",
+                                background: isWinner 
+                                  ? `rgba(34,197,94,${0.25 + 0.35 * shade})`
+                                  : theme.panelHi,
+                                fontWeight: isWinner ? 800 : 400,
+                                color: isWinner ? "#fff" : theme.text,
+                                borderBottom: idx < historicalScores.length - 1 ? `1px solid ${theme.line}` : "none",
                               }}
                             >
                               {v}

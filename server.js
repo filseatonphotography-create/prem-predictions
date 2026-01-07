@@ -182,6 +182,7 @@ const loadCoins = () => loadJson(COINS_FILE, {});
 const saveCoins = (coins) => saveJson(COINS_FILE, coins);
 // Results (for coins leaderboard)
 const loadResults = () => loadJson(RESULTS_FILE, {});
+const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -258,6 +259,94 @@ function authMiddleware(req, res, next) {
 
   req.user = { id: user.id, username: user.username };
   next();
+}
+
+// --- TEAM NAME NORMALISATION (match frontend logic) ---
+function normalizeTeamName(name) {
+  if (!name) return "";
+  let s = name.toLowerCase().trim();
+
+  if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
+  if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
+  if (s === "nott'm forest" || s === "nottm forest" || s === "nottingham")
+    s = "nottingham forest";
+  if (
+    s === "man utd" ||
+    s === "man u" ||
+    s === "manchester utd" ||
+    s === "manchester u" ||
+    s === "mufc"
+  )
+    s = "manchester united";
+  if (s === "leeds") s = "leeds united";
+  if (s === "west ham" || s === "whu" || s === "hammers")
+    s = "west ham united";
+  if (s === "aston villa" || s === "villa") s = "aston villa";
+
+  return s;
+}
+
+// --- BASIC RESULT HELPER (match frontend logic) ---
+function getResult(home, away) {
+  if (home > away) return "H";
+  if (home < away) return "A";
+  return "D";
+}
+
+// --- COINS: compute season totals for ONE user ---
+// coinsForUser: { [gameweekKey]: { [fixtureId]: bet } }
+// resultsByFixtureId: { [fixtureId]: { homeGoals, awayGoals } }
+function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
+  const gwObj = coinsForUser || {};
+  const results = resultsByFixtureId || {};
+
+  let totalStake = 0;
+  let totalReturn = 0;
+
+  Object.values(gwObj).forEach((fixObj) => {
+    if (!fixObj || typeof fixObj !== "object") return;
+
+    Object.values(fixObj).forEach((bet) => {
+      if (!bet) return;
+
+      const { fixtureId, stake, side, oddsSnapshot } = bet || {};
+      if (!Number.isFinite(stake) || stake <= 0) return;
+
+      // Always count stake as "coins used"
+      totalStake += stake;
+
+      // Only try to compute winnings if we have a result
+      const res = results[fixtureId];
+      if (!res) return;
+
+      const hg = Number(res.homeGoals);
+      const ag = Number(res.awayGoals);
+      if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
+
+      const resultSide = getResult(hg, ag); // "H", "D", or "A"
+
+      if (side === resultSide && oddsSnapshot) {
+        const price =
+          resultSide === "H"
+            ? oddsSnapshot.home
+            : resultSide === "D"
+            ? oddsSnapshot.draw
+            : oddsSnapshot.away;
+
+        if (typeof price === "number") {
+          totalReturn += stake * price;
+        }
+      }
+    });
+  });
+
+  const profit = totalReturn - totalStake;
+
+  return {
+    totalStake,
+    totalReturn,
+    profit,
+  };
 }
 
 function authOptional(req, res, next) {
@@ -871,6 +960,76 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
   }
 });
 
+// -------------------- COINS DEBUG: SEASON TOTALS FOR ONE USER --------------------
+// Example (local): GET http://localhost:5001/api/coins/debug/season/1763789072925
+app.get("/api/coins/debug/season/:userId", (req, res) => {
+  try {
+    const rawId = req.params.userId;
+    const coins = loadCoins() || {};
+    const results = loadResults() || {};
+
+    // coins.json might use string or numeric keys, so check both
+    const idNum = Number(rawId);
+    const coinsForUser =
+      coins[rawId] ||
+      (Number.isFinite(idNum) ? coins[idNum] : {}) ||
+      {};
+
+    const summary = computeSeasonCoinsForUser(coinsForUser, results);
+
+    return res.json({
+      userId: rawId,
+      ...summary,
+    });
+  } catch (err) {
+    console.error("coins debug season error", err);
+    return res
+      .status(500)
+      .json({ error: "Failed to compute season coins debug summary" });
+  }
+});
+
+// -------------------- COINS DEBUG: SEASON TOTALS FOR ALL USERS --------------------
+// Example (local): GET http://localhost:5001/api/coins/debug/season-all
+app.get("/api/coins/debug/season-all", (req, res) => {
+  try {
+    const coins = loadCoins() || {};
+    const results = loadResults() || {};
+    const users = loadUsers() || [];
+
+    // Map userId -> username (support numeric and string keys)
+    const userMap = {};
+    users.forEach((u) => {
+      userMap[u.id] = u.username;
+      userMap[String(u.id)] = u.username;
+    });
+
+    const leaderboard = [];
+
+    Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
+      const summary = computeSeasonCoinsForUser(coinsForUser, results);
+
+      leaderboard.push({
+        userId: String(userIdKey),
+        player: userMap[userIdKey] || userMap[String(userIdKey)] || "Unknown",
+        totalStake: summary.totalStake,
+        totalReturn: summary.totalReturn,
+        profit: summary.profit,
+      });
+    });
+
+    // Sort by profit descending, just like a real leaderboard would
+    leaderboard.sort((a, b) => b.profit - a.profit);
+
+    return res.json({ leaderboard });
+  } catch (err) {
+    console.error("coins debug season-all error", err);
+    return res
+      .status(500)
+      .json({ error: "Failed to compute season coins debug leaderboard" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // COINS GAME (read-only summary for one user + gameweek)
 // ---------------------------------------------------------------------------
@@ -1075,6 +1234,29 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
   }
 });
 
+// -------------------- SAVE RESULTS SNAPSHOT (from frontend) --------------------
+// Expects body like: { resultsByFixtureId: { "111": { homeGoals: 3, awayGoals: 1 }, ... } }
+app.post("/api/results/snapshot", authOptional, (req, res) => {
+  try {
+    const { resultsByFixtureId } = req.body || {};
+    if (!resultsByFixtureId || typeof resultsByFixtureId !== "object") {
+      return res.status(400).json({ error: "Invalid results payload" });
+    }
+
+    const current = loadResults() || {};
+
+    // Merge new snapshot into existing results (new data overwrites old)
+    const merged = { ...current, ...resultsByFixtureId };
+
+    saveResults(merged);
+
+    return res.json({ ok: true, updatedCount: Object.keys(resultsByFixtureId).length });
+  } catch (err) {
+    console.error("save results snapshot error", err);
+    return res.status(500).json({ error: "Failed to save results snapshot" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
@@ -1143,70 +1325,43 @@ app.get("/api/odds", async (req, res) => {
 // START SERVER
 // ---------------------------------------------------------------------------
 
-// -------------------- COINS LEADERBOARD --------------------
+// -------------------- COINS LEADERBOARD (SEASON, ALL USERS) --------------------
 app.get("/api/coins/leaderboard", authOptional, (req, res) => {
   try {
-    const coins = loadCoins(); // { userId: { gw: { fixtureId: {...} } } }
-    const results = loadResults(); // existing results file
-    const users = loadUsers();
+    const coins = loadCoins() || {};
+    const results = loadResults() || {};
+    const users = loadUsers() || [];
 
+    // Map userId -> username (handle numeric/string)
     const userMap = {};
     users.forEach((u) => {
       userMap[u.id] = u.username;
+      userMap[String(u.id)] = u.username;
     });
 
     const leaderboard = [];
 
-    Object.entries(coins).forEach(([userId, gwObj]) => {
-      let totalStake = 0;
-      let totalReturn = 0;
-
-      Object.values(gwObj).forEach((fixObj) => {
-        Object.values(fixObj).forEach((bet) => {
-          if (!bet) return;
-          const { fixtureId, stake, side, oddsSnapshot } = bet;
-
-          const res = results[fixtureId];
-          if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-
-          const hg = Number(res.homeGoals);
-          const ag = Number(res.awayGoals);
-          const resultSide = hg > ag ? "H" : hg < ag ? "A" : "D";
-
-          totalStake += stake;
-
-          if (side === resultSide && oddsSnapshot) {
-            const price =
-              resultSide === "H"
-                ? oddsSnapshot.home
-                : resultSide === "D"
-                ? oddsSnapshot.draw
-                : oddsSnapshot.away;
-
-            if (typeof price === "number") {
-              totalReturn += stake * price;
-            }
-          }
-        });
-      });
-
-      const profit = totalReturn - totalStake;
+    Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
+      const summary = computeSeasonCoinsForUser(coinsForUser, results);
 
       leaderboard.push({
-        userId,
-        player: userMap[userId] || "Unknown",
-        totalStake,
-        totalReturn,
-        profit,
+        userId: String(userIdKey),
+        player: userMap[userIdKey] || userMap[String(userIdKey)] || "Unknown",
+        totalStake: summary.totalStake,
+        totalReturn: summary.totalReturn,
+        profit: summary.profit,
       });
     });
 
+    // Sort by profit descending (typical leaderboard)
     leaderboard.sort((a, b) => b.profit - a.profit);
 
-    res.json({ leaderboard });
+    return res.json({ leaderboard });
   } catch (err) {
     console.error("coins leaderboard error", err);
-    res.status(500).json({ error: "Failed to build coins leaderboard" });
+    return res
+      .status(500)
+      .json({ error: "Failed to build coins leaderboard" });
   }
 });
 
