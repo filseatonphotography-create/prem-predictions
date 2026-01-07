@@ -3166,12 +3166,14 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
 
     <button
       type="button"
-      disabled={locked || coinsStake >= 10}
+      disabled={locked || coinsState.remaining <= 0}
       onClick={() => {
-        const newValue = Math.min(10, coinsStake + 1);
-        if (newValue !== coinsStake) {
+        if (coinsState.remaining > 0) {
+          const newValue = Math.min(10, coinsStake + 1);
           playCoinSound(true);
           handleCoinsChange(fixture.id, newValue, coinsSide, o);
+        } else {
+          playCoinSound(false);
         }
       }}
       style={{
@@ -3180,15 +3182,15 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         padding: 0,
         borderRadius: 6,
         border: `1px solid ${theme.line}`,
-        background: (locked || coinsStake >= 10) ? theme.panelHi : theme.accent2,
-        color: (locked || coinsStake >= 10) ? theme.muted : "#fff",
+        background: (locked || coinsState.remaining <= 0) ? theme.panelHi : theme.accent2,
+        color: (locked || coinsState.remaining <= 0) ? theme.muted : "#fff",
         fontSize: 16,
         fontWeight: 700,
-        cursor: (locked || coinsStake >= 10) ? "not-allowed" : "pointer",
+        cursor: (locked || coinsState.remaining <= 0) ? "not-allowed" : "pointer",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        opacity: (locked || coinsStake >= 10) ? 0.4 : 1,
+        opacity: (locked || coinsState.remaining <= 0) ? 0.4 : 1,
       }}
     >
       +
