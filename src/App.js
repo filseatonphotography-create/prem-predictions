@@ -1401,20 +1401,29 @@ useEffect(() => {
       setLeagueError("");
       setLeagueSuccess("");
 
+      // Fetch predictions and leagues in parallel for faster loading
       if (!DEV_USE_LOCAL && result.token) {
-  const cloudPreds = await apiGetMyPredictions(result.token);
-  const key = PLAYERS.includes(result.username)
-    ? result.username
-    : result.userId;
+        const [cloudPreds, leagues] = await Promise.all([
+          apiGetMyPredictions(result.token),
+          apiFetchMyLeagues(result.token).catch(() => [])
+        ]);
 
-  setPredictions((prev) => ({
-    ...prev,
-    [key]: {
-      ...(prev[key] || {}),
-      ...normalizeCaptainsByGameweek(cloudPreds),
-    },
-  }));
-}
+        const key = PLAYERS.includes(result.username)
+          ? result.username
+          : result.userId;
+
+        setPredictions((prev) => ({
+          ...prev,
+          [key]: {
+            ...(prev[key] || {}),
+            ...normalizeCaptainsByGameweek(cloudPreds),
+          },
+        }));
+
+        if (leagues && leagues.length > 0) {
+          setMyLeagues(leagues);
+        }
+      }
     } catch (err) {
       setAuthError(err.message || "Auth failed.");
     }
