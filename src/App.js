@@ -3038,7 +3038,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
               <div
                 style={{
                   display: "flex",
-                  gap: 6,
+                  gap: 4,
                   alignItems: "flex-end",
                   flexWrap: "wrap",
                   justifyContent: "center",
@@ -3049,15 +3049,17 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 <div
                   style={{
                     display: "flex",
-                    gap: 6,
+                    gap: 4,
                     alignItems: "center",
+                    flex: "0 1 auto",
+                    minWidth: 0,
                   }}
                 >
                   <div
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      minWidth: 32,
+                      flex: "0 1 auto",
                     }}
                   >
                     {(TEAM_BADGES[fixture.homeTeam] ||
@@ -3085,7 +3087,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   </div>
 
                   {/* Home score with +/- buttons */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
                     <button
                       type="button"
                       disabled={locked || (pred.homeGoals || 0) <= 0}
@@ -3168,12 +3170,14 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 <div
                   style={{
                     display: "flex",
-                    gap: 6,
+                    gap: 4,
                     alignItems: "center",
+                    flex: "0 1 auto",
+                    minWidth: 0,
                   }}
                 >
                   {/* Away score with +/- buttons */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
                     <button
                       type="button"
                       disabled={locked || (pred.awayGoals || 0) <= 0}
@@ -3244,7 +3248,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      minWidth: 32,
+                      flex: "0 1 auto",
                     }}
                   >
                     <span
