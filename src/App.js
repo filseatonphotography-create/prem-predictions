@@ -2360,7 +2360,15 @@ if (!isLoggedIn) {
   // ---------- MAIN APP ----------
   return (
     <div style={pageStyle}>
-      <div style={{ maxWidth: "100%", margin: "0 auto", display: "grid", gap: 12, padding: isMobile ? "0 4px" : "0 16px" }}>
+      <div style={{ 
+        maxWidth: "100%", 
+        margin: "0 auto", 
+        display: "grid", 
+        gap: 12, 
+        padding: isMobile ? "0 4px" : "0 16px",
+        boxSizing: "border-box",
+        overflowX: "hidden",
+      }}>
         {/* Header */}
                 {/* Header */}
         <header
@@ -3017,6 +3025,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
               alignItems: "flex-start",
               maxWidth: "100%",
               overflow: "hidden",
+              boxSizing: "border-box",
             }}
           >
             {/* Left content column */}
@@ -3043,6 +3052,8 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   flexWrap: "nowrap",
                   justifyContent: "center",
                   maxWidth: "100%",
+                  boxSizing: "border-box",
+                  overflow: "hidden",
                 }}
               >
                 {/* HOME */}
