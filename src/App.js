@@ -2007,7 +2007,7 @@ const leaderboard = useMemo(() => {
   const cardStyle = {
     background: theme.panel,
     borderRadius: 16,
-    padding: 14,
+    padding: isMobile ? 8 : 14,
     border: `1px solid ${theme.line}`,
     boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
   };
@@ -2024,14 +2024,14 @@ const leaderboard = useMemo(() => {
   });
 
   const smallInput = {
-    width: 36,
-    padding: "6px 8px",
+    width: isMobile ? 34 : 36,
+    padding: isMobile ? "6px 7px" : "6px 8px",
     background: theme.panelHi,
     color: theme.text,
     border: `1.5px solid #ffffff`,
     borderRadius: 8,
     textAlign: "center",
-    fontSize: 14,
+    fontSize: isMobile ? 14 : 14,
   };
 
   const probInput = {
@@ -2360,7 +2360,7 @@ if (!isLoggedIn) {
   // ---------- MAIN APP ----------
   return (
     <div style={pageStyle}>
-      <div style={{ maxWidth: "100%", margin: "0 auto", display: "grid", gap: 12 }}>
+      <div style={{ maxWidth: "100%", margin: "0 auto", display: "grid", gap: 12, padding: isMobile ? "0 4px" : "0 16px" }}>
         {/* Header */}
                 {/* Header */}
         <header
@@ -3034,13 +3034,13 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 {formatKickoffShort(fixture.kickoff)}
               </div>
 
-              {/* Main score + POINTS row */}
+              {/* Main score row */}
               <div
                 style={{
                   display: "flex",
-                  gap: 4,
+                  gap: isMobile ? 4 : 4,
                   alignItems: "flex-end",
-                  flexWrap: "wrap",
+                  flexWrap: "nowrap",
                   justifyContent: "center",
                   maxWidth: "100%",
                 }}
@@ -3049,7 +3049,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 <div
                   style={{
                     display: "flex",
-                    gap: 4,
+                    gap: isMobile ? 4 : 4,
                     alignItems: "center",
                     flex: "0 1 auto",
                     minWidth: 0,
@@ -3072,22 +3072,22 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         }
                         alt={fixture.homeTeam}
                         style={{
-                          width: 20,
-                          height: 20,
+                          width: isMobile ? 18 : 20,
+                          height: isMobile ? 18 : 20,
                           objectFit: "contain",
-                          marginRight: 4,
+                          marginRight: isMobile ? 3 : 4,
                         }}
                       />
                     )}
                     <span
-                      style={{ fontSize: 12, color: "#ffffff", fontWeight: 600 }}
+                      style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.homeTeam)}
                     </span>
                   </div>
 
                   {/* Home score with +/- buttons */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 4, flex: "0 0 auto" }}>
                     <button
                       type="button"
                       disabled={locked || (pred.homeGoals || 0) <= 0}
@@ -3098,15 +3098,15 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         });
                       }}
                       style={{
-                        width: 24,
-                        height: 24,
+                        width: isMobile ? 24 : 24,
+                        height: isMobile ? 24 : 24,
                         padding: 0,
                         border: `1px solid ${theme.line}`,
                         borderRadius: 6,
                         background: (pred.homeGoals || 0) <= 0 ? theme.panelHi : theme.accent,
                         color: (pred.homeGoals || 0) <= 0 ? theme.text : "#ffffff",
                         cursor: locked || (pred.homeGoals || 0) <= 0 ? "not-allowed" : "pointer",
-                        fontSize: 16,
+                        fontSize: isMobile ? 15 : 16,
                         fontWeight: 700,
                         opacity: locked || (pred.homeGoals || 0) <= 0 ? 0.3 : 1,
                       }}
@@ -3161,6 +3161,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     alignSelf: "center",
                     lineHeight: "32px",
                     marginTop: 11,
+                    fontSize: isMobile ? 12 : 14,
                   }}
                 >
                   VS
@@ -3177,7 +3178,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   }}
                 >
                   {/* Away score with +/- buttons */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 4, flex: "0 0 auto" }}>
                     <button
                       type="button"
                       disabled={locked || (pred.awayGoals || 0) <= 0}
@@ -3188,15 +3189,15 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         });
                       }}
                       style={{
-                        width: 24,
-                        height: 24,
+                        width: isMobile ? 24 : 24,
+                        height: isMobile ? 24 : 24,
                         padding: 0,
                         border: `1px solid ${theme.line}`,
                         borderRadius: 6,
                         background: (pred.awayGoals || 0) <= 0 ? theme.panelHi : theme.accent,
                         color: (pred.awayGoals || 0) <= 0 ? theme.text : "#ffffff",
                         cursor: locked || (pred.awayGoals || 0) <= 0 ? "not-allowed" : "pointer",
-                        fontSize: 16,
+                        fontSize: isMobile ? 15 : 16,
                         fontWeight: 700,
                         opacity: locked || (pred.awayGoals || 0) <= 0 ? 0.3 : 1,
                       }}
@@ -3227,15 +3228,15 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         });
                       }}
                       style={{
-                        width: 24,
-                        height: 24,
+                        width: isMobile ? 24 : 24,
+                        height: isMobile ? 24 : 24,
                         padding: 0,
                         border: `1px solid ${theme.line}`,
                         borderRadius: 6,
                         background: locked ? theme.panelHi : theme.accent2,
                         color: locked ? theme.text : "#ffffff",
                         cursor: locked ? "not-allowed" : "pointer",
-                        fontSize: 16,
+                        fontSize: isMobile ? 15 : 16,
                         fontWeight: 700,
                         opacity: locked ? 0.3 : 1,
                       }}
@@ -3252,7 +3253,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     }}
                   >
                     <span
-                      style={{ fontSize: 12, color: "#ffffff", fontWeight: 600 }}
+                      style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.awayTeam)}
                     </span>
@@ -3267,23 +3268,31 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         }
                         alt={fixture.awayTeam}
                         style={{
-                          width: 20,
-                          height: 20,
+                          width: isMobile ? 18 : 20,
+                          height: isMobile ? 18 : 20,
                           objectFit: "contain",
-                          marginLeft: 4,
+                          marginLeft: isMobile ? 3 : 4,
                         }}
                       />
                     )}
                   </div>
                 </div>
+              </div>
 
+              {/* POINTS + LOCK row */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  marginTop: 6,
+                }}
+              >
                 {/* POINTS + LOCK */}
                 <div
                   style={{
                     display: "flex",
                     alignItems: "center",
                     gap: 6,
-                    marginLeft: 8,
                     alignSelf: "center",
                     flexShrink: 0,
                   }}
