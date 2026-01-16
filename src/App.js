@@ -3029,7 +3029,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
             }}
           >
             {/* Left content column */}
-            <div style={{ display: "grid", gap: 6, minHeight: 92, maxWidth: "100%", overflow: "hidden" }}>
+            <div style={{ display: "grid", gap: 6, minHeight: 92, maxWidth: "100%", overflow: "hidden", justifyItems: "center" }}>
               {/* Kickoff time */}
               <div
                 style={{
