@@ -15,6 +15,31 @@ const CoinIcon = () => (
   />
 );
 
+// Player Avatar Component
+const PlayerAvatar = ({ name, size = 32, seed = '', style = 'avataaars' }) => {
+  // Use custom seed if provided, otherwise use name
+  const avatarSeed = seed || name || 'user';
+  
+  // Use DiceBear Avatars API - better CORS support
+  const avatarUrl = `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(avatarSeed)}`;
+  
+  return (
+    <img
+      src={avatarUrl}
+      alt={name}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        flexShrink: 0,
+        border: "2px solid rgba(255,255,255,0.2)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+        background: "#fff"
+      }}
+    />
+  );
+};
+
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 
 // --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
@@ -733,6 +758,15 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  
+  // Avatar customization
+  const [avatarSeed, setAvatarSeed] = useState(
+    localStorage.getItem('avatar_seed') || ''
+  );
+  const [avatarStyle, setAvatarStyle] = useState(
+    localStorage.getItem('avatar_style') || 'avataaars'
+  );
+  
   // Change password modal state
 const [showPasswordModal, setShowPasswordModal] = useState(false);
 const [oldPasswordInput, setOldPasswordInput] = useState("");
@@ -3793,7 +3827,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     key={row.player}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "50px 1fr 90px",
+                      gridTemplateColumns: "50px auto 1fr 90px",
                       gap: 10,
                       alignItems: "center",
                       background: theme.panelHi,
@@ -3814,6 +3848,12 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
                       {!emoji && <span>{i + 1}</span>}
                     </div>
+                    <PlayerAvatar 
+                      name={row.player} 
+                      size={36} 
+                      seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
+                      style={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+                    />
                     <div style={{ 
                       fontWeight: 700,
                       fontSize: 15,
@@ -3904,7 +3944,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
       key={row.userId || row.player}
       style={{
         display: "grid",
-        gridTemplateColumns: "50px 1fr 90px",
+        gridTemplateColumns: "50px auto 1fr 90px",
         gap: 10,
         alignItems: "center",
         background: theme.panelHi,
@@ -3924,6 +3964,12 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
         {!emoji && <span>{i + 1}</span>}
       </div>
+      <PlayerAvatar 
+        name={row.player} 
+        size={36} 
+        seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
+        style={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+      />
       <div style={{ 
         fontWeight: 700,
         fontSize: 15,
@@ -4729,6 +4775,162 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
               ⚙️ Settings
             </h2>
 
+            {/* Avatar Customization */}
+            <div style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 20,
+              marginBottom: 16
+            }}>
+              <h3 style={{ 
+                fontSize: 18,
+                fontWeight: 700,
+                color: theme.text,
+                marginBottom: 16
+              }}>
+                🎨 Customize Avatar
+              </h3>
+
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 24,
+                padding: 20,
+                background: theme.panel,
+                borderRadius: 12
+              }}>
+                <PlayerAvatar 
+                  name={currentPlayer} 
+                  size={120} 
+                  seed={avatarSeed || currentPlayer}
+                  style={avatarStyle}
+                />
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{
+                  display: "block",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: theme.text,
+                  marginBottom: 8
+                }}>
+                  Avatar Style
+                </label>
+                <select
+                  value={avatarStyle}
+                  onChange={(e) => {
+                    setAvatarStyle(e.target.value);
+                    localStorage.setItem('avatar_style', e.target.value);
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panel,
+                    color: theme.text,
+                    fontSize: 14,
+                    marginBottom: 16
+                  }}
+                >
+                  <option value="avataaars">Avataaars</option>
+                  <option value="bottts">Bottts (Robots)</option>
+                  <option value="lorelei">Lorelei</option>
+                  <option value="notionists">Notionists</option>
+                  <option value="personas">Personas</option>
+                  <option value="pixel-art">Pixel Art</option>
+                  <option value="adventurer">Adventurer</option>
+                  <option value="big-smile">Big Smile</option>
+                  <option value="fun-emoji">Fun Emoji</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{
+                  display: "block",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: theme.text,
+                  marginBottom: 8
+                }}>
+                  Character Name
+                </label>
+                <input
+                  type="text"
+                  value={avatarSeed}
+                  onChange={(e) => {
+                    setAvatarSeed(e.target.value);
+                    localStorage.setItem('avatar_seed', e.target.value);
+                  }}
+                  placeholder={`Leave blank to use "${currentPlayer}"`}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panel,
+                    color: theme.text,
+                    fontSize: 14
+                  }}
+                />
+                <div style={{
+                  fontSize: 12,
+                  color: theme.muted,
+                  marginTop: 6,
+                  lineHeight: 1.5
+                }}>
+                  💡 Each unique name creates a completely different character! Try words, names, or phrases.
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  // Generate a random seed for fun
+                  const randomSeed = Math.random().toString(36).substring(2, 10);
+                  setAvatarSeed(randomSeed);
+                  localStorage.setItem('avatar_seed', randomSeed);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.accent}`,
+                  background: 'rgba(56,189,248,0.1)',
+                  color: theme.accent,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  marginBottom: 8
+                }}
+              >
+                🎲 Random Character
+              </button>
+
+              <button
+                onClick={() => {
+                  setAvatarSeed('');
+                  localStorage.setItem('avatar_seed', '');
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panel,
+                  color: theme.text,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+              >
+                Reset to Default
+              </button>
+            </div>
+
+            {/* Push Notifications */}
             <div style={{
               background: theme.panelHi,
               borderRadius: 12,
