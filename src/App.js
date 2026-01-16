@@ -2382,13 +2382,11 @@ if (!isLoggedIn) {
   style={{
     marginTop: "0.8rem",
     marginBottom: "0.5rem",
-    fontSize: isMobile ? "1.8rem" : "3rem",
+    fontSize: isMobile ? "1.5rem" : "3rem",
     fontWeight: 700,
     letterSpacing: "0.5px",
-    whiteSpace: "nowrap",     // keep it on one line
-    maxWidth: "100%",         // never wider than the viewport
-    overflow: "hidden",       // clip instead of pushing layout wider
-    textOverflow: "clip",
+    maxWidth: "100%",
+    overflow: "visible",
   }}
 >
 
@@ -2398,7 +2396,7 @@ if (!isLoggedIn) {
   role="img"
   aria-label="football"
   style={{
-    fontSize: isMobile ? "1.8rem" : "3rem",
+    fontSize: isMobile ? "1.5rem" : "3rem",
     position: "relative",
     top: "-1px",
   }}
@@ -2411,7 +2409,7 @@ if (!isLoggedIn) {
   role="img"
   aria-label="football"
   style={{
-    fontSize: isMobile ? "1.8rem" : "3rem",
+    fontSize: isMobile ? "1.5rem" : "3rem",
     position: "relative",
     top: "-1px",
   }}
