@@ -1683,6 +1683,15 @@ setNewPasswordInput("");
         },
       };
 
+      // Auto-set opposing score to 0 if it's blank
+      const currentPred = updatedPlayerPreds[fixtureIdNum];
+      if ('homeGoals' in newFields && newFields.homeGoals !== '' && !currentPred.awayGoals) {
+        updatedPlayerPreds[fixtureIdNum].awayGoals = '0';
+      }
+      if ('awayGoals' in newFields && newFields.awayGoals !== '' && !currentPred.homeGoals) {
+        updatedPlayerPreds[fixtureIdNum].homeGoals = '0';
+      }
+
       // ----- TRIPLE LOGIC: once per season -----
       if ("isTriple" in newFields) {
         const wantTriple = !!newFields.isTriple;
@@ -3265,7 +3274,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      flex: "0 1 auto",
+                      flex: "0 0 auto",
                     }}
                   >
                     <span
@@ -3288,6 +3297,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                           height: isMobile ? 18 : 20,
                           objectFit: "contain",
                           marginLeft: isMobile ? 3 : 4,
+                          flexShrink: 0,
                         }}
                       />
                     )}
