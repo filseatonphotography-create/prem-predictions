@@ -3170,9 +3170,8 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     color: theme.muted,
                     fontWeight: 700,
                     alignSelf: "center",
-                    lineHeight: "32px",
-                    marginTop: 11,
-                    fontSize: isMobile ? 12 : 14,
+                    fontSize: isMobile ? 16 : 18,
+                    margin: "0 12px",
                   }}
                 >
                   VS
@@ -4998,6 +4997,9 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                           if (permission === 'granted') {
                             // Get VAPID public key from backend
                             const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
+                            if (!vapidRes.ok) {
+                              throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
+                            }
                             const { publicKey } = await vapidRes.json();
                             
                             // Register service worker and subscribe
