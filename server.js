@@ -3,6 +3,7 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const webpush = require("web-push");
 
 const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
@@ -91,6 +92,7 @@ const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
+const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -104,6 +106,19 @@ const RESERVED_LEGACY_NAMES = [
 
 // Ensure data dir exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// ---------------------------------------------------------------------------
+// WEB PUSH SETUP (VAPID keys - generate with: npx web-push generate-vapid-keys)
+// ---------------------------------------------------------------------------
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY || "BIowbyO7WYuga5mbOyaSvr4OMiYjDCgciHLG-X4FzbWm-vurV_c0jnhQRR8PwDnv0NWToJnRCeIT48XTU6FOcVk";
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || "fbebmrHlN1imtHPv2cpsmQ2HRI6bMZ5hdvgNi0ZInX4";
+const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@predictionaddiction.net";
+
+webpush.setVapidDetails(
+  VAPID_SUBJECT,
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
 
 // ---------------------------------------------------------------------------
 // HELPERS: PASSWORD HASHING (pbkdf2)
@@ -1363,6 +1378,50 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       .status(500)
       .json({ error: "Failed to build coins leaderboard" });
   }
+});
+
+// ---------------------------------------------------------------------------
+// PUSH NOTIFICATIONS
+// ---------------------------------------------------------------------------
+
+// Subscribe to push notifications
+app.post("/api/push/subscribe", authMiddleware, (req, res) => {
+  try {
+    const subscription = req.body;
+    const userId = req.user.userId;
+
+    let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    subscriptions[userId] = subscription;
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+
+    console.log(`Push subscription saved for user ${userId}`);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Push subscribe error:", err);
+    return res.status(500).json({ error: "Failed to subscribe" });
+  }
+});
+
+// Unsubscribe from push notifications
+app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    delete subscriptions[userId];
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+
+    console.log(`Push subscription removed for user ${userId}`);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Push unsubscribe error:", err);
+    return res.status(500).json({ error: "Failed to unsubscribe" });
+  }
+});
+
+// Get VAPID public key
+app.get("/api/push/vapid-public-key", (req, res) => {
+  return res.json({ publicKey: VAPID_PUBLIC_KEY });
 });
 
 

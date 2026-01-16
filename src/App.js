@@ -7,8 +7,8 @@ const CoinIcon = () => (
     src="/coin.png"
     alt="coin"
     style={{
-      width: 18,
-      height: 18,
+      width: 22,
+      height: 22,
       verticalAlign: "middle",
       marginRight: 4,
     }}
@@ -336,11 +336,21 @@ async function apiJoinLeague(token, code) {
 // eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults() {
   try {
-    const res = await fetch(`${BACKEND_BASE}/api/results`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    const res = await fetch(`${BACKEND_BASE}/api/results`, {
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
     const matches = await res.json();
     return { matches, error: null };
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return { matches: [], error: 'Request timeout' };
+    }
     return { matches: [], error: err.message };
   }
 }
@@ -636,11 +646,11 @@ function formatKickoffShort(kickoff) {
   if (!kickoff) return "";
   const d = new Date(kickoff);
   if (Number.isNaN(d.getTime())) return "";
-  const day = String(d.getUTCDate()).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const month = monthNames[d.getUTCMonth()];
-  const hours = String(d.getUTCHours()).padStart(2, "0");
-  const mins = String(d.getUTCMinutes()).padStart(2, "0");
+  const month = monthNames[d.getMonth()];
+  const hours = String(d.getHours()).padStart(2, "0");
+  const mins = String(d.getMinutes()).padStart(2, "0");
   return `${day} ${month} ${hours}:${mins}`;
 }
 // eslint-disable-next-line no-unused-vars
@@ -730,19 +740,81 @@ const [newPasswordInput, setNewPasswordInput] = useState("");
 const [passwordError, setPasswordError] = useState("");
 const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   // App state
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
   const [odds, setOdds] = useState({});
   const [selectedGameweek, setSelectedGameweek] = useState(GAMEWEEKS[0]);
+  
+  // Push notification state
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushSupported, setPushSupported] = useState(false);
+  
   // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
-  const [activeView, setActiveView] = useState("predictions");
+  const [activeView, setActiveView] = useState(() => {
+    const saved = localStorage.getItem('activeView');
+    return saved || "predictions";
+  });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
 const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
 const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+  const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
+
+  // Save activeView to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('activeView', activeView);
+  }, [activeView]);
+
+  // Countdown timer to next deadline
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = Date.now();
+      
+      // Find the next upcoming fixture across ALL gameweeks
+      const allUpcomingFixtures = FIXTURES
+        .filter(f => new Date(f.kickoff).getTime() - 60 * 60 * 1000 > now)
+        .sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
+      
+      if (allUpcomingFixtures.length === 0) {
+        setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      
+      // Get the first upcoming fixture
+      const nextFixture = allUpcomingFixtures[0];
+      const deadline = new Date(nextFixture.kickoff).getTime() - 60 * 60 * 1000; // 1 hour before kickoff
+      const diff = deadline - now;
+      
+      if (diff <= 0) {
+        setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      
+      // Calculate progress - assume 7 days between gameweeks
+      const sevenDays = 7 * 24 * 60 * 60 * 1000;
+      const totalTime = sevenDays;
+      const elapsed = Math.max(0, sevenDays - diff);
+      const progress = Math.min(100, Math.max(0, (elapsed / totalTime) * 100));
+      
+      // Format as DD:HH:MM:SS
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      
+      const timeStr = `${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      
+      setCountdown({ timeStr, progress, totalTime, remaining: diff, days, hours, minutes, seconds });
+    };
+    
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // If we don't have any odds yet, generate free built-in odds for all fixtures
   useEffect(() => {
@@ -1019,17 +1091,39 @@ useEffect(() => {
   };
 }, [authToken, selectedGameweek]);
 
+// Check if push notifications are supported
+useEffect(() => {
+  if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
+    setPushSupported(true);
+    // Check if already subscribed
+    navigator.serviceWorker.getRegistration().then(registration => {
+      if (registration) {
+        registration.pushManager.getSubscription().then(subscription => {
+          setPushEnabled(!!subscription);
+        });
+      }
+    });
+  }
+}, []);
+
 // Fetch multi-player coins leaderboard from backend
 useEffect(() => {
-  if (activeView !== "coinsLeague") return;
+  if (activeView !== "coinsLeague" && activeView !== "summary") return;
+  if (!authToken) return; // Don't fetch if not authenticated yet
 
   const fetchCoinsLeaderboard = async () => {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
 
       if (!res.ok) {
         console.error("coins leaderboard failed", res.status);
@@ -1041,7 +1135,11 @@ useEffect(() => {
         setCoinsLeagueRows(data.leaderboard);
       }
     } catch (err) {
-      console.error("coins leaderboard error", err);
+      if (err.name === 'AbortError') {
+        console.error("coins leaderboard timeout");
+      } else {
+        console.error("coins leaderboard error", err);
+      }
     }
   };
 
@@ -1382,9 +1480,13 @@ useEffect(() => {
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError("");
+    setAuthLoading(true);
     const name = loginName.trim();
     const pwd = loginPassword.trim();
-    if (!name || !pwd) return setAuthError("Enter username + password.");
+    if (!name || !pwd) {
+      setAuthLoading(false);
+      return setAuthError("Enter username + password.");
+    }
 
     try {
       const result =
@@ -1397,34 +1499,9 @@ useEffect(() => {
       setCurrentUserId(result.userId);
       setCurrentPlayer(result.username);
       setLoginPassword("");
-      setMyLeagues([]);
-      setLeagueError("");
-      setLeagueSuccess("");
-
-      // Fetch predictions and leagues in parallel for faster loading
-      if (!DEV_USE_LOCAL && result.token) {
-        const [cloudPreds, leagues] = await Promise.all([
-          apiGetMyPredictions(result.token),
-          apiFetchMyLeagues(result.token).catch(() => [])
-        ]);
-
-        const key = PLAYERS.includes(result.username)
-          ? result.username
-          : result.userId;
-
-        setPredictions((prev) => ({
-          ...prev,
-          [key]: {
-            ...(prev[key] || {}),
-            ...normalizeCaptainsByGameweek(cloudPreds),
-          },
-        }));
-
-        if (leagues && leagues.length > 0) {
-          setMyLeagues(leagues);
-        }
-      }
+      setAuthLoading(false);
     } catch (err) {
+      setAuthLoading(false);
       setAuthError(err.message || "Auth failed.");
     }
   };
@@ -1452,6 +1529,7 @@ setNewPasswordInput("");
     setLoginPassword("");
     setAuthError("");
     setMyLeagues([]);
+    setShowMobileMenu(false);
   };
 
   // ---------- MINI-LEAGUES ----------
@@ -1916,10 +1994,22 @@ const leaderboard = useMemo(() => {
     padding: "6px 8px",
     background: theme.panelHi,
     color: theme.text,
-    border: `1px solid ${theme.line}`,
+    border: `1.5px solid #ffffff`,
     borderRadius: 8,
     textAlign: "center",
     fontSize: 14,
+  };
+
+  const probInput = {
+    width: "100%",
+    padding: "10px 8px",
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1.5px solid #ffffff`,
+    borderRadius: 8,
+    textAlign: "center",
+    fontSize: 15,
+    boxSizing: "border-box",
   };
 
         const handleCoinsChange = async (fixtureId, stake, side, oddsSnapshot) => {
@@ -2069,8 +2159,9 @@ if (!isLoggedIn) {
   return (
     <div style={{ 
       ...pageStyle,
-      maxWidth: 980,
-      margin: "0 auto"
+      maxWidth: 1200,
+      margin: "0 auto",
+      padding: isMobile ? "8px" : "16px"
     }}>
       <div style={{ 
         display: "grid",
@@ -2103,7 +2194,7 @@ if (!isLoggedIn) {
   <h1
     style={{
       margin: 0,
-          fontSize: isMobile ? 20 : 22,
+          fontSize: isMobile ? 24 : 32,
       letterSpacing: 0.4,
       textTransform: "uppercase",
       color: theme.accent,
@@ -2120,28 +2211,28 @@ if (!isLoggedIn) {
     display: "grid",
     gridTemplateColumns: "1fr",
     gap: 12,
-    maxWidth: 480,
+    maxWidth: window.innerWidth <= 600 ? 480 : 900,
+    width: "100%",
     margin: "0 auto",
   }}
 >
   <section style={cardStyle}>
     <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
 
-              <form onSubmit={handleAuthSubmit} style={{ display: "grid", gap: 10 }}>
+              <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
                 <label style={{ fontSize: 13, color: theme.muted }}>
                   Username
                   <input
   style={{
-    width: "92%",
+    width: "100%",
     marginTop: 6,
-    marginLeft: "auto",
-    marginRight: "auto",
     padding: "10px 12px",
     borderRadius: 10,
     background: theme.panelHi,
     color: theme.text,
     border: `1px solid ${theme.line}`,
     fontSize: 15,
+    boxSizing: "border-box",
   }}
   type="text"
   value={loginName}
@@ -2155,16 +2246,15 @@ if (!isLoggedIn) {
                   Password
                   <input
   style={{
-    width: "92%",
+    width: "100%",
     marginTop: 6,
-    marginLeft: "auto",
-    marginRight: "auto",
     padding: "10px 12px",
     borderRadius: 10,
     background: theme.panelHi,
     color: theme.text,
     border: `1px solid ${theme.line}`,
     fontSize: 15,
+    boxSizing: "border-box",
   }}
   type="password"
   value={loginPassword}
@@ -2176,8 +2266,9 @@ if (!isLoggedIn) {
 
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
-                    type="submit"
+                    type="button"
                     onClick={(e) => handleAuthSubmit(e, "login")}
+                    disabled={authLoading}
                     style={{
                       flex: 1,
                       padding: "8px 10px",
@@ -2185,14 +2276,16 @@ if (!isLoggedIn) {
                       border: `1px solid ${theme.accent}`,
                       background: "rgba(56,189,248,0.15)",
                       color: theme.text,
-                      cursor: "pointer",
+                      cursor: authLoading ? "wait" : "pointer",
+                      opacity: authLoading ? 0.6 : 1,
                     }}
                   >
-                    Log in
+                    {authLoading ? "Logging in..." : "Log in"}
                   </button>
                   <button
-                    type="submit"
+                    type="button"
                     onClick={(e) => handleAuthSubmit(e, "signup")}
+                    disabled={authLoading}
                     style={{
                       flex: 1,
                       padding: "8px 10px",
@@ -2200,10 +2293,11 @@ if (!isLoggedIn) {
                       border: `1px solid ${theme.accent2}`,
                       background: "rgba(34,197,94,0.15)",
                       color: theme.text,
-                      cursor: "pointer",
+                      cursor: authLoading ? "wait" : "pointer",
+                      opacity: authLoading ? 0.6 : 1,
                     }}
                   >
-                    Create account
+                    {authLoading ? "Creating..." : "Create account"}
                   </button>
                 </div>
 
@@ -2222,17 +2316,6 @@ if (!isLoggedIn) {
                   </div>
                 )}
               </form>
-            </section>
-
-            <section style={cardStyle}>
-              <h3 style={{ marginTop: 0 }}>How it works</h3>
-              <ul style={{ margin: 0, paddingLeft: 18, color: theme.muted }}>
-                <li>Predictions lock 1 hour before kickoff.</li>
-                <li>Exact score = 7 points. Goal‑diff = 4. Result = 2.</li>
-                <li>Pick exactly one Captain (double points) each GW.</li>
-                <li>Pick one Triple per season.</li>
-                <li>Everything syncs via cloud instantly.</li>
-              </ul>
             </section>
           </div>
         </div>
@@ -2264,8 +2347,8 @@ if (!isLoggedIn) {
                             <h1
   style={{
     marginTop: "0.8rem",
-    marginBottom: "1.5rem",
-    fontSize: isMobile ? "1.4rem" : "2rem",
+    marginBottom: "0.5rem",
+    fontSize: isMobile ? "1.8rem" : "3rem",
     fontWeight: 700,
     letterSpacing: "0.5px",
     whiteSpace: "nowrap",     // keep it on one line
@@ -2281,7 +2364,7 @@ if (!isLoggedIn) {
   role="img"
   aria-label="football"
   style={{
-    fontSize: isMobile ? "1.2rem" : "1.9rem",
+    fontSize: isMobile ? "1.8rem" : "3rem",
     position: "relative",
     top: "-1px",
   }}
@@ -2294,7 +2377,7 @@ if (!isLoggedIn) {
   role="img"
   aria-label="football"
   style={{
-    fontSize: isMobile ? "1.2rem" : "1.9rem",
+    fontSize: isMobile ? "1.8rem" : "3rem",
     position: "relative",
     top: "-1px",
   }}
@@ -2502,10 +2585,13 @@ if (!isLoggedIn) {
   { id: "predictions", label: "Predictions" },
   { id: "results", label: "Results" },
   { id: "league", label: "League Table" },
-  { id: "coinsLeague", label: "Coins League" }, // NEW
+  { id: "summary", label: "Summary" },
+  { id: "coinsLeague", label: "Coins League" },
   { id: "history", label: "History" },
   { id: "winprob", label: "Win Probabilities" },
   { id: "leagues", label: "Mini-Leagues" },
+  { id: "settings", label: "Settings" },
+  { id: "rules", label: "Rules" },
 ];
 
   // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
@@ -2516,8 +2602,8 @@ if (!isLoggedIn) {
       <div
         style={{
           position: "fixed",
-          top: 88,          // tweak up/down if needed
-          right: 16,        // keeps it near the Menu button
+          top: 190,          // positioned below the header/menu button
+          right: 16,         // aligned with right side
           zIndex: 1000,
         }}
       >
@@ -2528,6 +2614,7 @@ if (!isLoggedIn) {
             borderRadius: 10,
             padding: 6,
             boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+            minWidth: 180,
           }}
         >
           {TABS.map((t) => (
@@ -2583,7 +2670,7 @@ if (!isLoggedIn) {
           style={{
             ...cardStyle,
             display: "grid",
-            gridTemplateColumns: "auto auto",
+            gridTemplateColumns: activeView === "predictions" ? "auto auto" : "auto",
             gap: 12,
             alignItems: "center",
             justifyContent: "center",
@@ -2591,6 +2678,7 @@ if (!isLoggedIn) {
             textAlign: "left",
           }}
         >
+                    {activeView === "predictions" && (
                     <div
             style={{
               display: "flex",
@@ -2600,7 +2688,7 @@ if (!isLoggedIn) {
             }}
           >
             <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
-            {gwLocked && isOriginalPlayer ? (
+            {gwLocked ? (
               <select
                 value={currentPlayer}
                 onChange={(e) => setCurrentPlayer(e.target.value)}
@@ -2623,6 +2711,7 @@ if (!isLoggedIn) {
               <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
             )}
           </div>
+                    )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ fontSize: 13, color: theme.muted }}>Gameweek</div>
@@ -2665,50 +2754,164 @@ if (!isLoggedIn) {
         background: theme.panel,
         boxShadow: "0 4px 10px rgba(0, 0, 0, 0.4)",
         borderRadius: 12,
+        textAlign: "center",
       }}
     >
       <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>
         GW{selectedGameweek} Predictions
       </h2>
 
-      {/* Coins game summary */}
-      {authToken && (
-  <div
-    style={{
-      fontSize: 12,
-      color: theme.muted,
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-    }}
-  >
-    {/* USED */}
-    <span
-      style={{
-        display: "flex",
+      {/* Countdown and Coins Summary Row */}
+      <div style={{ 
+        display: "flex", 
+        justifyContent: "space-between", 
         alignItems: "center",
-        gap: 4,
-      }}
-    >
-      <CoinIcon />
-      <strong>{coinsState.used}</strong>
-      <span style={{ color: theme.muted }}>used</span>
-    </span>
+        gap: 0,
+        marginBottom: 8,
+        flexWrap: "nowrap"
+      }}>
+        
+        {/* COINS USED - Left */}
+        {authToken && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              flex: "0 0 60px",
+            }}
+          >
+            <img
+              src="/coin_PA_32.png"
+              alt="Coin"
+              style={{ width: isMobile ? 20 : 24, height: isMobile ? 20 : 24 }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <strong style={{ fontSize: isMobile ? 16 : 20 }}>{coinsState.used}</strong>
+              <span style={{ color: theme.muted, fontSize: 10 }}>used</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Countdown to next deadline - Center */}
+        {countdown.timeStr && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: isMobile ? 4 : 8,
+              flex: "1 1 auto",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ fontSize: 12, color: theme.muted }}>Next Deadline</div>
+            
+            {/* Time units display */}
+            <div
+              style={{
+                display: "flex",
+                gap: isMobile ? 4 : 8,
+                alignItems: "center",
+              }}
+            >
+              {/* Days */}
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: isMobile ? 20 : 28,
+                    fontWeight: 700,
+                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
+                    fontVariantNumeric: "tabular-nums",
+                    minWidth: isMobile ? 35 : 50,
+                  }}
+                >
+                  {String(countdown.days).padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>days</div>
+              </div>
+              
+              <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+              
+              {/* Hours */}
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: isMobile ? 20 : 28,
+                    fontWeight: 700,
+                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
+                    fontVariantNumeric: "tabular-nums",
+                    minWidth: isMobile ? 35 : 50,
+                  }}
+                >
+                  {String(countdown.hours).padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>hours</div>
+              </div>
+              
+              <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+              
+              {/* Minutes */}
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: isMobile ? 20 : 28,
+                    fontWeight: 700,
+                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
+                    fontVariantNumeric: "tabular-nums",
+                    minWidth: isMobile ? 35 : 50,
+                  }}
+                >
+                  {String(countdown.minutes).padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>minutes</div>
+              </div>
+              
+              <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+              
+              {/* Seconds */}
+              <div style={{ textAlign: "center" }}>
+                <div
+                  style={{
+                    fontSize: isMobile ? 20 : 28,
+                    fontWeight: 700,
+                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
+                    fontVariantNumeric: "tabular-nums",
+                    minWidth: isMobile ? 35 : 50,
+                  }}
+                >
+                  {String(countdown.seconds).padStart(2, '0')}
+                </div>
+                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>seconds</div>
+              </div>
+            </div>
+          </div>
+        )}
 
-    {/* REMAINING */}
-    <span
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 4,
-      }}
-    >
-      <CoinIcon />
-      <strong>{coinsState.remaining}</strong>
-      <span style={{ color: theme.muted }}>remaining</span>
-    </span>
-  </div>
-)}
+        {/* COINS REMAINING - Right */}
+        {authToken && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              flex: "0 0 60px",
+            }}
+          >
+            <img
+              src="/coin_PA_32.png"
+              alt="Coin"
+              style={{ width: isMobile ? 20 : 24, height: isMobile ? 20 : 24 }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <strong style={{ fontSize: isMobile ? 16 : 20 }}>{coinsState.remaining}</strong>
+              <span style={{ color: theme.muted, fontSize: 10 }}>remain</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
 
     {/* Predictions card with fixtures list */}
@@ -2774,7 +2977,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
             style={{
               background: theme.panelHi,
               borderRadius: 12,
-              border: `1px solid ${theme.line}`,
+              border: `1px solid rgba(255, 255, 255, 0.3)`,
               padding: 8,
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr)",
@@ -2794,7 +2997,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   marginBottom: 6,
                 }}
               >
-                {formatKickoffShort(fixture.kickoff)} GMT
+                {formatKickoffShort(fixture.kickoff)}
               </div>
 
               {/* Main score + POINTS row */}
@@ -2840,24 +3043,77 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       />
                     )}
                     <span
-                      style={{ fontSize: 12, color: theme.muted }}
+                      style={{ fontSize: 12, color: "#ffffff", fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.homeTeam)}
                     </span>
                   </div>
 
-                  <input
-                    type="number"
-                    min="0"
-                    style={smallInput}
-                    value={pred.homeGoals || ""}
-                    disabled={locked}
-                    onChange={(e) =>
-                      updatePrediction(currentPredictionKey, fixture.id, {
-                        homeGoals: e.target.value,
-                      })
-                    }
-                  />
+                  {/* Home score with +/- buttons */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      type="button"
+                      disabled={locked || (pred.homeGoals || 0) <= 0}
+                      onClick={() => {
+                        const current = Number(pred.homeGoals || 0);
+                        updatePrediction(currentPredictionKey, fixture.id, {
+                          homeGoals: Math.max(0, current - 1).toString(),
+                        });
+                      }}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        border: `1px solid ${theme.line}`,
+                        borderRadius: 6,
+                        background: (pred.homeGoals || 0) <= 0 ? theme.panelHi : theme.accent,
+                        color: (pred.homeGoals || 0) <= 0 ? theme.text : "#ffffff",
+                        cursor: locked || (pred.homeGoals || 0) <= 0 ? "not-allowed" : "pointer",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        opacity: locked || (pred.homeGoals || 0) <= 0 ? 0.3 : 1,
+                      }}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      style={smallInput}
+                      value={pred.homeGoals || ""}
+                      disabled={locked}
+                      onChange={(e) =>
+                        updatePrediction(currentPredictionKey, fixture.id, {
+                          homeGoals: e.target.value,
+                        })
+                      }
+                    />
+                    <button
+                      type="button"
+                      disabled={locked}
+                      onClick={() => {
+                        const current = Number(pred.homeGoals || 0);
+                        updatePrediction(currentPredictionKey, fixture.id, {
+                          homeGoals: (current + 1).toString(),
+                        });
+                      }}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        border: `1px solid ${theme.line}`,
+                        borderRadius: 6,
+                        background: locked ? theme.panelHi : theme.accent2,
+                        color: locked ? theme.text : "#ffffff",
+                        cursor: locked ? "not-allowed" : "pointer",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        opacity: locked ? 0.3 : 1,
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
 
                 {/* VS */}
@@ -2881,20 +3137,73 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     alignItems: "center",
                   }}
                 >
-                  <input
-                    type="number"
-                    min="0"
-                    style={smallInput}
-                    value={pred.awayGoals || ""}
-                    disabled={locked}
-                    onChange={(e) =>
-                      updatePrediction(
-                        currentPredictionKey,
-                        fixture.id,
-                        { awayGoals: e.target.value }
-                      )
-                    }
-                  />
+                  {/* Away score with +/- buttons */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      type="button"
+                      disabled={locked || (pred.awayGoals || 0) <= 0}
+                      onClick={() => {
+                        const current = Number(pred.awayGoals || 0);
+                        updatePrediction(currentPredictionKey, fixture.id, {
+                          awayGoals: Math.max(0, current - 1).toString(),
+                        });
+                      }}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        border: `1px solid ${theme.line}`,
+                        borderRadius: 6,
+                        background: (pred.awayGoals || 0) <= 0 ? theme.panelHi : theme.accent,
+                        color: (pred.awayGoals || 0) <= 0 ? theme.text : "#ffffff",
+                        cursor: locked || (pred.awayGoals || 0) <= 0 ? "not-allowed" : "pointer",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        opacity: locked || (pred.awayGoals || 0) <= 0 ? 0.3 : 1,
+                      }}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min="0"
+                      style={smallInput}
+                      value={pred.awayGoals || ""}
+                      disabled={locked}
+                      onChange={(e) =>
+                        updatePrediction(
+                          currentPredictionKey,
+                          fixture.id,
+                          { awayGoals: e.target.value }
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      disabled={locked}
+                      onClick={() => {
+                        const current = Number(pred.awayGoals || 0);
+                        updatePrediction(currentPredictionKey, fixture.id, {
+                          awayGoals: (current + 1).toString(),
+                        });
+                      }}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        border: `1px solid ${theme.line}`,
+                        borderRadius: 6,
+                        background: locked ? theme.panelHi : theme.accent2,
+                        color: locked ? theme.text : "#ffffff",
+                        cursor: locked ? "not-allowed" : "pointer",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        opacity: locked ? 0.3 : 1,
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
 
                   <div
                     style={{
@@ -2904,7 +3213,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     }}
                   >
                     <span
-                      style={{ fontSize: 12, color: theme.muted }}
+                      style={{ fontSize: 12, color: "#ffffff", fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.awayTeam)}
                     </span>
@@ -3017,7 +3326,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   flexDirection: "column",
                   width: "100%",
                   marginTop: 10,
-                  gap: 6,
+                  gap: 12,
                 }}
               >
                 {/* Captain + Triple */}
@@ -3038,6 +3347,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
     color: theme.muted,
   }}
 >
+  <span style={{ fontSize: 16 }}>👑</span>
   Captain
   <input
     type="checkbox"
@@ -3066,6 +3376,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       color: theme.muted,
                     }}
                   >
+                    <span style={{ fontSize: 16 }}>⚡</span>
                     Triple
                     {(() => {
   const playerPreds = predictions[currentPredictionKey] || {};
@@ -3116,15 +3427,21 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
+                    justifyContent: "space-between",
                     gap: 10,
                     fontSize: 12,
                     color: theme.muted,
+                    width: "100%",
                   }}
                 >
-                  {/* MINI WRAPPER with +/- buttons */}
-<div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-  <CoinIcon />
+                  {/* Left spacer to balance the right side */}
+                  <div style={{ width: 60, flexShrink: 0 }}></div>
+
+                  {/* Center content */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {/* MINI WRAPPER with +/- buttons */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <CoinIcon />
 
   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
     <button
@@ -3208,52 +3525,59 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
 </div>
 
 <div style={{ display: "flex", gap: 4 }}>
-  {["H", "D", "A"].map((s) => (
-    <button
-      key={s}
-      type="button"
-      disabled={locked}
-      onClick={() =>
-        handleCoinsChange(
-          fixture.id,
-          coinsStake,
-          s,
-          o
-        )
-      }
-      style={{
-        padding: "2px 6px",
-        borderRadius: 999,
-        border: `1px solid ${theme.line}`,
-        backgroundColor:
-          coinsSide === s ? theme.accent : "transparent",
-        color: coinsSide === s ? theme.buttonText : theme.text,
-        fontSize: 11,
-        cursor: locked ? "default" : "pointer",
-      }}
-    >
-      {s}
-    </button>
-  ))}
+  {["H", "D", "A"].map((s) => {
+    const sideLabel = s === "H" ? "HOME" : s === "D" ? "DRAW" : "AWAY";
+    return (
+      <button
+        key={s}
+        type="button"
+        disabled={locked}
+        title={sideLabel}
+        onClick={() =>
+          handleCoinsChange(
+            fixture.id,
+            coinsStake,
+            s,
+            o
+          )
+        }
+        style={{
+          padding: "2px 6px",
+          borderRadius: 999,
+          border: `1px solid ${theme.line}`,
+          backgroundColor:
+            coinsSide === s ? theme.accent : "transparent",
+          color: coinsSide === s ? theme.buttonText : theme.text,
+          fontSize: 11,
+          cursor: locked ? "default" : "pointer",
+        }}
+      >
+        {s}
+      </button>
+    );
+  })}
 </div>
+                  </div>
 
-<div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    fontSize: 11,
-    width: 60,          // ← reserve space so it never shifts
-    justifyContent: "flex-end",
-  }}
->
-  {coinsPossibleReturn && (
-    <>
-      = {coinsPossibleReturn}
-      <CoinIcon />
-    </>
-  )}
-</div>
+                  {/* Right side - possible return with fixed width */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 11,
+                      width: 60,
+                      flexShrink: 0,
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    {coinsPossibleReturn && (
+                      <>
+                        = {coinsPossibleReturn}
+                        <CoinIcon />
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -3350,7 +3674,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
             style={{
               background: theme.panelHi,
               borderRadius: 12,
-              border: `1px solid ${theme.line}`,
+              border: `1px solid rgba(255, 255, 255, 0.3)`,
               padding: 10,
               display: "flex",
               justifyContent: "center",
@@ -3374,8 +3698,11 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
+                  flex: 1,
+                  justifyContent: "flex-end",
                 }}
               >
+                <span style={{ fontWeight: 700 }}>{homeCode}</span>
                 {homeBadgeSrc && (
                   <img
                     src={homeBadgeSrc}
@@ -3387,22 +3714,23 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     }}
                   />
                 )}
-                <span style={{ fontWeight: 700 }}>{homeCode}</span>
               </div>
 
               {/* Score inputs */}
               <div
                 style={{
                   display: "flex",
-                  gap: 6,
+                  gap: 8,
                   alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: 60,
                 }}
               >
-                <span style={{ minWidth: 14, textAlign: "right" }}>
+                <span style={{ minWidth: 20, textAlign: "right", fontWeight: 700, fontSize: 16 }}>
                   {res.homeGoals ?? "-"}
                 </span>
-                <span>-</span>
-                <span style={{ minWidth: 14 }}>
+                <span style={{ color: theme.muted }}>-</span>
+                <span style={{ minWidth: 20, textAlign: "left", fontWeight: 700, fontSize: 16 }}>
                   {res.awayGoals ?? "-"}
                 </span>
               </div>
@@ -3413,9 +3741,10 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
+                  flex: 1,
+                  justifyContent: "flex-start",
                 }}
               >
-                <span style={{ fontWeight: 700 }}>{awayCode}</span>
                 {awayBadgeSrc && (
                   <img
                     src={awayBadgeSrc}
@@ -3427,6 +3756,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     }}
                   />
                 )}
+                <span style={{ fontWeight: 700 }}>{awayCode}</span>
               </div>
             </div>
           </div>
@@ -3438,29 +3768,70 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         {/* League Table */}
         {activeView === "league" && (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>League Table</h2>
-            <div style={{ display: "grid", gap: 6 }}>
-              {leaderboard.map((row, i) => (
-                <div
-                  key={row.player}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "40px 1fr 80px",
-                    gap: 8,
-                    alignItems: "center",
-                    background: theme.panelHi,
-                    border: `1px solid ${theme.line}`,
-                    padding: "8px 10px",
-                    borderRadius: 10,
-                  }}
-                >
-                  <div style={{ color: theme.muted }}>{i + 1}</div>
-                  <div style={{ fontWeight: 700 }}>{row.player}</div>
-                  <div style={{ textAlign: "right", fontWeight: 800 }}>
-                    {row.points}
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🏆 League Table</h2>
+            <div style={{ display: "grid", gap: 8 }}>
+              {leaderboard.map((row, i) => {
+                // Color scheme based on position
+                let borderColor = theme.line;
+                let emoji = "";
+                
+                if (i === 0) {
+                  borderColor = "#FFD700"; // Gold for 1st
+                  emoji = "🥇";
+                } else if (i === 1) {
+                  borderColor = "#C0C0C0"; // Silver for 2nd
+                  emoji = "🥈";
+                } else if (i === 2) {
+                  borderColor = "#CD7F32"; // Bronze for 3rd
+                  emoji = "🥉";
+                } else if (i === leaderboard.length - 1) {
+                  emoji = "💩"; // Poo for last place
+                }
+
+                return (
+                  <div
+                    key={row.player}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "50px 1fr 90px",
+                      gap: 10,
+                      alignItems: "center",
+                      background: theme.panelHi,
+                      border: `2px solid ${borderColor}`,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      transition: "transform 0.2s",
+                    }}
+                  >
+                    <div style={{ 
+                      color: i < 3 ? borderColor : theme.muted,
+                      fontWeight: 700,
+                      fontSize: 16,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4
+                    }}>
+                      {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
+                      {!emoji && <span>{i + 1}</span>}
+                    </div>
+                    <div style={{ 
+                      fontWeight: 700,
+                      fontSize: 15,
+                      color: i === 0 ? "#FFD700" : theme.text
+                    }}>
+                      {row.player}
+                    </div>
+                    <div style={{ 
+                      textAlign: "right", 
+                      fontWeight: 800,
+                      fontSize: 18,
+                      color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : theme.accent
+                    }}>
+                      {row.points}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
@@ -3480,12 +3851,12 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
               <img
                 src="/coin_PA_32.png"
                 alt="Coins"
-                style={{ width: 20, height: 20 }}
+                style={{ width: 28, height: 28 }}
               />
-              <span>League Table</span>
+              <span>Coins League</span>
             </h2>
 
-            <div style={{ display: "grid", gap: 6 }}>
+            <div style={{ display: "grid", gap: 8 }}>
               {/* Show "no data" only if server data is empty */}
               {(!coinsLeagueRows || coinsLeagueRows.length === 0) && (
                   <div
@@ -3511,23 +3882,61 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
       ? row.points
       : 0;
 
+  // Color scheme based on position
+  let borderColor = theme.line;
+  let emoji = "";
+  
+  if (i === 0) {
+    borderColor = "#FFD700"; // Gold for 1st
+    emoji = "🥇";
+  } else if (i === 1) {
+    borderColor = "#C0C0C0"; // Silver for 2nd
+    emoji = "🥈";
+  } else if (i === 2) {
+    borderColor = "#CD7F32"; // Bronze for 3rd
+    emoji = "🥉";
+  } else if (i === coinsLeagueRows.length - 1) {
+    emoji = "💩"; // Poo for last place
+  }
+
   return (
     <div
       key={row.userId || row.player}
       style={{
         display: "grid",
-        gridTemplateColumns: "40px 1fr 80px",
-        gap: 8,
+        gridTemplateColumns: "50px 1fr 90px",
+        gap: 10,
         alignItems: "center",
         background: theme.panelHi,
-        border: `1px solid ${theme.line}`,
-        padding: "8px 10px",
-        borderRadius: 10,
+        border: `2px solid ${borderColor}`,
+        padding: "12px 14px",
+        borderRadius: 12,
       }}
     >
-      <div style={{ color: theme.muted }}>{i + 1}</div>
-      <div style={{ fontWeight: 700 }}>{row.player}</div>
-      <div style={{ textAlign: "right", fontWeight: 800 }}>
+      <div style={{ 
+        color: i < 3 ? borderColor : theme.muted,
+        fontWeight: 700,
+        fontSize: 16,
+        display: "flex",
+        alignItems: "center",
+        gap: 4
+      }}>
+        {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
+        {!emoji && <span>{i + 1}</span>}
+      </div>
+      <div style={{ 
+        fontWeight: 700,
+        fontSize: 15,
+        color: i === 0 ? "#FFD700" : theme.text
+      }}>
+        {row.player}
+      </div>
+      <div style={{ 
+        textAlign: "right", 
+        fontWeight: 800,
+        fontSize: 18,
+        color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : theme.accent
+      }}>
         {value.toFixed ? value.toFixed(2) : value}
       </div>
     </div>
@@ -3536,6 +3945,191 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
             </div>
           </section>
         )}
+        {/* Summary */}
+        {activeView === "summary" && (() => {
+          // Use existing leaderboard data for top scorer
+          const topScorer = leaderboard && leaderboard.length > 0 
+            ? leaderboard[0] 
+            : { player: "", points: 0 };
+
+          // Legacy player name to userId mapping
+          const LEGACY_MAP = {
+            Tom: "1763791297309",
+            Ian: "1763801801288",
+            Dave: "1763801999658",
+            Anthony: "1763802020494",
+            Steve: "1763812904100",
+            Emma: "1763813732635",
+            Phil: "1763873593264",
+          };
+
+          // Calculate summary statistics
+          const stats = {
+            topScorer: { name: topScorer.player, points: topScorer.points },
+            mostBingpots: { name: "", count: 0 },
+            mostForgetful: { name: "", missed: 0 },
+            bestGambler: { name: "", coins: 0 },
+            bestGameweek: { name: "", points: 0, gameweek: 0 }
+          };
+
+          // Get all completed fixtures
+          const completedFixtures = FIXTURES.filter(f => results[f.id]);
+
+          // Calculate bingpots and missed weeks for each player
+          PLAYERS.forEach(player => {
+            let bingpots = 0;
+            let missedWeeks = 0;
+
+            // Try both player name and userId as keys
+            const userId = LEGACY_MAP[player];
+            
+            // Count bingpots from fixture predictions
+            completedFixtures.forEach(fixture => {
+              const pred = predictions[player]?.[fixture.id] || predictions[userId]?.[fixture.id];
+              const result = results[fixture.id];
+
+              if (pred && pred.homeGoals !== undefined && pred.awayGoals !== undefined) {
+                // Check for exact score (bingpot)
+                const homeCorrect = Number(pred.homeGoals) === Number(result.homeGoals);
+                const awayCorrect = Number(pred.awayGoals) === Number(result.awayGoals);
+
+                if (homeCorrect && awayCorrect) {
+                  bingpots++;
+                }
+              }
+            });
+
+            // Count missed weeks from history: any week with 0 points
+            historicalScores.forEach(row => {
+              const score = row[player] || 0;
+              if (score === 0) {
+                missedWeeks++;
+              }
+            });
+
+            // Update most bingpots
+            if (bingpots > stats.mostBingpots.count) {
+              stats.mostBingpots = { name: player, count: bingpots };
+            }
+
+            // Update most forgetful
+            if (missedWeeks > stats.mostForgetful.missed) {
+              stats.mostForgetful = { name: player, missed: missedWeeks };
+            }
+          });
+
+          // Get best gambler from coins league
+          if (coinsLeagueRows && coinsLeagueRows.length > 0) {
+            const topGambler = coinsLeagueRows[0];
+            const coins = topGambler.profit !== undefined ? topGambler.profit : (topGambler.points || 0);
+            stats.bestGambler = { name: topGambler.player, coins: coins };
+          }
+
+          // Find best gameweek score
+          historicalScores.forEach(row => {
+            PLAYERS.forEach(player => {
+              const score = row[player] || 0;
+              if (score > stats.bestGameweek.points) {
+                stats.bestGameweek = { name: player, points: score, gameweek: row.gameweek };
+              }
+            });
+          });
+
+          const categories = [
+            {
+              title: "🏆 Top Scorer",
+              player: stats.topScorer.name,
+              value: `${stats.topScorer.points} points`,
+              color: "#FFD700"
+            },
+            {
+              title: "🎯 Most Bingpots",
+              player: stats.mostBingpots.name,
+              value: `${stats.mostBingpots.count} bingpots`,
+              color: "#FF6B9D"
+            },
+            {
+              title: "😴 Most Forgetful",
+              player: stats.mostForgetful.name,
+              value: `${stats.mostForgetful.missed} missed`,
+              color: "#9CA3AF"
+            },
+            {
+              title: "💰 Best Gambler",
+              player: stats.bestGambler.name || "—",
+              value: stats.bestGambler.name ? `${stats.bestGambler.coins >= 0 ? '+' : ''}${typeof stats.bestGambler.coins === 'number' ? stats.bestGambler.coins.toFixed(2) : stats.bestGambler.coins} coins` : "—",
+              color: "#22C55E"
+            },
+            {
+              title: "⚡ Best Gameweek",
+              player: stats.bestGameweek.name || "—",
+              value: stats.bestGameweek.name ? `${stats.bestGameweek.points} pts (GW${stats.bestGameweek.gameweek})` : "—",
+              color: "#F59E0B"
+            }
+          ];
+
+          return (
+            <section style={cardStyle}>
+              <h2 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, textAlign: "center" }}>
+                Season Summary
+              </h2>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                {categories.map((cat, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      background: theme.panelHi,
+                      border: `2px solid ${cat.color}`,
+                      borderRadius: 12,
+                      padding: 16,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 700,
+                        color: cat.color,
+                      }}
+                    >
+                      {cat.title}
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 20,
+                          fontWeight: 800,
+                          color: theme.text,
+                        }}
+                      >
+                        {cat.player || "—"}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: theme.muted,
+                        }}
+                      >
+                        {cat.value}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })()}
+
         {/* History */}
         {activeView === "history" && (
           <section
@@ -3677,61 +4271,137 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
             style={{
               background: theme.panelHi,
               borderRadius: 12,
-              border: `1px solid ${theme.line}`,
-              padding: 10,
+              border: `1px solid rgba(255, 255, 255, 0.3)`,
+              padding: 12,
+              display: "grid",
+              gap: 10,
             }}
           >
-            <div className="prob-row">
-              {/* Fixture (left column) */}
-              <div className="prob-fixture">
-                {TEAM_ABBREVIATIONS[fixture.homeTeam] || fixture.homeTeam}
-                {" "}vs{" "}
-                {TEAM_ABBREVIATIONS[fixture.awayTeam] || fixture.awayTeam}
-              </div>
-
-              {/* Odds + % (right column) */}
-              <div className="prob-odds">
-                <input
-                  type="number"
-                  step="0.01"
-                  min="1.01"
-                  style={smallInput}
-                  value={o.home ?? ""}
-                  onChange={(e) =>
-                    updateOdds(fixture.id, { home: e.target.value })
+            {/* Fixture name with badges */}
+            <div style={{ 
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              fontWeight: 700, 
+              fontSize: 14,
+              lineHeight: 1.3
+            }}>
+              {/* Home team badge */}
+              {(TEAM_BADGES[fixture.homeTeam] ||
+                getTeamCode(fixture.homeTeam) === "NFO") && (
+                <img
+                  src={
+                    getTeamCode(fixture.homeTeam) === "NFO"
+                      ? "/badges/nottingham_forest.png"
+                      : TEAM_BADGES[fixture.homeTeam]
                   }
+                  alt={fixture.homeTeam}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    objectFit: "contain",
+                  }}
                 />
-
-                <input
-                  type="number"
-                  step="0.01"
-                  min="1.01"
-                  style={smallInput}
-                  value={o.draw ?? ""}
-                  onChange={(e) =>
-                    updateOdds(fixture.id, { draw: e.target.value })
+              )}
+              
+              <span>{getTeamCode(fixture.homeTeam)}</span>
+              <span style={{ color: theme.muted }}>vs</span>
+              <span>{getTeamCode(fixture.awayTeam)}</span>
+              
+              {/* Away team badge */}
+              {(TEAM_BADGES[fixture.awayTeam] ||
+                getTeamCode(fixture.awayTeam) === "NFO") && (
+                <img
+                  src={
+                    getTeamCode(fixture.awayTeam) === "NFO"
+                      ? "/badges/nottingham_forest.png"
+                      : TEAM_BADGES[fixture.awayTeam]
                   }
+                  alt={fixture.awayTeam}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    objectFit: "contain",
+                  }}
                 />
+              )}
+            </div>
 
-                <input
-                  type="number"
-                  step="0.01"
-                  min="1.01"
-                  style={smallInput}
-                  value={o.away ?? ""}
-                  onChange={(e) =>
-                    updateOdds(fixture.id, { away: e.target.value })
-                  }
-                />
+            {/* Labels row */}
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 6,
+              fontSize: 11,
+              color: theme.muted,
+              fontWeight: 600,
+              textAlign: "center",
+              marginBottom: -6
+            }}>
+              <div>HOME</div>
+              <div>DRAW</div>
+              <div>AWAY</div>
+            </div>
 
-                <div style={{ fontSize: 12, color: theme.muted }}>
-                  {probs
-                    ? `${probs.home.toFixed(1)}% / ${probs.draw.toFixed(
-                        1
-                      )}% / ${probs.away.toFixed(1)}%`
-                    : "-"}
-                </div>
-              </div>
+            {/* Odds inputs row */}
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 6
+            }}>
+              <input
+                type="number"
+                step="0.01"
+                min="1.01"
+                style={probInput}
+                value={o.home ?? ""}
+                onChange={(e) =>
+                  updateOdds(fixture.id, { home: e.target.value })
+                }
+              />
+
+              <input
+                type="number"
+                step="0.01"
+                min="1.01"
+                style={probInput}
+                value={o.draw ?? ""}
+                onChange={(e) =>
+                  updateOdds(fixture.id, { draw: e.target.value })
+                }
+              />
+
+              <input
+                type="number"
+                step="0.01"
+                min="1.01"
+                style={probInput}
+                value={o.away ?? ""}
+                onChange={(e) =>
+                  updateOdds(fixture.id, { away: e.target.value })
+                }
+              />
+            </div>
+
+            {/* Probabilities row */}
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "1fr 1fr 1fr",
+              gap: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              textAlign: "center"
+            }}>
+              {probs ? (
+                <>
+                  <div style={{ color: theme.accent }}>{probs.home.toFixed(1)}%</div>
+                  <div style={{ color: theme.muted }}>{probs.draw.toFixed(1)}%</div>
+                  <div style={{ color: theme.accent }}>{probs.away.toFixed(1)}%</div>
+                </>
+              ) : (
+                <div style={{ gridColumn: "1 / -1", color: theme.muted }}>-</div>
+              )}
             </div>
           </div>
         );
@@ -3869,20 +4539,395 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
           </section>
         )}
 
-        <div style={{ textAlign: "center", fontSize: 12, color: theme.muted, marginTop: 10 }}>
-  Build: {BUILD_ID}
-</div>
+        {/* Rules Page */}
+        {activeView === "rules" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, marginBottom: 20, fontSize: 22, textAlign: "center", fontWeight: 800 }}>
+              📋 Rules & Scoring
+            </h2>
 
-        <footer
-          style={{
-            textAlign: "center",
-            fontSize: 12,
-            color: theme.muted,
-            padding: 6,
-          }}
-        >
-          v1 cloud‑sync rebuild • Render backend • Netlify frontend
-        </footer>
+            {/* Prediction Rules */}
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ 
+                fontSize: 18, 
+                fontWeight: 700, 
+                marginTop: 0, 
+                marginBottom: 12,
+                color: theme.accent,
+                display: "flex",
+                alignItems: "center",
+                gap: 8
+              }}>
+                <span>⚽</span> Prediction Rules
+              </h3>
+              <div style={{ 
+                background: theme.panelHi, 
+                padding: 16, 
+                borderRadius: 10,
+                border: `1px solid ${theme.line}`
+              }}>
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>⏰</span>
+                    <div>
+                      <strong>Deadline:</strong> Predictions lock <strong>1 hour before kickoff</strong> for each match.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>🎯</span>
+                    <div>
+                      <strong>Bingpot!!</strong> <span style={{ color: theme.accent2, fontWeight: 700 }}>7 points</span> — Predict the exact final score.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>📊</span>
+                    <div>
+                      <strong>Correcto!</strong> <span style={{ color: theme.accent2, fontWeight: 700 }}>4 points</span> — Correct goal difference but not exact score.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>✅</span>
+                    <div>
+                      <strong>Resulto!</strong> <span style={{ color: theme.accent2, fontWeight: 700 }}>2 points</span> — Home win, draw, or away win.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Multipliers */}
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ 
+                fontSize: 18, 
+                fontWeight: 700, 
+                marginTop: 0, 
+                marginBottom: 12,
+                color: theme.accent,
+                display: "flex",
+                alignItems: "center",
+                gap: 8
+              }}>
+                <span>🚀</span> Multipliers
+              </h3>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ 
+                  background: theme.panelHi, 
+                  padding: 16, 
+                  borderRadius: 10,
+                  border: `2px solid ${theme.accent}`
+                }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 24 }}>👑</span>
+                    <strong style={{ fontSize: 16 }}>Captain (2x)</strong>
+                  </div>
+                  <div style={{ color: theme.muted, fontSize: 14 }}>
+                    Pick <strong>one Captain per gameweek</strong>. Their points are <strong>doubled</strong>.
+                  </div>
+                </div>
+                
+                <div style={{ 
+                  background: theme.panelHi, 
+                  padding: 16, 
+                  borderRadius: 10,
+                  border: `2px solid #F59E0B`
+                }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 24 }}>⚡</span>
+                    <strong style={{ fontSize: 16 }}>Triple Captain (3x)</strong>
+                  </div>
+                  <div style={{ color: theme.muted, fontSize: 14 }}>
+                    Use <strong>once per season</strong>. That match's points are <strong>tripled</strong>. Choose wisely!
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={{
+              height: 2,
+              background: theme.accent,
+              marginTop: 32,
+              marginBottom: 32,
+              opacity: 0.5
+            }} />
+
+            {/* Coins Game */}
+            <div>
+              <h3 style={{ 
+                fontSize: 18, 
+                fontWeight: 700, 
+                marginTop: 0, 
+                marginBottom: 12,
+                color: theme.accent,
+                display: "flex",
+                alignItems: "center",
+                gap: 8
+              }}>
+                <span>💰</span> Coins Game
+              </h3>
+              <div style={{ 
+                background: theme.panelHi, 
+                padding: 16, 
+                borderRadius: 10,
+                border: `1px solid ${theme.line}`
+              }}>
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>🪙</span>
+                    <div>
+                      <strong>Starting Balance:</strong> You get <strong>10 coins per gameweek</strong>.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>🎲</span>
+                    <div>
+                      <strong>Place Bets:</strong> Bet coins on match outcomes (Home/Draw/Away) based on odds.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>📈</span>
+                    <div>
+                      <strong>Winnings:</strong> Win = coins × odds. Lose = lose your bet. Your <strong>profit/loss rolls over</strong> across the season.
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <span style={{ fontSize: 20, minWidth: 24 }}>🏆</span>
+                    <div>
+                      <strong>Leaderboard:</strong> Compete for the best total profit on the <strong>Coins League</strong> tab!
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Note */}
+            <div style={{ 
+              marginTop: 24, 
+              padding: 16, 
+              background: theme.panelHi, 
+              borderRadius: 10,
+              border: `1px solid ${theme.line}`,
+              textAlign: "center",
+              fontSize: 14,
+              color: theme.muted
+            }}>
+              <strong>💡 Pro Tip:</strong> Everything syncs instantly via the cloud. Make your picks before the deadline!
+            </div>
+          </section>
+        )}
+
+        {/* Settings */}
+        {activeView === "settings" && (
+          <section style={{ maxWidth: 600, margin: "0 auto" }}>
+            <h2 style={{ 
+              fontSize: 28,
+              fontWeight: 800,
+              color: theme.text,
+              marginBottom: 20,
+              textAlign: "center"
+            }}>
+              ⚙️ Settings
+            </h2>
+
+            <div style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 20,
+              marginBottom: 16
+            }}>
+              <h3 style={{ 
+                fontSize: 18,
+                fontWeight: 700,
+                color: theme.text,
+                marginBottom: 16
+              }}>
+                🔔 Push Notifications
+              </h3>
+
+              {!pushSupported && (
+                <div style={{
+                  padding: 12,
+                  background: "rgba(239,68,68,0.1)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: 8,
+                  color: "#ef4444",
+                  fontSize: 14,
+                  marginBottom: 12
+                }}>
+                  ⚠️ Push notifications are not supported in your browser
+                </div>
+              )}
+
+              {pushSupported && (
+                <>
+                  <p style={{ 
+                    fontSize: 14, 
+                    color: theme.muted, 
+                    marginBottom: 16,
+                    lineHeight: 1.6
+                  }}>
+                    Get notified when gameweeks start, deadlines approach, and results are in!
+                  </p>
+
+                  <button
+                    onClick={async () => {
+                      if (!pushEnabled) {
+                        // Request permission
+                        try {
+                          const permission = await Notification.requestPermission();
+                          if (permission === 'granted') {
+                            // Get VAPID public key from backend
+                            const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
+                            const { publicKey } = await vapidRes.json();
+                            
+                            // Register service worker and subscribe
+                            const registration = await navigator.serviceWorker.register('/service-worker.js');
+                            await navigator.serviceWorker.ready;
+                            
+                            const subscription = await registration.pushManager.subscribe({
+                              userVisibleOnly: true,
+                              applicationServerKey: publicKey
+                            });
+                            
+                            // Send subscription to backend
+                            const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${authToken}`
+                              },
+                              body: JSON.stringify(subscription)
+                            });
+                            
+                            if (subRes.ok) {
+                              setPushEnabled(true);
+                              alert('✅ Push notifications enabled!');
+                            } else {
+                              throw new Error('Failed to save subscription');
+                            }
+                          } else {
+                            alert('❌ Permission denied for notifications');
+                          }
+                        } catch (err) {
+                          console.error('Push subscription failed:', err);
+                          alert('Failed to enable push notifications: ' + err.message);
+                        }
+                      } else {
+                        // Unsubscribe
+                        try {
+                          const registration = await navigator.serviceWorker.getRegistration();
+                          const subscription = await registration.pushManager.getSubscription();
+                          if (subscription) {
+                            await subscription.unsubscribe();
+                          }
+                          
+                          // Tell backend to remove subscription
+                          await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              Authorization: `Bearer ${authToken}`
+                            }
+                          });
+                          
+                          setPushEnabled(false);
+                          alert('❌ Push notifications disabled');
+                        } catch (err) {
+                          console.error('Push unsubscribe failed:', err);
+                          alert('Failed to disable notifications: ' + err.message);
+                        }
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "12px 20px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: pushEnabled ? "#ef4444" : theme.accent,
+                      color: "#fff",
+                      fontSize: 16,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      transition: "opacity 0.2s"
+                    }}
+                  >
+                    {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 20
+            }}>
+              <h3 style={{ 
+                fontSize: 18,
+                fontWeight: 700,
+                color: theme.text,
+                marginBottom: 16
+              }}>
+                👤 Account
+              </h3>
+
+              <div style={{ 
+                fontSize: 14, 
+                color: theme.muted,
+                marginBottom: 12
+              }}>
+                <strong>Logged in as:</strong> {currentPlayer}
+              </div>
+
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                style={{
+                  width: "100%",
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panel,
+                  color: theme.text,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  marginBottom: 12
+                }}
+              >
+                🔑 Change Password
+              </button>
+
+              <button
+                onClick={() => {
+                  if (window.confirm("Are you sure you want to log out?")) {
+                    setIsLoggedIn(false);
+                    setAuthToken("");
+                    setCurrentPlayer("");
+                    setCurrentUserId("");
+                    localStorage.removeItem(AUTH_STORAGE_KEY);
+                    setActiveView("predictions");
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  background: "rgba(239,68,68,0.1)",
+                  color: "#ef4444",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer"
+                }}
+              >
+                🚪 Log Out
+              </button>
+            </div>
+          </section>
+        )}
+
       </div>
       
     </div>
