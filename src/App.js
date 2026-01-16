@@ -3183,7 +3183,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     fontWeight: 700,
                     alignSelf: "center",
                     fontSize: isMobile ? 16 : 18,
-                    margin: "0 12px",
+                    margin: isMobile ? "0 6px" : "0 12px",
                   }}
                 >
                   VS
