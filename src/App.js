@@ -3112,7 +3112,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         width: isMobile ? 24 : 24,
                         height: isMobile ? 24 : 24,
                         padding: 0,
-                        border: `1px solid ${theme.line}`,
+                        border: (pred.homeGoals || 0) <= 0 ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
                         borderRadius: 6,
                         background: (pred.homeGoals || 0) <= 0 ? theme.panelHi : theme.accent,
                         color: (pred.homeGoals || 0) <= 0 ? theme.text : "#ffffff",
@@ -3125,16 +3125,19 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       −
                     </button>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       min="0"
                       style={smallInput}
                       value={pred.homeGoals || ""}
                       disabled={locked}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
                         updatePrediction(currentPredictionKey, fixture.id, {
-                          homeGoals: e.target.value,
-                        })
-                      }
+                          homeGoals: val,
+                        });
+                      }}
                     />
                     <button
                       type="button"
@@ -3202,7 +3205,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         width: isMobile ? 24 : 24,
                         height: isMobile ? 24 : 24,
                         padding: 0,
-                        border: `1px solid ${theme.line}`,
+                        border: (pred.awayGoals || 0) <= 0 ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
                         borderRadius: 6,
                         background: (pred.awayGoals || 0) <= 0 ? theme.panelHi : theme.accent,
                         color: (pred.awayGoals || 0) <= 0 ? theme.text : "#ffffff",
@@ -3215,18 +3218,21 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       −
                     </button>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       min="0"
                       style={smallInput}
                       value={pred.awayGoals || ""}
                       disabled={locked}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
                         updatePrediction(
                           currentPredictionKey,
                           fixture.id,
-                          { awayGoals: e.target.value }
-                        )
-                      }
+                          { awayGoals: val }
+                        );
+                      }}
                     />
                     <button
                       type="button"
@@ -3514,7 +3520,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         height: 24,
         padding: 0,
         borderRadius: 6,
-        border: `1px solid ${theme.line}`,
+        border: (locked || coinsStake <= 0) ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
         background: (locked || coinsStake <= 0) ? theme.panelHi : theme.accent,
         color: (locked || coinsStake <= 0) ? theme.muted : "#fff",
         fontSize: 16,
