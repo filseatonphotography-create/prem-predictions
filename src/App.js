@@ -3015,10 +3015,12 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
               gridTemplateColumns: "minmax(0, 1fr)",
               gap: 8,
               alignItems: "flex-start",
+              maxWidth: "100%",
+              overflow: "hidden",
             }}
           >
             {/* Left content column */}
-            <div style={{ display: "grid", gap: 6, minHeight: 92 }}>
+            <div style={{ display: "grid", gap: 6, minHeight: 92, maxWidth: "100%", overflow: "hidden" }}>
               {/* Kickoff time */}
               <div
                 style={{
@@ -3040,6 +3042,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   alignItems: "flex-end",
                   flexWrap: "wrap",
                   justifyContent: "center",
+                  maxWidth: "100%",
                 }}
               >
                 {/* HOME */}
