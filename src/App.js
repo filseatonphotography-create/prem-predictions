@@ -3486,16 +3486,13 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "space-between",
+                    justifyContent: "center",
                     gap: 10,
                     fontSize: 12,
                     color: theme.muted,
                     width: "100%",
                   }}
                 >
-                  {/* Left spacer to balance the right side */}
-                  <div style={{ width: 60, flexShrink: 0 }}></div>
-
                   {/* Center content */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {/* MINI WRAPPER with +/- buttons */}
@@ -3618,25 +3615,20 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
 </div>
                   </div>
 
-                  {/* Right side - possible return with fixed width */}
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      fontSize: 11,
-                      width: 60,
-                      flexShrink: 0,
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    {coinsPossibleReturn && (
-                      <>
-                        = {coinsPossibleReturn}
-                        <CoinIcon />
-                      </>
-                    )}
-                  </div>
+                  {/* Right side - possible return */}
+                  {coinsPossibleReturn && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        fontSize: 11,
+                      }}
+                    >
+                      = {coinsPossibleReturn}
+                      <CoinIcon />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
