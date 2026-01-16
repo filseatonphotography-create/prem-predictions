@@ -2844,7 +2844,7 @@ if (!isLoggedIn) {
             <div
               style={{
                 display: "flex",
-                gap: isMobile ? 4 : 8,
+                gap: isMobile ? 2 : 6,
                 alignItems: "center",
               }}
             >
@@ -2852,70 +2852,70 @@ if (!isLoggedIn) {
               <div style={{ textAlign: "center" }}>
                 <div
                   style={{
-                    fontSize: isMobile ? 20 : 28,
+                    fontSize: isMobile ? 18 : 28,
                     fontWeight: 700,
                     color: countdown.remaining < 3600000 ? theme.warn : theme.text,
                     fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 35 : 50,
+                    minWidth: isMobile ? 30 : 50,
                   }}
                 >
                   {String(countdown.days).padStart(2, '0')}
                 </div>
-                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>days</div>
+                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>days</div>
               </div>
               
-              <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+              <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
               
               {/* Hours */}
               <div style={{ textAlign: "center" }}>
                 <div
                   style={{
-                    fontSize: isMobile ? 20 : 28,
+                    fontSize: isMobile ? 18 : 28,
                     fontWeight: 700,
                     color: countdown.remaining < 3600000 ? theme.warn : theme.text,
                     fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 35 : 50,
+                    minWidth: isMobile ? 30 : 50,
                   }}
                 >
                   {String(countdown.hours).padStart(2, '0')}
                 </div>
-                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>hours</div>
+                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>hours</div>
               </div>
               
-              <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+              <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
               
               {/* Minutes */}
               <div style={{ textAlign: "center" }}>
                 <div
                   style={{
-                    fontSize: isMobile ? 20 : 28,
+                    fontSize: isMobile ? 18 : 28,
                     fontWeight: 700,
                     color: countdown.remaining < 3600000 ? theme.warn : theme.text,
                     fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 35 : 50,
+                    minWidth: isMobile ? 30 : 50,
                   }}
                 >
                   {String(countdown.minutes).padStart(2, '0')}
                 </div>
-                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>minutes</div>
+                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>mins</div>
               </div>
               
-              <div style={{ fontSize: isMobile ? 18 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+              <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
               
               {/* Seconds */}
               <div style={{ textAlign: "center" }}>
                 <div
                   style={{
-                    fontSize: isMobile ? 20 : 28,
+                    fontSize: isMobile ? 18 : 28,
                     fontWeight: 700,
                     color: countdown.remaining < 3600000 ? theme.warn : theme.text,
                     fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 35 : 50,
+                    minWidth: isMobile ? 30 : 50,
                   }}
                 >
                   {String(countdown.seconds).padStart(2, '0')}
                 </div>
-                <div style={{ fontSize: 10, color: theme.muted, marginTop: 2 }}>seconds</div>
+                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>secs</div>
               </div>
             </div>
           </div>
