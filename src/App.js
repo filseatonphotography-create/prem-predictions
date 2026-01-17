@@ -96,7 +96,7 @@ const TEAM_ABBREVIATIONS = {
 // ---- CONFIG ----
 const DEV_USE_LOCAL = false; // always use cloud backend
 
-const BACKEND_BASE = "https://prem-predictions-1.onrender.com";
+const BACKEND_BASE = "http://localhost:5001";
 
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
@@ -674,6 +674,7 @@ function formatKickoffShort(kickoff) {
   const day = String(d.getDate()).padStart(2, "0");
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const month = monthNames[d.getMonth()];
+  // Always use local time for display
   const hours = String(d.getHours()).padStart(2, "0");
   const mins = String(d.getMinutes()).padStart(2, "0");
   return `${day} ${month} ${hours}:${mins}`;
@@ -785,6 +786,21 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('notifPrefs')) || {
+        gameweekStart: true,
+        deadline: true,
+        results: true
+      };
+    } catch {
+      return {
+        gameweekStart: true,
+        deadline: true,
+        results: true
+      };
+    }
+  });
   
   // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
@@ -1228,6 +1244,11 @@ useEffect(() => {
       JSON.stringify({ predictions, results, odds, selectedGameweek })
     );
   }, [predictions, results, odds, selectedGameweek]);
+
+  // Persist notification preferences
+  useEffect(() => {
+    localStorage.setItem('notifPrefs', JSON.stringify(notifPrefs));
+  }, [notifPrefs]);
 
   // Persist auth
   useEffect(() => {
@@ -4995,106 +5016,111 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
 
               {pushSupported && (
                 <>
-                  <p style={{ 
-                    fontSize: 14, 
-                    color: theme.muted, 
-                    marginBottom: 16,
-                    lineHeight: 1.6
-                  }}>
-                    Get notified when gameweeks start, deadlines approach, and results are in!
+                  <p style={{ fontSize: 14, color: theme.muted, marginBottom: 16, lineHeight: 1.6 }}>
+                    Get notified for:
                   </p>
-
-                  <button
-                    onClick={async () => {
-                      if (!pushEnabled) {
-                        // Request permission
-                        try {
-                          const permission = await Notification.requestPermission();
-                          if (permission === 'granted') {
-                            // Get VAPID public key from backend
-                            const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
-                            if (!vapidRes.ok) {
-                              throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
-                            }
-                            const { publicKey } = await vapidRes.json();
-                            
-                            // Register service worker and subscribe
-                            const registration = await navigator.serviceWorker.register('/service-worker.js');
-                            await navigator.serviceWorker.ready;
-                            
-                            const subscription = await registration.pushManager.subscribe({
-                              userVisibleOnly: true,
-                              applicationServerKey: publicKey
-                            });
-                            
-                            // Send subscription to backend
-                            const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: `Bearer ${authToken}`
-                              },
-                              body: JSON.stringify(subscription)
-                            });
-                            
-                            if (subRes.ok) {
-                              setPushEnabled(true);
-                              alert('✅ Push notifications enabled!');
-                            } else {
-                              throw new Error('Failed to save subscription');
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={{ display: 'block', marginBottom: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={notifPrefs.gameweekStart}
+                        onChange={e => setNotifPrefs(p => ({ ...p, gameweekStart: e.target.checked }))}
+                        style={{ marginRight: 8 }}
+                      />
+                      Gameweek Start
+                    </label>
+                    <label style={{ display: 'block', marginBottom: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={notifPrefs.deadline}
+                        onChange={e => setNotifPrefs(p => ({ ...p, deadline: e.target.checked }))}
+                        style={{ marginRight: 8 }}
+                      />
+                      Deadline Approaching
+                    </label>
+                        <label style={{ display: 'block', marginBottom: 8 }}>
+                          <input
+                            type="checkbox"
+                            checked={notifPrefs.results}
+                            onChange={e => setNotifPrefs(p => ({ ...p, results: e.target.checked }))}
+                            style={{ marginRight: 8 }}
+                          />
+                          Results In
+                        </label>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!pushEnabled) {
+                            // Request permission
+                            try {
+                              const permission = await Notification.requestPermission();
+                              if (permission === 'granted') {
+                                const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
+                                if (!vapidRes.ok) throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
+                                const { publicKey } = await vapidRes.json();
+                                const registration = await navigator.serviceWorker.register('/service-worker.js');
+                                await navigator.serviceWorker.ready;
+                                const subscription = await registration.pushManager.subscribe({
+                                  userVisibleOnly: true,
+                                  applicationServerKey: publicKey
+                                });
+                                const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${authToken}`
+                                  },
+                                  body: JSON.stringify({ subscription, notifPrefs })
+                                });
+                                if (subRes.ok) {
+                                  setPushEnabled(true);
+                                  alert('✅ Push notifications enabled!');
+                                } else {
+                                  throw new Error('Failed to save subscription');
+                                }
+                              } else {
+                                alert('❌ Permission denied for notifications');
+                              }
+                            } catch (err) {
+                              console.error('Push subscription failed:', err);
+                              alert('Failed to enable push notifications: ' + err.message);
                             }
                           } else {
-                            alert('❌ Permission denied for notifications');
-                          }
-                        } catch (err) {
-                          console.error('Push subscription failed:', err);
-                          alert('Failed to enable push notifications: ' + err.message);
-                        }
-                      } else {
-                        // Unsubscribe
-                        try {
-                          const registration = await navigator.serviceWorker.getRegistration();
-                          const subscription = await registration.pushManager.getSubscription();
-                          if (subscription) {
-                            await subscription.unsubscribe();
-                          }
-                          
-                          // Tell backend to remove subscription
-                          await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              Authorization: `Bearer ${authToken}`
+                            try {
+                              const registration = await navigator.serviceWorker.getRegistration();
+                              const subscription = await registration.pushManager.getSubscription();
+                              if (subscription) await subscription.unsubscribe();
+                              await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  Authorization: `Bearer ${authToken}`
+                                }
+                              });
+                              setPushEnabled(false);
+                              alert('❌ Push notifications disabled');
+                            } catch (err) {
+                              console.error('Push unsubscribe failed:', err);
+                              alert('Failed to disable notifications: ' + err.message);
                             }
-                          });
-                          
-                          setPushEnabled(false);
-                          alert('❌ Push notifications disabled');
-                        } catch (err) {
-                          console.error('Push unsubscribe failed:', err);
-                          alert('Failed to disable notifications: ' + err.message);
-                        }
-                      }
-                    }}
-                    style={{
-                      width: "100%",
-                      padding: "12px 20px",
-                      borderRadius: 8,
-                      border: "none",
-                      background: pushEnabled ? "#ef4444" : theme.accent,
-                      color: "#fff",
-                      fontSize: 16,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      transition: "opacity 0.2s"
-                    }}
-                  >
-                    {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
-                  </button>
-                </>
-              )}
-            </div>
-
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "12px 20px",
+                          borderRadius: 8,
+                          border: "none",
+                          background: pushEnabled ? "#ef4444" : theme.accent,
+                          color: "#fff",
+                          fontSize: 16,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          transition: "opacity 0.2s"
+                        }}
+                      >
+                        {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
+                      </button>
+                    </>
             <div style={{
               background: theme.panelHi,
               borderRadius: 12,
