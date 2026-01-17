@@ -11,6 +11,7 @@ console.log("SERVER BUILD:", BUILD_ID);
 const PORT = process.env.PORT || 5001;
 
 const app = express();
+
 // CORS: allow only known frontends
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -177,7 +178,18 @@ function saveJson(file, data) {
 }
 
 // Users
-const loadUsers = () => loadJson(USERS_FILE, []);
+const loadUsers = () => {
+  const users = loadJson(USERS_FILE, []);
+  // Debug: print Tom's user record and all usernames
+  const tom = users.find(u => u.username && u.username.toLowerCase() === 'tom');
+  if (tom) {
+    console.log('[DEBUG] Tom user loaded:', tom);
+  } else {
+    console.log('[DEBUG] No Tom user found in users.json');
+  }
+  console.log('[DEBUG] All usernames loaded:', users.map(u => u.username));
+  return users;
+};
 const saveUsers = (users) => saveJson(USERS_FILE, users);
 
 // Predictions (userId -> { fixtureId -> prediction })
@@ -486,8 +498,10 @@ app.options("/api/login", (req, res) => {
 // - auto legacy-map on first successful legacy login
 // ---------------------------------------------------------------------------
 app.post("/api/login", (req, res) => {
+  console.log('[DEBUG] /api/login endpoint hit');
   try {
     const { username, password } = req.body || {};
+    console.log('[DEBUG] Login attempt:', { username, password });
     const name = (username || "").trim();
     const pwd = (password || "").trim();
 
@@ -1382,6 +1396,26 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
 // ---------------------------------------------------------------------------
 // PUSH NOTIFICATIONS
+// Helper: Send push notification to a user, respecting their preferences
+function sendPushNotification(userId, type, payload) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const sub = subscriptions[userId];
+  if (!sub || !sub.subscription) return false;
+  // Preferences may be stored as sub.notifPrefs or just notifPrefs
+  const prefs = sub.notifPrefs || sub.notifPrefs === false ? sub.notifPrefs : (sub.notifPrefs || sub.notifPrefs === false ? sub.notifPrefs : sub.notifPrefs);
+  // If no prefs, default to all enabled
+  if (prefs && prefs[type] === false) return false;
+  try {
+    webpush.sendNotification(
+      sub.subscription,
+      JSON.stringify(payload)
+    );
+    return true;
+  } catch (err) {
+    console.error(`Push notification error for user ${userId}:`, err);
+    return false;
+  }
+}
 // ---------------------------------------------------------------------------
 
 // Subscribe to push notifications
