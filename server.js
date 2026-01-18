@@ -12,30 +12,7 @@ const PORT = process.env.PORT || 5001;
 
 const app = express();
 
-// CORS: allow only known frontends
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
-    res.header("Access-Control-Allow-Credentials", "true");
-    res.header(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-    );
-    res.header(
-      "Access-Control-Allow-Methods",
-      "GET,POST,PUT,DELETE,OPTIONS"
-    );
-  }
-
-  // Handle preflight requests quickly
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
-  }
-
-  next();
-});
+// ...existing code...
 // === TOKENS ===
 // Keep real in deployed code (do NOT share publicly).
 const FOOTBALL_DATA_TOKEN =
