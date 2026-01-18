@@ -96,7 +96,7 @@ const TEAM_ABBREVIATIONS = {
 // ---- CONFIG ----
 const DEV_USE_LOCAL = false; // always use cloud backend
 
-const BACKEND_BASE = "http://localhost:5001";
+const BACKEND_BASE = "https://predictionaddiction-backend.onrender.com";
 
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
