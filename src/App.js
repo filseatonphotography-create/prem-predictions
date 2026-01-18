@@ -5182,10 +5182,14 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     >
                       🚪 Log Out
                     </button>
+
                   </div>
                 </>
               )}
-
-    </section>
+            </div> {/* End Push Notifications panel */}
+          </section>
+        )}
+      </div>
+    </div>
   );
 }
