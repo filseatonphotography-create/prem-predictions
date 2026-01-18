@@ -5192,7 +5192,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         )}
 
       </div>
-      
+      </>
     </div>
   );
 }
