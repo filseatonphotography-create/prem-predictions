@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
-const BUILD_ID = "2025-11-26-a";
+
+// Coin Icon Component
 const CoinIcon = () => (
   <img
     src="/coin.png"
@@ -17,12 +18,8 @@ const CoinIcon = () => (
 
 // Player Avatar Component
 const PlayerAvatar = ({ name, size = 32, seed = '', style = 'avataaars' }) => {
-  // Use custom seed if provided, otherwise use name
   const avatarSeed = seed || name || 'user';
-  
-  // Use DiceBear Avatars API - better CORS support
   const avatarUrl = `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(avatarSeed)}`;
-  
   return (
     <img
       src={avatarUrl}
@@ -32,121 +29,10 @@ const PlayerAvatar = ({ name, size = 32, seed = '', style = 'avataaars' }) => {
         height: size,
         borderRadius: "50%",
         flexShrink: 0,
-        border: "2px solid rgba(255,255,255,0.2)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        background: "#fff"
+        border: "2px solid rgba(255,255,255,0.2)"
       }}
     />
   );
-};
-
-const MIGRATION_FLAG = "phil_legacy_migrated_v1";
-
-// --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
-const TEAM_ABBREVIATIONS = {
-  Arsenal: "ARS",
-  "Aston Villa": "AVL",
-  Bournemouth: "BOU",
-  Brentford: "BRE",
-  Brighton: "BHA",
-  Burnley: "BUR",
-  Chelsea: "CHE",
-  "Crystal Palace": "CRY",
-  Everton: "EVE",
-  Fulham: "FUL",
-  Liverpool: "LIV",
-  Luton: "LUT",
-
-  // ↓↓↓ MANCHESTER TEAMS ↓↓↓
-  "Man City": "MCI",
-  "Man United": "MUN",
-  "Manchester United": "MUN",
-  "Man Utd": "MUN",
-
-  Newcastle: "NEW",
-  Nottingham: "NOT",
-  Southampton: "SOU",
-  Tottenham: "TOT",
-  "West Ham": "WHU",
-  Wolves: "WOL",
-  "Sunderland": "SUN",
-
-  // ↓↓↓ FOREST + LEEDS ↓↓↓
-  "Nott'm Forest": "NFO",
-  "Nottingham Forest": "NFO",
-  Leeds: "LEE",
-  "Leeds United": "LEE",
-
-  Spurs: "TOT",
-  "Tottenham Hotspur": "TOT",
-};
-
-/**
- * PREMIER LEAGUE PREDICTION GAME — Rebuilt cloud-synced + redesigned UI
- * Requirements covered:
- * 1) Always use Render backend for predictions (unless DEV_USE_LOCAL true)
- * 2) Auth persistence in localStorage key "pl_prediction_auth_v1"
- * 3) Load cloud predictions on login/restore and merge instantly
- * 4) Legacy player mapping handled by backend (frontend just treats names normally)
- * 5) Admin reset handled by backend
- * 6) CORS handled by backend
- * 7) Results + odds endpoints preserved
- */
-
-// ---- CONFIG ----
-const DEV_USE_LOCAL = false; // always use cloud backend
-
-const BACKEND_BASE = "https://prem-predictions-1.onrender.com";
-
-const STORAGE_KEY = "pl_prediction_game_v2";
-const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
-
-// Legacy/original players for history/league views
-const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
-
-// Optional team badges – flat icons stored in /public/badges
-// (We'll add the actual image files in the next step.)
-const TEAM_BADGES = {
-  Arsenal: "/badges/arsenal.png",
-  "Aston Villa": "/badges/aston_ville.png",
-  Bournemouth: "/badges/bournemouth.png",
-  Brentford: "/badges/brentford.png",
-  Brighton: "/badges/brighton.png",
-  Burnley: "/badges/burnley.png",
-  Chelsea: "/badges/chelsea.png",
-  "Crystal Palace": "/badges/crystal_palace.png",
-  Everton: "/badges/everton.png",
-  Fulham: "/badges/fulham.png",
-  Leicester: "/badges/leicester.png",
-  Liverpool: "/badges/liverpool.png",
-  "Manchester City": "/badges/man_city.png",
-  "Man City": "/badges/man_city.png",
-  "Manchester United": "/badges/man_united.png",
-  "Man Utd": "/badges/man_united.png",
-  "Manchester Utd": "/badges/man_united.png",
-  Newcastle: "/badges/newcastle.png",
-  "Nottingham Forest": "/badges/nottingham_forest.png",
-Forest: "/badges/nottingham_forest.png",
-Nottingham: "/badges/nottingham_forest.png",
-"Nott'm Forest": "/badges/nottingham_forest.png",
-  Sunderland: "/badges/sunderland.png",
-  Spurs: "/badges/spurs.png",
-  "West Ham": "/badges/west_ham.png",
-  Leeds: "/badges/leeds.png",
-  "Leeds United": "/badges/leeds.png",
-  Wolves: "/badges/wolves.png",
-};
-
-
-// Spreadsheet weekly totals (historic seed)
-const SPREADSHEET_WEEKLY_TOTALS = {
-  Tom: [8, 14, 33, 8, 42, 11, 34, 16, 14, 8, 26],
-  Emma: [26, 15, 4, 14, 19, 11, 20, 25, 12, 32, 19],
-  Phil: [8, 15, 11, 18, 27, 6, 16, 17, 28, 29, 18],
-  Steve: [14, 16, 20, 23, 2, 11, 28, 17, 27, 30, 15],
-  Dave: [24, 11, 7, 26, 14, 23, 31, 11, 15, 28, 8],
-  Ian: [23, 10, 7, 20, 20, 24, 24, 22, 12, 4, 21],
-  Anthony: [12, 25, 15, 28, 25, 11, 23, 13, 17, 17, 0],
 };
 
 const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
@@ -230,7 +116,7 @@ function normalizeTeamName(name) {
 
   if (aliasMap[s]) s = aliasMap[s];
   return s;
-}
+
 
 // --- API HELPERS ---
 async function apiSignup(username, password) {
@@ -240,110 +126,6 @@ async function apiSignup(username, password) {
     body: JSON.stringify({ username, password }),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Signup failed.");
-  return data;
-}
-
-export default App;
-
-async function apiLogin(username, password) {
-  const res = await fetch(`${BACKEND_BASE}/api/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Login failed.");
-  return data;
-}
-async function apiChangePassword(token, oldPassword, newPassword) {
-  const res = await fetch(`${BACKEND_BASE}/api/change-password`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ oldPassword, newPassword }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || "Failed to change password.");
-  }
-  return data;
-}
-
-async function apiGetMyPredictions(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/predictions/my`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data.predictions || {};
-}
-async function apiGetLeaguePredictions(token, leagueId) {
-  const res = await fetch(
-    `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
-  );
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data; // { leagueId, users, predictionsByUserId }
-}
-// eslint-disable-next-line no-unused-vars
-async function apiSaveLeagueTotals(token, leagueId, payload) {
-  const res = await fetch(`${BACKEND_BASE}/api/totals/league/${leagueId}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
-}
-
-async function apiSavePrediction(token, fixtureId, prediction) {
-  const res = await fetch(`${BACKEND_BASE}/api/predictions/save`, {
-    method: "POST",
-    keepalive: true,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ fixtureId, prediction }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  return true;
-}
-
-async function apiFetchMyLeagues(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/leagues/my`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
-  return data.leagues || [];
-}
-
-async function apiCreateLeague(token, name) {
-  const res = await fetch(`${BACKEND_BASE}/api/league/create`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ name }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to create league.");
-  return data.league || data;
-}
 
 async function apiJoinLeague(token, code) {
   const res = await fetch(`${BACKEND_BASE}/api/league/join`, {
@@ -742,7 +524,7 @@ const TAGLINES = [
 ];
 
 const randomTagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
-export default function App() {
+function App() {
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
     try {
@@ -3911,4 +3693,6 @@ if (!isLoggedIn) {
       </div>
     </div>
   );
-}
+
+export default App;
+
