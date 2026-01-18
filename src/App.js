@@ -831,11 +831,8 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
       
       if (allUpcomingFixtures.length === 0) {
         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return (
-          <>
-            ...existing code...
-          </>
-        );
+        return;
+      }
       if (diff <= 0) {
         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
         return;
