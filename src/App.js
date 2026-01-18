@@ -831,14 +831,11 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
       
       if (allUpcomingFixtures.length === 0) {
         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      
-      // Get the first upcoming fixture
-      const nextFixture = allUpcomingFixtures[0];
-      const deadline = new Date(nextFixture.kickoff).getTime() - 60 * 60 * 1000; // 1 hour before kickoff
-      const diff = deadline - now;
-      
+        return (
+          <>
+            ...existing code...
+          </>
+        );
       if (diff <= 0) {
         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
         return;
