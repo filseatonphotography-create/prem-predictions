@@ -2372,34 +2372,70 @@ if (!isLoggedIn) {
               {apiStatus}
             </div>
           </div>
-          {/* Change password / Logout / Menu (uniform buttons, centered) */}
-          {isLoggedIn && (
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                alignItems: "center",
-                gap: isMobile ? 6 : 8,
-                width: "100%",
-                flexWrap: "nowrap", // stay on one line
-              }}
-            >
-              <button
-                onClick={() => setShowPasswordModal(true)}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  background: theme.panelHi,
-                  color: theme.text,
-                  border: `1px solid ${theme.line}`,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  height: 32,
-                  minWidth: isMobile ? 96 : 118,
+          {/* Desktop navigation bar (only show on desktop) */}
+          {isLoggedIn && !isMobile && (
+            <nav style={{
+              display: "flex",
+              flexDirection: "row",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: 16,
+              margin: "12px 0 0 0",
+              width: "100%",
+            }}>
+              <button onClick={() => setActiveView("predictions")}
+                style={pillBtn(activeView === "predictions")}>Predictions</button>
+              <button onClick={() => setActiveView("results")}
+                style={pillBtn(activeView === "results")}>Results</button>
+              <button onClick={() => setActiveView("coins")}
+                style={pillBtn(activeView === "coins")}>Coins</button>
+              <button onClick={() => setActiveView("leagues")}
+                style={pillBtn(activeView === "leagues")}>Leagues</button>
+              <button onClick={() => setActiveView("summary")}
+                style={pillBtn(activeView === "summary")}>Summary</button>
+              <button onClick={() => setActiveView("history")}
+                style={pillBtn(activeView === "history")}>History</button>
+              <button onClick={() => setActiveView("settings")}
+                style={pillBtn(activeView === "settings")}>Settings</button>
+              <button onClick={() => setActiveView("rules")}
+                style={pillBtn(activeView === "rules")}>Rules</button>
+              <button onClick={() => setShowPasswordModal(true)}
+                style={pillBtn(false)}>Change Password</button>
+              <button onClick={handleLogout}
+                style={pillBtn(false)}>Log out</button>
+            </nav>
+          return (
+            <nav style={{
+              position: "absolute",
+              top: 70,
+              left: 0,
+              right: 0,
+              background: theme.panelHi,
+              zIndex: 1000,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+              borderRadius: 8,
+              margin: "0 8px",
+              padding: "12px 0",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              border: "3px solid red"
+            }}>
+              <div style={{color: 'red', fontWeight: 700, marginBottom: 8}}>DEBUG: Mobile menu visible</div>
+              <button onClick={() => { setActiveView("predictions"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Predictions</button>
+              <button onClick={() => { setActiveView("results"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Results</button>
+              <button onClick={() => { setActiveView("coins"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Coins</button>
+              <button onClick={() => { setActiveView("leagues"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Leagues</button>
+              <button onClick={() => { setActiveView("summary"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Summary</button>
+              <button onClick={() => { setActiveView("history"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>History</button>
+              <button onClick={() => { setActiveView("settings"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Settings</button>
+              <button onClick={() => { setActiveView("rules"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Rules</button>
+            </nav>
+          );
                   textAlign: "center",
                 }}
               >
-                {isMobile ? "Password" : "Change Password"}
+                Password
               </button>
               <button
                 onClick={handleLogout}
@@ -2412,32 +2448,30 @@ if (!isLoggedIn) {
                   cursor: "pointer",
                   fontSize: 12,
                   height: 32,
-                  minWidth: isMobile ? 96 : 118,
+                  minWidth: 96,
                   textAlign: "center",
                 }}
               >
                 Log out
               </button>
-              {isMobile && (
-                <button
-                  type="button"
-                  onClick={() => setShowMobileMenu((v) => !v)}
-                  style={{
-                    padding: "6px 10px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    cursor: "pointer",
-                    fontSize: 12,
-                    height: 32,
-                    minWidth: isMobile ? 96 : 118,
-                    textAlign: "center",
-                  }}
-                >
-                  Menu
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => setShowMobileMenu((v) => !v)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  height: 32,
+                  minWidth: 96,
+                  textAlign: "center",
+                }}
+              >
+                Menu
+              </button>
             </div>
           )}
         </header>
