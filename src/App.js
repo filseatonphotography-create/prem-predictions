@@ -2645,7 +2645,6 @@ if (!isLoggedIn) {
         >
           Update
         </button>
-      </div>
     </div>
   </div>
 )}
