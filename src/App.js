@@ -244,6 +244,8 @@ async function apiSignup(username, password) {
   return data;
 }
 
+export default App;
+
 async function apiLogin(username, password) {
   const res = await fetch(`${BACKEND_BASE}/api/login`, {
     method: "POST",
