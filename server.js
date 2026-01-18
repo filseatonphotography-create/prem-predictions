@@ -64,6 +64,7 @@ const ALLOWED_ORIGINS = new Set([
   // Render backend (not strictly needed as origins, but harmless)
   "https://prem-predictions-1.onrender.com",
   "https://prem-predictions-p9fy.onrender.com",
+  "https://predictionaddiction-backend.onrender.com",
 ]);
 
 app.use(
