@@ -1218,7 +1218,6 @@ useEffect(() => {
     const mobile = window.innerWidth <= 600;
     setIsMobile(mobile);
     if (!mobile) setShowMobileMenu(false);
-      pred && typeof pred.updatedAt === "number" ? pred.updatedAt : 0;
 
     if (!byGw[gw]) byGw[gw] = [];
     byGw[gw].push({ fixtureId, ts });
