@@ -5120,7 +5120,6 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       >
                         {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
                       </button>
-                        <>
                         <div style={{
               background: theme.panelHi,
               borderRadius: 12,
@@ -5192,7 +5191,6 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         )}
 
       </div>
-      </>
     </div>
   );
 }
