@@ -1218,30 +1218,6 @@ useEffect(() => {
     const mobile = window.innerWidth <= 600;
     setIsMobile(mobile);
     if (!mobile) setShowMobileMenu(false);
-
-    if (!byGw[gw]) byGw[gw] = [];
-    byGw[gw].push({ fixtureId, ts });
-  }
-
-  const cloned = { ...predsForUser };
-
-  // For any gameweek with multiple captains, keep the latest one
-  Object.values(byGw).forEach((arr) => {
-    if (arr.length <= 1) return;
-
-    // Sort by timestamp and keep the one with the highest updatedAt
-    arr.sort((a, b) => a.ts - b.ts);
-    const keepId = arr[arr.length - 1].fixtureId;
-
-    arr.forEach(({ fixtureId }) => {
-      if (fixtureId === keepId) return;
-      const prev = cloned[fixtureId];
-      if (!prev) return;
-      cloned[fixtureId] = { ...prev, isDouble: false };
-    });
-  });
-
-  return cloned;
 }
 
   // Load cloud predictions after login/restore
