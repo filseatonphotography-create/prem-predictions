@@ -2218,6 +2218,53 @@ if (!isLoggedIn) {
               PREDICTION ADDICTION
             </h1>
           </header>
+                          {/* Mobile menu dropdown with all main navigation options */}
+                          {isMobile && showMobileMenu && (
+                            <nav style={{
+                              position: "absolute",
+                              top: 70,
+                              left: 0,
+                              right: 0,
+                              background: theme.panelHi,
+                              zIndex: 1000,
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                              borderRadius: 8,
+                              margin: "0 8px",
+                              padding: "12px 0",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center"
+                            }}>
+                              <button onClick={() => { setActiveView("predictions"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Predictions</button>
+                              <button onClick={() => { setActiveView("results"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Results</button>
+                              <button onClick={() => { setActiveView("coins"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Coins</button>
+                              <button onClick={() => { setActiveView("leagues"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Leagues</button>
+                              <button onClick={() => { setActiveView("summary"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Summary</button>
+                            </nav>
+                          )}
+                  {/* Mobile menu dropdown */}
+                  {isMobile && showMobileMenu && (
+                    <nav style={{
+                      position: "absolute",
+                      top: 70,
+                      left: 0,
+                      right: 0,
+                      background: theme.panelHi,
+                      zIndex: 1000,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                      borderRadius: 8,
+                      margin: "0 8px",
+                      padding: "12px 0",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center"
+                    }}>
+                      {/* Example menu items, customize as needed */}
+                      <button onClick={handleLogout} style={{ margin: 8 }}>Log out</button>
+                      <button onClick={() => setShowPasswordModal(true)} style={{ margin: 8 }}>Change Password</button>
+                      {/* Add more menu items here */}
+                    </nav>
+                  )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, maxWidth: window.innerWidth <= 600 ? 480 : 900, width: "100%", margin: "0 auto" }}>
             <section style={cardStyle}>
               <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
