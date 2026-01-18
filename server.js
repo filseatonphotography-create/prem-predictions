@@ -455,22 +455,7 @@ app.post("/api/signup", (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 });
-app.options("/api/login", (req, res) => {
-  const origin = req.headers.origin;
-
-  if (origin) {
-    res.header("Access-Control-Allow-Origin", origin);
-  }
-
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.header("Access-Control-Allow-Methods", "POST, OPTIONS");
-
-  return res.sendStatus(204);
-});
+// ...existing code...
 // ---------------------------------------------------------------------------
 // AUTH: LOGIN
 // - auto legacy-map on first successful legacy login
