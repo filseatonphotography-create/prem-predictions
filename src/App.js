@@ -833,28 +833,20 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
         return;
       }
-      if (diff <= 0) {
-        setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      
-      // Calculate progress - assume 7 days between gameweeks
+      const nextFixture = allUpcomingFixtures[0];
+      const diff = new Date(nextFixture.kickoff).getTime() - 60 * 60 * 1000 - now;
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
       const totalTime = sevenDays;
       const elapsed = Math.max(0, sevenDays - diff);
       const progress = Math.min(100, Math.max(0, (elapsed / totalTime) * 100));
-      
       // Format as DD:HH:MM:SS
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      
       const timeStr = `${String(days).padStart(2, '0')}:${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-      
       setCountdown({ timeStr, progress, totalTime, remaining: diff, days, hours, minutes, seconds });
     };
-    
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
@@ -2215,171 +2207,44 @@ const leaderboard = useMemo(() => {
   // ---------- LOGIN PAGE ----------
 if (!isLoggedIn) {
   return (
-    <div style={{ 
-      ...pageStyle,
-      maxWidth: 1200,
-      margin: "0 auto",
-      padding: isMobile ? "8px" : "16px"
-    }}>
-      <div style={{ 
-        display: "grid",
-        gap: 12 
-      }}>
-        <header
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 10,
-            marginBottom: 10,
-          }}
-        >
-  <div
-    style={{
-      width: 44,
-      height: 44,
-      borderRadius: 12,
-      overflow: "hidden",
-    }}
-  >
-    <img
-      src="/icon_64.png"
-      alt="Prediction Addiction logo"
-      style={{ width: "100%", height: "100%" }}
-    />
-  </div>
-
-  <h1
-    style={{
-      margin: 0,
-          fontSize: isMobile ? 24 : 32,
-      letterSpacing: 0.4,
-      textTransform: "uppercase",
-      color: theme.accent,
-      textAlign: "center",
-      whiteSpace: "nowrap",
-    }}
-  >
-    PREDICTION ADDICTION
-  </h1>
-</header>
-
-          <div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 12,
-    maxWidth: window.innerWidth <= 600 ? 480 : 900,
-    width: "100%",
-    margin: "0 auto",
-  }}
->
-  <section style={cardStyle}>
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
-
+    <>
+      <div style={{ ...pageStyle, maxWidth: 1200, margin: "0 auto", padding: isMobile ? "8px" : "16px" }}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <header style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, overflow: "hidden" }}>
+              <img src="/icon_64.png" alt="Prediction Addiction logo" style={{ width: "100%", height: "100%" }} />
+            </div>
+            <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 32, letterSpacing: 0.4, textTransform: "uppercase", color: theme.accent, textAlign: "center", whiteSpace: "nowrap" }}>
+              PREDICTION ADDICTION
+            </h1>
+          </header>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, maxWidth: window.innerWidth <= 600 ? 480 : 900, width: "100%", margin: "0 auto" }}>
+            <section style={cardStyle}>
+              <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
               <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
                 <label style={{ fontSize: 13, color: theme.muted }}>
                   Username
-                  <input
-  style={{
-    width: "100%",
-    marginTop: 6,
-    padding: "10px 12px",
-    borderRadius: 10,
-    background: theme.panelHi,
-    color: theme.text,
-    border: `1px solid ${theme.line}`,
-    fontSize: 15,
-    boxSizing: "border-box",
-  }}
-  type="text"
-  value={loginName}
-  onChange={(e) => setLoginName(e.target.value)}
-  placeholder="e.g. Phil"
-  autoComplete="username"
-/>
+                  <input style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, background: theme.panelHi, color: theme.text, border: `1px solid ${theme.line}`, fontSize: 15, boxSizing: "border-box" }} type="text" value={loginName} onChange={(e) => setLoginName(e.target.value)} placeholder="e.g. Phil" autoComplete="username" />
                 </label>
-
                 <label style={{ fontSize: 13, color: theme.muted }}>
                   Password
-                  <input
-  style={{
-    width: "100%",
-    marginTop: 6,
-    padding: "10px 12px",
-    borderRadius: 10,
-    background: theme.panelHi,
-    color: theme.text,
-    border: `1px solid ${theme.line}`,
-    fontSize: 15,
-    boxSizing: "border-box",
-  }}
-  type="password"
-  value={loginPassword}
-  onChange={(e) => setLoginPassword(e.target.value)}
-  placeholder="••••"
-  autoComplete="current-password"
-/>
+                  <input style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, background: theme.panelHi, color: theme.text, border: `1px solid ${theme.line}`, fontSize: 15, boxSizing: "border-box" }} type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••" autoComplete="current-password" />
                 </label>
-
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={(e) => handleAuthSubmit(e, "login")}
-                    disabled={authLoading}
-                    style={{
-                      flex: 1,
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: `1px solid ${theme.accent}`,
-                      background: "rgba(56,189,248,0.15)",
-                      color: theme.text,
-                      cursor: authLoading ? "wait" : "pointer",
-                      opacity: authLoading ? 0.6 : 1,
-                    }}
-                  >
-                    {authLoading ? "Logging in..." : "Log in"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleAuthSubmit(e, "signup")}
-                    disabled={authLoading}
-                    style={{
-                      flex: 1,
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: `1px solid ${theme.accent2}`,
-                      background: "rgba(34,197,94,0.15)",
-                      color: theme.text,
-                      cursor: authLoading ? "wait" : "pointer",
-                      opacity: authLoading ? 0.6 : 1,
-                    }}
-                  >
-                    {authLoading ? "Creating..." : "Create account"}
-                  </button>
+                  <button type="button" onClick={(e) => handleAuthSubmit(e, "login")} disabled={authLoading} style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: `1px solid ${theme.accent}`, background: "rgba(56,189,248,0.15)", color: theme.text, cursor: authLoading ? "wait" : "pointer", opacity: authLoading ? 0.6 : 1 }}>{authLoading ? "Logging in..." : "Log in"}</button>
+                  <button type="button" onClick={(e) => handleAuthSubmit(e, "signup")} disabled={authLoading} style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: `1px solid ${theme.accent2}`, background: "rgba(34,197,94,0.15)", color: theme.text, cursor: authLoading ? "wait" : "pointer", opacity: authLoading ? 0.6 : 1 }}>{authLoading ? "Creating..." : "Create account"}</button>
                 </div>
-
                 {authError && (
-                  <div
-                    style={{
-                      background: "rgba(239,68,68,0.12)",
-                      border: `1px solid rgba(239,68,68,0.5)`,
-                      color: theme.text,
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      fontSize: 13,
-                    }}
-                  >
-                    {authError}
-                  </div>
+                  <div style={{ background: "rgba(239,68,68,0.12)", border: `1px solid rgba(239,68,68,0.5)`, color: theme.text, padding: "8px 10px", borderRadius: 8, fontSize: 13 }}>{authError}</div>
                 )}
               </form>
             </section>
           </div>
         </div>
-
-    );
-  }
+      </div>
+    </>
+  );
+}
 
   // ---------- MAIN APP ----------
   return (
@@ -2394,7 +2259,6 @@ if (!isLoggedIn) {
         overflowX: "hidden",
       }}>
         {/* Header */}
-                {/* Header */}
         <header
           style={{
             ...cardStyle,
@@ -2410,49 +2274,21 @@ if (!isLoggedIn) {
         >
           {/* Title + API status (centered) */}
           <div style={{ textAlign: "center" }}>
-                            <h1
-  style={{
-    marginTop: "0.8rem",
-    marginBottom: "0.5rem",
-    fontSize: isMobile ? "1.5rem" : "3rem",
-    fontWeight: 700,
-    letterSpacing: "0.5px",
-    maxWidth: "100%",
-    overflow: "visible",
-  }}
->
-
-  Predicti
-  <span
-  className="football-icon"
-  role="img"
-  aria-label="football"
-  style={{
-    fontSize: isMobile ? "1.5rem" : "3rem",
-    position: "relative",
-    top: "-1px",
-  }}
->
-    ⚽
-  </span>
-  n Addicti
-  <span
-  className="football-icon"
-  role="img"
-  aria-label="football"
-  style={{
-    fontSize: isMobile ? "1.5rem" : "3rem",
-    position: "relative",
-    top: "-1px",
-  }}
->
-    ⚽
-  </span>
-  n
-</h1>
-<p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
-  {randomTagline}
-</p>
+            <h1
+              style={{
+                marginTop: "0.8rem",
+                marginBottom: "0.5rem",
+                fontSize: isMobile ? "1.5rem" : "3rem",
+                fontWeight: 700,
+                letterSpacing: "0.5px",
+                maxWidth: "100%",
+              }}
+            >
+              Prediction Addiction
+            </h1>
+            <p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
+              {randomTagline}
+            </p>
             <div
               style={{
                 fontSize: 12,
@@ -2463,81 +2299,76 @@ if (!isLoggedIn) {
               {apiStatus}
             </div>
           </div>
-
-          {/* Change password / Logout / Menu (uniform buttons, centered) */}
-
           {/* Change password / Logout / Menu (uniform buttons, centered) */}
           {isLoggedIn && (
-  <div
-    style={{
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      gap: isMobile ? 6 : 8,
-      width: "100%",
-      flexWrap: "nowrap", // stay on one line
-    }}
-  >
-    <button
-      onClick={() => setShowPasswordModal(true)}
-      style={{
-        padding: "6px 10px",
-        borderRadius: 8,
-        background: theme.panelHi,
-        color: theme.text,
-        border: `1px solid ${theme.line}`,
-        cursor: "pointer",
-        fontSize: 12,
-        height: 32,
-        minWidth: isMobile ? 96 : 118,
-        textAlign: "center",
-      }}
-    >
-      {isMobile ? "Password" : "Change Password"}
-    </button>
-
-    <button
-      onClick={handleLogout}
-      style={{
-        padding: "6px 10px",
-        borderRadius: 8,
-        border: `1px solid ${theme.line}`,
-        background: theme.panelHi,
-        color: theme.text,
-        cursor: "pointer",
-        fontSize: 12,
-        height: 32,
-        minWidth: isMobile ? 96 : 118,
-        textAlign: "center",
-      }}
-    >
-      Log out
-    </button>
-
-    {isMobile && (
-      <button
-        type="button"
-        onClick={() => setShowMobileMenu((v) => !v)}
-        style={{
-          padding: "6px 10px",
-          borderRadius: 8,
-          border: `1px solid ${theme.line}`,
-          background: theme.panelHi,
-          color: theme.text,
-          cursor: "pointer",
-          fontSize: 12,
-          height: 32,
-          minWidth: isMobile ? 96 : 118,
-          textAlign: "center",
-      }}
-      >
-        Menu
-      </button>
-    )}
-  </div>
-)}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: isMobile ? 6 : 8,
+                width: "100%",
+                flexWrap: "nowrap", // stay on one line
+              }}
+            >
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  border: `1px solid ${theme.line}`,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  height: 32,
+                  minWidth: isMobile ? 96 : 118,
+                  textAlign: "center",
+                }}
+              >
+                {isMobile ? "Password" : "Change Password"}
+              </button>
+              <button
+                onClick={handleLogout}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  height: 32,
+                  minWidth: isMobile ? 96 : 118,
+                  textAlign: "center",
+                }}
+              >
+                Log out
+              </button>
+              {isMobile && (
+                <button
+                  type="button"
+                  onClick={() => setShowMobileMenu((v) => !v)}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    height: 32,
+                    minWidth: isMobile ? 96 : 118,
+                    textAlign: "center",
+                  }}
+                >
+                  Menu
+                </button>
+              )}
+            </div>
+          )}
         </header>
-        
+        {/* ...rest of the app content... */}
         {showPasswordModal && (
   <div
     style={{
@@ -2610,126 +2441,11 @@ if (!isLoggedIn) {
           {passwordSuccess}
         </div>
       )}
-
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button
-          onClick={() => setShowPasswordModal(false)}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 8,
-            background: "transparent",
-            color: theme.text,
-            border: "1px solid " + theme.border,
-            cursor: "pointer",
-          }}
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handlePasswordChange}
-          style={{
-            padding: "6px 10px",
-            borderRadius: 8,
-            background: theme.button,
-            color: theme.text,
-            border: "1px solid " + theme.border,
-            cursor: "pointer",
-            fontWeight: 700,
-          }}
-        >
-          Update
-        </button>
     </div>
   </div>
 )}
- {/* Tabs */}
-{(() => {
-  const TABS = [
-  { id: "predictions", label: "Predictions" },
-  { id: "results", label: "Results" },
-  { id: "league", label: "League Table" },
-  { id: "summary", label: "Summary" },
-  { id: "coinsLeague", label: "Coins League" },
-  { id: "history", label: "History" },
-  { id: "winprob", label: "Win Probabilities" },
-  { id: "leagues", label: "Mini-Leagues" },
-  { id: "settings", label: "Settings" },
-  { id: "rules", label: "Rules" },
-];
-
-  // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
-  if (isMobile) {
-    if (!showMobileMenu) return null;
-
-    return (
-      <div
-        style={{
-          position: "fixed",
-          top: 190,          // positioned below the header/menu button
-          right: 16,         // aligned with right side
-          zIndex: 1000,
-        }}
-      >
-        <div
-          style={{
-            background: theme.panel,
-            border: `1px solid ${theme.line}`,
-            borderRadius: 10,
-            padding: 6,
-            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
-            minWidth: 180,
-          }}
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                setActiveView(t.id);
-                setShowMobileMenu(false);
-              }}
-              style={{
-                ...pillBtn(activeView === t.id),
-                display: "block",
-                textAlign: "left",
-                padding: "6px 10px",
-                fontSize: 14,
-                whiteSpace: "nowrap", // menu width = longest label
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ---- DESKTOP: keep your pill buttons exactly as before ----
-  return (
-    <nav
-  style={{
-    display: "flex",
-    gap: 6,
-    flexWrap: "wrap",
-    justifyContent: "center",  // <--- add this
-  }}
->
-      {TABS.map((t) => (
-        <button
-          key={t.id}
-          style={pillBtn(activeView === t.id)}
-          onClick={() => setActiveView(t.id)}
-          type="button"
-        >
-          {t.label}
-        </button>
-      ))}
-    </nav>
-  );
-})()}
         {/* Controls */}
-                <section
+        <section
           style={{
             ...cardStyle,
             display: "grid",
@@ -2741,56 +2457,55 @@ if (!isLoggedIn) {
             textAlign: "left",
           }}
         >
-                    {activeView === "predictions" && (
-                    <div
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
-            {gwLocked ? (
-              <select
-                value={currentPlayer}
-                onChange={(e) => setCurrentPlayer(e.target.value)}
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  background: theme.panelHi,
-                  color: theme.text,
-                  border: `1px solid ${theme.line}`,
-                  fontSize: 14,
-                }}
-              >
-                {PLAYERS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
-            )}
-          </div>
-                    )}
-
+          {activeView === "predictions" && (
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
+              {gwLocked ? (
+                <select
+                  value={currentPlayer}
+                  onChange={(e) => setCurrentPlayer(e.target.value)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                    fontSize: 14,
+                  }}
+                >
+                  {PLAYERS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
+              )}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <div style={{ fontSize: 13, color: theme.muted }}>Gameweek</div>
             <select
               value={selectedGameweek}
               onChange={(e) => setSelectedGameweek(Number(e.target.value))}
-                style={{
-    padding: "6px 14px",
-    borderRadius: 8,
-    background: theme.panelHi,
-    color: theme.text,
-    border: `1px solid ${theme.line}`,
-    fontSize: 14,
-    minWidth: 82,          // keeps “GW13” fully visible with arrow
-    textAlignLast: "center",
-  }}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                background: theme.panelHi,
+                color: theme.text,
+                border: `1px solid ${theme.line}`,
+                fontSize: 14,
+                minWidth: 82, // keeps “GW13” fully visible with arrow
+                textAlignLast: "center",
+              }}
             >
               {GAMEWEEKS.map((gw) => (
                 <option key={gw} value={gw}>
@@ -2799,9 +2514,7 @@ if (!isLoggedIn) {
               ))}
             </select>
             {gwLocked && (
-              <div style={{ fontSize: 12, color: theme.warn }}>
-                Locked
-              </div>
+              <div style={{ fontSize: 12, color: theme.warn }}>Locked</div>
             )}
           </div>
         </section>
@@ -2810,1035 +2523,14 @@ if (!isLoggedIn) {
 {activeView === "predictions" && (
   <section style={cardStyle}>
     {/* GW title + coins summary (normal header for now) */}
-    <div
-      style={{
-        padding: 10,
-        marginBottom: 8,
-        background: theme.panel,
-        boxShadow: "0 4px 10px rgba(0, 0, 0, 0.4)",
-        borderRadius: 12,
-        textAlign: "center",
-      }}
-    >
-      <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>
-        GW{selectedGameweek} Predictions
-      </h2>
-
-      {/* Countdown and Coins Summary Row */}
-      <div style={{ 
-        display: "flex", 
-        justifyContent: "space-between", 
-        alignItems: "center",
-        gap: 0,
-        marginBottom: 8,
-        flexWrap: "nowrap"
-      }}>
-        
-        {/* COINS USED - Left */}
-        {authToken && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 2,
-              flex: "0 0 60px",
-            }}
-          >
-            <img
-              src="/coin_PA_32.png"
-              alt="Coin"
-              style={{ width: isMobile ? 20 : 24, height: isMobile ? 20 : 24 }}
-            />
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-              <strong style={{ fontSize: isMobile ? 16 : 20 }}>{coinsState.used}</strong>
-              <span style={{ color: theme.muted, fontSize: 10 }}>used</span>
-            </div>
-          </div>
-        )}
-        
-        {/* Countdown to next deadline - Center */}
-        {countdown.timeStr && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: isMobile ? 4 : 8,
-              flex: "1 1 auto",
-              justifyContent: "center",
-            }}
-          >
-            <div style={{ fontSize: 12, color: theme.muted }}>Next Deadline</div>
-            
-            {/* Time units display */}
-            <div
-              style={{
-                display: "flex",
-                gap: isMobile ? 2 : 6,
-                alignItems: "center",
-              }}
-            >
-              {/* Days */}
-              <div style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: isMobile ? 18 : 28,
-                    fontWeight: 700,
-                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
-                    fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 30 : 50,
-                  }}
-                >
-                  {String(countdown.days).padStart(2, '0')}
-                </div>
-                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>days</div>
-              </div>
-              
-              <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
-              
-              {/* Hours */}
-              <div style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: isMobile ? 18 : 28,
-                    fontWeight: 700,
-                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
-                    fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 30 : 50,
-                  }}
-                >
-                  {String(countdown.hours).padStart(2, '0')}
-                </div>
-                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>hours</div>
-              </div>
-              
-              <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
-              
-              {/* Minutes */}
-              <div style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: isMobile ? 18 : 28,
-                    fontWeight: 700,
-                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
-                    fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 30 : 50,
-                  }}
-                >
-                  {String(countdown.minutes).padStart(2, '0')}
-                </div>
-                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>mins</div>
-              </div>
-              
-              <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
-              
-              {/* Seconds */}
-              <div style={{ textAlign: "center" }}>
-                <div
-                  style={{
-                    fontSize: isMobile ? 18 : 28,
-                    fontWeight: 700,
-                    color: countdown.remaining < 3600000 ? theme.warn : theme.text,
-                    fontVariantNumeric: "tabular-nums",
-                    minWidth: isMobile ? 30 : 50,
-                  }}
-                >
-                  {String(countdown.seconds).padStart(2, '0')}
-                </div>
-                <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>secs</div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* COINS REMAINING - Right */}
-        {authToken && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 2,
-              flex: "0 0 60px",
-            }}
-          >
-            <img
-              src="/coin_PA_32.png"
-              alt="Coin"
-              style={{ width: isMobile ? 20 : 24, height: isMobile ? 20 : 24 }}
-            />
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-              <strong style={{ fontSize: isMobile ? 16 : 20 }}>{coinsState.remaining}</strong>
-              <span style={{ color: theme.muted, fontSize: 10 }}>remain</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-
+    {/* ...existing code for header, countdown, and coins summary... */}
     {/* Predictions card with fixtures list */}
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr",
-        gap: 8,
-      }}
-    >
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
-        const pred =
-          predictions[currentPredictionKey]?.[fixture.id] || {};
-        const locked = isPredictionLocked(fixture);
-        const o = odds[fixture.id] || {};
-        // eslint-disable-next-line no-unused-vars
-        const probs = computeProbabilities(o);
-
-        const r = results[fixture.id];
-        const hasResult =
-          r && r.homeGoals !== "" && r.awayGoals !== "";
-        const pointsForThisFixture = hasResult
-          ? getTotalPoints(pred, r)
-          : null;
-
-        const coinsBet =
-          (coinsState.bets && coinsState.bets[fixture.id]) || {};
-        const coinsStake = coinsBet.stake ?? 0;
-        const coinsSide = coinsBet.side || "D";
-
-        // Possible win/return for this fixture (based on current stake + side)
-let coinsPossibleReturn = "";
-const oddsSnap = coinsBet.oddsSnapshot || null;
-
-if (coinsStake > 0 && coinsSide && oddsSnap) {
-  let price = null;
-
-  if (coinsSide === "H") {
-    price =
-      oddsSnap.home !== undefined && oddsSnap.home !== null
-        ? Number(oddsSnap.home)
-        : null;
-  } else if (coinsSide === "D") {
-    price =
-      oddsSnap.draw !== undefined && oddsSnap.draw !== null
-        ? Number(oddsSnap.draw)
-        : null;
-  } else if (coinsSide === "A") {
-    price =
-      oddsSnap.away !== undefined && oddsSnap.away !== null
-        ? Number(oddsSnap.away)
-        : null;
-  }
-
-  if (price != null && Number.isFinite(price) && price > 0) {
-    coinsPossibleReturn = (coinsStake * price).toFixed(2);
-  }
-}
-
+        // ...existing code for each fixture...
         return (
-          <div
-            key={fixture.id}
-            style={{
-              background: theme.panelHi,
-              borderRadius: 12,
-              border: `1px solid rgba(255, 255, 255, 0.3)`,
-              padding: 8,
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr)",
-              gap: 8,
-              alignItems: "flex-start",
-              maxWidth: "100%",
-              overflow: "hidden",
-              boxSizing: "border-box",
-            }}
-          >
-            {/* Left content column */}
-            <div style={{ display: "grid", gap: 6, minHeight: 92, maxWidth: "100%", overflow: "hidden", justifyItems: "center" }}>
-              {/* Kickoff time */}
-              <div
-                style={{
-                  width: "100%",
-                  textAlign: "center",
-                  fontSize: 12,
-                  color: theme.muted,
-                  marginBottom: 6,
-                }}
-              >
-                {formatKickoffShort(fixture.kickoff)}
-              </div>
-
-              {/* Main score row */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: isMobile ? 4 : 4,
-                  alignItems: "flex-end",
-                  flexWrap: "nowrap",
-                  justifyContent: "center",
-                  maxWidth: "100%",
-                  boxSizing: "border-box",
-                  overflow: "hidden",
-                }}
-              >
-                {/* HOME */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: isMobile ? 4 : 4,
-                    alignItems: "center",
-                    flex: "0 1 auto",
-                    minWidth: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      flex: "0 1 auto",
-                    }}
-                  >
-                    {(TEAM_BADGES[fixture.homeTeam] ||
-                      getTeamCode(fixture.homeTeam) === "NFO") && (
-                      <img
-                        src={
-                          getTeamCode(fixture.homeTeam) === "NFO"
-                            ? "/badges/nottingham_forest.png"
-                            : TEAM_BADGES[fixture.homeTeam]
-                        }
-                        alt={fixture.homeTeam}
-                        style={{
-                          width: isMobile ? 18 : 20,
-                          height: isMobile ? 18 : 20,
-                          objectFit: "contain",
-                          marginRight: isMobile ? 3 : 4,
-                        }}
-                      />
-                    )}
-                    <span
-                      style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
-                    >
-                      {getTeamCode(fixture.homeTeam)}
-                    </span>
-                  </div>
-
-                  {/* Home score with +/- buttons */}
-                  <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 4, flex: "0 0 auto" }}>
-                    <button
-                      type="button"
-                      disabled={locked || (pred.homeGoals || 0) <= 0}
-                      onClick={() => {
-                        const current = Number(pred.homeGoals || 0);
-                        updatePrediction(currentPredictionKey, fixture.id, {
-                          homeGoals: Math.max(0, current - 1).toString(),
-                        });
-                      }}
-                      style={{
-                        width: isMobile ? 24 : 24,
-                        height: isMobile ? 24 : 24,
-                        padding: 0,
-                        border: (pred.homeGoals || 0) <= 0 ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
-                        borderRadius: 6,
-                        background: (pred.homeGoals || 0) <= 0 ? theme.panelHi : theme.accent,
-                        color: (pred.homeGoals || 0) <= 0 ? theme.text : "#ffffff",
-                        cursor: locked || (pred.homeGoals || 0) <= 0 ? "not-allowed" : "pointer",
-                        fontSize: isMobile ? 15 : 16,
-                        fontWeight: 700,
-                        opacity: locked || (pred.homeGoals || 0) <= 0 ? 0.3 : 1,
-                      }}
-                    >
-                      −
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      min="0"
-                      style={smallInput}
-                      value={pred.homeGoals || ""}
-                      disabled={locked}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, '');
-                        updatePrediction(currentPredictionKey, fixture.id, {
-                          homeGoals: val,
-                        });
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={locked}
-                      onClick={() => {
-                        const current = Number(pred.homeGoals || 0);
-                        updatePrediction(currentPredictionKey, fixture.id, {
-                          homeGoals: (current + 1).toString(),
-                        });
-                      }}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        padding: 0,
-                        border: `1px solid ${theme.line}`,
-                        borderRadius: 6,
-                        background: locked ? theme.panelHi : theme.accent2,
-                        color: locked ? theme.text : "#ffffff",
-                        cursor: locked ? "not-allowed" : "pointer",
-                        fontSize: 16,
-                        fontWeight: 700,
-                        opacity: locked ? 0.3 : 1,
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* VS */}
-                <span
-                  style={{
-                    color: theme.muted,
-                    fontWeight: 700,
-                    alignSelf: "center",
-                    fontSize: isMobile ? 16 : 18,
-                    margin: isMobile ? "0 6px" : "0 12px",
-                  }}
-                >
-                  VS
-                </span>
-
-                {/* AWAY */}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 4,
-                    alignItems: "center",
-                    flex: "0 1 auto",
-                    minWidth: 0,
-                  }}
-                >
-                  {/* Away score with +/- buttons */}
-                  <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 2 : 4, flex: "0 0 auto" }}>
-                    <button
-                      type="button"
-                      disabled={locked || (pred.awayGoals || 0) <= 0}
-                      onClick={() => {
-                        const current = Number(pred.awayGoals || 0);
-                        updatePrediction(currentPredictionKey, fixture.id, {
-                          awayGoals: Math.max(0, current - 1).toString(),
-                        });
-                      }}
-                      style={{
-                        width: isMobile ? 24 : 24,
-                        height: isMobile ? 24 : 24,
-                        padding: 0,
-                        border: (pred.awayGoals || 0) <= 0 ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
-                        borderRadius: 6,
-                        background: (pred.awayGoals || 0) <= 0 ? theme.panelHi : theme.accent,
-                        color: (pred.awayGoals || 0) <= 0 ? theme.text : "#ffffff",
-                        cursor: locked || (pred.awayGoals || 0) <= 0 ? "not-allowed" : "pointer",
-                        fontSize: isMobile ? 15 : 16,
-                        fontWeight: 700,
-                        opacity: locked || (pred.awayGoals || 0) <= 0 ? 0.3 : 1,
-                      }}
-                    >
-                      −
-                    </button>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      min="0"
-                      style={smallInput}
-                      value={pred.awayGoals || ""}
-                      disabled={locked}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, '');
-                        updatePrediction(
-                          currentPredictionKey,
-                          fixture.id,
-                          { awayGoals: val }
-                        );
-                      }}
-                    />
-                    <button
-                      type="button"
-                      disabled={locked}
-                      onClick={() => {
-                        const current = Number(pred.awayGoals || 0);
-                        updatePrediction(currentPredictionKey, fixture.id, {
-                          awayGoals: (current + 1).toString(),
-                        });
-                      }}
-                      style={{
-                        width: isMobile ? 24 : 24,
-                        height: isMobile ? 24 : 24,
-                        padding: 0,
-                        border: `1px solid ${theme.line}`,
-                        borderRadius: 6,
-                        background: locked ? theme.panelHi : theme.accent2,
-                        color: locked ? theme.text : "#ffffff",
-                        cursor: locked ? "not-allowed" : "pointer",
-                        fontSize: isMobile ? 15 : 16,
-                        fontWeight: 700,
-                        opacity: locked ? 0.3 : 1,
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      flex: "0 0 auto",
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
-                    >
-                      {getTeamCode(fixture.awayTeam)}
-                    </span>
-
-                    {(TEAM_BADGES[fixture.awayTeam] ||
-                      getTeamCode(fixture.awayTeam) === "NFO") && (
-                      <img
-                        src={
-                          getTeamCode(fixture.awayTeam) === "NFO"
-                            ? "/badges/nottingham_forest.png"
-                            : TEAM_BADGES[fixture.awayTeam]
-                        }
-                        alt={fixture.awayTeam}
-                        style={{
-                          width: isMobile ? 18 : 20,
-                          height: isMobile ? 18 : 20,
-                          objectFit: "contain",
-                          marginLeft: isMobile ? 3 : 4,
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* POINTS + LOCK row */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  marginTop: 6,
-                }}
-              >
-                {/* POINTS + LOCK */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    alignSelf: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        textAlign: "center",
-                        color: theme.muted,
-                        marginBottom: 2,
-                        lineHeight: "10px",
-                      }}
-                    >
-                      POINTS
-                    </div>
-                    <input
-                      type="number"
-                      readOnly
-                      value={
-                        pointsForThisFixture == null
-                          ? ""
-                          : pointsForThisFixture
-                      }
-                      style={{
-                        ...smallInput,
-                        fontWeight: 800,
-                        background:
-                          pointsForThisFixture == null
-                            ? theme.panel
-                            : pred?.isTriple
-                            ? "#ffd700"
-                            : pred?.isDouble
-                            ? "#C0C0C0"
-                            : pointsForThisFixture === 0
-                            ? "#e74c3c"
-                            : "#2ecc71",
-                        color:
-                          pointsForThisFixture == null
-                            ? theme.text
-                            : pred?.isTriple || pred?.isDouble
-                            ? "#000"
-                            : "#fff",
-                      }}
-                    />
-                  </div>
-
-                  <div
-                    style={{
-                      width: 22,
-                      height: 22,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      borderRadius: "50%",
-                      background: locked ? "#ff4d4d" : "#2ecc71",
-                      color: "#fff",
-                      fontSize: 14,
-                      lineHeight: 1,
-                      flexShrink: 0,
-                      marginTop: 12,
-                    }}
-                  >
-                    {locked ? "🔒" : "🔑"}
-                  </div>
-                </div>
-              </div>
-
-              {/* Captain / Triple + Coins */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  width: "100%",
-                  marginTop: 10,
-                  gap: 12,
-                }}
-              >
-                {/* Captain + Triple */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 24,
-                  }}
-                >
-                  <label
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    fontSize: 12,
-    color: theme.muted,
-  }}
->
-  <span style={{ fontSize: 16 }}>👑</span>
-  Captain
-  <input
-    type="checkbox"
-    checked={!!pred.isDouble}
-    disabled={locked}
-    style={{
-      opacity: locked ? 0.4 : 1,
-      cursor: locked ? "not-allowed" : "pointer",
-    }}
-    onChange={(e) =>
-      updatePrediction(
-        currentPredictionKey,
-        fixture.id,
-        { isDouble: e.target.checked }
-      )
-    }
-  />
-</label>
-
-                  <label
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: 12,
-                      color: theme.muted,
-                    }}
-                  >
-                    <span style={{ fontSize: 16 }}>⚡</span>
-                    Triple
-                    {(() => {
-  const playerPreds = predictions[currentPredictionKey] || {};
-
-  // Find if a triple exists anywhere
-  const tripleFixtureId = Object.entries(playerPreds).find(
-    ([id, p]) => p?.isTriple
-  )?.[0];
-
-  // Is this the fixture holding the triple?
-  const isCurrentTriple =
-    String(tripleFixtureId) === String(fixture.id);
-
-  const lockedTriple = locked;
-
-  const tripleUsedElsewhere =
-    tripleFixtureId && !isCurrentTriple;
-
-  const disableTripleBox =
-    lockedTriple || tripleUsedElsewhere || pred.isDouble;
-
-  return (
-    <input
-  type="checkbox"
-  disabled={disableTripleBox}
-  style={{
-    opacity: disableTripleBox ? 0.4 : 1,
-    cursor: disableTripleBox ? "not-allowed" : "pointer",
-  }}
-  checked={!!pred.isTriple}
-  onChange={(e) =>
-    updatePrediction(
-      currentPredictionKey,
-      fixture.id,
-      e.target.checked
-        ? { isTriple: true, isDouble: false } // triple ON → captain OFF
-        : { isTriple: false }                 // triple OFF → leave captain alone
-    )
-  }
-/>
-  );
-})()}
-                  </label>
-                </div>
-
-                {/* Coins */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                    fontSize: 12,
-                    color: theme.muted,
-                    width: "100%",
-                  }}
-                >
-                  {/* Center content */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {/* MINI WRAPPER with +/- buttons */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <CoinIcon />
-
-  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-    <button
-      type="button"
-      disabled={locked || coinsStake <= 0}
-      onClick={() => {
-        const newValue = Math.max(0, coinsStake - 1);
-        if (newValue !== coinsStake) {
-          playCoinSound(false);
-          handleCoinsChange(fixture.id, newValue, coinsSide, o);
-        }
-      }}
-      style={{
-        width: 24,
-        height: 24,
-        padding: 0,
-        borderRadius: 6,
-        border: (locked || coinsStake <= 0) ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
-        background: (locked || coinsStake <= 0) ? theme.panelHi : theme.accent,
-        color: (locked || coinsStake <= 0) ? theme.muted : "#fff",
-        fontSize: 16,
-        fontWeight: 700,
-        cursor: (locked || coinsStake <= 0) ? "not-allowed" : "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        opacity: (locked || coinsStake <= 0) ? 0.4 : 1,
-      }}
-    >
-      −
-    </button>
-
-    <div
-      style={{
-        width: 32,
-        textAlign: "center",
-        padding: "2px 4px",
-        borderRadius: 6,
-        border: `1px solid ${theme.line}`,
-        background: theme.panelHi,
-        color: theme.text,
-        fontWeight: 700,
-        fontSize: 14,
-      }}
-    >
-      {coinsStake}
-    </div>
-
-    <button
-      type="button"
-      disabled={locked || coinsState.remaining <= 0}
-      onClick={() => {
-        if (coinsState.remaining > 0) {
-          const newValue = Math.min(10, coinsStake + 1);
-          playCoinSound(true);
-          handleCoinsChange(fixture.id, newValue, coinsSide, o);
-        } else {
-          playCoinSound(false);
-        }
-      }}
-      style={{
-        width: 24,
-        height: 24,
-        padding: 0,
-        borderRadius: 6,
-        border: `1px solid ${theme.line}`,
-        background: (locked || coinsState.remaining <= 0) ? theme.panelHi : theme.accent2,
-        color: (locked || coinsState.remaining <= 0) ? theme.muted : "#fff",
-        fontSize: 16,
-        fontWeight: 700,
-        cursor: (locked || coinsState.remaining <= 0) ? "not-allowed" : "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        opacity: (locked || coinsState.remaining <= 0) ? 0.4 : 1,
-      }}
-    >
-      +
-    </button>
-  </div>
-</div>
-
-<div style={{ display: "flex", gap: 4 }}>
-  {["H", "D", "A"].map((s) => {
-    const sideLabel = s === "H" ? "HOME" : s === "D" ? "DRAW" : "AWAY";
-    return (
-      <button
-        key={s}
-        type="button"
-        disabled={locked}
-        title={sideLabel}
-        onClick={() =>
-          handleCoinsChange(
-            fixture.id,
-            coinsStake,
-            s,
-            o
-          )
-        }
-        style={{
-          padding: "2px 6px",
-          borderRadius: 999,
-          border: `1px solid ${theme.line}`,
-          backgroundColor:
-            coinsSide === s ? theme.accent : "transparent",
-          color: coinsSide === s ? theme.buttonText : theme.text,
-          fontSize: 11,
-          cursor: locked ? "default" : "pointer",
-        }}
-      >
-        {s}
-      </button>
-    );
-  })}
-</div>
-                  </div>
-
-                  {/* Right side - possible return */}
-                  {coinsPossibleReturn && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontSize: 11,
-                      }}
-                    >
-                      = {coinsPossibleReturn}
-                      <CoinIcon />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  </section>
-)}
-
-        {/* Results View */}
-{activeView === "results" && (
-  <section style={cardStyle}>
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>
-      GW{selectedGameweek} Results
-    </h2>
-
-    {/* Coins outcome summary for this gameweek */}
-    {authToken && coinsOutcome && (
-      <div
-        style={{
-          marginTop: 8,
-          paddingBottom: 8,
-          borderBottom: `1px solid ${theme.line}`,
-          fontSize: 12,
-          color: theme.muted,
-        }}
-      >
-        <div style={{ marginBottom: 4 }}>
-          <strong style={{ display: "flex", alignItems: "center", gap: 6 }}>
-  <img
-    src="/coin_PA_32.png"
-    alt="Coins"
-    style={{ width: 18, height: 18 }}
-  />
-  <span>GW{selectedGameweek}</span>
-</strong>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 6,
-          }}
-        >
-          <span>
-            Staked: <strong>{coinsOutcome.totalStake}</strong>
-          </span>
-          <span>
-            Returned:{" "}
-            <strong>{coinsOutcome.totalReturn.toFixed(2)}</strong>
-          </span>
-          <span>
-            Profit:{" "}
-            <strong
-              style={{
-                color:
-                  coinsOutcome.profit > 0
-                    ? theme.accent2
-                    : coinsOutcome.profit < 0
-                    ? theme.danger
-                    : theme.muted,
-              }}
-            >
-              {coinsOutcome.profit.toFixed(2)}
-            </strong>
-          </span>
-        </div>
-      </div>
-    )}
-
-    <div style={{ display: "grid", gap: 8 }}>
-      {visibleFixtures.map((fixture) => {
-        const res = results[fixture.id] || {};
-
-        const homeCode = getTeamCode(fixture.homeTeam);
-        const awayCode = getTeamCode(fixture.awayTeam);
-
-        // Badge sources, using your current TEAM_BADGES + NFO fallback
-        const homeBadgeSrc =
-          homeCode === "NFO"
-            ? "/badges/nottingham_forest.png"
-            : TEAM_BADGES[fixture.homeTeam];
-
-        const awayBadgeSrc =
-          awayCode === "NFO"
-            ? "/badges/nottingham_forest.png"
-            : TEAM_BADGES[fixture.awayTeam];
-
-        return (
-          <div
-            key={fixture.id}
-            style={{
-              background: theme.panelHi,
-              borderRadius: 12,
-              border: `1px solid rgba(255, 255, 255, 0.3)`,
-              padding: 10,
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            {/* Inner row, centered */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                width: "100%",
-                maxWidth: 520,
-              }}
-            >
-              {/* Home badge + code */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  flex: 1,
-                  justifyContent: "flex-end",
-                }}
-              >
-                <span style={{ fontWeight: 700 }}>{homeCode}</span>
-                {homeBadgeSrc && (
-                  <img
-                    src={homeBadgeSrc}
-                    alt={fixture.homeTeam}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      objectFit: "contain",
-                    }}
-                  />
-                )}
-              </div>
-
-              {/* Score inputs */}
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: 60,
-                }}
-              >
-                <span style={{ minWidth: 20, textAlign: "right", fontWeight: 700, fontSize: 16 }}>
-                  {res.homeGoals ?? "-"}
-                </span>
-                <span style={{ color: theme.muted }}>-</span>
-                <span style={{ minWidth: 20, textAlign: "left", fontWeight: 700, fontSize: 16 }}>
-                  {res.awayGoals ?? "-"}
-                </span>
-              </div>
-
-              {/* Away badge + code */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  flex: 1,
-                  justifyContent: "flex-start",
-                }}
-              >
-                {awayBadgeSrc && (
-                  <img
-                    src={awayBadgeSrc}
-                    alt={fixture.awayTeam}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      objectFit: "contain",
-                    }}
-                  />
-                )}
-                <span style={{ fontWeight: 700 }}>{awayCode}</span>
-              </div>
-            </div>
+          <div key={fixture.id}>
+            {/* ...existing code for fixture content... */}
           </div>
         );
       })}

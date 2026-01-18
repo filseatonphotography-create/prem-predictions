@@ -1,0 +1,449 @@
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+Failed to load /Users/pse2/prem-predictions/data/users.json SyntaxError: Unexpected token '/', ..."
+  },
+    // To rese"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at loadJson (/Users/pse2/prem-predictions/server.js:163:25)
+    at loadUsers (/Users/pse2/prem-predictions/server.js:180:25)
+    at /Users/pse2/prem-predictions/server.js:500:27
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/pse2/prem-predictions/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at /Users/pse2/prem-predictions/node_modules/router/index.js:295:15
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+Failed to load /Users/pse2/prem-predictions/data/users.json SyntaxError: Unexpected token '/', ..."
+  },
+    // To rese"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at loadJson (/Users/pse2/prem-predictions/server.js:163:25)
+    at loadUsers (/Users/pse2/prem-predictions/server.js:180:25)
+    at /Users/pse2/prem-predictions/server.js:500:27
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/pse2/prem-predictions/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at /Users/pse2/prem-predictions/node_modules/router/index.js:295:15
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+Failed to load /Users/pse2/prem-predictions/data/users.json SyntaxError: Unexpected token '/', ..."
+  },
+    // To rese"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at loadJson (/Users/pse2/prem-predictions/server.js:163:25)
+    at loadUsers (/Users/pse2/prem-predictions/server.js:180:25)
+    at /Users/pse2/prem-predictions/server.js:500:27
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/pse2/prem-predictions/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at /Users/pse2/prem-predictions/node_modules/router/index.js:295:15
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+Failed to load /Users/pse2/prem-predictions/data/users.json SyntaxError: Unexpected token '/', ..."
+  },
+    // To rese"... is not valid JSON
+    at JSON.parse (<anonymous>)
+    at loadJson (/Users/pse2/prem-predictions/server.js:163:25)
+    at loadUsers (/Users/pse2/prem-predictions/server.js:180:25)
+    at /Users/pse2/prem-predictions/server.js:500:27
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at next (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:157:13)
+    at Route.dispatch (/Users/pse2/prem-predictions/node_modules/router/lib/route.js:117:3)
+    at handle (/Users/pse2/prem-predictions/node_modules/router/index.js:435:11)
+    at Layer.handleRequest (/Users/pse2/prem-predictions/node_modules/router/lib/layer.js:152:17)
+    at /Users/pse2/prem-predictions/node_modules/router/index.js:295:15
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+[DEBUG] Tom user loaded: {
+  id: '1763791297309',
+  username: 'Tom',
+  passwordHash: '18b8297e4b9e31324903c346e5a2096f:bfd2ea98e32e4eeb54dfb4bde07c643bc586c3200ee723f28c7df4bb550b62283ffe222867192d3c57d0a0993ea80b30367364dcb5edaeb5f396b04eed25b41a',
+  createdAt: '2025-11-22T06:01:37.315Z',
+  passwordResetAt: '2026-01-17T00:00:00.000Z'
+}
+[DEBUG] All usernames loaded: [
+  'Phil',     'Ian',     'Dave',
+  'Anthony',  'Panto',   'Steve',
+  'Emma',     'Tom',     'Phil',
+  'philtest', 'Phil',    'Ian',
+  'Dave',     'Anthony', 'Panto',
+  'Steve',    'Emma',    'Phil',
+  'philtest'
+]
+Auto legacy-mapped Tom -> 1763791297309
+[DEBUG] Tom user loaded: {
+  id: '1763791297309',
+  username: 'Tom',
+  passwordHash: '18b8297e4b9e31324903c346e5a2096f:bfd2ea98e32e4eeb54dfb4bde07c643bc586c3200ee723f28c7df4bb550b62283ffe222867192d3c57d0a0993ea80b30367364dcb5edaeb5f396b04eed25b41a',
+  createdAt: '2025-11-22T06:01:37.315Z',
+  passwordResetAt: '2026-01-17T00:00:00.000Z'
+}
+[DEBUG] All usernames loaded: [
+  'Phil',     'Ian',     'Dave',
+  'Anthony',  'Panto',   'Steve',
+  'Emma',     'Tom',     'Phil',
+  'philtest', 'Phil',    'Ian',
+  'Dave',     'Anthony', 'Panto',
+  'Steve',    'Emma',    'Phil',
+  'philtest'
+]
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+[DEBUG] Tom user loaded: {
+  id: '1763791297309',
+  username: 'Tom',
+  passwordHash: '18b8297e4b9e31324903c346e5a2096f:bfd2ea98e32e4eeb54dfb4bde07c643bc586c3200ee723f28c7df4bb550b62283ffe222867192d3c57d0a0993ea80b30367364dcb5edaeb5f396b04eed25b41a',
+  createdAt: '2025-11-22T06:01:37.315Z',
+  passwordResetAt: '2026-01-17T00:00:00.000Z'
+}
+[DEBUG] All usernames loaded: [
+  'Phil',     'Ian',     'Dave',
+  'Anthony',  'Panto',   'Steve',
+  'Emma',     'Tom',     'Phil',
+  'philtest', 'Phil',    'Ian',
+  'Dave',     'Anthony', 'Panto',
+  'Steve',    'Emma',    'Phil',
+  'philtest'
+]
+CORS request from: http://localhost:3000
+[DEBUG] Tom user loaded: {
+  id: '1763791297309',
+  username: 'Tom',
+  passwordHash: '18b8297e4b9e31324903c346e5a2096f:bfd2ea98e32e4eeb54dfb4bde07c643bc586c3200ee723f28c7df4bb550b62283ffe222867192d3c57d0a0993ea80b30367364dcb5edaeb5f396b04eed25b41a',
+  createdAt: '2025-11-22T06:01:37.315Z',
+  passwordResetAt: '2026-01-17T00:00:00.000Z'
+}
+[DEBUG] All usernames loaded: [
+  'Phil',     'Ian',     'Dave',
+  'Anthony',  'Panto',   'Steve',
+  'Emma',     'Tom',     'Phil',
+  'philtest', 'Phil',    'Ian',
+  'Dave',     'Anthony', 'Panto',
+  'Steve',    'Emma',    'Phil',
+  'philtest'
+]
+MY PREDICTIONS: {
+  userId: '1763789072925',
+  predictions: {
+    '137': {
+      homeGoals: '1',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '138': {
+      homeGoals: '1',
+      awayGoals: '0',
+      isDouble: false,
+      isTriple: false
+    },
+    '139': {
+      homeGoals: '1',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '140': {
+      homeGoals: '0',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '141': { homeGoals: '0', awayGoals: '2', isDouble: true, isTriple: false },
+    '142': {
+      homeGoals: '1',
+      awayGoals: '2',
+      isDouble: false,
+      isTriple: false
+    },
+    '143': {
+      homeGoals: '1',
+      awayGoals: '0',
+      isDouble: false,
+      isTriple: false
+    },
+    '144': {
+      homeGoals: '0',
+      awayGoals: '0',
+      isDouble: false,
+      isTriple: false
+    },
+    '145': {
+      homeGoals: '0',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '146': {
+      homeGoals: '2',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '147': {
+      homeGoals: '1',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '148': {
+      homeGoals: '1',
+      awayGoals: '0',
+      isDouble: false,
+      isTriple: false
+    },
+    '149': {
+      homeGoals: '1',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    },
+    '150': {
+      homeGoals: '0',
+      awayGoals: '1',
+      isDouble: false,
+      isTriple: false
+    }
+  }
+}
+CORS request from: http://localhost:3000
+[DEBUG] Tom user loaded: {
+  id: '1763791297309',
+  username: 'Tom',
+  passwordHash: '18b8297e4b9e31324903c346e5a2096f:bfd2ea98e32e4eeb54dfb4bde07c643bc586c3200ee723f28c7df4bb550b62283ffe222867192d3c57d0a0993ea80b30367364dcb5edaeb5f396b04eed25b41a',
+  createdAt: '2025-11-22T06:01:37.315Z',
+  passwordResetAt: '2026-01-17T00:00:00.000Z'
+}
+[DEBUG] All usernames loaded: [
+  'Phil',     'Ian',     'Dave',
+  'Anthony',  'Panto',   'Steve',
+  'Emma',     'Tom',     'Phil',
+  'philtest', 'Phil',    'Ian',
+  'Dave',     'Anthony', 'Panto',
+  'Steve',    'Emma',    'Phil',
+  'philtest'
+]
+CORS request from: http://localhost:3000
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+/Users/pse2/prem-predictions/server.js:2
+app.use((req, res, next) => {
+^
+
+ReferenceError: Cannot access 'app' before initialization
+    at Object.<anonymous> (/Users/pse2/prem-predictions/server.js:2:1)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v24.11.1
+/Users/pse2/prem-predictions/server.js:2
+app.use((req, res, next) => {
+^
+
+ReferenceError: Cannot access 'app' before initialization
+    at Object.<anonymous> (/Users/pse2/prem-predictions/server.js:2:1)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v24.11.1
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+CORS request from: http://localhost:3000
+Error: Cannot find module '../encodings'
+Require stack:
+- /Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js
+- /Users/pse2/prem-predictions/node_modules/raw-body/index.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/read.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/lib/types/json.js
+- /Users/pse2/prem-predictions/node_modules/body-parser/index.js
+- /Users/pse2/prem-predictions/node_modules/express/lib/express.js
+- /Users/pse2/prem-predictions/node_modules/express/index.js
+- /Users/pse2/prem-predictions/server.js
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1421:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.require (node:internal/modules/cjs/loader:1504:12)
+    at require (node:internal/modules/helpers:152:16)
+    at Object.getCodec (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:66:15)
+    at Object.getDecoder (/Users/pse2/prem-predictions/node_modules/raw-body/node_modules/iconv-lite/lib/index.js:129:21)
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001
+SERVER BUILD: 2025-11-22-a
+Server running on port 5001

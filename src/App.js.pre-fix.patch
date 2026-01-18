@@ -1,0 +1,850 @@
+diff --git a/src/App.js b/src/App.js
+index 119feca..0e0e0cf 100644
+--- a/src/App.js
++++ b/src/App.js
+@@ -831,14 +831,11 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+       
+       if (allUpcomingFixtures.length === 0) {
+         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
+-        return;
+-      }
+-      if (diff <= 0) {
+-        setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
+-        return;
+-      }
+-      
+-      // Calculate progress - assume 7 days between gameweeks
++        return (
++          <>
++            ...existing code...
++          </>
++        );
+       const sevenDays = 7 * 24 * 60 * 60 * 1000;
+       const totalTime = sevenDays;
+       const elapsed = Math.max(0, sevenDays - diff);
+@@ -2215,171 +2212,44 @@ const leaderboard = useMemo(() => {
+   // ---------- LOGIN PAGE ----------
+ if (!isLoggedIn) {
+   return (
+-    <div style={{ 
+-      ...pageStyle,
+-      maxWidth: 1200,
+-      margin: "0 auto",
+-      padding: isMobile ? "8px" : "16px"
+-    }}>
+-      <div style={{ 
+-        display: "grid",
+-        gap: 12 
+-      }}>
+-        <header
+-          style={{
+-            display: "flex",
+-            alignItems: "center",
+-            justifyContent: "center",
+-            gap: 10,
+-            marginBottom: 10,
+-          }}
+-        >
+-  <div
+-    style={{
+-      width: 44,
+-      height: 44,
+-      borderRadius: 12,
+-      overflow: "hidden",
+-    }}
+-  >
+-    <img
+-      src="/icon_64.png"
+-      alt="Prediction Addiction logo"
+-      style={{ width: "100%", height: "100%" }}
+-    />
+-  </div>
+-
+-  <h1
+-    style={{
+-      margin: 0,
+-          fontSize: isMobile ? 24 : 32,
+-      letterSpacing: 0.4,
+-      textTransform: "uppercase",
+-      color: theme.accent,
+-      textAlign: "center",
+-      whiteSpace: "nowrap",
+-    }}
+-  >
+-    PREDICTION ADDICTION
+-  </h1>
+-</header>
+-
+-          <div
+-  style={{
+-    display: "grid",
+-    gridTemplateColumns: "1fr",
+-    gap: 12,
+-    maxWidth: window.innerWidth <= 600 ? 480 : 900,
+-    width: "100%",
+-    margin: "0 auto",
+-  }}
+->
+-  <section style={cardStyle}>
+-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
+-
++    <>
++      <div style={{ ...pageStyle, maxWidth: 1200, margin: "0 auto", padding: isMobile ? "8px" : "16px" }}>
++        <div style={{ display: "grid", gap: 12 }}>
++          <header style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 10 }}>
++            <div style={{ width: 44, height: 44, borderRadius: 12, overflow: "hidden" }}>
++              <img src="/icon_64.png" alt="Prediction Addiction logo" style={{ width: "100%", height: "100%" }} />
++            </div>
++            <h1 style={{ margin: 0, fontSize: isMobile ? 24 : 32, letterSpacing: 0.4, textTransform: "uppercase", color: theme.accent, textAlign: "center", whiteSpace: "nowrap" }}>
++              PREDICTION ADDICTION
++            </h1>
++          </header>
++          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, maxWidth: window.innerWidth <= 600 ? 480 : 900, width: "100%", margin: "0 auto" }}>
++            <section style={cardStyle}>
++              <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
+               <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
+                 <label style={{ fontSize: 13, color: theme.muted }}>
+                   Username
+-                  <input
+-  style={{
+-    width: "100%",
+-    marginTop: 6,
+-    padding: "10px 12px",
+-    borderRadius: 10,
+-    background: theme.panelHi,
+-    color: theme.text,
+-    border: `1px solid ${theme.line}`,
+-    fontSize: 15,
+-    boxSizing: "border-box",
+-  }}
+-  type="text"
+-  value={loginName}
+-  onChange={(e) => setLoginName(e.target.value)}
+-  placeholder="e.g. Phil"
+-  autoComplete="username"
+-/>
++                  <input style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, background: theme.panelHi, color: theme.text, border: `1px solid ${theme.line}`, fontSize: 15, boxSizing: "border-box" }} type="text" value={loginName} onChange={(e) => setLoginName(e.target.value)} placeholder="e.g. Phil" autoComplete="username" />
+                 </label>
+-
+                 <label style={{ fontSize: 13, color: theme.muted }}>
+                   Password
+-                  <input
+-  style={{
+-    width: "100%",
+-    marginTop: 6,
+-    padding: "10px 12px",
+-    borderRadius: 10,
+-    background: theme.panelHi,
+-    color: theme.text,
+-    border: `1px solid ${theme.line}`,
+-    fontSize: 15,
+-    boxSizing: "border-box",
+-  }}
+-  type="password"
+-  value={loginPassword}
+-  onChange={(e) => setLoginPassword(e.target.value)}
+-  placeholder="••••"
+-  autoComplete="current-password"
+-/>
++                  <input style={{ width: "100%", marginTop: 6, padding: "10px 12px", borderRadius: 10, background: theme.panelHi, color: theme.text, border: `1px solid ${theme.line}`, fontSize: 15, boxSizing: "border-box" }} type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••" autoComplete="current-password" />
+                 </label>
+-
+                 <div style={{ display: "flex", gap: 8 }}>
+-                  <button
+-                    type="button"
+-                    onClick={(e) => handleAuthSubmit(e, "login")}
+-                    disabled={authLoading}
+-                    style={{
+-                      flex: 1,
+-                      padding: "8px 10px",
+-                      borderRadius: 10,
+-                      border: `1px solid ${theme.accent}`,
+-                      background: "rgba(56,189,248,0.15)",
+-                      color: theme.text,
+-                      cursor: authLoading ? "wait" : "pointer",
+-                      opacity: authLoading ? 0.6 : 1,
+-                    }}
+-                  >
+-                    {authLoading ? "Logging in..." : "Log in"}
+-                  </button>
+-                  <button
+-                    type="button"
+-                    onClick={(e) => handleAuthSubmit(e, "signup")}
+-                    disabled={authLoading}
+-                    style={{
+-                      flex: 1,
+-                      padding: "8px 10px",
+-                      borderRadius: 10,
+-                      border: `1px solid ${theme.accent2}`,
+-                      background: "rgba(34,197,94,0.15)",
+-                      color: theme.text,
+-                      cursor: authLoading ? "wait" : "pointer",
+-                      opacity: authLoading ? 0.6 : 1,
+-                    }}
+-                  >
+-                    {authLoading ? "Creating..." : "Create account"}
+-                  </button>
++                  <button type="button" onClick={(e) => handleAuthSubmit(e, "login")} disabled={authLoading} style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: `1px solid ${theme.accent}`, background: "rgba(56,189,248,0.15)", color: theme.text, cursor: authLoading ? "wait" : "pointer", opacity: authLoading ? 0.6 : 1 }}>{authLoading ? "Logging in..." : "Log in"}</button>
++                  <button type="button" onClick={(e) => handleAuthSubmit(e, "signup")} disabled={authLoading} style={{ flex: 1, padding: "8px 10px", borderRadius: 10, border: `1px solid ${theme.accent2}`, background: "rgba(34,197,94,0.15)", color: theme.text, cursor: authLoading ? "wait" : "pointer", opacity: authLoading ? 0.6 : 1 }}>{authLoading ? "Creating..." : "Create account"}</button>
+                 </div>
+-
+                 {authError && (
+-                  <div
+-                    style={{
+-                      background: "rgba(239,68,68,0.12)",
+-                      border: `1px solid rgba(239,68,68,0.5)`,
+-                      color: theme.text,
+-                      padding: "8px 10px",
+-                      borderRadius: 8,
+-                      fontSize: 13,
+-                    }}
+-                  >
+-                    {authError}
+-                  </div>
++                  <div style={{ background: "rgba(239,68,68,0.12)", border: `1px solid rgba(239,68,68,0.5)`, color: theme.text, padding: "8px 10px", borderRadius: 8, fontSize: 13 }}>{authError}</div>
+                 )}
+               </form>
+             </section>
+           </div>
+         </div>
+-
+-    );
+-  }
++      </div>
++    </>
++  );
++}
+ 
+   // ---------- MAIN APP ----------
+   return (
+@@ -2394,7 +2264,6 @@ if (!isLoggedIn) {
+         overflowX: "hidden",
+       }}>
+         {/* Header */}
+-                {/* Header */}
+         <header
+           style={{
+             ...cardStyle,
+@@ -2410,49 +2279,21 @@ if (!isLoggedIn) {
+         >
+           {/* Title + API status (centered) */}
+           <div style={{ textAlign: "center" }}>
+-                            <h1
+-  style={{
+-    marginTop: "0.8rem",
+-    marginBottom: "0.5rem",
+-    fontSize: isMobile ? "1.5rem" : "3rem",
+-    fontWeight: 700,
+-    letterSpacing: "0.5px",
+-    maxWidth: "100%",
+-    overflow: "visible",
+-  }}
+->
+-
+-  Predicti
+-  <span
+-  className="football-icon"
+-  role="img"
+-  aria-label="football"
+-  style={{
+-    fontSize: isMobile ? "1.5rem" : "3rem",
+-    position: "relative",
+-    top: "-1px",
+-  }}
+->
+-    ⚽
+-  </span>
+-  n Addicti
+-  <span
+-  className="football-icon"
+-  role="img"
+-  aria-label="football"
+-  style={{
+-    fontSize: isMobile ? "1.5rem" : "3rem",
+-    position: "relative",
+-    top: "-1px",
+-  }}
+->
+-    ⚽
+-  </span>
+-  n
+-</h1>
+-<p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
+-  {randomTagline}
+-</p>
++            <h1
++              style={{
++                marginTop: "0.8rem",
++                marginBottom: "0.5rem",
++                fontSize: isMobile ? "1.5rem" : "3rem",
++                fontWeight: 700,
++                letterSpacing: "0.5px",
++                maxWidth: "100%",
++              }}
++            >
++              Prediction Addiction
++            </h1>
++            <p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
++              {randomTagline}
++            </p>
+             <div
+               style={{
+                 fontSize: 12,
+@@ -2463,7 +2304,79 @@ if (!isLoggedIn) {
+               {apiStatus}
+             </div>
+           </div>
+-
++          {/* Change password / Logout / Menu (uniform buttons, centered) */}
++          {isLoggedIn && (
++            <div
++              style={{
++                display: "flex",
++                justifyContent: "center",
++                alignItems: "center",
++                gap: isMobile ? 6 : 8,
++                width: "100%",
++                flexWrap: "nowrap", // stay on one line
++              }}
++            >
++              <button
++                onClick={() => setShowPasswordModal(true)}
++                style={{
++                  padding: "6px 10px",
++                  borderRadius: 8,
++                  background: theme.panelHi,
++                  color: theme.text,
++                  border: `1px solid ${theme.line}`,
++                  cursor: "pointer",
++                  fontSize: 12,
++                  height: 32,
++                  minWidth: isMobile ? 96 : 118,
++                  textAlign: "center",
++                }}
++              >
++                {isMobile ? "Password" : "Change Password"}
++              </button>
++              <button
++                onClick={handleLogout}
++                style={{
++                  padding: "6px 10px",
++                  borderRadius: 8,
++                  border: `1px solid ${theme.line}`,
++                  background: theme.panelHi,
++                  color: theme.text,
++                  cursor: "pointer",
++                  fontSize: 12,
++                  height: 32,
++                  minWidth: isMobile ? 96 : 118,
++                  textAlign: "center",
++                }}
++              >
++                Log out
++              </button>
++              {isMobile && (
++                <button
++                  type="button"
++                  onClick={() => setShowMobileMenu((v) => !v)}
++                  style={{
++                    padding: "6px 10px",
++                    borderRadius: 8,
++                    border: `1px solid ${theme.line}`,
++                    background: theme.panelHi,
++                    color: theme.text,
++                    cursor: "pointer",
++                    fontSize: 12,
++                    height: 32,
++                    minWidth: isMobile ? 96 : 118,
++                    textAlign: "center",
++                  }}
++                >
++                  Menu
++                </button>
++              )}
++            </div>
++          )}
++        </header>
++        {/* ...rest of the app content... */}
++      </div>
++    </div>
++  );
+           {/* Change password / Logout / Menu (uniform buttons, centered) */}
+ 
+           {/* Change password / Logout / Menu (uniform buttons, centered) */}
+@@ -2606,130 +2519,11 @@ if (!isLoggedIn) {
+         </div>
+       )}
+       {passwordSuccess && (
+-        <div style={{ color: "#22c55e", fontSize: 13, marginBottom: 8 }}>
+-          {passwordSuccess}
+-        </div>
+-      )}
+-
+-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+-        <button
+-          onClick={() => setShowPasswordModal(false)}
+-          style={{
+-            padding: "6px 10px",
+-            borderRadius: 8,
+-            background: "transparent",
+-            color: theme.text,
+-            border: "1px solid " + theme.border,
+-            cursor: "pointer",
+-          }}
+-        >
+-          Cancel
+-        </button>
+-        <button
+-          onClick={handlePasswordChange}
+-          style={{
+-            padding: "6px 10px",
+-            borderRadius: 8,
+-            background: theme.button,
+-            color: theme.text,
+-            border: "1px solid " + theme.border,
+-            cursor: "pointer",
+-            fontWeight: 700,
+-          }}
+-        >
+-          Update
+-        </button>
+-    </div>
+-  </div>
+-)}
+- {/* Tabs */}
+-{(() => {
+-  const TABS = [
+-  { id: "predictions", label: "Predictions" },
+-  { id: "results", label: "Results" },
+-  { id: "league", label: "League Table" },
+-  { id: "summary", label: "Summary" },
+-  { id: "coinsLeague", label: "Coins League" },
+-  { id: "history", label: "History" },
+-  { id: "winprob", label: "Win Probabilities" },
+-  { id: "leagues", label: "Mini-Leagues" },
+-  { id: "settings", label: "Settings" },
+-  { id: "rules", label: "Rules" },
+-];
+-
+-  // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
+-  if (isMobile) {
+-    if (!showMobileMenu) return null;
+-
+-    return (
+-      <div
+-        style={{
+-          position: "fixed",
+-          top: 190,          // positioned below the header/menu button
+-          right: 16,         // aligned with right side
+-          zIndex: 1000,
+-        }}
+-      >
+-        <div
+-          style={{
+-            background: theme.panel,
+-            border: `1px solid ${theme.line}`,
+-            borderRadius: 10,
+-            padding: 6,
+-            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+-            minWidth: 180,
+-          }}
+-        >
+-          {TABS.map((t) => (
+-            <button
+-              key={t.id}
+-              type="button"
+-              onClick={() => {
+-                setActiveView(t.id);
+-                setShowMobileMenu(false);
+-              }}
+-              style={{
+-                ...pillBtn(activeView === t.id),
+-                display: "block",
+-                textAlign: "left",
+-                padding: "6px 10px",
+-                fontSize: 14,
+-                whiteSpace: "nowrap", // menu width = longest label
+-              }}
+-            >
+-              {t.label}
+-            </button>
+-          ))}
+         </div>
+       </div>
+-    );
+-  }
+-
+-  // ---- DESKTOP: keep your pill buttons exactly as before ----
+-  return (
+-    <nav
+-  style={{
+-    display: "flex",
+-    gap: 6,
+-    flexWrap: "wrap",
+-    justifyContent: "center",  // <--- add this
+-  }}
+->
+-      {TABS.map((t) => (
+-        <button
+-          key={t.id}
+-          style={pillBtn(activeView === t.id)}
+-          onClick={() => setActiveView(t.id)}
+-          type="button"
+-        >
+-          {t.label}
+-        </button>
+-      ))}
+-    </nav>
+-  );
+-})()}
++    )}
+         {/* Controls */}
+-                <section
++        <section
+           style={{
+             ...cardStyle,
+             display: "grid",
+@@ -2741,56 +2535,55 @@ if (!isLoggedIn) {
+             textAlign: "left",
+           }}
+         >
+-                    {activeView === "predictions" && (
+-                    <div
+-            style={{
+-              display: "flex",
+-              gap: 12,
+-              alignItems: "center",
+-              justifyContent: "center",
+-            }}
+-          >
+-            <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
+-            {gwLocked ? (
+-              <select
+-                value={currentPlayer}
+-                onChange={(e) => setCurrentPlayer(e.target.value)}
+-                style={{
+-                  padding: "8px 10px",
+-                  borderRadius: 8,
+-                  background: theme.panelHi,
+-                  color: theme.text,
+-                  border: `1px solid ${theme.line}`,
+-                  fontSize: 14,
+-                }}
+-              >
+-                {PLAYERS.map((p) => (
+-                  <option key={p} value={p}>
+-                    {p}
+-                  </option>
+-                ))}
+-              </select>
+-            ) : (
+-              <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
+-            )}
+-          </div>
+-                    )}
+-
++          {activeView === "predictions" && (
++            <div
++              style={{
++                display: "flex",
++                gap: 12,
++                alignItems: "center",
++                justifyContent: "center",
++              }}
++            >
++              <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
++              {gwLocked ? (
++                <select
++                  value={currentPlayer}
++                  onChange={(e) => setCurrentPlayer(e.target.value)}
++                  style={{
++                    padding: "8px 10px",
++                    borderRadius: 8,
++                    background: theme.panelHi,
++                    color: theme.text,
++                    border: `1px solid ${theme.line}`,
++                    fontSize: 14,
++                  }}
++                >
++                  {PLAYERS.map((p) => (
++                    <option key={p} value={p}>
++                      {p}
++                    </option>
++                  ))}
++                </select>
++              ) : (
++                <div style={{ fontWeight: 700 }}>{currentPlayer}</div>
++              )}
++            </div>
++          )}
+           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+             <div style={{ fontSize: 13, color: theme.muted }}>Gameweek</div>
+             <select
+               value={selectedGameweek}
+               onChange={(e) => setSelectedGameweek(Number(e.target.value))}
+-                style={{
+-    padding: "6px 14px",
+-    borderRadius: 8,
+-    background: theme.panelHi,
+-    color: theme.text,
+-    border: `1px solid ${theme.line}`,
+-    fontSize: 14,
+-    minWidth: 82,          // keeps “GW13” fully visible with arrow
+-    textAlignLast: "center",
+-  }}
++              style={{
++                padding: "6px 14px",
++                borderRadius: 8,
++                background: theme.panelHi,
++                color: theme.text,
++                border: `1px solid ${theme.line}`,
++                fontSize: 14,
++                minWidth: 82, // keeps “GW13” fully visible with arrow
++                textAlignLast: "center",
++              }}
+             >
+               {GAMEWEEKS.map((gw) => (
+                 <option key={gw} value={gw}>
+@@ -2799,9 +2592,7 @@ if (!isLoggedIn) {
+               ))}
+             </select>
+             {gwLocked && (
+-              <div style={{ fontSize: 12, color: theme.warn }}>
+-                Locked
+-              </div>
++              <div style={{ fontSize: 12, color: theme.warn }}>Locked</div>
+             )}
+           </div>
+         </section>
+@@ -3529,84 +3320,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
+                       <CoinIcon />
+ 
+   <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+-    <button
+-      type="button"
+-      disabled={locked || coinsStake <= 0}
+-      onClick={() => {
+-        const newValue = Math.max(0, coinsStake - 1);
+-        if (newValue !== coinsStake) {
+-          playCoinSound(false);
+-          handleCoinsChange(fixture.id, newValue, coinsSide, o);
+-        }
+-      }}
+-      style={{
+-        width: 24,
+-        height: 24,
+-        padding: 0,
+-        borderRadius: 6,
+-        border: (locked || coinsStake <= 0) ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
+-        background: (locked || coinsStake <= 0) ? theme.panelHi : theme.accent,
+-        color: (locked || coinsStake <= 0) ? theme.muted : "#fff",
+-        fontSize: 16,
+-        fontWeight: 700,
+-        cursor: (locked || coinsStake <= 0) ? "not-allowed" : "pointer",
+-        display: "flex",
+-        alignItems: "center",
+-        justifyContent: "center",
+-        opacity: (locked || coinsStake <= 0) ? 0.4 : 1,
+-      }}
+-    >
+-      −
+-    </button>
+-
+-    <div
+-      style={{
+-        width: 32,
+-        textAlign: "center",
+-        padding: "2px 4px",
+-        borderRadius: 6,
+-        border: `1px solid ${theme.line}`,
+-        background: theme.panelHi,
+-        color: theme.text,
+-        fontWeight: 700,
+-        fontSize: 14,
+-      }}
+-    >
+-      {coinsStake}
+-    </div>
+-
+-    <button
+-      type="button"
+-      disabled={locked || coinsState.remaining <= 0}
+-      onClick={() => {
+-        if (coinsState.remaining > 0) {
+-          const newValue = Math.min(10, coinsStake + 1);
+-          playCoinSound(true);
+-          handleCoinsChange(fixture.id, newValue, coinsSide, o);
+-        } else {
+-          playCoinSound(false);
+-        }
+-      }}
+-      style={{
+-        width: 24,
+-        height: 24,
+-        padding: 0,
+-        borderRadius: 6,
+-        border: `1px solid ${theme.line}`,
+-        background: (locked || coinsState.remaining <= 0) ? theme.panelHi : theme.accent2,
+-        color: (locked || coinsState.remaining <= 0) ? theme.muted : "#fff",
+-        fontSize: 16,
+-        fontWeight: 700,
+-        cursor: (locked || coinsState.remaining <= 0) ? "not-allowed" : "pointer",
+-        display: "flex",
+-        alignItems: "center",
+-        justifyContent: "center",
+-        opacity: (locked || coinsState.remaining <= 0) ? 0.4 : 1,
+-      }}
+-    >
+-      +
+-    </button>
+-  </div>
++    {/* ...existing code... */}
+ </div>
+ 
+ <div style={{ display: "flex", gap: 4 }}>
+@@ -3624,59 +3338,44 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
+             coinsStake,
+             s,
+             o
+-          )
+-        }
+-        style={{
+-          padding: "2px 6px",
+-          borderRadius: 999,
+-          border: `1px solid ${theme.line}`,
+-          backgroundColor:
+-            coinsSide === s ? theme.accent : "transparent",
+-          color: coinsSide === s ? theme.buttonText : theme.text,
+-          fontSize: 11,
+-          cursor: locked ? "default" : "pointer",
+-        }}
+-      >
+-        {s}
+-      </button>
+-    );
+-  })}
+-</div>
+-                  </div>
++          )}
++            </header>
+ 
+-                  {/* Right side - possible return */}
+-                  {coinsPossibleReturn && (
+-                    <div
+-                      style={{
+-                        display: "flex",
+-                        alignItems: "center",
+-                        gap: 4,
+-                        fontSize: 11,
+-                      }}
++            {showPasswordModal && (
++          return (
++            <div
++              style={{
++                position: "fixed",
++                top: 190, // positioned below the header/menu button
++                right: 16, // aligned with right side
++                zIndex: 1000,
++              }}
++            >
++              <div
++                style={{
++                  background: theme.panel,
++                  border: `1px solid ${theme.line}`,
++                  borderRadius: 10,
++                  padding: 6,
++                  boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
++                  minWidth: 180,
++                }}
++              >
++                {TABS.map((t) => (
++                  <button
++                    <button
++                      key={t.id}
++                      style={pillBtn(activeView === t.id)}
++                      onClick={() => setActiveView(t.id)}
++                      type="button"
+                     >
+-                      = {coinsPossibleReturn}
+-                      <CoinIcon />
+-                    </div>
+-                  )}
+-                </div>
+-              </div>
+-            </div>
+-          </div>
+-        );
+-      })}
+-    </div>
+-  </section>
+-)}
+-
+-        {/* Results View */}
+-{activeView === "results" && (
+-  <section style={cardStyle}>
+-    <h2 style={{ marginTop: 0, fontSize: 18 }}>
+-      GW{selectedGameweek} Results
+-    </h2>
+-
+-    {/* Coins outcome summary for this gameweek */}
+-    {authToken && coinsOutcome && (
++                      {t.label}
++                    </button>
++                  ))}
++                </nav>
++              );
++            }
++            // ...existing code...
+       <div
+         style={{
+           marginTop: 8,
+@@ -3694,28 +3393,28 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
+     style={{ width: 18, height: 18 }}
+   />
+   <span>GW{selectedGameweek}</span>
+-</strong>
+-        </div>
+-        <div
+-          style={{
+-            display: "flex",
+-            justifyContent: "space-between",
+-            flexWrap: "wrap",
+-            gap: 6,
+-          }}
++  return (
++    <nav
++      style={{
++        display: "flex",
++        gap: 6,
++        flexWrap: "wrap",
++        justifyContent: "center",
++      }}
++    >
++      {TABS.map((t) => (
++        <button
++          key={t.id}
++          style={pillBtn(activeView === t.id)}
++          onClick={() => setActiveView(t.id)}
++          type="button"
+         >
+-          <span>
+-            Staked: <strong>{coinsOutcome.totalStake}</strong>
+-          </span>
+-          <span>
+-            Returned:{" "}
+-            <strong>{coinsOutcome.totalReturn.toFixed(2)}</strong>
+-          </span>
+-          <span>
+-            Profit:{" "}
+-            <strong
+-              style={{
+-                color:
++          {t.label}
++        </button>
++      ))}
++    </nav>
++  );
++}
+                   coinsOutcome.profit > 0
+                     ? theme.accent2
+                     : coinsOutcome.profit < 0
