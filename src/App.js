@@ -1217,55 +1217,35 @@ useEffect(() => {
   const onResize = () => {
     const mobile = window.innerWidth <= 600;
     setIsMobile(mobile);
-    if (!mobile) setShowMobileMenu(false);
-  };
-  window.addEventListener("resize", onResize);
-  return () => window.removeEventListener("resize", onResize);
-}, []);
-
-  // Persist app cache
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ predictions, results, odds, selectedGameweek })
-    );
-  }, [predictions, results, odds, selectedGameweek]);
-
-  // Persist notification preferences
-  useEffect(() => {
-    localStorage.setItem('notifPrefs', JSON.stringify(notifPrefs));
-  }, [notifPrefs]);
-
-  // Persist auth
-  useEffect(() => {
-    if (isLoggedIn && authToken && currentUserId && currentPlayer) {
-      localStorage.setItem(
-        AUTH_STORAGE_KEY,
-        JSON.stringify({
-          token: authToken,
-          userId: currentUserId,
-          username: currentPlayer,
-        })
-      );
-    } else {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
-    }
-  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
-
-  // Ensure at most one captain (isDouble) per gameweek for a single user
-function normalizeCaptainsByGameweek(predsForUser) {
-  if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
-
-  // Group captain fixtures by gameweek, including their updatedAt timestamp
-  const byGw = {};
-  for (const [fixtureId, pred] of Object.entries(predsForUser)) {
-    if (!pred || !pred.isDouble) continue;
-
-    const fx = FIXTURES.find((f) => f.id === Number(fixtureId));
-    if (!fx) continue;
-
-    const gw = fx.gameweek;
-    const ts =
+          if (isMobile && showMobileMenu) {
+            return (
+              <nav style={{
+                position: "absolute",
+                top: 70,
+                left: 0,
+                right: 0,
+                background: theme.panelHi,
+                zIndex: 1000,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                borderRadius: 8,
+                margin: "0 8px",
+                padding: "12px 0",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+              }}>
+                <button onClick={() => { setActiveView("predictions"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Predictions</button>
+                <button onClick={() => { setActiveView("results"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Results</button>
+                <button onClick={() => { setActiveView("coins"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Coins</button>
+                <button onClick={() => { setActiveView("leagues"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Leagues</button>
+                <button onClick={() => { setActiveView("summary"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Summary</button>
+                <button onClick={() => { setActiveView("history"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>History</button>
+                <button onClick={() => { setActiveView("settings"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Settings</button>
+                <button onClick={() => { setActiveView("rules"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Rules</button>
+              </nav>
+            );
+          }
+          return null;
       pred && typeof pred.updatedAt === "number" ? pred.updatedAt : 0;
 
     if (!byGw[gw]) byGw[gw] = [];
