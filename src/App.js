@@ -2404,6 +2404,31 @@ if (!isLoggedIn) {
               <button onClick={handleLogout}
                 style={pillBtn(false)}>Log out</button>
             </nav>
+          )}
+          {/* Mobile menu buttons (unchanged) */}
+          {isLoggedIn && isMobile && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: 6,
+                width: "100%",
+                flexWrap: "nowrap",
+              }}
+            >
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  border: `1px solid ${theme.line}`,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  height: 32,
+                  minWidth: 96,
                   textAlign: "center",
                 }}
               >
