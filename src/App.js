@@ -2404,34 +2404,6 @@ if (!isLoggedIn) {
               <button onClick={handleLogout}
                 style={pillBtn(false)}>Log out</button>
             </nav>
-          return (
-            <nav style={{
-              position: "absolute",
-              top: 70,
-              left: 0,
-              right: 0,
-              background: theme.panelHi,
-              zIndex: 1000,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-              borderRadius: 8,
-              margin: "0 8px",
-              padding: "12px 0",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              border: "3px solid red"
-            }}>
-              <div style={{color: 'red', fontWeight: 700, marginBottom: 8}}>DEBUG: Mobile menu visible</div>
-              <button onClick={() => { setActiveView("predictions"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Predictions</button>
-              <button onClick={() => { setActiveView("results"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Results</button>
-              <button onClick={() => { setActiveView("coins"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Coins</button>
-              <button onClick={() => { setActiveView("leagues"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Leagues</button>
-              <button onClick={() => { setActiveView("summary"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Summary</button>
-              <button onClick={() => { setActiveView("history"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>History</button>
-              <button onClick={() => { setActiveView("settings"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Settings</button>
-              <button onClick={() => { setActiveView("rules"); setShowMobileMenu(false); }} style={{ margin: 8, width: "90%" }}>Rules</button>
-            </nav>
-          );
                   textAlign: "center",
                 }}
               >
