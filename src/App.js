@@ -2383,7 +2383,7 @@ if (!isLoggedIn) {
             </section>
           </div>
         </div>
-      </div>
+      </section>
     );
   }
 
