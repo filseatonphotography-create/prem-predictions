@@ -5038,157 +5038,154 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       />
                       Deadline Approaching
                     </label>
-                        <label style={{ display: 'block', marginBottom: 8 }}>
-                          <input
-                            type="checkbox"
-                            checked={notifPrefs.results}
-                            onChange={e => setNotifPrefs(p => ({ ...p, results: e.target.checked }))}
-                            style={{ marginRight: 8 }}
-                          />
-                          Results In
-                        </label>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          if (!pushEnabled) {
-                            // Request permission
-                            try {
-                              const permission = await Notification.requestPermission();
-                              if (permission === 'granted') {
-                                const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
-                                if (!vapidRes.ok) throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
-                                const { publicKey } = await vapidRes.json();
-                                const registration = await navigator.serviceWorker.register('/service-worker.js');
-                                await navigator.serviceWorker.ready;
-                                const subscription = await registration.pushManager.subscribe({
-                                  userVisibleOnly: true,
-                                  applicationServerKey: publicKey
-                                });
-                                const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
-                                  method: 'POST',
-                                  headers: {
-                                    'Content-Type': 'application/json',
-                                    Authorization: `Bearer ${authToken}`
-                                  },
-                                  body: JSON.stringify({ subscription, notifPrefs })
-                                });
-                                if (subRes.ok) {
-                                  setPushEnabled(true);
-                                  alert('✅ Push notifications enabled!');
-                                } else {
-                                  throw new Error('Failed to save subscription');
-                                }
-                              } else {
-                                alert('❌ Permission denied for notifications');
-                              }
-                            } catch (err) {
-                              console.error('Push subscription failed:', err);
-                              alert('Failed to enable push notifications: ' + err.message);
+                    <label style={{ display: 'block', marginBottom: 8 }}>
+                      <input
+                        type="checkbox"
+                        checked={notifPrefs.results}
+                        onChange={e => setNotifPrefs(p => ({ ...p, results: e.target.checked }))}
+                        style={{ marginRight: 8 }}
+                      />
+                      Results In
+                    </label>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!pushEnabled) {
+                        // Request permission
+                        try {
+                          const permission = await Notification.requestPermission();
+                          if (permission === 'granted') {
+                            const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
+                            if (!vapidRes.ok) throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
+                            const { publicKey } = await vapidRes.json();
+                            const registration = await navigator.serviceWorker.register('/service-worker.js');
+                            await navigator.serviceWorker.ready;
+                            const subscription = await registration.pushManager.subscribe({
+                              userVisibleOnly: true,
+                              applicationServerKey: publicKey
+                            });
+                            const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
+                              method: 'POST',
+                              headers: {
+                                'Content-Type': 'application/json',
+                                Authorization: `Bearer ${authToken}`
+                              },
+                              body: JSON.stringify({ subscription, notifPrefs })
+                            });
+                            if (subRes.ok) {
+                              setPushEnabled(true);
+                              alert('✅ Push notifications enabled!');
+                            } else {
+                              throw new Error('Failed to save subscription');
                             }
                           } else {
-                            try {
-                              const registration = await navigator.serviceWorker.getRegistration();
-                              const subscription = await registration.pushManager.getSubscription();
-                              if (subscription) await subscription.unsubscribe();
-                              await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                  Authorization: `Bearer ${authToken}`
-                                }
-                              });
-                              setPushEnabled(false);
-                              alert('❌ Push notifications disabled');
-                            } catch (err) {
-                              console.error('Push unsubscribe failed:', err);
-                              alert('Failed to disable notifications: ' + err.message);
-                            }
+                            alert('❌ Permission denied for notifications');
                           }
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "12px 20px",
-                          borderRadius: 8,
-                          border: "none",
-                          background: pushEnabled ? "#ef4444" : theme.accent,
-                          color: "#fff",
-                          fontSize: 16,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          transition: "opacity 0.2s"
-                        }}
-                      >
-                        {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
-                      </button>
-                        <div style={{
-              background: theme.panelHi,
-              borderRadius: 12,
-              border: `1px solid ${theme.line}`,
-              padding: 20
-            }}>
-              <h3 style={{ 
-                fontSize: 18,
-                fontWeight: 700,
-                color: theme.text,
-                marginBottom: 16
-              }}>
-                👤 Account
-              </h3>
-
-              <div style={{ 
-                fontSize: 14, 
-                color: theme.muted,
-                marginBottom: 12
-              }}>
-                <strong>Logged in as:</strong> {currentPlayer}
-              </div>
-
-              <button
-                onClick={() => setShowPasswordModal(true)}
-                style={{
-                  width: "100%",
-                  padding: "10px 16px",
-                  borderRadius: 8,
-                  border: `1px solid ${theme.line}`,
-                  background: theme.panel,
-                  color: theme.text,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  marginBottom: 12
-                }}
-              >
-                🔑 Change Password
-              </button>
-
-              <button
-                onClick={() => {
-                  if (window.confirm("Are you sure you want to log out?")) {
-                    setIsLoggedIn(false);
-                    setAuthToken("");
-                    setCurrentPlayer("");
-                    setCurrentUserId("");
-                    localStorage.removeItem(AUTH_STORAGE_KEY);
-                    setActiveView("predictions");
-                  }
-                }}
-                style={{
-                  width: "100%",
-                  padding: "10px 16px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(239,68,68,0.3)",
-                  background: "rgba(239,68,68,0.1)",
-                  color: "#ef4444",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: "pointer"
-                }}
-              >
-                🚪 Log Out
-              </button>
-            </div>
-          </section>
-        )}
+                        } catch (err) {
+                          console.error('Push subscription failed:', err);
+                          alert('Failed to enable push notifications: ' + err.message);
+                        }
+                      } else {
+                        try {
+                          const registration = await navigator.serviceWorker.getRegistration();
+                          const subscription = await registration.pushManager.getSubscription();
+                          if (subscription) await subscription.unsubscribe();
+                          await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              Authorization: `Bearer ${authToken}`
+                            }
+                          });
+                          setPushEnabled(false);
+                          alert('❌ Push notifications disabled');
+                        } catch (err) {
+                          console.error('Push unsubscribe failed:', err);
+                          alert('Failed to disable notifications: ' + err.message);
+                        }
+                      }
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "12px 20px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: pushEnabled ? "#ef4444" : theme.accent,
+                      color: "#fff",
+                      fontSize: 16,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      transition: "opacity 0.2s"
+                    }}
+                  >
+                    {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
+                  </button>
+                  <div style={{
+                    background: theme.panelHi,
+                    borderRadius: 12,
+                    border: `1px solid ${theme.line}`,
+                    padding: 20
+                  }}>
+                    <h3 style={{ 
+                      fontSize: 18,
+                      fontWeight: 700,
+                      color: theme.text,
+                      marginBottom: 16
+                    }}>
+                      👤 Account
+                    </h3>
+                    <div style={{ 
+                      fontSize: 14, 
+                      color: theme.muted,
+                      marginBottom: 12
+                    }}>
+                      <strong>Logged in as:</strong> {currentPlayer}
+                    </div>
+                    <button
+                      onClick={() => setShowPasswordModal(true)}
+                      style={{
+                        width: "100%",
+                        padding: "10px 16px",
+                        borderRadius: 8,
+                        border: `1px solid ${theme.line}`,
+                        background: theme.panel,
+                        color: theme.text,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        marginBottom: 12
+                      }}
+                    >
+                      🔑 Change Password
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm("Are you sure you want to log out?")) {
+                          setIsLoggedIn(false);
+                          setAuthToken("");
+                          setCurrentPlayer("");
+                          setCurrentUserId("");
+                          localStorage.removeItem(AUTH_STORAGE_KEY);
+                          setActiveView("predictions");
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "10px 16px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(239,68,68,0.3)",
+                        background: "rgba(239,68,68,0.1)",
+                        color: "#ef4444",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: "pointer"
+                      }}
+                    >
+                      🚪 Log Out
+                    </button>
+                  </div>
+                </>
+              )}
 
       </div>
     </div>
