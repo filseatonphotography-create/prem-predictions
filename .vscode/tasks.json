@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Schedule weekly fixture update (cron)",
+			"type": "shell",
+			"command": "(crontab -l 2>/dev/null; echo \"0 3 * * 1 cd $PWD && FOOTBALL_DATA_TOKEN=18351cddefba4334a5edb3a60ea84ba3 node update-fixtures.js >> fixture-update.log 2>&1\") | crontab -",
+			"isBackground": false,
+			"problemMatcher": []
+		}
+	]
+}

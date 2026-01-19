@@ -23,8 +23,10 @@ const ODDS_API_KEY =
 // ---------------------------------------------------------------------------
 // CORS (allow Netlify + localhost + custom domain + Render backend)
 // ---------------------------------------------------------------------------
+
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",
+  "http://localhost:3001", // Added for local frontend dev
 
   // Netlify live + branch deploys (old URLs, fine to keep)
   "https://scintillating-macaron-cfbf04.netlify.app",
@@ -1203,7 +1205,11 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
     // Attach back and save
     userCoins[gwKey] = betsForGw;
     allCoins[userId] = userCoins;
+
     saveCoins(allCoins);
+    console.log(`[COINS] Saved coins for user ${userId}, gameweek ${gwKey}, fixture ${fxId}, stake ${stakeNum}`);
+    // Log current bets for this user/gameweek
+    console.log(`[COINS] Current bets for user ${userId}, gameweek ${gwKey}:`, JSON.stringify(betsForGw, null, 2));
 
     // Recalculate used + remaining for this GW
     let used = 0;
@@ -1230,21 +1236,25 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
 // Expects body like: { resultsByFixtureId: { "111": { homeGoals: 3, awayGoals: 1 }, ... } }
 app.post("/api/results/snapshot", authOptional, (req, res) => {
   try {
+    console.log("[SNAPSHOT] /api/results/snapshot called");
     const { resultsByFixtureId } = req.body || {};
     if (!resultsByFixtureId || typeof resultsByFixtureId !== "object") {
+      console.log("[SNAPSHOT] Invalid results payload", req.body);
       return res.status(400).json({ error: "Invalid results payload" });
     }
 
     const current = loadResults() || {};
+    console.log("[SNAPSHOT] Merging keys:", Object.keys(resultsByFixtureId));
 
     // Merge new snapshot into existing results (new data overwrites old)
     const merged = { ...current, ...resultsByFixtureId };
 
     saveResults(merged);
+    console.log("[SNAPSHOT] Results saved successfully");
 
     return res.json({ ok: true, updatedCount: Object.keys(resultsByFixtureId).length });
   } catch (err) {
-    console.error("save results snapshot error", err);
+    console.error("[SNAPSHOT] save results snapshot error", err);
     return res.status(500).json({ error: "Failed to save results snapshot" });
   }
 });
@@ -1333,9 +1343,9 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
     const leaderboard = [];
 
+
     Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
       const summary = computeSeasonCoinsForUser(coinsForUser, results);
-
       leaderboard.push({
         userId: String(userIdKey),
         player: userMap[userIdKey] || userMap[String(userIdKey)] || "Unknown",
@@ -1343,6 +1353,8 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
         totalReturn: summary.totalReturn,
         profit: summary.profit,
       });
+      // Log each user's summary for debugging
+      console.log(`[LEADERBOARD] User ${userIdKey}: stake=${summary.totalStake}, return=${summary.totalReturn}, profit=${summary.profit}`);
     });
 
     // Sort by profit descending (typical leaderboard)
