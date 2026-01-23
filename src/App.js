@@ -1,4 +1,63 @@
+// Fetch all users' avatars from backend
+async function apiGetAllAvatars(token) {
+  try {
+    const res = await fetch(
+      `https://prem-predictions-1.onrender.com/api/avatar/all`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Avatar fetch failed");
+    return await res.json(); // { userId: { seed, style }, ... }
+  } catch {
+    return {};
+  }
+}
+  // All users' avatars
+  const [avatarsByUserId, setAvatarsByUserId] = useState({});
+
+  // On login, fetch all avatars for leaderboard
+  useEffect(() => {
+    async function loadAllAvatars() {
+      if (isLoggedIn && authToken) {
+        const all = await apiGetAllAvatars(authToken);
+        if (all && typeof all === 'object') setAvatarsByUserId(all);
+      }
+    }
+    loadAllAvatars();
+  }, [isLoggedIn, authToken]);
 import React, { useState, useMemo, useEffect } from "react";
+// --- Backend avatar API helpers ---
+async function apiGetAvatar(token) {
+  try {
+    const res = await fetch(
+      `https://prem-predictions-1.onrender.com/api/avatar/me`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Avatar fetch failed");
+    return await res.json(); // { seed, style }
+  } catch {
+    return null;
+  }
+}
+
+async function apiSetAvatar(token, payload) {
+  try {
+    await fetch(
+      `https://prem-predictions-1.onrender.com/api/avatar/me`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+  } catch {}
+}
 import "./App.css";
 import FIXTURES from "./fixtures";
 const BUILD_ID = "2025-11-26-a";
@@ -760,12 +819,37 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   
   // Avatar customization
-  const [avatarSeed, setAvatarSeed] = useState(
-    localStorage.getItem('avatar_seed') || ''
-  );
-  const [avatarStyle, setAvatarStyle] = useState(
-    localStorage.getItem('avatar_style') || 'avataaars'
-  );
+  const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
+  const [avatarStyle, setAvatarStyle] = useState(localStorage.getItem('avatar_style') || 'avataaars');
+
+  // On login, try to load avatar from backend, fallback to localStorage
+  useEffect(() => {
+    async function loadAvatar() {
+      if (isLoggedIn && authToken) {
+        const remote = await apiGetAvatar(authToken);
+        if (remote && remote.seed) {
+          setAvatarSeed(remote.seed);
+          localStorage.setItem('avatar_seed', remote.seed);
+        }
+        if (remote && remote.style) {
+          setAvatarStyle(remote.style);
+          localStorage.setItem('avatar_style', remote.style);
+        }
+      }
+    }
+    loadAvatar();
+  }, [isLoggedIn, authToken]);
+
+  // Save avatar to localStorage and backend (if logged in)
+  function handleAvatarChange(newSeed, newStyle) {
+    setAvatarSeed(newSeed);
+    setAvatarStyle(newStyle);
+    localStorage.setItem('avatar_seed', newSeed);
+    localStorage.setItem('avatar_style', newStyle);
+    if (isLoggedIn && authToken) {
+      apiSetAvatar(authToken, { seed: newSeed, style: newStyle });
+    }
+  }
   
   // Change password modal state
 const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -3883,8 +3967,24 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     <PlayerAvatar 
                       name={row.player} 
                       size={36} 
-                      seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
-                      style={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+                      seed={(() => {
+                        // Use backend avatar if available for this user
+                        const userId = row.userId || row.player || '';
+                        if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
+                          return avatarsByUserId[userId].seed;
+                        }
+                        // Fallback: current user uses their own local avatar
+                        if (row.player === currentPlayer) return avatarSeed || currentPlayer;
+                        return row.player;
+                      })()}
+                      style={(() => {
+                        const userId = row.userId || row.player || '';
+                        if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
+                          return avatarsByUserId[userId].style;
+                        }
+                        if (row.player === currentPlayer) return avatarStyle;
+                        return 'avataaars';
+                      })()}
                     />
                     <div style={{ 
                       fontWeight: 700,
