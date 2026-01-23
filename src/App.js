@@ -184,7 +184,7 @@ function normalizeTeamName(name) {
   if (s === "burnley" || s === "clarets") s = "burnley";
   if (s === "everton" || s === "efc") s = "everton";
   if (s === "fulham" || s === "ffc") s = "fulham";
-  if (s === "brentford") s = "brentford";
+  if (s === "brentford" || s === "bre") s = "brentford";
   if (s === "leicester city" || s === "lcfc") s = "leicester city";
 
   s = s.replace(/football club/g, "");
@@ -1295,6 +1295,7 @@ useEffect(() => {
     try {
       const remote = await apiGetMyPredictions(authToken);
       if (!remote || typeof remote !== "object") return;
+
 
       const key = PLAYERS.includes(currentPlayer)
         ? currentPlayer
@@ -2972,8 +2973,7 @@ if (!isLoggedIn) {
       }}
     >
       {visibleFixtures.map((fixture) => {
-        const pred =
-          predictions[currentPredictionKey]?.[fixture.id] || {};
+        const pred = predictions[currentPredictionKey]?.[fixture.id] || {};
         const locked = isPredictionLocked(fixture);
         const o = odds[fixture.id] || {};
         // eslint-disable-next-line no-unused-vars
@@ -3166,7 +3166,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         background: locked ? theme.panelHi : theme.accent2,
                         color: locked ? theme.text : "#ffffff",
                         cursor: locked ? "not-allowed" : "pointer",
-                        fontSize: 16,
+                        fontSize: isMobile ? 15 : 16,
                         fontWeight: 700,
                         opacity: locked ? 0.3 : 1,
                       }}
@@ -3782,7 +3782,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 )}
               </div>
 
-              {/* Score inputs */}
+              {/* Score inputs row */}
               <div
                 style={{
                   display: "flex",
@@ -3880,11 +3880,19 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
                       {!emoji && <span>{i + 1}</span>}
                     </div>
-                    <PlayerAvatar 
-                      name={row.player} 
-                      size={36} 
-                      seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
-                      style={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+                    <PlayerAvatar
+                      name={row.player}
+                      size={36}
+                      seed={(() => {
+                        if (row.player === currentPlayer) return avatarSeed || currentPlayer;
+                        const user = allUsers?.find(u => u.username === row.player || u.userId === row.userId);
+                        return user?.avatarSeed || row.player;
+                      })()}
+                      style={(() => {
+                        if (row.player === currentPlayer) return avatarStyle;
+                        const user = allUsers?.find(u => u.username === row.player || u.userId === row.userId);
+                        return user?.avatarStyle || 'avataaars';
+                      })()}
                     />
                     <div style={{ 
                       fontWeight: 700,
@@ -3996,11 +4004,19 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
         {!emoji && <span>{i + 1}</span>}
       </div>
-      <PlayerAvatar 
-        name={row.player} 
-        size={36} 
-        seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
-        style={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+      <PlayerAvatar
+        name={row.player}
+        size={36}
+        seed={(() => {
+          if (row.player === currentPlayer) return avatarSeed || currentPlayer;
+          const user = allUsers?.find(u => u.username === row.player || u.userId === row.userId);
+          return user?.avatarSeed || row.player;
+        })()}
+        style={(() => {
+          if (row.player === currentPlayer) return avatarStyle;
+          const user = allUsers?.find(u => u.username === row.player || u.userId === row.userId);
+          return user?.avatarStyle || 'avataaars';
+        })()}
       />
       <div style={{ 
         fontWeight: 700,
@@ -4855,7 +4871,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   value={avatarStyle}
                   onChange={(e) => {
                     setAvatarStyle(e.target.value);
-                    localStorage.setItem('avatar_style', e.target.value);
+                    // Avatar style now syncs with backend via useEffect
                   }}
                   style={{
                     width: "100%",
@@ -4895,7 +4911,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   value={avatarSeed}
                   onChange={(e) => {
                     setAvatarSeed(e.target.value);
-                    localStorage.setItem('avatar_seed', e.target.value);
+                    // Avatar seed now syncs with backend via useEffect
                   }}
                   placeholder={`Leave blank to use "${currentPlayer}"`}
                   style={{
@@ -4923,7 +4939,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   // Generate a random seed for fun
                   const randomSeed = Math.random().toString(36).substring(2, 10);
                   setAvatarSeed(randomSeed);
-                  localStorage.setItem('avatar_seed', randomSeed);
+                  // Avatar seed now syncs with backend via useEffect
                 }}
                 style={{
                   width: "100%",
@@ -5151,7 +5167,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   width: "100%",
                   padding: "10px 16px",
                   borderRadius: 8,
-                  border: "1px solid rgba(239,68,68,0.3)",
+                  border: `1px solid rgba(239,68,68,0.3)`,
                   background: "rgba(239,68,68,0.1)",
                   color: "#ef4444",
                   fontSize: 14,

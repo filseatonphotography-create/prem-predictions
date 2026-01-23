@@ -1,3 +1,29 @@
+// ---------------------------------------------------------------------------
+// USER AVATAR ENDPOINTS
+// ---------------------------------------------------------------------------
+// GET /api/user/avatar - get current user's avatar settings
+app.get("/api/user/avatar", authMiddleware, (req, res) => {
+  const users = loadUsers();
+  const user = users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  return res.json({ avatarSeed: user.avatarSeed || "", avatarStyle: user.avatarStyle || "avataaars" });
+});
+
+// POST /api/user/avatar - set current user's avatar settings
+// { avatarSeed, avatarStyle }
+app.post("/api/user/avatar", authMiddleware, (req, res) => {
+  const { avatarSeed, avatarStyle } = req.body || {};
+  if (typeof avatarSeed !== "string" || typeof avatarStyle !== "string") {
+    return res.status(400).json({ error: "avatarSeed and avatarStyle are required as strings." });
+  }
+  const users = loadUsers();
+  const user = users.find((u) => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  user.avatarSeed = avatarSeed;
+  user.avatarStyle = avatarStyle;
+  saveUsers(users);
+  return res.json({ ok: true, avatarSeed, avatarStyle });
+});
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");

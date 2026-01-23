@@ -1,90 +1,185 @@
 {
   "1763398844150": {
-    "137": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "138": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "139": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "140": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "141": {
-      "homeGoals": "0",
-      "awayGoals": "2",
-      "isDouble": true,
-      "isTriple": false
-    },
-    "142": {
-      "homeGoals": "1",
-      "awayGoals": "2",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "143": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "144": {
-      "homeGoals": "0",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "145": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "146": {
-      "homeGoals": "2",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "147": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "148": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "149": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "150": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    }
+    "137": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "138": {"homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "139": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "140": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "141": {"homeGoals": "0", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "142": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "143": {"homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "144": {"homeGoals": "0", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "145": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "146": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "147": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "148": {"homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "149": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "150": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false}
   },
+  "1763801999658": {
+    "111": {"homeGoals": "2", "awayGoals": "0", "isDouble": true, "isTriple": false},
+    "112": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "113": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "114": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "115": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "116": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "117": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "118": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "119": {"homeGoals": "1", "awayGoals": "3", "isDouble": false, "isTriple": false},
+    "120": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "121": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "122": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "123": {"homeGoals": "1", "awayGoals": "3", "isDouble": true, "isTriple": false},
+    "124": {"homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "125": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "126": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "127": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "128": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "129": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "130": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "131": {"homeGoals": "2", "awayGoals": "0", "isDouble": true, "isTriple": false},
+    "132": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "133": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "134": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "135": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "136": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "137": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "138": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "139": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "140": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "141": {"homeGoals": "1", "awayGoals": "3", "isDouble": false, "isTriple": true},
+    "142": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "143": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "144": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "145": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "146": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "147": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "148": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "149": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "150": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false}
+  },
+  "1763802020494": {
+    "111": {"homeGoals": "3", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "112": {"homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "113": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "114": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "115": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "116": {"homeGoals": "0", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "117": {"homeGoals": "2", "awayGoals": "0", "isDouble": true, "isTriple": false},
+    "118": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "119": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "120": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "131": {"homeGoals": "3", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "132": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "133": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "134": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "135": {"homeGoals": "1", "awayGoals": "4", "isDouble": true, "isTriple": false},
+    "136": {"homeGoals": "0", "awayGoals": "3", "isDouble": false, "isTriple": false},
+    "137": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "138": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "139": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "140": {"homeGoals": "0", "awayGoals": "3", "isDouble": false, "isTriple": false},
+    "141": {"homeGoals": "0", "awayGoals": "3", "isDouble": false, "isTriple": false},
+    "142": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "143": {"homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "144": {"homeGoals": "0", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "145": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "146": {"homeGoals": "1", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "147": {"homeGoals": "3", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "148": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "149": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "150": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false}
+  },
+  "1763791297309": {
+    "112": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "113": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "114": {"homeGoals": "1", "awayGoals": "3", "isDouble": true, "isTriple": false},
+    "115": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "117": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "120": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false}
+  },
+  "1763812904100": {
+    "111": {"homeGoals": "0", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "112": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "113": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "115": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "116": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "117": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "118": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "119": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "120": {"homeGoals": "0", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "121": {"homeGoals": "3", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "122": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "123": {"homeGoals": "0", "awayGoals": "1", "isDouble": true, "isTriple": false},
+    "124": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "125": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "126": {"homeGoals": "3", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "127": {"homeGoals": "2", "awayGoals": "1", "isDouble": true, "isTriple": false},
+    "128": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "129": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "130": {"homeGoals": "2", "awayGoals": "1", "isDouble": true, "isTriple": false},
+    "131": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "132": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "133": {"homeGoals": "1", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "134": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "135": {"homeGoals": "3", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "136": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "137": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "138": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "139": {"homeGoals": "3", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "140": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "141": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "142": {"homeGoals": "1", "awayGoals": "3", "isDouble": false, "isTriple": false},
+    "143": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "144": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "145": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "146": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "147": {"homeGoals": "3", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "148": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "149": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "150": {"homeGoals": "0", "awayGoals": "2", "isDouble": true, "isTriple": false}
+  },
+  "1763813732635": {
+    "111": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "112": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "113": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "115": {"homeGoals": "0", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "116": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "117": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "118": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "119": {"homeGoals": "1", "awayGoals": "3", "isDouble": false, "isTriple": false},
+    "120": {"homeGoals": "0", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "121": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "122": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "123": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "124": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "125": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "126": {"homeGoals": "3", "awayGoals": "1", "isDouble": false, "isTriple": true},
+    "127": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "128": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "129": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "130": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "131": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "132": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "133": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "134": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "135": {"homeGoals": "1", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "136": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "137": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "138": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "139": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "140": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "141": {"homeGoals": "1", "awayGoals": "2", "isDouble": true, "isTriple": false},
+    "142": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "143": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "144": {"homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "145": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "146": {"homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "147": {"homeGoals": "2", "awayGoals": "2", "isDouble": false, "isTriple": false},
+    "148": {"homeGoals": "2", "awayGoals": "0", "isDouble": false, "isTriple": false},
+    "149": {"homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false},
+    "150": {"homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false}
+  }
+}
   "1763801999658": {
     "111": {
       "homeGoals": "2",
@@ -1019,90 +1114,20 @@
       "isTriple": false
     }
   },
-  "1763789072925": {
-    "137": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "138": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "139": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "140": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "141": {
-      "homeGoals": "0",
-      "awayGoals": "2",
-      "isDouble": true,
-      "isTriple": false
-    },
-    "142": {
-      "homeGoals": "1",
-      "awayGoals": "2",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "143": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "144": {
-      "homeGoals": "0",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "145": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "146": {
-      "homeGoals": "2",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "147": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "148": {
-      "homeGoals": "1",
-      "awayGoals": "0",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "149": {
-      "homeGoals": "1",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    },
-    "150": {
-      "homeGoals": "0",
-      "awayGoals": "1",
-      "isDouble": false,
-      "isTriple": false
-    }
+  "1763874000000": {
+    "137": { "homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "138": { "homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false },
+    "139": { "homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "140": { "homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "141": { "homeGoals": "0", "awayGoals": "2", "isDouble": true, "isTriple": false },
+    "142": { "homeGoals": "1", "awayGoals": "2", "isDouble": false, "isTriple": false },
+    "143": { "homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false },
+    "144": { "homeGoals": "0", "awayGoals": "0", "isDouble": false, "isTriple": false },
+    "145": { "homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "146": { "homeGoals": "2", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "147": { "homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "148": { "homeGoals": "1", "awayGoals": "0", "isDouble": false, "isTriple": false },
+    "149": { "homeGoals": "1", "awayGoals": "1", "isDouble": false, "isTriple": false },
+    "150": { "homeGoals": "0", "awayGoals": "1", "isDouble": false, "isTriple": false }
   }
 }

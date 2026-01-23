@@ -3,56 +3,74 @@
     "id": "1763801801288",
     "username": "Ian",
     "passwordHash": "0ee0be1c9691c2de7eee6c8df2890fdb:c9a491cf6fc8659496c271d23ff69eab5c741795d3f55ce513a9064b5aa3486c26ad8489c2c504971ca11aa2eac98fbc2d176c162c77ed853b4c3fcdf4f079ba",
-    "createdAt": "2025-11-22T08:56:41.295Z"
+    "createdAt": "2025-11-22T08:56:41.295Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "1763801801299",
     "username": "Tom",
     "passwordHash": "ed5b75eb72750dc3621f1ee99f509b1f:dc70802b15f1df90a91920da5c4145f09330cbc6fde02730b2d67d4785e0fcdb79f818048683e8118b21a1015411c0d106c0d5ca7a4bc8a67bf23dc41adf09da",
     "createdAt": "2025-11-22T09:10:00.000Z",
-    "passwordResetAt": "2026-01-19T10:44:53.568Z"
+    "passwordResetAt": "2026-01-19T10:44:53.568Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "1763801999658",
     "username": "Dave",
     "passwordHash": "d7fe0fa3a0dc756a1c182fe6469c3d8d:0c4a25930788d3258cd69e1e83cedfb20507b2f64e2f7bd1f6efe0ba19eaaf62b56c75c1e11cb8e5e7edb88c18dc8dd459c063084baeef5d2e20cf6016b9c7bd",
-    "createdAt": "2025-11-22T08:59:59.664Z"
+    "createdAt": "2025-11-22T08:59:59.664Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "1763802020494",
     "username": "Anthony",
     "passwordHash": "7c243d3aaf8d7b1bec6de6ae0d0e7a1d:9cccd7d38dbec854da07c98cfb63ba3bc19fc380b63f7b8aa7892f0bbe19b1a247421aa04535b87ecc7d41488b5e462cf5543c07dcadd0740db8ebd10606f3ec",
-    "createdAt": "2025-11-22T09:00:20.501Z"
+    "createdAt": "2025-11-22T09:00:20.501Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "1763812904100",
     "username": "Steve",
     "passwordHash": "$2b$10$dcmKmfTupb6acgFeJcolJOfWYB0e367axDf.e9FUJg7owyJyeIFnC",
-    "createdAt": "2025-11-22T12:01:44.106Z"
+    "createdAt": "2025-11-22T12:01:44.106Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "1763813732635",
     "username": "Emma",
     "passwordHash": "02b50d760fb285ab37f1de9cccb0c0cd:03719abd5486728eb89bbd86bb9fc2feb53425173423b54f162b4876b2fbfc1eec0097e52ee95f6e68f83a18ad5a74431c4e0af453b0f53ce4aa14808444aabc",
     "createdAt": "2025-11-22T12:15:32.641Z",
-    "passwordResetAt": "2025-11-23T12:55:43.668Z"
+    "passwordResetAt": "2025-11-23T12:55:43.668Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "1763874000000",
     "username": "Phil",
     "passwordHash": "40bb7cc6528191d077fbbe38b5bf979f:9c786e475b524a161401c4b391bb119bdd92fd73c974ac26633e0ccebad7bfc00cfb531d392196d25d454fd3cd913e54aad5ee5a3f0b018757cf568119f093ff",
-    "createdAt": "2025-11-23T04:53:13.270Z"
+    "createdAt": "2025-11-23T04:53:13.270Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "52f4cd06-e173-4a6d-8bf2-1286866a16eb",
     "username": "testuser",
     "passwordHash": "eedada25166893a8ba8ea5a7db18998b:20f229f40fa7d9f3a2c4c9bd58c9680ce4c683c402ca9b0c545151e38e5efa9dd90e1775a0973a6a9d1b4c167cc8a19d70622de6134065a6a138b09dcbefbc7f",
-    "createdAt": "2026-01-19T10:04:56.483Z"
+    "createdAt": "2026-01-19T10:04:56.483Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   },
   {
     "id": "278fac32-18a4-47dd-b7c1-ea4c9850b680",
     "username": "testuser2",
     "passwordHash": "5c983f3a466edb22558d4b01e6b80622:3c7fe3f6fa94c16fe50532b0c78bfde93bb7a6d18737c7383010ff255fab5b012ccba7ac37916597c3d7ba51d57e0bb8c593a8a645b3865b1313f88d24ad7f8b",
-    "createdAt": "2026-01-19T10:06:12.570Z"
+    "createdAt": "2026-01-19T10:06:12.570Z",
+    "avatarSeed": "",
+    "avatarStyle": "avataaars"
   }
 ]
