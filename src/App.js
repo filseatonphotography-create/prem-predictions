@@ -1,3 +1,4 @@
+
 // Fetch all users' avatars from backend
 async function apiGetAllAvatars(token) {
   try {
@@ -799,6 +800,21 @@ const TAGLINES = [
 
 const randomTagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
 export default function App() {
+  // ...existing code...
+
+  // All users' avatars
+  const [avatarsByUserId, setAvatarsByUserId] = useState({});
+
+  // On login, fetch all avatars for leaderboard
+  useEffect(() => {
+    async function loadAllAvatars() {
+      if (isLoggedIn && authToken) {
+        const all = await apiGetAllAvatars(authToken);
+        if (all && typeof all === 'object') setAvatarsByUserId(all);
+      }
+    }
+    loadAllAvatars();
+  }, [isLoggedIn, authToken]);
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
     try {
