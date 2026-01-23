@@ -64,6 +64,41 @@ app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // DATA FILES
+const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
+
+// Avatars (userId -> { seed, style })
+const loadAvatars = () => loadJson(AVATARS_FILE, {});
+const saveAvatars = (avatars) => saveJson(AVATARS_FILE, avatars);
+// ---------------------------------------------------------------------------
+// AVATAR ENDPOINTS
+// ---------------------------------------------------------------------------
+
+// Get current user's avatar
+app.get("/api/avatar/me", authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const avatars = loadAvatars();
+  const avatar = avatars[userId] || {};
+  res.json(avatar);
+});
+
+// Set current user's avatar
+app.post("/api/avatar/me", authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const { seed, style } = req.body || {};
+  if (!seed || !style) {
+    return res.status(400).json({ error: "Missing seed or style" });
+  }
+  const avatars = loadAvatars();
+  avatars[userId] = { seed, style };
+  saveAvatars(avatars);
+  res.json({ ok: true });
+});
+
+// Get all users' avatars
+app.get("/api/avatar/all", authMiddleware, (req, res) => {
+  const avatars = loadAvatars();
+  res.json(avatars);
+});
 // ---------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
