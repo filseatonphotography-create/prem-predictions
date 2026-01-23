@@ -1,4 +1,25 @@
 
+
+import React, { useState, useMemo, useEffect } from "react";
+import "./App.css";
+import FIXTURES from "./fixtures";
+
+// Fetch current user's avatar from backend
+async function apiGetAvatar(token) {
+  try {
+    const res = await fetch(
+      `https://prem-predictions-1.onrender.com/api/avatar/me`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Avatar fetch failed");
+    return await res.json(); // { seed, style }
+  } catch {
+    return null;
+  }
+}
+
 // Fetch all users' avatars from backend
 async function apiGetAllAvatars(token) {
   try {
@@ -12,35 +33,6 @@ async function apiGetAllAvatars(token) {
     return await res.json(); // { userId: { seed, style }, ... }
   } catch {
     return {};
-  }
-}
-  // All users' avatars
-  const [avatarsByUserId, setAvatarsByUserId] = useState({});
-
-  // On login, fetch all avatars for leaderboard
-  useEffect(() => {
-    async function loadAllAvatars() {
-      if (isLoggedIn && authToken) {
-        const all = await apiGetAllAvatars(authToken);
-        if (all && typeof all === 'object') setAvatarsByUserId(all);
-      }
-    }
-    loadAllAvatars();
-  }, [isLoggedIn, authToken]);
-import React, { useState, useMemo, useEffect } from "react";
-// --- Backend avatar API helpers ---
-async function apiGetAvatar(token) {
-  try {
-    const res = await fetch(
-      `https://prem-predictions-1.onrender.com/api/avatar/me`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-    if (!res.ok) throw new Error("Avatar fetch failed");
-    return await res.json(); // { seed, style }
-  } catch {
-    return null;
   }
 }
 
@@ -59,8 +51,6 @@ async function apiSetAvatar(token, payload) {
     );
   } catch {}
 }
-import "./App.css";
-import FIXTURES from "./fixtures";
 const BUILD_ID = "2025-11-26-a";
 const CoinIcon = () => (
   <img
@@ -800,7 +790,9 @@ const TAGLINES = [
 
 const randomTagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
 export default function App() {
-  // ...existing code...
+  // Auth state (must be first for use in effects)
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authToken, setAuthToken] = useState("");
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
@@ -815,6 +807,7 @@ export default function App() {
     }
     loadAllAvatars();
   }, [isLoggedIn, authToken]);
+
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
     try {
@@ -826,14 +819,11 @@ export default function App() {
     }
   };
 
-  // Auth state
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [authToken, setAuthToken] = useState("");
   const [currentPlayer, setCurrentPlayer] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  
+
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
   const [avatarStyle, setAvatarStyle] = useState(localStorage.getItem('avatar_style') || 'avataaars');
