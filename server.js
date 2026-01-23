@@ -64,11 +64,6 @@ app.use(express.json());
 
 // ---------------------------------------------------------------------------
 // DATA FILES
-const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
-
-// Avatars (userId -> { seed, style })
-const loadAvatars = () => loadJson(AVATARS_FILE, {});
-const saveAvatars = (avatars) => saveJson(AVATARS_FILE, avatars);
 // ---------------------------------------------------------------------------
 // AVATAR ENDPOINTS
 // ---------------------------------------------------------------------------
@@ -101,6 +96,11 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
 });
 // ---------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, "data");
+const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
+
+// Avatars (userId -> { seed, style })
+const loadAvatars = () => loadJson(AVATARS_FILE, {});
+const saveAvatars = (avatars) => saveJson(AVATARS_FILE, avatars);
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");

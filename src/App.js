@@ -3974,22 +3974,20 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       name={row.player}
                       size={36}
                       seed={(() => {
-                        // Use backend avatar if available for this user
+                        // Always use backend avatar if available for any user (including current)
                         const userId = row.userId || row.player || '';
                         if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
                           return avatarsByUserId[userId].seed;
                         }
-                        // Fallback: current user uses their own local avatar
-                        if (row.player === currentPlayer) return avatarSeed || currentPlayer;
-                        return row.player;
+                        // Fallback: use local avatar only if backend missing
+                        return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
                       })()}
                       style={(() => {
                         const userId = row.userId || row.player || '';
                         if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
                           return avatarsByUserId[userId].style;
                         }
-                        if (row.player === currentPlayer) return avatarStyle;
-                        return 'avataaars';
+                        return row.player === currentPlayer ? avatarStyle : 'avataaars';
                       })()}
                     />
                     <div style={{ 
@@ -5024,6 +5022,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 </div>
               </div>
 
+
               <button
                 onClick={() => {
                   // Generate a random seed for fun
@@ -5045,6 +5044,26 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                 }}
               >
                 🎲 Random Character
+              </button>
+
+              <button
+                onClick={() => {
+                  handleAvatarChange(avatarSeed || currentPlayer, avatarStyle);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.accent2}`,
+                  background: 'rgba(34,197,94,0.12)',
+                  color: theme.accent2,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  marginBottom: 8
+                }}
+              >
+                💾 Save Avatar
               </button>
 
               <button
