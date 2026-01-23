@@ -3971,8 +3971,8 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       {!emoji && <span>{i + 1}</span>}
                     </div>
                     <PlayerAvatar 
-                      name={row.player} 
-                      size={36} 
+                      name={row.player}
+                      size={36}
                       seed={(() => {
                         // Use backend avatar if available for this user
                         const userId = row.userId || row.player || '';
