@@ -1550,11 +1550,12 @@ useEffect(() => {
           predsForCalc[k] = { ...predictions["Phil_merged"] };
           return;
         }
+        // Only use this user's predictions, do not fallback to any other user
         const legacyData = predictions[k] || {};
         const userId = userIdByKey[k];
         const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
 
-        // Normalise all fixture IDs to STRING keys to avoid captain shifting
+        // Normalise all fixture IDs to STRING keys
         const legacyDataStr = Object.fromEntries(
           Object.entries(legacyData).map(([id, val]) => [String(id), val])
         );
@@ -1562,11 +1563,10 @@ useEffect(() => {
           Object.entries(cloudData).map(([id, val]) => [String(id), val])
         );
 
-        // Merge local + cloud, with cloud winning
-        predsForCalc[k] = {
-          ...legacyDataStr, // spreadsheet/historic
-          ...cloudDataStr,  // ACTUAL CLOUD PREDICTIONS WIN
-        };
+        // Only use this user's predictions, do not merge from any other user
+        predsForCalc[k] = Object.keys(cloudDataStr).length > 0
+          ? { ...cloudDataStr }
+          : { ...legacyDataStr };
       });
 
       // 5) Compute weekly totals (spreadsheet base + recalculated points)
@@ -2014,7 +2014,7 @@ const leaderboard = useMemo(() => {
     if (computedLeagueTotals) {
     // Collapse any legacy-userId keys into their legacy name
     const LEGACY_MAP = {
-      Tom: "1763791297309",
+      Tom: "1763801801299",
       Ian: "1763801801288",
       Dave: "1763801999658",
       Anthony: "1763802020494",
@@ -2082,7 +2082,11 @@ const leaderboard = useMemo(() => {
         if (fixture.gameweek !== gw) return;
         const res = results[fixture.id];
         if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-        score += getTotalPoints(predictions[player]?.[fixture.id], res);
+        // Only add points if this player has a prediction for this fixture
+        if (predictions[player] && predictions[player][fixture.id]) {
+          score += getTotalPoints(predictions[player][fixture.id], res);
+        }
+        // If no prediction, do not add any points (remains at previous value)
       });
       row[player] = score;
     });
