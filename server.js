@@ -1,3 +1,4 @@
+
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -11,6 +12,33 @@ console.log("SERVER BUILD:", BUILD_ID);
 const PORT = process.env.PORT || 5001;
 
 const app = express();
+
+// GET /api/coins/user/:userId?gameweek=GW
+// Returns coins state for any user (read-only, no auth restrictions)
+app.get("/api/coins/user/:userId", (req, res) => {
+  const { userId } = req.params;
+  const gw = req.query.gameweek;
+  if (!userId || !gw) {
+    return res.status(400).json({ error: "Missing userId or gameweek" });
+  }
+  const coins = loadCoins();
+  const userCoins = coins[userId] || {};
+  const bets = userCoins[gw] || {};
+  let used = 0;
+  if (bets && typeof bets === "object") {
+    Object.values(bets).forEach((bet) => {
+      if (bet && bet.stake) used += Number(bet.stake) || 0;
+    });
+  }
+  res.json({
+    gameweek: gw,
+    used,
+    remaining: 10 - used,
+    bets,
+    loading: false,
+    error: "",
+  });
+});
 
 // ...existing code...
 // === TOKENS ===

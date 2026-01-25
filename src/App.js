@@ -1,30 +1,13 @@
-
-
 import React, { useState, useMemo, useEffect } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 
-// Fetch current user's avatar from backend
-async function apiGetAvatar(token) {
-  try {
-    const res = await fetch(
-      `https://prem-predictions-1.onrender.com/api/avatar/me`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
-    if (!res.ok) throw new Error("Avatar fetch failed");
-    return await res.json(); // { seed, style }
-  } catch {
-    return null;
-  }
-}
-
+// ---- CONFIG ----
 // Fetch all users' avatars from backend
 async function apiGetAllAvatars(token) {
   try {
     const res = await fetch(
-      `https://prem-predictions-1.onrender.com/api/avatar/all`,
+      `${BACKEND_BASE}/api/avatar/all`,
       {
         headers: { Authorization: `Bearer ${token}` },
       }
@@ -36,10 +19,11 @@ async function apiGetAllAvatars(token) {
   }
 }
 
+// Set current user's avatar
 async function apiSetAvatar(token, payload) {
   try {
     await fetch(
-      `https://prem-predictions-1.onrender.com/api/avatar/me`,
+      `${BACKEND_BASE}/api/avatar/me`,
       {
         method: "POST",
         headers: {
@@ -51,111 +35,15 @@ async function apiSetAvatar(token, payload) {
     );
   } catch {}
 }
-const BUILD_ID = "2025-11-26-a";
-const CoinIcon = () => (
-  <img
-    src="/coin.png"
-    alt="coin"
-    style={{
-      width: 22,
-      height: 22,
-      verticalAlign: "middle",
-      marginRight: 4,
-    }}
-  />
-);
 
-// Player Avatar Component
-const PlayerAvatar = ({ name, size = 32, seed = '', style = 'avataaars' }) => {
-  // Use custom seed if provided, otherwise use name
-  const avatarSeed = seed || name || 'user';
-  
-  // Use DiceBear Avatars API - better CORS support
-  const avatarUrl = `https://api.dicebear.com/7.x/${style}/svg?seed=${encodeURIComponent(avatarSeed)}`;
-  
-  return (
-    <img
-      src={avatarUrl}
-      alt={name}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        flexShrink: 0,
-        border: "2px solid rgba(255,255,255,0.2)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        background: "#fff"
-      }}
-    />
-  );
-};
-
-const MIGRATION_FLAG = "phil_legacy_migrated_v1";
-
-// --- TEAM ABBREVIATIONS FOR PROBABILITIES ---
-const TEAM_ABBREVIATIONS = {
-  Arsenal: "ARS",
-  "Aston Villa": "AVL",
-  Bournemouth: "BOU",
-  Brentford: "BRE",
-  Brighton: "BHA",
-  Burnley: "BUR",
-  Chelsea: "CHE",
-  "Crystal Palace": "CRY",
-  Everton: "EVE",
-  Fulham: "FUL",
-  Liverpool: "LIV",
-  Luton: "LUT",
-
-  // ↓↓↓ MANCHESTER TEAMS ↓↓↓
-  "Man City": "MCI",
-  "Man United": "MUN",
-  "Manchester United": "MUN",
-  "Man Utd": "MUN",
-
-  Newcastle: "NEW",
-  Nottingham: "NOT",
-  Southampton: "SOU",
-  Tottenham: "TOT",
-  "West Ham": "WHU",
-  Wolves: "WOL",
-  "Sunderland": "SUN",
-
-  // ↓↓↓ FOREST + LEEDS ↓↓↓
-  "Nott'm Forest": "NFO",
-  "Nottingham Forest": "NFO",
-  Leeds: "LEE",
-  "Leeds United": "LEE",
-
-  Spurs: "TOT",
-  "Tottenham Hotspur": "TOT",
-};
-
-/**
- * PREMIER LEAGUE PREDICTION GAME — Rebuilt cloud-synced + redesigned UI
- * Requirements covered:
- * 1) Always use Render backend for predictions (unless DEV_USE_LOCAL true)
- * 2) Auth persistence in localStorage key "pl_prediction_auth_v1"
- * 3) Load cloud predictions on login/restore and merge instantly
- * 4) Legacy player mapping handled by backend (frontend just treats names normally)
- * 5) Admin reset handled by backend
- * 6) CORS handled by backend
- * 7) Results + odds endpoints preserved
- */
-
-// ---- CONFIG ----
+// Dummy for legacy code: always returns empty (since reverted)
+async function apiGetUserCoins() { return {}; }
 const DEV_USE_LOCAL = false; // always use cloud backend
-
 const BACKEND_BASE = "https://prem-predictions-1.onrender.com";
-
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
-
-// Legacy/original players for history/league views
+const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
-
-// Optional team badges – flat icons stored in /public/badges
-// (We'll add the actual image files in the next step.)
 const TEAM_BADGES = {
   Arsenal: "/badges/arsenal.png",
   "Aston Villa": "/badges/aston_ville.png",
@@ -176,9 +64,9 @@ const TEAM_BADGES = {
   "Manchester Utd": "/badges/man_united.png",
   Newcastle: "/badges/newcastle.png",
   "Nottingham Forest": "/badges/nottingham_forest.png",
-Forest: "/badges/nottingham_forest.png",
-Nottingham: "/badges/nottingham_forest.png",
-"Nott'm Forest": "/badges/nottingham_forest.png",
+  Forest: "/badges/nottingham_forest.png",
+  Nottingham: "/badges/nottingham_forest.png",
+  "Nott'm Forest": "/badges/nottingham_forest.png",
   Sunderland: "/badges/sunderland.png",
   Spurs: "/badges/spurs.png",
   "West Ham": "/badges/west_ham.png",
@@ -186,6 +74,38 @@ Nottingham: "/badges/nottingham_forest.png",
   "Leeds United": "/badges/leeds.png",
   Wolves: "/badges/wolves.png",
 };
+
+// Dummy PlayerAvatar for legacy code (replace with real if needed)
+const PlayerAvatar = () => null;
+
+// Fetch current user's avatar from backend
+async function apiGetAvatar(token) {
+  try {
+    const res = await fetch(
+      `https://prem-predictions-1.onrender.com/api/avatar/me`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+    if (!res.ok) throw new Error("Avatar fetch failed");
+    return await res.json(); // { seed, style }
+  } catch {
+    return null;
+  }
+}
+
+const CoinIcon = () => (
+  <img
+    src="/coin.png"
+    alt="coin"
+    style={{
+      width: 22,
+      height: 22,
+      verticalAlign: "middle",
+      marginRight: 4,
+    }}
+  />
+);
 
 
 // Spreadsheet weekly totals (historic seed)
@@ -1054,14 +974,92 @@ const [coinsState, setCoinsState] = useState({
   const [leagueSuccess, setLeagueSuccess] = useState("");
   const [leaguesLoading, setLeaguesLoading] = useState(false);
   const gwLocked = isGameweekLocked(selectedGameweek);
-  const isOriginalPlayer = PLAYERS.includes(currentPlayer);
+  // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
+  // Always use userId for the logged-in user, even if their name is selected
   const currentPredictionKey = useMemo(() => {
-    if (PLAYERS.includes(currentPlayer)) return currentPlayer;
-    if (currentUserId) return currentUserId;
+    // If Phil is selected, merge predictions from both Phil IDs
+    if (currentPlayer === "Phil") {
+      return "Phil_merged";
+    }
+    if (currentPlayer === currentUserId) {
+      return currentUserId;
+    }
     return currentPlayer;
   }, [currentPlayer, currentUserId]);
+
+// Merge Phil's predictions from both IDs into a synthetic key
+useEffect(() => {
+  if (typeof window !== 'undefined') {
+    if (currentPlayer === "Phil") {
+      const oldPhil = predictions["1763874000000"] || {};
+      const newPhil = predictions["1763789072925"] || {};
+      // Merge, newPhil wins if duplicate fixture
+      const merged = { ...oldPhil, ...newPhil };
+      setPredictions((prev) => ({
+        ...prev,
+        Phil_merged: merged,
+      }));
+    }
+  }
+  // eslint-disable-next-line
+}, [predictions["1763874000000"], predictions["1763789072925"], currentPlayer]);
+
+// ...existing code...
+
+
+
+// ...existing code...
+
+// (Place this after visibleFixtures is defined)
+
+// ---------- DERIVED ----------
+const visibleFixtures = FIXTURES.filter(
+  (f) => f.gameweek === selectedGameweek
+);
+
+// DEBUG: Log predictions keys, currentPredictionKey, and visibleFixtures (after visibleFixtures is defined)
+useEffect(() => {
+  if (
+    typeof window !== 'undefined' &&
+    typeof visibleFixtures !== 'undefined' &&
+    Array.isArray(visibleFixtures)
+  ) {
+    console.log('[DEBUG] predictions keys:', Object.keys(predictions));
+    console.log('[DEBUG] currentPredictionKey:', currentPredictionKey);
+    if (predictions[currentPredictionKey]) {
+      console.log('[DEBUG] predictions for key:', predictions[currentPredictionKey]);
+      const predictionKeys = Object.keys(predictions[currentPredictionKey] || {});
+      console.log('[DEBUG] prediction keys for currentPredictionKey:', predictionKeys);
+    } else {
+      console.log('[DEBUG] No predictions for currentPredictionKey');
+    }
+    console.log('[DEBUG] visibleFixtures for GW', selectedGameweek, visibleFixtures.map(f => f.id));
+  }
+}, [predictions, currentPredictionKey, visibleFixtures, selectedGameweek]);
+
+// ...existing code...
+
+// DEBUG: Log predictions keys, currentPredictionKey, and visibleFixtures (after visibleFixtures is defined)
+useEffect(() => {
+  if (
+    typeof window !== 'undefined' &&
+    typeof visibleFixtures !== 'undefined' &&
+    Array.isArray(visibleFixtures)
+  ) {
+    console.log('[DEBUG] predictions keys:', Object.keys(predictions));
+    console.log('[DEBUG] currentPredictionKey:', currentPredictionKey);
+    if (predictions[currentPredictionKey]) {
+      console.log('[DEBUG] predictions for key:', predictions[currentPredictionKey]);
+      const predictionKeys = Object.keys(predictions[currentPredictionKey] || {});
+      console.log('[DEBUG] prediction keys for currentPredictionKey:', predictionKeys);
+    } else {
+      console.log('[DEBUG] No predictions for currentPredictionKey');
+    }
+    console.log('[DEBUG] visibleFixtures for GW', selectedGameweek, visibleFixtures.map(f => f.id));
+  }
+}, [predictions, currentPredictionKey, visibleFixtures, selectedGameweek]);
 
   // ---------- INIT ----------
 useEffect(() => {
@@ -1185,7 +1183,15 @@ useEffect(() => {
     error: "",
   }));
 
-  apiGetMyCoins(authToken, selectedGameweek)
+  // Only allow editing for logged-in user; view-only for others
+  const isViewingOwn = currentPlayer === loginName || currentPlayer === currentUserId;
+  // const userIdToFetch = isViewingOwn ? null : currentPlayer;
+  const fetchCoins = isViewingOwn
+    ? apiGetMyCoins(authToken, selectedGameweek)
+    : apiGetUserCoins(currentPlayer, selectedGameweek);
+
+
+  Promise.resolve(fetchCoins)
     .then((data) => {
       if (cancelled) return;
       setCoinsState({
@@ -1199,21 +1205,31 @@ useEffect(() => {
     })
     .catch((err) => {
       if (cancelled) return;
-      setCoinsState((prev) => ({
-        ...prev,
-        gameweek: selectedGameweek,
-        loading: false,
-        error: err?.message || "Failed to load coins",
-        used: 0,
-        remaining: 10,
-        bets: {},
-      }));
+      // Only reset to empty if viewing your own coins
+      const isViewingOwn = currentPlayer === loginName || currentPlayer === currentUserId;
+      if (isViewingOwn) {
+        setCoinsState((prev) => ({
+          ...prev,
+          gameweek: selectedGameweek,
+          loading: false,
+          error: err?.message || "Failed to load coins",
+          used: 0,
+          remaining: 10,
+          bets: {},
+        }));
+      } else {
+        setCoinsState((prev) => ({
+          ...prev,
+          loading: false,
+          error: err?.message || "Failed to load coins",
+        }));
+      }
     });
 
   return () => {
     cancelled = true;
   };
-}, [authToken, selectedGameweek]);
+}, [authToken, selectedGameweek, currentPlayer, loginName, currentUserId]);
 
 // Check if push notifications are supported
 useEffect(() => {
@@ -1376,35 +1392,34 @@ function normalizeCaptainsByGameweek(predsForUser) {
   return cloned;
 }
 
-  // Load cloud predictions after login/restore
-useEffect(() => {
-  async function loadCloud() {
-    if (DEV_USE_LOCAL) return;
-    if (!isLoggedIn || !authToken || !currentUserId) return;
+  // Load cloud predictions after login/restore (ONLY for logged-in user)
+  useEffect(() => {
+    async function loadCloud() {
+      if (DEV_USE_LOCAL) return;
+      if (!isLoggedIn || !authToken || !currentUserId) return;
 
-    try {
-      const remote = await apiGetMyPredictions(authToken);
-      if (!remote || typeof remote !== "object") return;
+      try {
+        const remote = await apiGetMyPredictions(authToken);
+        if (!remote || typeof remote !== "object") return;
 
-      const key = PLAYERS.includes(currentPlayer)
-        ? currentPlayer
-        : currentUserId;
+        // Always use the logged-in user's key
+        const key = currentUserId;
 
-      // Normalize: keep only ONE captain per gameweek (latest updatedAt wins)
-      const normalized = normalizeCaptainsByGameweek(remote);
+        // Normalize: keep only ONE captain per gameweek (latest updatedAt wins)
+        const normalized = normalizeCaptainsByGameweek(remote);
 
-      // Replace this player's predictions with the normalized cloud data
-      setPredictions((prev) => ({
-        ...prev,
-        [key]: { ...normalized },
-      }));
-    } catch (err) {
-      console.error("Cloud predictions failed:", err);
+        // Replace only the logged-in user's predictions with the cloud data
+        setPredictions((prev) => ({
+          ...prev,
+          [key]: { ...normalized },
+        }));
+      } catch (err) {
+        console.error("Cloud predictions failed:", err);
+      }
     }
-  }
 
-  loadCloud();
-}, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+    loadCloud();
+  }, [isLoggedIn, authToken, currentUserId]);
   
  
     //  // One-time migration: move Phil_legacy local preds into Phil cloud account
@@ -1530,6 +1545,11 @@ useEffect(() => {
       const predsForCalc = {};
 
       keys.forEach((k) => {
+        // Special case: For Phil, use merged predictions if available
+        if (k === "Phil" && predictions["Phil_merged"]) {
+          predsForCalc[k] = { ...predictions["Phil_merged"] };
+          return;
+        }
         const legacyData = predictions[k] || {};
         const userId = userIdByKey[k];
         const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
@@ -1987,9 +2007,7 @@ setNewPasswordInput("");
   };
 
   // ---------- DERIVED ----------
-  const visibleFixtures = FIXTURES.filter(
-    (f) => f.gameweek === selectedGameweek
-  );
+  // ...existing code...
 
 const leaderboard = useMemo(() => {
   // Use backend-computed totals if available

@@ -68,3 +68,20 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+## Local Development: Fixing Login/Token Issues
+
+**IMPORTANT:** To ensure login and avatar saving works locally, you must set a fixed `SESSION_SECRET` so tokens remain valid across backend restarts.
+
+1. Copy `.env.example` to `.env` in your project root:
+   ```sh
+   cp .env.example .env
+   ```
+2. Edit `.env` and set a strong value for `SESSION_SECRET` (any long random string).
+3. Start your backend with environment variables loaded. If you use `npm start` or `node server.js`, use:
+   ```sh
+   SESSION_SECRET=your-very-secret-key node server.js
+   ```
+   Or use a tool like [dotenv](https://www.npmjs.com/package/dotenv) to load from `.env` automatically.
+
+If you change the secret, you must log in again to get a new token.
