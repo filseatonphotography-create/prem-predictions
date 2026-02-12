@@ -39,6 +39,37 @@ html {
   box-sizing: border-box;
 }
 
+.winner-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -10px;
+  border-radius: 2px;
+  opacity: 0.9;
+  animation-name: confetti-fall;
+  animation-timing-function: ease-out;
+  animation-iteration-count: 1;
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(420px) rotate(180deg);
+    opacity: 0;
+  }
+}
+
 /* REAL bold football-style title */
 h1 {
   font-family: 'Impact', 'Arial Black', sans-serif;

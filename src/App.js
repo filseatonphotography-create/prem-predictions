@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 
@@ -80,9 +80,9 @@ const TEAM_BADGES = {
 };
 
 // Simple avatar renderer using DiceBear styles
-function PlayerAvatar({ seed, style = "avataaars", size = 48, title = "" }) {
+function PlayerAvatar({ seed, avatarStyle = "avataaars", size = 48, title = "" }) {
   const safeSeed = encodeURIComponent(seed || "user");
-  const safeStyle = encodeURIComponent(style || "avataaars");
+  const safeStyle = encodeURIComponent(avatarStyle || "avataaars");
   const src = `https://api.dicebear.com/7.x/${safeStyle}/svg?seed=${safeSeed}`;
   return (
     <img
@@ -298,6 +298,29 @@ async function apiChangePassword(token, oldPassword, newPassword) {
   if (!res.ok) {
     throw new Error(data.error || "Failed to change password.");
   }
+  return data;
+}
+
+async function apiGetPushPrefs(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/prefs`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load prefs.");
+  return data.prefs || {};
+}
+
+async function apiSetPushPrefs(token, prefs) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/prefs`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(prefs || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to save prefs.");
   return data;
 }
 
@@ -874,6 +897,18 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
+  const [pushPrefs, setPushPrefs] = useState(() => {
+    try {
+      const saved = localStorage.getItem("push_prefs_v1");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      deadline1h: true,
+      deadline24h: true,
+      bingpot: true,
+      betWin: true,
+    };
+  });
   
   // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
@@ -954,6 +989,10 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
   const [globalUsers, setGlobalUsers] = useState([]);
   const [globalPredictionsByUserId, setGlobalPredictionsByUserId] = useState({});
+  const [showWinnerModal, setShowWinnerModal] = useState(false);
+  const [winnerList, setWinnerList] = useState([]);
+  const [winnerIndex, setWinnerIndex] = useState(0);
+  const winnerAudioRef = useRef(null);
 
 // Coins game state
 const [coinsState, setCoinsState] = useState({
@@ -1279,7 +1318,7 @@ useEffect(() => {
   };
 }, [authToken, selectedGameweek, currentPlayer, loginName, currentUserId]);
 
-// Check if push notifications are supported
+  // Check if push notifications are supported
 useEffect(() => {
   if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
     setPushSupported(true);
@@ -1293,6 +1332,23 @@ useEffect(() => {
     });
   }
 }, []);
+
+// Load push preferences after login
+useEffect(() => {
+  if (!isLoggedIn || !authToken) return;
+  (async () => {
+    try {
+      const prefs = await apiGetPushPrefs(authToken);
+      if (prefs && typeof prefs === "object") {
+        setPushPrefs((prev) => {
+          const next = { ...prev, ...prefs };
+          localStorage.setItem("push_prefs_v1", JSON.stringify(next));
+          return next;
+        });
+      }
+    } catch {}
+  })();
+}, [isLoggedIn, authToken]);
 
 // Fetch multi-player coins leaderboard from backend
 useEffect(() => {
@@ -1758,6 +1814,17 @@ setNewPasswordInput("");
     localStorage.removeItem(AUTH_STORAGE_KEY);
   }
 
+  const updatePushPref = async (key, value) => {
+    const next = { ...pushPrefs, [key]: value };
+    setPushPrefs(next);
+    localStorage.setItem("push_prefs_v1", JSON.stringify(next));
+    if (pushEnabled && authToken) {
+      try {
+        await apiSetPushPrefs(authToken, next);
+      } catch {}
+    }
+  };
+
   // ---------- MINI-LEAGUES ----------
   const handleLoadLeagues = async () => {
     if (!authToken) return setLeagueError("Please log in again.");
@@ -2166,6 +2233,31 @@ const currentGwTopScore = useMemo(() => {
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
+const globalWeeklyScores = useMemo(() => {
+  const gw = selectedGameweek;
+  if (!gw || !globalUsers || globalUsers.length === 0) return {};
+  const scores = {};
+  globalUsers.forEach((u) => {
+    const base = SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0;
+    scores[u.userId] = base;
+  });
+  FIXTURES.forEach((fixture) => {
+    if (fixture.gameweek !== gw) return;
+    const res = results[fixture.id];
+    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    globalUsers.forEach((u) => {
+      const preds = globalPredictionsByUserId[u.userId] || {};
+      const pred =
+        preds[String(fixture.id)] !== undefined
+          ? preds[String(fixture.id)]
+          : preds[fixture.id];
+      if (!pred) return;
+      scores[u.userId] += getTotalPoints(pred, res);
+    });
+  });
+  return scores;
+}, [selectedGameweek, globalUsers, globalPredictionsByUserId, results]);
+
 const globalLeaderboard = useMemo(() => {
   if (!globalUsers || globalUsers.length === 0) return [];
 
@@ -2198,6 +2290,97 @@ const globalLeaderboard = useMemo(() => {
 
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
 }, [globalUsers, globalPredictionsByUserId, results]);
+
+// Winner popup for league tables (once per user per GW)
+useEffect(() => {
+  if (!isLoggedIn || !currentUserId) return;
+  if (activeView !== "league" && activeView !== "globalLeague") return;
+  if (!selectedGameweek) return;
+
+  const gwFixtures = FIXTURES.filter((f) => f.gameweek === selectedGameweek);
+  if (!gwFixtures.length) return;
+  const lastKickoff = Math.max(
+    ...gwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
+  );
+  if (!Number.isFinite(lastKickoff)) return;
+  const gwEndTime = lastKickoff + 3 * 60 * 60 * 1000;
+  if (Date.now() < gwEndTime) return;
+
+  const seenKey = `winner_popup_seen_${activeView}_gw${selectedGameweek}_${currentUserId}`;
+  if (localStorage.getItem(seenKey)) return;
+
+  let winners = [];
+  if (activeView === "league") {
+    const gwTotals = computedWeeklyTotals?.[selectedGameweek];
+    if (!gwTotals) return;
+    const max = Math.max(...Object.values(gwTotals).map((v) => Number(v) || 0));
+    winners = Object.entries(gwTotals)
+      .filter(([, v]) => (Number(v) || 0) === max)
+      .map(([player, points]) => ({ player, points }));
+  } else {
+    const scores = globalWeeklyScores;
+    const entries = Object.entries(scores);
+    if (!entries.length) return;
+    const max = Math.max(...entries.map(([, v]) => Number(v) || 0));
+    winners = entries
+      .filter(([, v]) => (Number(v) || 0) === max)
+      .map(([userId, points]) => {
+        const u = globalUsers.find((x) => x.userId === userId);
+        return { player: u?.username || "Unknown", userId, points };
+      });
+  }
+
+  if (!winners.length) return;
+  setWinnerList(winners);
+  setWinnerIndex(0);
+  setShowWinnerModal(true);
+  localStorage.setItem(seenKey, "true");
+}, [
+  activeView,
+  selectedGameweek,
+  computedWeeklyTotals,
+  globalWeeklyScores,
+  globalUsers,
+  isLoggedIn,
+  currentUserId,
+]);
+
+useEffect(() => {
+  if (!showWinnerModal || winnerList.length <= 1) return;
+  const interval = setInterval(() => {
+    setWinnerIndex((i) => (i + 1) % winnerList.length);
+  }, 2200);
+  return () => clearInterval(interval);
+}, [showWinnerModal, winnerList]);
+
+useEffect(() => {
+  if (!showWinnerModal) return;
+  const timeout = setTimeout(() => setShowWinnerModal(false), 6500);
+  return () => clearTimeout(timeout);
+}, [showWinnerModal]);
+
+useEffect(() => {
+  if (!showWinnerModal) return;
+  if (!winnerAudioRef.current) {
+    winnerAudioRef.current = new Audio("/coin.mp3");
+  }
+  winnerAudioRef.current.currentTime = 0;
+  winnerAudioRef.current.volume = 0.5;
+  winnerAudioRef.current.play().catch(() => {});
+}, [showWinnerModal]);
+
+const winnerConfetti = useMemo(() => {
+  if (!showWinnerModal) return [];
+  return Array.from({ length: 24 }, (_, i) => ({
+    id: i,
+    left: Math.random() * 100,
+    delay: Math.random() * 0.6,
+    duration: 1.6 + Math.random() * 0.8,
+    size: 6 + Math.random() * 6,
+    rotate: Math.random() * 360,
+    hue: Math.floor(Math.random() * 360),
+  }));
+  }, [showWinnerModal]);
 
   // Coins league rows
  const historicalScores = useMemo(() => {
@@ -2630,6 +2813,96 @@ if (!isLoggedIn) {
   // ---------- MAIN APP ----------
   return (
     <div style={pageStyle}>
+      {showWinnerModal && winnerList.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            padding: 16,
+          }}
+        >
+          <div className="winner-confetti">
+            {winnerConfetti.map((c) => (
+              <span
+                key={c.id}
+                className="confetti-piece"
+                style={{
+                  left: `${c.left}%`,
+                  animationDelay: `${c.delay}s`,
+                  animationDuration: `${c.duration}s`,
+                  width: c.size,
+                  height: c.size * 0.6,
+                  backgroundColor: `hsl(${c.hue} 90% 60%)`,
+                  transform: `rotate(${c.rotate}deg)`,
+                }}
+              />
+            ))}
+          </div>
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              background: "linear-gradient(135deg, #0f172a, #111827)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 16,
+              padding: 20,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.45)",
+              textAlign: "center",
+              position: "relative",
+            }}
+          >
+            <div style={{ fontSize: 28, marginBottom: 6 }}>🏆🎉</div>
+            <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
+              Gameweek Winner
+            </div>
+            <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>
+              GW{selectedGameweek}
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
+            <PlayerAvatar
+              size={64}
+              seed={winnerList[winnerIndex]?.player || ""}
+              avatarStyle={"avataaars"}
+              title={winnerList[winnerIndex]?.player}
+            />
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              {winnerList[winnerIndex]?.player}
+            </div>
+            <div style={{ marginTop: 6, fontSize: 14, color: theme.muted }}>
+              {winnerList[winnerIndex]?.points} points
+            </div>
+            {winnerList.length > 1 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: theme.muted }}>
+                Tied winners • showing {winnerIndex + 1}/{winnerList.length}
+              </div>
+            )}
+            <button
+              onClick={() => setShowWinnerModal(false)}
+              style={{
+                marginTop: 16,
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: "none",
+                background: theme.accent,
+                color: "#fff",
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Close
+            </button>
+            <div style={{ marginTop: 8, fontSize: 11, color: theme.muted }}>
+              Auto‑closes in a few seconds
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ 
         maxWidth: "100%", 
         margin: "0 auto", 
@@ -3310,33 +3583,36 @@ if (!isLoggedIn) {
         const coinsSide = coinsBet.side || "D";
 
         // Possible win/return for this fixture (based on current stake + side)
-let coinsPossibleReturn = "";
-const oddsSnap = coinsBet.oddsSnapshot || null;
+        let coinsPossibleReturn = 0;
+        const oddsSnap = coinsBet.oddsSnapshot || null;
 
-if (coinsStake > 0 && coinsSide && oddsSnap) {
-  let price = null;
+        if (coinsStake > 0 && coinsSide && oddsSnap) {
+          let price = null;
 
-  if (coinsSide === "H") {
-    price =
-      oddsSnap.home !== undefined && oddsSnap.home !== null
-        ? Number(oddsSnap.home)
-        : null;
-  } else if (coinsSide === "D") {
-    price =
-      oddsSnap.draw !== undefined && oddsSnap.draw !== null
-        ? Number(oddsSnap.draw)
-        : null;
-  } else if (coinsSide === "A") {
-    price =
-      oddsSnap.away !== undefined && oddsSnap.away !== null
-        ? Number(oddsSnap.away)
-        : null;
-  }
+          if (coinsSide === "H") {
+            price =
+              oddsSnap.home !== undefined && oddsSnap.home !== null
+                ? Number(oddsSnap.home)
+                : null;
+          } else if (coinsSide === "D") {
+            price =
+              oddsSnap.draw !== undefined && oddsSnap.draw !== null
+                ? Number(oddsSnap.draw)
+                : null;
+          } else if (coinsSide === "A") {
+            price =
+              oddsSnap.away !== undefined && oddsSnap.away !== null
+                ? Number(oddsSnap.away)
+                : null;
+          }
 
-  if (price != null && Number.isFinite(price) && price > 0) {
-    coinsPossibleReturn = (coinsStake * price).toFixed(2);
-  }
-}
+          if (price != null && Number.isFinite(price) && price > 0) {
+            coinsPossibleReturn = coinsStake * price;
+          }
+        }
+
+        const coinsWin =
+          hasResult && coinsStake > 0 && coinsSide === getResult(r.homeGoals, r.awayGoals);
 
         return (
           <div
@@ -3948,20 +4224,27 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
 </div>
                   </div>
 
-                  {/* Right side - possible return */}
-                  {coinsPossibleReturn && (
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        fontSize: 11,
-                      }}
-                    >
-                      = {coinsPossibleReturn}
-                      <CoinIcon />
-                    </div>
-                  )}
+                  {/* Right side - possible return (fixed width to avoid reflow) */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: 11,
+                      minWidth: 90,
+                      justifyContent: "flex-end",
+                      color:
+                        coinsPossibleReturn <= 0
+                          ? "#ef4444"
+                          : coinsWin
+                          ? "#f59e0b"
+                          : "#22c55e",
+                      fontWeight: 700,
+                    }}
+                  >
+                    = {Number(coinsPossibleReturn).toFixed(2)}
+                    <CoinIcon />
+                  </div>
                 </div>
               </div>
             </div>
@@ -4210,7 +4493,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         // Fallback: use local avatar only if backend missing
                         return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
                       })()}
-                      style={(() => {
+                      avatarStyle={(() => {
                         const userId = row.userId || row.player || '';
                         if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
                           return avatarsByUserId[userId].style;
@@ -4304,7 +4587,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                         }
                         return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
                       })()}
-                      style={(() => {
+                      avatarStyle={(() => {
                         const userId = row.userId || row.player || "";
                         if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
                           return avatarsByUserId[userId].style;
@@ -4441,7 +4724,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         name={row.player} 
         size={36} 
         seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
-        style={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+        avatarStyle={row.player === currentPlayer ? avatarStyle : 'avataaars'}
       />
       <div style={{ 
         fontWeight: 700,
@@ -5282,7 +5565,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                   name={currentPlayer} 
                   size={120} 
                   seed={avatarSeed || currentPlayer}
-                  style={avatarStyle}
+                  avatarStyle={avatarStyle}
                 />
               </div>
 
@@ -5470,6 +5753,33 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                     Get notified when gameweeks start, deadlines approach, and results are in!
                   </p>
 
+                  <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
+                    {[
+                      { key: "deadline1h", label: "Notify 1 hour before deadline" },
+                      { key: "deadline24h", label: "Notify 24 hours before deadline" },
+                      { key: "bingpot", label: "Bingpot notification" },
+                      { key: "betWin", label: "Bet win notification" },
+                    ].map((opt) => (
+                      <label
+                        key={opt.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          fontSize: 14,
+                          color: theme.text,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!pushPrefs[opt.key]}
+                          onChange={(e) => updatePushPref(opt.key, e.target.checked)}
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    ))}
+                  </div>
+
                   <button
                     onClick={async () => {
                       if (!pushEnabled) {
@@ -5513,7 +5823,7 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                                 'Content-Type': 'application/json',
                                 Authorization: `Bearer ${authToken}`
                               },
-                              body: JSON.stringify(subscription)
+                              body: JSON.stringify({ subscription, prefs: pushPrefs })
                             });
                             
                             if (subRes.ok) {

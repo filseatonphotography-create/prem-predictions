@@ -125,10 +125,24 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
 // ---------------------------------------------------------------------------
 const DATA_DIR = path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
+const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
 
 // Avatars (userId -> { seed, style })
 const loadAvatars = () => loadJson(AVATARS_FILE, {});
 const saveAvatars = (avatars) => saveJson(AVATARS_FILE, avatars);
+
+function loadFixturesFromSrc() {
+  try {
+    const raw = fs.readFileSync(FIXTURES_SRC_FILE, "utf8");
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    if (start === -1 || end === -1) return [];
+    const json = raw.slice(start, end + 1);
+    return JSON.parse(json);
+  } catch {
+    return [];
+  }
+}
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
@@ -1294,6 +1308,79 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
     saveResults(merged);
     console.log("[SNAPSHOT] Results saved successfully");
 
+    // --- Push notifications for newly completed fixtures ---
+    try {
+      const newlyCompleted = [];
+      Object.entries(resultsByFixtureId).forEach(([fixtureId, r]) => {
+        const nh = Number(r?.homeGoals);
+        const na = Number(r?.awayGoals);
+        if (!Number.isFinite(nh) || !Number.isFinite(na)) return;
+        const prev = current[fixtureId];
+        const ph = Number(prev?.homeGoals);
+        const pa = Number(prev?.awayGoals);
+        if (!Number.isFinite(ph) || !Number.isFinite(pa)) {
+          newlyCompleted.push({ fixtureId: String(fixtureId), homeGoals: nh, awayGoals: na });
+        }
+      });
+
+      if (newlyCompleted.length) {
+        const predictions = loadPredictions() || {};
+        const coins = loadCoins() || {};
+
+        newlyCompleted.forEach((fx) => {
+          const resultSide = getResult(fx.homeGoals, fx.awayGoals);
+
+          // Bingpot notifications
+          Object.entries(predictions).forEach(([userId, preds]) => {
+            const pred = preds[fx.fixtureId] || preds[Number(fx.fixtureId)];
+            if (!pred) return;
+            if (
+              Number(pred.homeGoals) === fx.homeGoals &&
+              Number(pred.awayGoals) === fx.awayGoals
+            ) {
+              sendPushNotification(userId, "bingpot", {
+                title: "Bingpot! 🎯",
+                body: `Exact score ${fx.homeGoals}-${fx.awayGoals} (fixture #${fx.fixtureId})`,
+                url: "/",
+              });
+            }
+          });
+
+          // Bet win notifications
+          Object.entries(coins).forEach(([userId, gwObj]) => {
+            if (!gwObj || typeof gwObj !== "object") return;
+            Object.values(gwObj).forEach((fixObj) => {
+              if (!fixObj || typeof fixObj !== "object") return;
+              const bet = fixObj[fx.fixtureId] || fixObj[Number(fx.fixtureId)];
+              if (!bet || !Number.isFinite(bet.stake) || bet.stake <= 0) return;
+              if (bet.side !== resultSide) return;
+
+              let payout = "";
+              if (bet.oddsSnapshot) {
+                const price =
+                  resultSide === "H"
+                    ? bet.oddsSnapshot.home
+                    : resultSide === "D"
+                    ? bet.oddsSnapshot.draw
+                    : bet.oddsSnapshot.away;
+                if (typeof price === "number") {
+                  payout = ` +${(bet.stake * price).toFixed(2)} coins`;
+                }
+              }
+
+              sendPushNotification(userId, "betWin", {
+                title: "Bet won! 💰",
+                body: `You won your bet on fixture #${fx.fixtureId}.${payout}`,
+                url: "/",
+              });
+            });
+          });
+        });
+      }
+    } catch (err) {
+      console.error("[SNAPSHOT] push notification error", err);
+    }
+
     return res.json({ ok: true, updatedCount: Object.keys(resultsByFixtureId).length });
   } catch (err) {
     console.error("[SNAPSHOT] save results snapshot error", err);
@@ -1418,15 +1505,10 @@ function sendPushNotification(userId, type, payload) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const sub = subscriptions[userId];
   if (!sub || !sub.subscription) return false;
-  // Preferences may be stored as sub.notifPrefs or just notifPrefs
-  const prefs = sub.notifPrefs || sub.notifPrefs === false ? sub.notifPrefs : (sub.notifPrefs || sub.notifPrefs === false ? sub.notifPrefs : sub.notifPrefs);
-  // If no prefs, default to all enabled
+  const prefs = sub.notifPrefs || null;
   if (prefs && prefs[type] === false) return false;
   try {
-    webpush.sendNotification(
-      sub.subscription,
-      JSON.stringify(payload)
-    );
+    webpush.sendNotification(sub.subscription, JSON.stringify(payload));
     return true;
   } catch (err) {
     console.error(`Push notification error for user ${userId}:`, err);
@@ -1438,11 +1520,16 @@ function sendPushNotification(userId, type, payload) {
 // Subscribe to push notifications
 app.post("/api/push/subscribe", authMiddleware, (req, res) => {
   try {
-    const subscription = req.body;
+    const body = req.body || {};
+    const subscription = body.subscription || body;
+    const notifPrefs = body.prefs || body.notifPrefs || null;
     const userId = req.user.id;
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
-    subscriptions[userId] = { subscription };
+    subscriptions[userId] = {
+      subscription,
+      notifPrefs: notifPrefs || (subscriptions[userId] && subscriptions[userId].notifPrefs) || null,
+    };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
     console.log(`Push subscription saved for user ${userId}`);
@@ -1469,6 +1556,99 @@ app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
     return res.status(500).json({ error: "Failed to unsubscribe" });
   }
 });
+
+// Update notification preferences
+app.post("/api/push/prefs", authMiddleware, (req, res) => {
+  try {
+    const prefs = req.body || {};
+    const userId = req.user.id;
+
+    let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const existing = subscriptions[userId] || {};
+    subscriptions[userId] = {
+      subscription: existing.subscription || null,
+      notifPrefs: prefs,
+    };
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("push prefs error", err);
+    return res.status(500).json({ error: "Failed to save preferences" });
+  }
+});
+
+// Get notification preferences
+app.get("/api/push/prefs", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const prefs = (subscriptions[userId] && subscriptions[userId].notifPrefs) || {};
+    return res.json({ prefs });
+  } catch (err) {
+    console.error("push prefs get error", err);
+    return res.status(500).json({ error: "Failed to load preferences" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DEADLINE NOTIFICATIONS (1h + 24h before kickoff)
+// ---------------------------------------------------------------------------
+function runDeadlineNotifier() {
+  const fixtures = loadFixturesFromSrc();
+  if (!fixtures || fixtures.length === 0) return;
+
+  const now = Date.now();
+  const windowMs = 2 * 60 * 1000; // 2-minute window to avoid repeats
+
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  let changed = false;
+
+  const notifyForType = (type, msBefore) => {
+    fixtures.forEach((fx) => {
+      const kickoff = Date.parse(fx.kickoff);
+      if (!Number.isFinite(kickoff)) return;
+      const deadline = kickoff - msBefore;
+      if (now < deadline || now > deadline + windowMs) return;
+
+      Object.entries(subscriptions).forEach(([userId, sub]) => {
+        if (!sub || !sub.subscription) return;
+        const prefs = sub.notifPrefs || {};
+        if (prefs && prefs[type] === false) return;
+
+        const log = sub.notifLog || {};
+        const typeLog = log[type] || {};
+        if (typeLog[fx.id]) return;
+
+        const title =
+          type === "deadline1h" ? "1 hour to deadline ⏰" : "24 hours to deadline ⏰";
+        const body = `${fx.homeTeam} vs ${fx.awayTeam} (GW${fx.gameweek})`;
+
+        const sent = sendPushNotification(userId, type, {
+          title,
+          body,
+          url: "/",
+        });
+
+        if (sent) {
+          typeLog[fx.id] = Date.now();
+          log[type] = typeLog;
+          sub.notifLog = log;
+          subscriptions[userId] = sub;
+          changed = true;
+        }
+      });
+    });
+  };
+
+  notifyForType("deadline24h", 24 * 60 * 60 * 1000);
+  notifyForType("deadline1h", 1 * 60 * 60 * 1000);
+
+  if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+}
+
+setInterval(runDeadlineNotifier, 60 * 1000);
+setTimeout(runDeadlineNotifier, 5 * 1000);
 
 // Get VAPID public key
 app.get("/api/push/vapid-public-key", (req, res) => {
