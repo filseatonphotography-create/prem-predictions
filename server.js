@@ -223,14 +223,6 @@ function saveJson(file, data) {
 // Users
 const loadUsers = () => {
   const users = loadJson(USERS_FILE, []);
-  // Debug: print Tom's user record and all usernames
-  const tom = users.find(u => u.username && u.username.toLowerCase() === 'tom');
-  if (tom) {
-    console.log('[DEBUG] Tom user loaded:', tom);
-  } else {
-    console.log('[DEBUG] No Tom user found in users.json');
-  }
-  console.log('[DEBUG] All usernames loaded:', users.map(u => u.username));
   return users;
 };
 const saveUsers = (users) => saveJson(USERS_FILE, users);
@@ -526,10 +518,8 @@ app.post("/api/signup", (req, res) => {
 // - auto legacy-map on first successful legacy login
 // ---------------------------------------------------------------------------
 app.post("/api/login", (req, res) => {
-  console.log('[DEBUG] /api/login endpoint hit');
   try {
     const { username, password } = req.body || {};
-    console.log('[DEBUG] Login attempt:', { username, password });
     const name = (username || "").trim();
     const pwd = (password || "").trim();
 
@@ -539,7 +529,7 @@ app.post("/api/login", (req, res) => {
         .json({ error: "Username and password are required." });
     }
 
-            const users = loadUsers();
+    const users = loadUsers();
     const user = users.find(
       (u) => u.username.toLowerCase() === name.toLowerCase()
     );
@@ -953,6 +943,31 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// PREDICTIONS: ALL USERS (GLOBAL LEAGUE)
+// ---------------------------------------------------------------------------
+app.get("/api/predictions/all", authMiddleware, (req, res) => {
+  try {
+    const users = loadUsers();
+    const allPreds = loadPredictions();
+
+    const usersOut = users.map((u) => ({
+      userId: u.id,
+      username: u.username,
+    }));
+
+    const predictionsByUserId = {};
+    usersOut.forEach((u) => {
+      predictionsByUserId[u.userId] = allPreds[u.userId] || {};
+    });
+
+    return res.json({ users: usersOut, predictionsByUserId });
+  } catch (err) {
+    console.error("predictions/all error", err);
+    return res.status(500).json({ error: "Failed to load global predictions" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // TOTALS (computed weekly totals + league totals, synced from frontend)
 // ---------------------------------------------------------------------------
 app.get("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
@@ -1129,48 +1144,6 @@ app.get("/api/coins/my", authMiddleware, (req, res) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// COINS GAME (read-only summary for one user + gameweek)
-// ---------------------------------------------------------------------------
-app.get("/api/coins/my", authMiddleware, (req, res) => {
-  try {
-    const userId = req.user.id;
-    const rawGw = (req.query.gameweek || "").toString().trim();
-
-    if (!rawGw) {
-      return res
-        .status(400)
-        .json({ error: "gameweek query parameter is required." });
-    }
-
-    const gameweekKey = String(rawGw);
-    const MAX_COINS_PER_GAMEWEEK = 10;
-
-    const allCoins = loadCoins();
-    const userCoins = allCoins[userId] || {};
-    const betsForGw = userCoins[gameweekKey] || {};
-
-    // Sum all stakes for this gameweek
-    let used = 0;
-    Object.values(betsForGw).forEach((bet) => {
-      if (!bet || typeof bet.stake !== "number") return;
-      used += bet.stake;
-    });
-
-    const remaining = Math.max(0, MAX_COINS_PER_GAMEWEEK - used);
-
-    return res.json({
-      gameweek: gameweekKey,
-      used,
-      remaining,
-      bets: betsForGw,
-    });
-  } catch (err) {
-    console.error("coins/my error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 // Place or update a bet for one fixture in one gameweek
 app.post("/api/coins/place", authMiddleware, (req, res) => {
   try {
@@ -1273,6 +1246,12 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
     console.log(`[COINS] Saved coins for user ${userId}, gameweek ${gwKey}, fixture ${fxId}, stake ${stakeNum}`);
     // Log current bets for this user/gameweek
     console.log(`[COINS] Current bets for user ${userId}, gameweek ${gwKey}:`, JSON.stringify(betsForGw, null, 2));
+    // Debug: print coins file path and contents after save
+    const coinsFilePath = require('path').resolve(COINS_FILE);
+    const coinsFileContents = require('fs').readFileSync(coinsFilePath, 'utf8');
+    console.log(`[COINS DEBUG] coins.json path: ${coinsFilePath}`);
+    console.log(`[COINS DEBUG] coins.json contents after save:`);
+    console.log(coinsFileContents);
 
     // Recalculate used + remaining for this GW
     let used = 0;
@@ -1460,10 +1439,10 @@ function sendPushNotification(userId, type, payload) {
 app.post("/api/push/subscribe", authMiddleware, (req, res) => {
   try {
     const subscription = req.body;
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
-    subscriptions[userId] = subscription;
+    subscriptions[userId] = { subscription };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
     console.log(`Push subscription saved for user ${userId}`);
@@ -1477,7 +1456,7 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
 // Unsubscribe from push notifications
 app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
     delete subscriptions[userId];

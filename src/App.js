@@ -39,7 +39,11 @@ async function apiSetAvatar(token, payload) {
 // Dummy for legacy code: always returns empty (since reverted)
 async function apiGetUserCoins() { return {}; }
 const DEV_USE_LOCAL = false; // always use cloud backend
-const BACKEND_BASE = "https://prem-predictions-1.onrender.com";
+const BACKEND_BASE =
+  process.env.REACT_APP_BACKEND_BASE ||
+  (window.location.hostname === "localhost"
+    ? "http://localhost:5001"
+    : "https://prem-predictions-1.onrender.com");
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
@@ -75,18 +79,63 @@ const TEAM_BADGES = {
   Wolves: "/badges/wolves.png",
 };
 
-// Dummy PlayerAvatar for legacy code (replace with real if needed)
-const PlayerAvatar = () => null;
+// Simple avatar renderer using DiceBear styles
+function PlayerAvatar({ seed, style = "avataaars", size = 48, title = "" }) {
+  const safeSeed = encodeURIComponent(seed || "user");
+  const safeStyle = encodeURIComponent(style || "avataaars");
+  const src = `https://api.dicebear.com/7.x/${safeStyle}/svg?seed=${safeSeed}`;
+  return (
+    <img
+      src={src}
+      alt={title || "avatar"}
+      title={title || "avatar"}
+      width={size}
+      height={size}
+      style={{ borderRadius: 999, display: "block" }}
+    />
+  );
+}
+
+function AnimatedNumber({ value, duration = 400, format = (v) => v }) {
+  const [display, setDisplay] = React.useState(value || 0);
+  const rafRef = React.useRef(null);
+  const startRef = React.useRef(null);
+  const fromRef = React.useRef(value || 0);
+
+  React.useEffect(() => {
+    const from = Number(fromRef.current) || 0;
+    const to = Number(value) || 0;
+    if (from === to) return;
+
+    const step = (ts) => {
+      if (!startRef.current) startRef.current = ts;
+      const elapsed = ts - startRef.current;
+      const t = Math.min(1, elapsed / duration);
+      const next = from + (to - from) * t;
+      setDisplay(next);
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        fromRef.current = to;
+        startRef.current = null;
+      }
+    };
+
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(step);
+
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [value, duration]);
+
+  return format(display);
+}
 
 // Fetch current user's avatar from backend
 async function apiGetAvatar(token) {
   try {
-    const res = await fetch(
-      `https://prem-predictions-1.onrender.com/api/avatar/me`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-      }
-    );
+    const res = await fetch(`${BACKEND_BASE}/api/avatar/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     if (!res.ok) throw new Error("Avatar fetch failed");
     return await res.json(); // { seed, style }
   } catch {
@@ -224,6 +273,17 @@ async function apiLogin(username, password) {
   if (!res.ok) throw new Error(data.error || "Login failed.");
   return data;
 }
+
+// Save latest results snapshot to backend for coins leaderboard
+async function apiSaveResultsSnapshot(resultsByFixtureId) {
+  try {
+    await fetch(`${BACKEND_BASE}/api/results/snapshot`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resultsByFixtureId }),
+    });
+  } catch {}
+}
 async function apiChangePassword(token, oldPassword, newPassword) {
   const res = await fetch(`${BACKEND_BASE}/api/change-password`, {
     method: "POST",
@@ -259,6 +319,15 @@ async function apiGetLeaguePredictions(token, leagueId) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data; // { leagueId, users, predictionsByUserId }
+}
+
+async function apiGetAllPredictions(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/predictions/all`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to fetch global predictions.");
+  return data; // { users, predictionsByUserId }
 }
 // eslint-disable-next-line no-unused-vars
 async function apiSaveLeagueTotals(token, leagueId, payload) {
@@ -790,7 +859,17 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
   const [odds, setOdds] = useState({});
-  const [selectedGameweek, setSelectedGameweek] = useState(GAMEWEEKS[0]);
+  const [selectedGameweek, setSelectedGameweek] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const gw = Number(parsed?.selectedGameweek);
+        if (Number.isFinite(gw) && gw > 0) return gw;
+      }
+    } catch {}
+    return GAMEWEEKS[0];
+  });
   
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -872,7 +951,9 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   }, [odds]);
 
 // Coins League data from backend
-const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
+  const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
+  const [globalUsers, setGlobalUsers] = useState([]);
+  const [globalPredictionsByUserId, setGlobalPredictionsByUserId] = useState({});
 
 // Coins game state
 const [coinsState, setCoinsState] = useState({
@@ -1019,47 +1100,7 @@ const visibleFixtures = FIXTURES.filter(
   (f) => f.gameweek === selectedGameweek
 );
 
-// DEBUG: Log predictions keys, currentPredictionKey, and visibleFixtures (after visibleFixtures is defined)
-useEffect(() => {
-  if (
-    typeof window !== 'undefined' &&
-    typeof visibleFixtures !== 'undefined' &&
-    Array.isArray(visibleFixtures)
-  ) {
-    console.log('[DEBUG] predictions keys:', Object.keys(predictions));
-    console.log('[DEBUG] currentPredictionKey:', currentPredictionKey);
-    if (predictions[currentPredictionKey]) {
-      console.log('[DEBUG] predictions for key:', predictions[currentPredictionKey]);
-      const predictionKeys = Object.keys(predictions[currentPredictionKey] || {});
-      console.log('[DEBUG] prediction keys for currentPredictionKey:', predictionKeys);
-    } else {
-      console.log('[DEBUG] No predictions for currentPredictionKey');
-    }
-    console.log('[DEBUG] visibleFixtures for GW', selectedGameweek, visibleFixtures.map(f => f.id));
-  }
-}, [predictions, currentPredictionKey, visibleFixtures, selectedGameweek]);
-
-// ...existing code...
-
-// DEBUG: Log predictions keys, currentPredictionKey, and visibleFixtures (after visibleFixtures is defined)
-useEffect(() => {
-  if (
-    typeof window !== 'undefined' &&
-    typeof visibleFixtures !== 'undefined' &&
-    Array.isArray(visibleFixtures)
-  ) {
-    console.log('[DEBUG] predictions keys:', Object.keys(predictions));
-    console.log('[DEBUG] currentPredictionKey:', currentPredictionKey);
-    if (predictions[currentPredictionKey]) {
-      console.log('[DEBUG] predictions for key:', predictions[currentPredictionKey]);
-      const predictionKeys = Object.keys(predictions[currentPredictionKey] || {});
-      console.log('[DEBUG] prediction keys for currentPredictionKey:', predictionKeys);
-    } else {
-      console.log('[DEBUG] No predictions for currentPredictionKey');
-    }
-    console.log('[DEBUG] visibleFixtures for GW', selectedGameweek, visibleFixtures.map(f => f.id));
-  }
-}, [predictions, currentPredictionKey, visibleFixtures, selectedGameweek]);
+// (debug logs removed)
 
   // ---------- INIT ----------
 useEffect(() => {
@@ -1087,6 +1128,7 @@ useEffect(() => {
           setAuthToken(parsedAuth.token);
           setCurrentUserId(parsedAuth.userId);
           setCurrentPlayer(parsedAuth.username);
+          setLoginName(parsedAuth.username);
         }
       }
     } catch {}
@@ -1139,6 +1181,7 @@ useEffect(() => {
 
       if (matchedCount) {
         setResults((prev) => ({ ...prev, ...updatedResults }));
+        apiSaveResultsSnapshot(updatedResults);
       }
     }
 
@@ -1205,6 +1248,11 @@ useEffect(() => {
     })
     .catch((err) => {
       if (cancelled) return;
+      if (err?.message === "Unauthorized") {
+        setAuthError("Session expired. Please log in again.");
+        handleLogout();
+        return;
+      }
       // Only reset to empty if viewing your own coins
       const isViewingOwn = currentPlayer === loginName || currentPlayer === currentUserId;
       if (isViewingOwn) {
@@ -1286,6 +1334,30 @@ useEffect(() => {
   fetchCoinsLeaderboard();
 }, [activeView, authToken]);
 
+// Fetch global predictions (all users) when Global League is opened
+useEffect(() => {
+  if (activeView !== "globalLeague") return;
+  if (!isLoggedIn || !authToken) return;
+
+  let cancelled = false;
+
+  async function loadGlobal() {
+    try {
+      const data = await apiGetAllPredictions(authToken);
+      if (cancelled) return;
+      setGlobalUsers(data.users || []);
+      setGlobalPredictionsByUserId(data.predictionsByUserId || {});
+    } catch (err) {
+      console.error("Global predictions failed:", err);
+    }
+  }
+
+  loadGlobal();
+  return () => {
+    cancelled = true;
+  };
+}, [activeView, isLoggedIn, authToken]);
+
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
 /*
@@ -1310,11 +1382,20 @@ useEffect(() => {
 */
 
   // Auto select next gameweek
-  useEffect(() => {
-    const now = new Date();
-    const next = FIXTURES.find((f) => new Date(f.kickoff) > now);
-    if (next) setSelectedGameweek(next.gameweek);
-  }, []);
+useEffect(() => {
+  // Only auto-advance on first load if the user hasn't stored a GW yet
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.selectedGameweek) return;
+    }
+  } catch {}
+
+  const now = new Date();
+  const next = FIXTURES.find((f) => new Date(f.kickoff) > now);
+  if (next) setSelectedGameweek(next.gameweek);
+}, []);
 
   // Detect mobile + close menu if switching to desktop
 useEffect(() => {
@@ -1665,7 +1746,7 @@ setNewPasswordInput("");
   }
 };
 
-  const handleLogout = () => {
+  function handleLogout() {
     setIsLoggedIn(false);
     setAuthToken("");
     setCurrentPlayer("");
@@ -1674,7 +1755,8 @@ setNewPasswordInput("");
     setAuthError("");
     setMyLeagues([]);
     setShowMobileMenu(false);
-  };
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+  }
 
   // ---------- MINI-LEAGUES ----------
   const handleLoadLeagues = async () => {
@@ -2060,6 +2142,63 @@ const leaderboard = useMemo(() => {
     .sort((a, b) => b.points - a.points);
 }, [computedLeagueTotals, predictions, results]);
 
+const currentGwPoints = useMemo(() => {
+  if (!selectedGameweek) return 0;
+  let total = 0;
+  FIXTURES.forEach((fixture) => {
+    if (fixture.gameweek !== selectedGameweek) return;
+    const res = results[fixture.id];
+    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    const pred = predictions[currentPredictionKey]?.[fixture.id];
+    if (!pred) return;
+    total += getTotalPoints(pred, res);
+  });
+  return total;
+}, [selectedGameweek, results, predictions, currentPredictionKey]);
+
+const currentGwTopScore = useMemo(() => {
+  const gw = selectedGameweek;
+  if (!gw) return 0;
+  if (computedWeeklyTotals && computedWeeklyTotals[gw]) {
+    const vals = Object.values(computedWeeklyTotals[gw]).map((v) => Number(v) || 0);
+    return vals.length ? Math.max(...vals) : 0;
+  }
+  return currentGwPoints;
+}, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
+
+const globalLeaderboard = useMemo(() => {
+  if (!globalUsers || globalUsers.length === 0) return [];
+
+  const totalsByUserId = {};
+
+  globalUsers.forEach((u) => {
+    const base =
+      SPREADSHEET_WEEKLY_TOTALS[u.username]?.reduce((a, b) => a + b, 0) || 0;
+    totalsByUserId[u.userId] = {
+      userId: u.userId,
+      player: u.username,
+      points: base,
+    };
+  });
+
+  FIXTURES.forEach((fixture) => {
+    const res = results[fixture.id];
+    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+
+    globalUsers.forEach((u) => {
+      const preds = globalPredictionsByUserId[u.userId] || {};
+      const pred =
+        preds[String(fixture.id)] !== undefined
+          ? preds[String(fixture.id)]
+          : preds[fixture.id];
+      if (!pred) return;
+      totalsByUserId[u.userId].points += getTotalPoints(pred, res);
+    });
+  });
+
+  return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
+}, [globalUsers, globalPredictionsByUserId, results]);
+
   // Coins league rows
  const historicalScores = useMemo(() => {
   if (computedWeeklyTotals) {
@@ -2167,12 +2306,16 @@ const leaderboard = useMemo(() => {
     boxSizing: "border-box",
   };
 
-        const handleCoinsChange = async (fixtureId, stake, side, oddsSnapshot) => {
+  const handleCoinsChange = async (fixtureId, stake, side, oddsSnapshot) => {
     if (!authToken || !selectedGameweek) {
       return;
     }
 
     const MAX_COINS = 10;
+    const prevSnapshot = {
+      ...coinsState,
+      bets: { ...(coinsState?.bets || {}) },
+    };
 
     // Normalise stake
     const rawStake =
@@ -2299,8 +2442,14 @@ const leaderboard = useMemo(() => {
       console.error("handleCoinsChange error", err);
       const msg = err?.message || "Failed to place coins bet";
 
+      if (err?.message === "Unauthorized") {
+        setAuthError("Session expired. Please log in again.");
+        handleLogout();
+        return;
+      }
+
       setCoinsState((prev) => ({
-        ...prev,
+        ...prevSnapshot,
         loading: false,
         error: msg,
       }));
@@ -2745,7 +2894,8 @@ if (!isLoggedIn) {
   const TABS = [
   { id: "predictions", label: "Predictions" },
   { id: "results", label: "Results" },
-  { id: "league", label: "League Table" },
+  { id: "league", label: "Mini League Table" },
+  { id: "globalLeague", label: "Global League Table" },
   { id: "summary", label: "Summary" },
   { id: "coinsLeague", label: "Coins League" },
   { id: "history", label: "History" },
@@ -3072,6 +3222,62 @@ if (!isLoggedIn) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Gameweek points so far */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          marginTop: 6,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 10px",
+            borderRadius: 999,
+            border: `1px solid ${theme.line}`,
+            background: theme.panelHi,
+            fontSize: 12,
+            color: theme.muted,
+          }}
+        >
+          <span>GW points so far</span>
+          <span
+            style={{
+              minWidth: 34,
+              textAlign: "center",
+              padding: "2px 8px",
+              borderRadius: 999,
+              fontWeight: 800,
+              color:
+                currentGwPoints === 0
+                  ? "#fff"
+                  : currentGwPoints === currentGwTopScore && currentGwPoints > 0
+                  ? "#111827"
+                  : "#0b1f12",
+              background:
+                currentGwPoints === 0
+                  ? "#ef4444"
+                  : currentGwPoints === currentGwTopScore && currentGwPoints > 0
+                  ? "#f59e0b"
+                  : "#22c55e",
+              border:
+                currentGwPoints === currentGwTopScore && currentGwPoints > 0
+                  ? "1px solid rgba(245,158,11,0.6)"
+                  : "1px solid rgba(34,197,94,0.5)",
+            }}
+          >
+            <AnimatedNumber
+              value={currentGwPoints}
+              duration={450}
+              format={(v) => Math.round(v)}
+            />
+          </span>
+        </div>
       </div>
     </div>
 
@@ -3943,10 +4149,10 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
     </div>
   </section>
 )}
-        {/* League Table */}
+        {/* Mini League Table */}
         {activeView === "league" && (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🏆 League Table</h2>
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🏆 Mini League Table</h2>
             <div style={{ display: "grid", gap: 8 }}>
               {leaderboard.map((row, i) => {
                 // Color scheme based on position
@@ -4025,7 +4231,116 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                       fontSize: 18,
                       color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : theme.accent
                     }}>
-                      {row.points}
+                      <AnimatedNumber
+                        value={row.points}
+                        duration={450}
+                        format={(v) => Math.round(v)}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Global League Table */}
+        {activeView === "globalLeague" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🌍 Global League Table</h2>
+            <div style={{ display: "grid", gap: 8 }}>
+              {globalLeaderboard.map((row, i) => {
+                let borderColor = theme.line;
+                let emoji = "";
+
+                if (i === 0) {
+                  borderColor = "#FFD700";
+                  emoji = "🥇";
+                } else if (i === 1) {
+                  borderColor = "#C0C0C0";
+                  emoji = "🥈";
+                } else if (i === 2) {
+                  borderColor = "#CD7F32";
+                  emoji = "🥉";
+                } else if (i === globalLeaderboard.length - 1) {
+                  emoji = "💩";
+                }
+
+                return (
+                  <div
+                    key={row.userId || row.player}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "50px auto 1fr 90px",
+                      gap: 10,
+                      alignItems: "center",
+                      background: theme.panelHi,
+                      border: `2px solid ${borderColor}`,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      transition: "transform 0.2s",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: i < 3 ? borderColor : theme.muted,
+                        fontWeight: 700,
+                        fontSize: 16,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
+                      {!emoji && <span>{i + 1}</span>}
+                    </div>
+                    <PlayerAvatar
+                      name={row.player}
+                      size={36}
+                      seed={(() => {
+                        const userId = row.userId || row.player || "";
+                        if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
+                          return avatarsByUserId[userId].seed;
+                        }
+                        return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
+                      })()}
+                      style={(() => {
+                        const userId = row.userId || row.player || "";
+                        if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
+                          return avatarsByUserId[userId].style;
+                        }
+                        return row.player === currentPlayer ? avatarStyle : "avataaars";
+                      })()}
+                    />
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 15,
+                        color: i === 0 ? "#FFD700" : theme.text,
+                      }}
+                    >
+                      {row.player}
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 800,
+                        fontSize: 18,
+                        color:
+                          i === 0
+                            ? "#FFD700"
+                            : i === 1
+                            ? "#C0C0C0"
+                            : i === 2
+                            ? "#CD7F32"
+                            : theme.accent,
+                      }}
+                    >
+                      <AnimatedNumber
+                        value={row.points}
+                        duration={450}
+                        format={(v) => Math.round(v)}
+                      />
                     </div>
                   </div>
                 );
@@ -4141,7 +4456,11 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
         fontSize: 18,
         color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : theme.accent
       }}>
-        {value.toFixed ? value.toFixed(2) : value}
+        <AnimatedNumber
+          value={Number(value) || 0}
+          duration={450}
+          format={(v) => (Number.isFinite(v) ? v.toFixed(2) : "0.00")}
+        />
       </div>
     </div>
   );
@@ -5163,16 +5482,29 @@ if (coinsStake > 0 && coinsSide && oddsSnap) {
                             if (!vapidRes.ok) {
                               throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
                             }
-                            const { publicKey } = await vapidRes.json();
+                          const { publicKey } = await vapidRes.json();
+
+                          const urlBase64ToUint8Array = (base64String) => {
+                            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+                            const base64 = (base64String + padding)
+                              .replace(/-/g, "+")
+                              .replace(/_/g, "/");
+                            const rawData = window.atob(base64);
+                            const outputArray = new Uint8Array(rawData.length);
+                            for (let i = 0; i < rawData.length; ++i) {
+                              outputArray[i] = rawData.charCodeAt(i);
+                            }
+                            return outputArray;
+                          };
                             
                             // Register service worker and subscribe
                             const registration = await navigator.serviceWorker.register('/service-worker.js');
                             await navigator.serviceWorker.ready;
                             
-                            const subscription = await registration.pushManager.subscribe({
-                              userVisibleOnly: true,
-                              applicationServerKey: publicKey
-                            });
+                          const subscription = await registration.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: urlBase64ToUint8Array(publicKey)
+                          });
                             
                             // Send subscription to backend
                             const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
