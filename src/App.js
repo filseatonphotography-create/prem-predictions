@@ -391,6 +391,15 @@ async function apiFetchMyLeagues(token) {
   return data.leagues || [];
 }
 
+async function apiGetMiniLeagueLeaderboard(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/leagues/leaderboard`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load mini-league leaderboard.");
+  return data.leaderboard || [];
+}
+
 async function apiCreateLeague(token, name) {
   const res = await fetch(`${BACKEND_BASE}/api/league/create`, {
     method: "POST",
@@ -432,8 +441,10 @@ async function fetchPremierLeagueResults() {
     clearTimeout(timeoutId);
     
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
+    const updatedHeader = res.headers.get("x-results-updated");
     const matches = await res.json();
-    return { matches, error: null };
+    const updatedAt = updatedHeader ? Number(updatedHeader) : null;
+    return { matches, error: null, updatedAt };
   } catch (err) {
     if (err.name === 'AbortError') {
       return { matches: [], error: 'Request timeout' };
@@ -805,6 +816,14 @@ export default function App() {
   // Auth state (must be first for use in effects)
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState("");
+  const [soundEffectsEnabled, setSoundEffectsEnabled] = useState(() => {
+    try {
+      const saved = localStorage.getItem("sound_effects_enabled_v1");
+      if (saved === null) return true;
+      return saved === "true";
+    } catch {}
+    return true;
+  });
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
@@ -822,12 +841,22 @@ export default function App() {
 
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
+    if (!soundEffectsEnabled) return;
     try {
       const audio = new Audio(isAdding ? '/coin.mp3' : '/negative coin.mp3');
       audio.volume = 0.3;
       audio.play().catch(err => console.log('Audio play failed:', err));
     } catch (err) {
       console.log('Audio error:', err);
+    }
+  };
+
+  const updateSoundEffectsEnabled = (enabled) => {
+    setSoundEffectsEnabled(enabled);
+    localStorage.setItem("sound_effects_enabled_v1", String(enabled));
+    if (!enabled && winnerAudioRef.current) {
+      winnerAudioRef.current.pause();
+      winnerAudioRef.current.currentTime = 0;
     }
   };
 
@@ -912,6 +941,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   
   // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
+  const [lastResultsUpdated, setLastResultsUpdated] = useState(null);
+  const [resultsRefreshing, setResultsRefreshing] = useState(false);
   const [activeView, setActiveView] = useState(() => {
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
@@ -992,6 +1023,7 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [winnerList, setWinnerList] = useState([]);
   const [winnerIndex, setWinnerIndex] = useState(0);
+  const [winnerModalType, setWinnerModalType] = useState("gw");
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -1093,6 +1125,9 @@ const [coinsState, setCoinsState] = useState({
   const [leagueError, setLeagueError] = useState("");
   const [leagueSuccess, setLeagueSuccess] = useState("");
   const [leaguesLoading, setLeaguesLoading] = useState(false);
+  const [miniLeagueLeaderboardRows, setMiniLeagueLeaderboardRows] = useState([]);
+  const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
+  const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
   const gwLocked = isGameweekLocked(selectedGameweek);
   // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
@@ -1141,11 +1176,68 @@ const visibleFixtures = FIXTURES.filter(
 
 // (debug logs removed)
 
+  const refreshAutoResults = async () => {
+    setResultsRefreshing(true);
+    const { matches, error, updatedAt } = await fetchPremierLeagueResults();
+    if (error) {
+      setApiStatus(`Auto results: failed (${error})`);
+      setResultsRefreshing(false);
+      return;
+    }
+    setApiStatus("Auto results: loaded");
+    if (updatedAt) setLastResultsUpdated(updatedAt);
+    if (matches?.length) {
+      let matchedCount = 0;
+      const updatedResults = {};
+
+      matches.forEach((match) => {
+        if (!match.homeTeam || !match.awayTeam) return;
+        if (!match.score?.fullTime) return;
+        if (
+          match.score.fullTime.home === null ||
+          match.score.fullTime.away === null
+        )
+          return;
+
+        const apiHome = normalizeTeamName(match.homeTeam.name);
+        const apiAway = normalizeTeamName(match.awayTeam.name);
+
+        const fixture = FIXTURES.find((f) => {
+          const localHome = normalizeTeamName(
+            typeof f.homeTeam === "string"
+              ? f.homeTeam
+              : (f.homeTeam?.name || f.homeTeam?.tla || "")
+          );
+          const localAway = normalizeTeamName(
+            typeof f.awayTeam === "string"
+              ? f.awayTeam
+              : (f.awayTeam?.name || f.awayTeam?.tla || "")
+          );
+          return localHome === apiHome && localAway === apiAway;
+        });
+
+        if (fixture) {
+          matchedCount += 1;
+          updatedResults[fixture.id] = {
+            homeGoals: match.score.fullTime.home,
+            awayGoals: match.score.fullTime.away,
+          };
+        }
+      });
+
+      if (matchedCount) {
+        setResults((prev) => ({ ...prev, ...updatedResults }));
+        apiSaveResultsSnapshot(updatedResults);
+      }
+    }
+    setResultsRefreshing(false);
+  };
+
   // ---------- INIT ----------
-useEffect(() => {
-  async function init() {
-    // 1) restore app cache (pred/results/odds)
-    try {
+  useEffect(() => {
+    async function init() {
+      // 1) restore app cache (pred/results/odds)
+      try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -1173,56 +1265,7 @@ useEffect(() => {
     } catch {}
 
     // 3) auto results
-    const { matches, error } = await fetchPremierLeagueResults();
-        if (error) {
-      setApiStatus(`Auto results: failed (${error})`);
-    } else {
-      setApiStatus("Auto results: loaded");
-    }
-    if (!error && matches?.length) {
-      let matchedCount = 0;
-      const updatedResults = {};
-
-      matches.forEach((match) => {
-        if (!match.homeTeam || !match.awayTeam) return;
-        if (!match.score?.fullTime) return;
-        if (
-          match.score.fullTime.home === null ||
-          match.score.fullTime.away === null
-        )
-          return;
-
-        const apiHome = normalizeTeamName(match.homeTeam.name);
-        const apiAway = normalizeTeamName(match.awayTeam.name);
-
-        const fixture = FIXTURES.find((f) => {
-          const localHome = normalizeTeamName(
-  typeof f.homeTeam === "string"
-    ? f.homeTeam
-    : (f.homeTeam?.name || f.homeTeam?.tla || "")
-);
-          const localAway = normalizeTeamName(
-  typeof f.awayTeam === "string"
-    ? f.awayTeam
-    : (f.awayTeam?.name || f.awayTeam?.tla || "")
-);
-          return localHome === apiHome && localAway === apiAway;
-        });
-
-        if (fixture) {
-          matchedCount += 1;
-          updatedResults[fixture.id] = {
-            homeGoals: match.score.fullTime.home,
-            awayGoals: match.score.fullTime.away,
-          };
-        }
-      });
-
-      if (matchedCount) {
-        setResults((prev) => ({ ...prev, ...updatedResults }));
-        apiSaveResultsSnapshot(updatedResults);
-      }
-    }
+    await refreshAutoResults();
 
         // 4) odds (initial load) — use in-app model instead of backend
     const generatedOdds = {};
@@ -1757,6 +1800,43 @@ useEffect(() => {
     cancelled = true;
   };
 }, [results, predictions, isLoggedIn, authToken, myLeagues]);
+
+useEffect(() => {
+  if (DEV_USE_LOCAL) return;
+  if (activeView !== "leagues") return;
+  if (!isLoggedIn || !authToken) {
+    setMiniLeagueLeaderboardRows([]);
+    setMiniLeagueLeaderboardError("");
+    return;
+  }
+
+  let cancelled = false;
+
+  async function loadMiniLeagueLeaderboard() {
+    setMiniLeagueLeaderboardLoading(true);
+    setMiniLeagueLeaderboardError("");
+
+    try {
+      const sortedRows = await apiGetMiniLeagueLeaderboard(authToken);
+      if (cancelled) return;
+      setMiniLeagueLeaderboardRows(sortedRows);
+    } catch (err) {
+      if (cancelled) return;
+      setMiniLeagueLeaderboardError(
+        err?.message || "Failed to load mini-league leaderboard."
+      );
+      setMiniLeagueLeaderboardRows([]);
+    } finally {
+      if (!cancelled) setMiniLeagueLeaderboardLoading(false);
+    }
+  }
+
+  loadMiniLeagueLeaderboard();
+
+  return () => {
+    cancelled = true;
+  };
+}, [activeView, isLoggedIn, authToken, results]);
   // ---------- AUTH ----------
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
@@ -2159,18 +2239,19 @@ setNewPasswordInput("");
   // ...existing code...
 
 const leaderboard = useMemo(() => {
+  const LEGACY_MAP = {
+    Tom: "1763801801299",
+    Ian: "1763801801288",
+    Dave: "1763801999658",
+    Anthony: "1763802020494",
+    Steve: "1763812904100",
+    Emma: "1763813732635",
+    Phil: "1763873593264",
+  };
+
   // Use backend-computed totals if available
     if (computedLeagueTotals) {
     // Collapse any legacy-userId keys into their legacy name
-    const LEGACY_MAP = {
-      Tom: "1763801801299",
-      Ian: "1763801801288",
-      Dave: "1763801999658",
-      Anthony: "1763802020494",
-      Steve: "1763812904100",
-      Emma: "1763813732635",
-      Phil: "1763873593264",
-    };
 
     const idToLegacyName = (id) => {
       const found = Object.entries(LEGACY_MAP).find(([, v]) => v === id);
@@ -2181,11 +2262,24 @@ const leaderboard = useMemo(() => {
     Object.entries(computedLeagueTotals).forEach(([key, points]) => {
       const legacyName = idToLegacyName(key);
       const finalKey = legacyName || key;
-      collapsed[finalKey] = (collapsed[finalKey] || 0) + (points || 0);
+      const resolvedUserId = legacyName
+        ? key
+        : LEGACY_MAP[finalKey] || (PLAYERS.includes(finalKey) ? null : key);
+      if (!collapsed[finalKey]) {
+        collapsed[finalKey] = { points: 0, userId: resolvedUserId || null };
+      }
+      collapsed[finalKey].points += points || 0;
+      if (!collapsed[finalKey].userId && resolvedUserId) {
+        collapsed[finalKey].userId = resolvedUserId;
+      }
     });
 
     return Object.entries(collapsed)
-      .map(([player, points]) => ({ player, points }))
+      .map(([player, meta]) => ({
+        player,
+        points: meta.points || 0,
+        userId: meta.userId || LEGACY_MAP[player] || null,
+      }))
       .sort((a, b) => b.points - a.points);
   }
 
@@ -2205,7 +2299,11 @@ const leaderboard = useMemo(() => {
   });
 
   return Object.entries(totals)
-    .map(([player, points]) => ({ player, points }))
+    .map(([player, points]) => ({
+      player,
+      points,
+      userId: LEGACY_MAP[player] || null,
+    }))
     .sort((a, b) => b.points - a.points);
 }, [computedLeagueTotals, predictions, results]);
 
@@ -2333,6 +2431,7 @@ useEffect(() => {
   if (!winners.length) return;
   setWinnerList(winners);
   setWinnerIndex(0);
+  setWinnerModalType("gw");
   setShowWinnerModal(true);
   localStorage.setItem(seenKey, "true");
 }, [
@@ -2341,6 +2440,70 @@ useEffect(() => {
   computedWeeklyTotals,
   globalWeeklyScores,
   globalUsers,
+  isLoggedIn,
+  currentUserId,
+]);
+
+// Season winner popup (once per user/view, only after season fully completes)
+useEffect(() => {
+  if (!isLoggedIn || !currentUserId) return;
+  if (activeView !== "league" && activeView !== "globalLeague") return;
+  if (!GAMEWEEKS.length) return;
+
+  const finalGw = Math.max(...GAMEWEEKS);
+  const finalGwFixtures = FIXTURES.filter((f) => f.gameweek === finalGw);
+  if (!finalGwFixtures.length) return;
+
+  const lastKickoff = Math.max(
+    ...finalGwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
+  );
+  if (!Number.isFinite(lastKickoff)) return;
+  const seasonEndTime = lastKickoff + 3 * 60 * 60 * 1000;
+  if (Date.now() < seasonEndTime) return;
+
+  const allFixturesCompleted = FIXTURES.every((fixture) => {
+    const res = results[fixture.id];
+    return !!res && res.homeGoals !== "" && res.awayGoals !== "";
+  });
+  if (!allFixturesCompleted) return;
+
+  const seenKey = `season_winner_popup_seen_${activeView}_s${finalGw}_${currentUserId}`;
+  if (localStorage.getItem(seenKey)) return;
+
+  let winners = [];
+  if (activeView === "league") {
+    if (!leaderboard || leaderboard.length === 0) return;
+    const max = Math.max(...leaderboard.map((r) => Number(r.points) || 0));
+    winners = leaderboard
+      .filter((r) => (Number(r.points) || 0) === max)
+      .map((r) => ({
+        player: r.player,
+        userId: r.userId || null,
+        points: Number(r.points) || 0,
+      }));
+  } else {
+    if (!globalLeaderboard || globalLeaderboard.length === 0) return;
+    const max = Math.max(...globalLeaderboard.map((r) => Number(r.points) || 0));
+    winners = globalLeaderboard
+      .filter((r) => (Number(r.points) || 0) === max)
+      .map((r) => ({
+        player: r.player,
+        userId: r.userId || null,
+        points: Number(r.points) || 0,
+      }));
+  }
+
+  if (!winners.length) return;
+  setWinnerList(winners);
+  setWinnerIndex(0);
+  setWinnerModalType("season");
+  setShowWinnerModal(true);
+  localStorage.setItem(seenKey, "true");
+}, [
+  activeView,
+  leaderboard,
+  globalLeaderboard,
+  results,
   isLoggedIn,
   currentUserId,
 ]);
@@ -2360,14 +2523,20 @@ useEffect(() => {
 }, [showWinnerModal]);
 
 useEffect(() => {
-  if (!showWinnerModal) return;
+  if (!showWinnerModal || !soundEffectsEnabled) return;
   if (!winnerAudioRef.current) {
-    winnerAudioRef.current = new Audio("/coin.mp3");
+    winnerAudioRef.current = new Audio("/winner.mp3");
   }
   winnerAudioRef.current.currentTime = 0;
   winnerAudioRef.current.volume = 0.5;
-  winnerAudioRef.current.play().catch(() => {});
-}, [showWinnerModal]);
+  winnerAudioRef.current.play().catch(() => {
+    // Fallback for setups where winner.mp3 hasn't been added yet.
+    if (winnerAudioRef.current?.src?.includes("/winner.mp3")) {
+      winnerAudioRef.current.src = "/coin.mp3";
+      winnerAudioRef.current.play().catch(() => {});
+    }
+  });
+}, [showWinnerModal, soundEffectsEnabled]);
 
 const winnerConfetti = useMemo(() => {
   if (!showWinnerModal) return [];
@@ -2858,10 +3027,10 @@ if (!isLoggedIn) {
           >
             <div style={{ fontSize: 28, marginBottom: 6 }}>🏆🎉</div>
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
-              Gameweek Winner
+              {winnerModalType === "season" ? "Season Winner" : "Gameweek Winner"}
             </div>
             <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>
-              GW{selectedGameweek}
+              {winnerModalType === "season" ? "End of Season" : `GW${selectedGameweek}`}
             </div>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <PlayerAvatar
@@ -2981,6 +3150,44 @@ if (!isLoggedIn) {
             >
               {apiStatus}
             </div>
+            {lastResultsUpdated && (
+              <div
+                style={{
+                  marginTop: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "4px 8px",
+                  borderRadius: 999,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  fontSize: 11,
+                  color: theme.muted,
+                }}
+              >
+                <span>
+                  Results updated{" "}
+                  {new Date(lastResultsUpdated).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <button
+                  onClick={refreshAutoResults}
+                  disabled={resultsRefreshing}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: theme.accent,
+                    fontWeight: 700,
+                    cursor: resultsRefreshing ? "wait" : "pointer",
+                    padding: 0,
+                  }}
+                >
+                  {resultsRefreshing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Change password / Logout / Menu (uniform buttons, centered) */}
@@ -2992,7 +3199,7 @@ if (!isLoggedIn) {
       display: "flex",
       justifyContent: "center",
       alignItems: "center",
-      gap: isMobile ? 6 : 8,
+      gap: isMobile ? 4 : 8,
       width: "100%",
       flexWrap: "nowrap", // stay on one line
     }}
@@ -3000,37 +3207,86 @@ if (!isLoggedIn) {
     <button
       onClick={() => setShowPasswordModal(true)}
       style={{
-        padding: "6px 10px",
+        padding: isMobile ? "6px 8px" : "6px 10px",
         borderRadius: 8,
         background: theme.panelHi,
         color: theme.text,
         border: `1px solid ${theme.line}`,
         cursor: "pointer",
-        fontSize: 12,
-        height: 32,
-        minWidth: isMobile ? 96 : 118,
+        fontSize: isMobile ? 11 : 12,
+        height: isMobile ? 30 : 32,
+        minWidth: isMobile ? 78 : 108,
         textAlign: "center",
+        whiteSpace: "nowrap",
       }}
     >
       {isMobile ? "Password" : "Change Password"}
     </button>
 
     <button
+      type="button"
+      onClick={() => {
+        setActiveView("settings");
+        setShowMobileMenu(false);
+      }}
+      title="Open settings"
+      aria-label="Open settings"
+      style={{
+        width: isMobile ? 30 : 32,
+        height: isMobile ? 30 : 32,
+        borderRadius: 8,
+        border: `1px solid ${theme.line}`,
+        background: theme.panelHi,
+        color: theme.accent,
+        cursor: "pointer",
+        fontSize: 16,
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+      }}
+    >
+      ⚙️
+    </button>
+
+    <button
       onClick={handleLogout}
       style={{
-        padding: "6px 10px",
+        padding: isMobile ? "6px 8px" : "6px 10px",
         borderRadius: 8,
         border: `1px solid ${theme.line}`,
         background: theme.panelHi,
         color: theme.text,
         cursor: "pointer",
-        fontSize: 12,
-        height: 32,
-        minWidth: isMobile ? 96 : 118,
+        fontSize: isMobile ? 11 : 12,
+        height: isMobile ? 30 : 32,
+        minWidth: isMobile ? 70 : 92,
         textAlign: "center",
+        whiteSpace: "nowrap",
       }}
     >
       Log out
+    </button>
+
+    <button
+      type="button"
+      onClick={() => updateSoundEffectsEnabled(!soundEffectsEnabled)}
+      title={soundEffectsEnabled ? "Mute sound effects" : "Unmute sound effects"}
+      aria-label={soundEffectsEnabled ? "Mute sound effects" : "Unmute sound effects"}
+      style={{
+        width: isMobile ? 30 : 32,
+        height: isMobile ? 30 : 32,
+        borderRadius: 8,
+        border: `1px solid ${theme.line}`,
+        background: theme.panelHi,
+        color: soundEffectsEnabled ? theme.accent2 : theme.muted,
+        cursor: "pointer",
+        fontSize: 16,
+        display: "grid",
+        placeItems: "center",
+        padding: 0,
+      }}
+    >
+      {soundEffectsEnabled ? "🔊" : "🔇"}
     </button>
 
     {isMobile && (
@@ -3038,16 +3294,17 @@ if (!isLoggedIn) {
         type="button"
         onClick={() => setShowMobileMenu((v) => !v)}
         style={{
-          padding: "6px 10px",
+          padding: isMobile ? "6px 8px" : "6px 10px",
           borderRadius: 8,
           border: `1px solid ${theme.line}`,
           background: theme.panelHi,
           color: theme.text,
           cursor: "pointer",
-          fontSize: 12,
-          height: 32,
-          minWidth: isMobile ? 96 : 118,
+          fontSize: isMobile ? 11 : 12,
+          height: isMobile ? 30 : 32,
+          minWidth: isMobile ? 68 : 108,
           textAlign: "center",
+          whiteSpace: "nowrap",
       }}
       >
         Menu
@@ -3250,12 +3507,12 @@ if (!isLoggedIn) {
   );
 })()}
         {/* Controls */}
-                <section
+        <section
           style={{
             ...cardStyle,
             display: "grid",
             gridTemplateColumns: activeView === "predictions" ? "auto auto" : "auto",
-            gap: 12,
+            gap: isMobile ? 8 : 12,
             alignItems: "center",
             justifyContent: "center",
             justifyItems: "center",
@@ -3283,6 +3540,9 @@ if (!isLoggedIn) {
                   color: theme.text,
                   border: `1px solid ${theme.line}`,
                   fontSize: 14,
+                  width: isMobile ? "9ch" : "11ch",
+                  minWidth: isMobile ? 72 : 92,
+                  maxWidth: isMobile ? 90 : 120,
                 }}
               >
                 {PLAYERS.map((p) => (
@@ -3303,13 +3563,13 @@ if (!isLoggedIn) {
               value={selectedGameweek}
               onChange={(e) => setSelectedGameweek(Number(e.target.value))}
                 style={{
-    padding: "6px 14px",
+    padding: "6px 10px",
     borderRadius: 8,
     background: theme.panelHi,
     color: theme.text,
     border: `1px solid ${theme.line}`,
     fontSize: 14,
-    minWidth: 82,          // keeps “GW13” fully visible with arrow
+    minWidth: isMobile ? 68 : 74,          // keep GW label visible while freeing space for player select
     textAlignLast: "center",
   }}
             >
@@ -3510,20 +3770,20 @@ if (!isLoggedIn) {
             display: "flex",
             alignItems: "center",
             gap: 8,
-            padding: "6px 10px",
+            padding: isMobile ? "8px 12px" : "9px 14px",
             borderRadius: 999,
-            border: `1px solid ${theme.line}`,
+            border: "2px solid rgba(255, 255, 255, 0.5)",
             background: theme.panelHi,
-            fontSize: 12,
+            fontSize: isMobile ? 12 : 13,
             color: theme.muted,
           }}
         >
           <span>GW points so far</span>
           <span
             style={{
-              minWidth: 34,
+              minWidth: isMobile ? 38 : 44,
               textAlign: "center",
-              padding: "2px 8px",
+              padding: isMobile ? "3px 9px" : "4px 10px",
               borderRadius: 999,
               fontWeight: 800,
               color:
@@ -3540,8 +3800,8 @@ if (!isLoggedIn) {
                   : "#22c55e",
               border:
                 currentGwPoints === currentGwTopScore && currentGwPoints > 0
-                  ? "1px solid rgba(245,158,11,0.6)"
-                  : "1px solid rgba(34,197,94,0.5)",
+                  ? "2px solid rgba(255,255,255,0.55)"
+                  : "2px solid rgba(255,255,255,0.45)",
             }}
           >
             <AnimatedNumber
@@ -3613,6 +3873,14 @@ if (!isLoggedIn) {
 
         const coinsWin =
           hasResult && coinsStake > 0 && coinsSide === getResult(r.homeGoals, r.awayGoals);
+        const coinsPossibleReturnColor =
+          coinsStake <= 0
+            ? theme.muted
+            : !hasResult
+            ? "#ffffff"
+            : coinsWin
+            ? "#22c55e"
+            : "#ef4444";
 
         return (
           <div
@@ -4233,12 +4501,7 @@ if (!isLoggedIn) {
                       fontSize: 11,
                       minWidth: 90,
                       justifyContent: "flex-end",
-                      color:
-                        coinsPossibleReturn <= 0
-                          ? "#ef4444"
-                          : coinsWin
-                          ? "#f59e0b"
-                          : "#22c55e",
+                      color: coinsPossibleReturnColor,
                       fontWeight: 700,
                     }}
                   >
@@ -4457,7 +4720,7 @@ if (!isLoggedIn) {
 
                 return (
                   <div
-                    key={row.player}
+                    key={row.userId || row.player}
                     style={{
                       display: "grid",
                       gridTemplateColumns: "50px auto 1fr 90px",
@@ -4938,125 +5201,146 @@ if (!isLoggedIn) {
 
         {/* History */}
         {activeView === "history" && (
-          <section
-  style={{
-    ...cardStyle,
-    padding: 0,
-    overflow: "hidden",
-  }}
->
-            <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>Weekly Scores</h2>
-
-            <div style={{ 
-              overflowX: "auto", 
-              overflowY: "auto",
-              maxHeight: "70vh",
-              position: "relative"
-            }}>
-              <table
+          (() => {
+            return (
+              <section
                 style={{
-                  width: "100%",
-                  borderCollapse: "separate",
-                  borderSpacing: 0,
-                  fontSize: 13,
+                  ...cardStyle,
+                  padding: 0,
+                  overflow: "hidden",
                 }}
               >
-                <thead>
-                  <tr style={{ 
-                    position: "sticky", 
-                    top: 0, 
-                    zIndex: 4,
-                    background: theme.panel
-                  }}>
-                    <th
-  style={{
-    textAlign: "center",
-    padding: "10px 12px",
-    position: "sticky",
-    left: 0,
-    zIndex: 5,
-    background: theme.panel,
-    borderRight: `2px solid ${theme.line}`,
-    borderBottom: `2px solid ${theme.line}`,
-    fontWeight: 700,
-    color: theme.accent,
-    width: "60px",
-    minWidth: "60px",
-  }}
->
-  GW
-</th>
-                    {PLAYERS.map((p) => (
-                      <th key={p} style={{ 
-                        textAlign: "center", 
-                        padding: "10px 6px",
-                        borderBottom: `2px solid ${theme.line}`,
-                        fontWeight: 700,
-                        color: theme.accent,
-                        background: theme.panel,
-                        minWidth: "50px",
-                        maxWidth: "70px",
-                      }}
-                      title={p}
-                      >
-                        {p.slice(0, 4)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {historicalScores.map((row, idx) => {
-                    const vals = PLAYERS.map((p) => row[p]);
-                    const max = Math.max(...vals);
-                    const min = Math.min(...vals);
-                    const range = max - min || 1;
+                <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>
+                  Weekly Scores
+                </h2>
 
-                    return (
-                      <tr key={row.gameweek}>
-                        <td
-  style={{
-    padding: "10px 12px",
-    color: theme.accent,
-    position: "sticky",
-    left: 0,
-    zIndex: 3,
-    background: theme.panel,
-    borderRight: `2px solid ${theme.line}`,
-    fontWeight: 700,
-    textAlign: "center",
-  }}
->
-  {row.gameweek}
-</td>
-                        {PLAYERS.map((p) => {
-                          const v = row[p];
-                          const shade = (v - min) / range;
-                          const isWinner = v === max && max > 0;
-                          return (
+                <div
+                  style={{
+                    overflowX: "auto",
+                    overflowY: "auto",
+                    maxHeight: "70vh",
+                    position: "relative",
+                    padding: "0 0 10px",
+                    background: theme.panel,
+                  }}
+                >
+                  <table
+                    style={{
+                      width: "100%",
+                      borderCollapse: "separate",
+                      borderSpacing: 0,
+                      fontSize: isMobile ? 12 : 13,
+                    }}
+                  >
+                    <thead>
+                      <tr
+                        style={{
+                          position: "sticky",
+                          top: 0,
+                          zIndex: 4,
+                          background: theme.panel,
+                        }}
+                      >
+                        <th
+                          style={{
+                            textAlign: "center",
+                            padding: isMobile ? "8px 10px" : "10px 12px",
+                            position: "sticky",
+                            left: 0,
+                            zIndex: 5,
+                            background: theme.panel,
+                            borderRight: `1px solid ${theme.line}`,
+                            borderBottom: `1px solid ${theme.line}`,
+                            fontWeight: 800,
+                            color: theme.accent,
+                            width: isMobile ? "54px" : "64px",
+                            minWidth: isMobile ? "54px" : "64px",
+                          }}
+                        >
+                          GW
+                        </th>
+                        {PLAYERS.map((p) => (
+                          <th
+                            key={p}
+                            style={{
+                              textAlign: "center",
+                              padding: isMobile ? "8px 6px" : "10px 8px",
+                              borderBottom: `1px solid ${theme.line}`,
+                              fontWeight: 700,
+                              color: theme.accent,
+                              background: theme.panel,
+                              minWidth: isMobile ? "50px" : "58px",
+                            }}
+                            title={p}
+                          >
+                            {p.slice(0, 4)}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historicalScores.map((row, idx) => {
+                        const vals = PLAYERS.map((p) => Number(row[p]) || 0);
+                        const max = Math.max(...vals);
+                        const min = Math.min(...vals);
+                        const range = max - min || 1;
+                        const rowBg = theme.panelHi;
+
+                        return (
+                          <tr key={row.gameweek}>
                             <td
-                              key={p}
                               style={{
-                                padding: "10px 12px",
+                                padding: isMobile ? "8px 10px" : "10px 12px",
+                                color: theme.accent,
+                                position: "sticky",
+                                left: 0,
+                                zIndex: 3,
+                                background: theme.panel,
+                                borderRight: `1px solid ${theme.line}`,
+                                fontWeight: 800,
                                 textAlign: "center",
-                                background: isWinner 
-                                  ? `rgba(34,197,94,${0.25 + 0.35 * shade})`
-                                  : theme.panelHi,
-                                fontWeight: isWinner ? 800 : 400,
-                                color: isWinner ? "#fff" : theme.text,
-                                borderBottom: idx < historicalScores.length - 1 ? `1px solid ${theme.line}` : "none",
+                                borderBottom:
+                                  idx < historicalScores.length - 1
+                                    ? `1px solid ${theme.line}`
+                                    : "none",
                               }}
                             >
-                              {v}
+                              {row.gameweek}
                             </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                            {PLAYERS.map((p) => {
+                              const v = Number(row[p]) || 0;
+                              const shade = (v - min) / range;
+                              const isWinner = v === max && max > 0;
+                              return (
+                                <td
+                                  key={p}
+                                  style={{
+                                    padding: isMobile ? "8px 6px" : "10px 8px",
+                                    textAlign: "center",
+                                    background: isWinner
+                                      ? `rgba(34,197,94,${0.28 + 0.37 * shade})`
+                                      : rowBg,
+                                    fontWeight: isWinner ? 800 : 500,
+                                    color: isWinner ? "#ffffff" : theme.text,
+                                    borderBottom:
+                                      idx < historicalScores.length - 1
+                                        ? `1px solid ${theme.line}`
+                                        : "none",
+                                  }}
+                                >
+                                  {v}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            );
+          })()
         )}
 
 {/* Win Probabilities */}
@@ -5222,6 +5506,105 @@ if (!isLoggedIn) {
             <h2 style={{ marginTop: 0, fontSize: 18 }}>Mini‑leagues</h2>
 
             <div style={{ display: "grid", gap: 10 }}>
+              <div
+                style={{
+                  background: theme.panelHi,
+                  borderRadius: 10,
+                  border: `1px solid ${theme.line}`,
+                  padding: 10,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ fontWeight: 800 }}>Mini-League Leaderboard</div>
+                  <div style={{ fontSize: 12, color: theme.muted }}>
+                    Ranked by average points per member
+                  </div>
+                </div>
+
+                {miniLeagueLeaderboardLoading && (
+                  <div style={{ fontSize: 13, color: theme.muted }}>
+                    Calculating mini-league rankings...
+                  </div>
+                )}
+
+                {miniLeagueLeaderboardError && (
+                  <div style={{ fontSize: 13, color: theme.danger }}>
+                    {miniLeagueLeaderboardError}
+                  </div>
+                )}
+
+                {!miniLeagueLeaderboardLoading &&
+                  !miniLeagueLeaderboardError &&
+                  miniLeagueLeaderboardRows.length > 0 && (
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {miniLeagueLeaderboardRows.map((row, i) => (
+                        <div
+                          key={row.leagueId}
+                          style={{
+                            background: theme.panel,
+                            borderRadius: 8,
+                            border: `1px solid ${theme.line}`,
+                            padding: "8px 10px",
+                            display: "grid",
+                            gridTemplateColumns: isMobile ? "36px 1fr auto" : "44px 1fr auto",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontWeight: 800,
+                              color:
+                                i === 0
+                                  ? "#FFD700"
+                                  : i === 1
+                                  ? "#C0C0C0"
+                                  : i === 2
+                                  ? "#CD7F32"
+                                  : theme.muted,
+                            }}
+                          >
+                            {i + 1}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 700 }}>{row.leagueName}</div>
+                            <div style={{ fontSize: 12, color: theme.muted }}>
+                              Code: {row.joinCode || "-"} • Members: {row.memberCount} • Total: {Math.round(row.totalPoints)}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              textAlign: "right",
+                              fontWeight: 800,
+                              color: theme.accent2,
+                              minWidth: isMobile ? 64 : 86,
+                            }}
+                          >
+                            {row.averagePoints.toFixed(2)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                {!miniLeagueLeaderboardLoading &&
+                  !miniLeagueLeaderboardError &&
+                  miniLeagueLeaderboardRows.length === 0 && (
+                    <div style={{ fontSize: 13, color: theme.muted }}>
+                      No mini-leagues found yet.
+                    </div>
+                  )}
+              </div>
+
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button
                   onClick={handleLoadLeagues}
@@ -5709,6 +6092,50 @@ if (!isLoggedIn) {
               >
                 Reset to Default
               </button>
+            </div>
+
+            {/* Sound Effects */}
+            <div style={{
+              background: theme.panelHi,
+              borderRadius: 12,
+              border: `1px solid ${theme.line}`,
+              padding: 20,
+              marginBottom: 16
+            }}>
+              <h3 style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: theme.text,
+                marginBottom: 12
+              }}>
+                🔊 Sound Effects
+              </h3>
+
+              <p style={{
+                fontSize: 14,
+                color: theme.muted,
+                marginBottom: 14,
+                lineHeight: 1.6
+              }}>
+                Toggle in-app sounds for coins add/remove actions and gameweek winner celebrations.
+              </p>
+
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontSize: 14,
+                  color: theme.text,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!soundEffectsEnabled}
+                  onChange={(e) => updateSoundEffectsEnabled(e.target.checked)}
+                />
+                <span>Enable sound effects</span>
+              </label>
             </div>
 
             {/* Push Notifications */}

@@ -50,6 +50,49 @@
         },
         "updatedAt": "2025-12-07T07:36:50.677Z"
       }
+    },
+    "24": {
+      "234": {
+        "fixtureId": "234",
+        "gameweek": "24",
+        "side": "D",
+        "stake": 2,
+        "oddsSnapshot": {
+          "home": 8.37,
+          "draw": 4.52,
+          "away": 1.38
+        },
+        "updatedAt": "2026-01-31T05:14:09.002Z"
+      }
     }
+  },
+  "1763874000000": {
+    "24": {
+      "232": {
+        "fixtureId": "232",
+        "gameweek": "24",
+        "side": "D",
+        "stake": 2,
+        "oddsSnapshot": {
+          "home": 2.04,
+          "draw": 3.62,
+          "away": 3.36
+        },
+        "updatedAt": "2026-01-31T13:08:49.915Z"
+      },
+      "234": {
+        "fixtureId": "234",
+        "gameweek": "24",
+        "side": "D",
+        "stake": 3,
+        "oddsSnapshot": {
+          "home": 8.37,
+          "draw": 4.52,
+          "away": 1.38
+        },
+        "updatedAt": "2026-01-31T07:42:53.092Z"
+      }
+    },
+    "27": {}
   }
 }

@@ -260,6 +260,10 @@ const saveCoins = (coins) => saveJson(COINS_FILE, coins);
 const loadResults = () => loadJson(RESULTS_FILE, {});
 const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 
+let resultsCache = null;
+let resultsCacheAt = 0;
+const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
   return [
@@ -367,6 +371,32 @@ function getResult(home, away) {
   if (home > away) return "H";
   if (home < away) return "A";
   return "D";
+}
+
+function getPredictionPoints(prediction, result) {
+  if (!prediction || !result) return 0;
+
+  const ph = Number(prediction.homeGoals);
+  const pa = Number(prediction.awayGoals);
+  const rh = Number(result.homeGoals);
+  const ra = Number(result.awayGoals);
+
+  if ([ph, pa, rh, ra].some((n) => !Number.isFinite(n))) return 0;
+
+  let points = 0;
+  if (ph === rh && pa === ra) {
+    points = 7;
+  } else {
+    const predRes = getResult(ph, pa);
+    const realRes = getResult(rh, ra);
+    if (predRes === realRes && ph - pa === rh - ra) points = 4;
+    else if (predRes === realRes) points = 2;
+  }
+
+  if (prediction.isTriple) points *= 3;
+  else if (prediction.isDouble) points *= 2;
+
+  return points;
 }
 
 // --- COINS: compute season totals for ONE user ---
@@ -758,6 +788,78 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
   } catch (err) {
     console.error("leagues/my error", err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
+  try {
+    const leagues = loadLeagues();
+    const predictionsByUserId = loadPredictions();
+    const resultsByFixtureId = loadResults();
+    const fixtures = loadFixturesFromSrc();
+
+    const completedFixtureIds = fixtures
+      .map((fx) => fx.id)
+      .filter((fixtureId) => {
+        const r = resultsByFixtureId[fixtureId] || resultsByFixtureId[String(fixtureId)];
+        const hg = Number(r?.homeGoals);
+        const ag = Number(r?.awayGoals);
+        return Number.isFinite(hg) && Number.isFinite(ag);
+      });
+
+    const leaderboard = leagues.map((league) => {
+      const members = Array.isArray(league.members)
+        ? league.members
+        : Array.isArray(league.memberUserIds)
+        ? league.memberUserIds
+        : [];
+
+      let totalPoints = 0;
+      members.forEach((userId) => {
+        const userPreds = predictionsByUserId[userId] || {};
+        let userPoints = 0;
+
+        completedFixtureIds.forEach((fixtureId) => {
+          const pred =
+            userPreds[String(fixtureId)] !== undefined
+              ? userPreds[String(fixtureId)]
+              : userPreds[fixtureId];
+          if (!pred) return;
+
+          const res =
+            resultsByFixtureId[String(fixtureId)] !== undefined
+              ? resultsByFixtureId[String(fixtureId)]
+              : resultsByFixtureId[fixtureId];
+          userPoints += getPredictionPoints(pred, res);
+        });
+
+        totalPoints += userPoints;
+      });
+
+      const memberCount = members.length;
+      const averagePoints = memberCount > 0 ? totalPoints / memberCount : 0;
+      const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
+
+      return {
+        leagueId: league.id,
+        leagueName: league.name || joinCode || "Mini-league",
+        joinCode,
+        memberCount,
+        totalPoints,
+        averagePoints,
+      };
+    });
+
+    leaderboard.sort((a, b) => {
+      if (b.averagePoints !== a.averagePoints) return b.averagePoints - a.averagePoints;
+      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+      return a.leagueName.localeCompare(b.leagueName);
+    });
+
+    return res.json({ leaderboard });
+  } catch (err) {
+    console.error("leagues/leaderboard error", err);
+    return res.status(500).json({ error: "Failed to compute mini-league leaderboard." });
   }
 });
 
@@ -1393,6 +1495,11 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
   try {
+    const now = Date.now();
+    if (resultsCache && now - resultsCacheAt < RESULTS_CACHE_TTL_MS) {
+      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      return res.json(resultsCache);
+    }
     const apiRes = await fetch(
       "https://api.football-data.org/v4/competitions/PL/matches",
       { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
@@ -1407,7 +1514,11 @@ app.get("/api/results", async (req, res) => {
     }
 
     const data = await apiRes.json();
-    res.json(Array.isArray(data.matches) ? data.matches : []);
+    const matches = Array.isArray(data.matches) ? data.matches : [];
+    resultsCache = matches;
+    resultsCacheAt = Date.now();
+    res.setHeader("X-Results-Updated", String(resultsCacheAt));
+    res.json(matches);
   } catch (err) {
     console.error("results error", err);
     res.status(500).json({ error: "Internal server error" });
