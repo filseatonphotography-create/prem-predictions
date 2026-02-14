@@ -548,10 +548,11 @@ app.get("/", (req, res) => res.send("Backend is running"));
 // ---------------------------------------------------------------------------
 app.post("/api/signup", (req, res) => {
   try {
-    const { username, password, email } = req.body || {};
+    const { username, password, email, favoriteTeam } = req.body || {};
     const name = (username || "").trim();
     const pwd = (password || "").trim();
     const normalizedEmail = normalizeEmail(email);
+    const favTeam = (favoriteTeam || "").trim();
 
     if (!name || !pwd) {
       return res
@@ -568,14 +569,14 @@ app.post("/api/signup", (req, res) => {
     if (users.find((u) => u.username.toLowerCase() === name.toLowerCase())) {
       return res.status(400).json({ error: "That username is already taken." });
     }
-    if (normalizedEmail && !isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ error: "Invalid email address." });
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ error: "A valid email address is required." });
     }
-    if (
-      normalizedEmail &&
-      users.some((u) => normalizeEmail(u.email) === normalizedEmail)
-    ) {
+    if (users.some((u) => normalizeEmail(u.email) === normalizedEmail)) {
       return res.status(400).json({ error: "That email is already in use." });
+    }
+    if (!favTeam) {
+      return res.status(400).json({ error: "Please select your favourite team." });
     }
 
     const legacyMap = loadLegacyMap();
@@ -600,7 +601,8 @@ app.post("/api/signup", (req, res) => {
       id: crypto.randomUUID(),
       username: name,
       passwordHash: hashPassword(pwd),
-      email: normalizedEmail || "",
+      email: normalizedEmail,
+      favoriteTeam: favTeam,
       createdAt: new Date().toISOString(),
     };
     users.push(newUser);
@@ -696,6 +698,7 @@ app.get("/api/account/me", authMiddleware, (req, res) => {
       userId: user.id,
       username: user.username,
       email: user.email || "",
+      favoriteTeam: user.favoriteTeam || "",
     });
   } catch (err) {
     console.error("account/me error", err);
@@ -726,6 +729,41 @@ app.post("/api/account/email", authMiddleware, (req, res) => {
     return res.json({ ok: true, email });
   } catch (err) {
     console.error("account/email error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/account/favorite-team", authMiddleware, (req, res) => {
+  try {
+    const favoriteTeam = (req.body?.favoriteTeam || "").trim();
+    if (!favoriteTeam) {
+      return res.status(400).json({ error: "Favourite team is required." });
+    }
+
+    const users = loadUsers();
+    const user = users.find((u) => u.id === req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    user.favoriteTeam = favoriteTeam;
+    saveUsers(users);
+    return res.json({ ok: true, favoriteTeam });
+  } catch (err) {
+    console.error("account/favorite-team error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/account/favorite-team/all", authMiddleware, (req, res) => {
+  try {
+    const users = loadUsers() || [];
+    const favoriteTeams = {};
+    users.forEach((u) => {
+      if (!u || !u.id) return;
+      favoriteTeams[String(u.id)] = (u.favoriteTeam || "").trim();
+    });
+    return res.json({ favoriteTeams });
+  } catch (err) {
+    console.error("account/favorite-team/all error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1657,9 +1695,19 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
       if (newlyCompleted.length) {
         const predictions = loadPredictions() || {};
         const coins = loadCoins() || {};
+        const users = loadUsers() || [];
+        const fixtures = loadFixturesFromSrc() || [];
+        const fixtureById = {};
+        fixtures.forEach((fx) => {
+          if (!fx || fx.id === undefined || fx.id === null) return;
+          fixtureById[String(fx.id)] = fx;
+        });
 
         newlyCompleted.forEach((fx) => {
           const resultSide = getResult(fx.homeGoals, fx.awayGoals);
+          const fixture = fixtureById[String(fx.fixtureId)] || null;
+          const homeNorm = normalizeTeamName(fixture?.homeTeam || "");
+          const awayNorm = normalizeTeamName(fixture?.awayTeam || "");
 
           // Bingpot notifications
           Object.entries(predictions).forEach(([userId, preds]) => {
@@ -1706,6 +1754,25 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
               });
             });
           });
+
+          // Favourite team result notifications
+          if (fixture && (homeNorm || awayNorm)) {
+            users.forEach((user) => {
+              if (!user || !user.id) return;
+              const favTeam = (user.favoriteTeam || "").trim();
+              if (!favTeam) return;
+              const favNorm = normalizeTeamName(favTeam);
+              if (!favNorm) return;
+              const isFavFixture = favNorm === homeNorm || favNorm === awayNorm;
+              if (!isFavFixture) return;
+
+              sendPushNotification(user.id, "favoriteTeamResult", {
+                title: "Favourite team result",
+                body: `${fixture.homeTeam} ${fx.homeGoals}-${fx.awayGoals} ${fixture.awayTeam}`,
+                url: "/",
+              });
+            });
+          }
         });
       }
     } catch (err) {

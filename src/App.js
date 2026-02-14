@@ -19,6 +19,19 @@ async function apiGetAllAvatars(token) {
   }
 }
 
+async function apiGetAllFavoriteTeams(token) {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/account/favorite-team/all`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) throw new Error("Favourite teams fetch failed");
+    const data = await res.json().catch(() => ({}));
+    return data.favoriteTeams || {};
+  } catch {
+    return {};
+  }
+}
+
 // Set current user's avatar
 async function apiSetAvatar(token, payload) {
   try {
@@ -80,19 +93,67 @@ const TEAM_BADGES = {
 };
 
 // Simple avatar renderer using DiceBear styles
-function PlayerAvatar({ seed, avatarStyle = "avataaars", size = 48, title = "" }) {
+function resolveTeamBadge(teamName) {
+  const raw = (teamName || "").trim();
+  if (!raw) return "";
+  if (TEAM_BADGES[raw]) return TEAM_BADGES[raw];
+
+  const normalized = normalizeTeamName(raw);
+  if (!normalized) return "";
+  const match = Object.entries(TEAM_BADGES).find(
+    ([name]) => normalizeTeamName(name) === normalized
+  );
+  return match ? match[1] : "";
+}
+
+function PlayerAvatar({
+  seed,
+  avatarStyle = "avataaars",
+  size = 48,
+  title = "",
+  favoriteTeam = "",
+}) {
   const safeSeed = encodeURIComponent(seed || "user");
   const safeStyle = encodeURIComponent(avatarStyle || "avataaars");
   const src = `https://api.dicebear.com/7.x/${safeStyle}/svg?seed=${safeSeed}`;
+  const badgeSrc = resolveTeamBadge(favoriteTeam);
   return (
-    <img
-      src={src}
-      alt={title || "avatar"}
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 999,
+        position: "relative",
+        overflow: "hidden",
+      }}
       title={title || "avatar"}
-      width={size}
-      height={size}
-      style={{ borderRadius: 999, display: "block" }}
-    />
+    >
+      {badgeSrc && (
+        <img
+          src={badgeSrc}
+          alt=""
+          aria-hidden="true"
+          width={size}
+          height={size}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            opacity: 0.26,
+            transform: "scale(1.08)",
+          }}
+        />
+      )}
+      <img
+        src={src}
+        alt={title || "avatar"}
+        width={size}
+        height={size}
+        style={{ borderRadius: 999, display: "block", position: "relative", zIndex: 1 }}
+      />
+    </div>
   );
 }
 
@@ -171,6 +232,13 @@ const SPREADSHEET_WEEKLY_TOTALS = {
 const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
   (a, b) => a - b
 );
+const PREMIER_LEAGUE_TEAMS = Array.from(
+  new Set(
+    FIXTURES.flatMap((f) => [f.homeTeam, f.awayTeam]).filter(
+      (t) => typeof t === "string" && t.trim().length > 0
+    )
+  )
+).sort((a, b) => a.localeCompare(b));
 
 // --- TEAM NAME NORMALISATION (kept from your version) ---
 function normalizeTeamName(name) {
@@ -252,11 +320,11 @@ function normalizeTeamName(name) {
 }
 
 // --- API HELPERS ---
-async function apiSignup(username, password, email = "") {
+async function apiSignup(username, password, email = "", favoriteTeam = "") {
   const res = await fetch(`${BACKEND_BASE}/api/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, email }),
+    body: JSON.stringify({ username, password, email, favoriteTeam }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Signup failed.");
@@ -343,6 +411,20 @@ async function apiSetAccountEmail(token, email) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to save email.");
+  return data;
+}
+
+async function apiSetFavoriteTeam(token, favoriteTeam) {
+  const res = await fetch(`${BACKEND_BASE}/api/account/favorite-team`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ favoriteTeam }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to save favourite team.");
   return data;
 }
 
@@ -872,16 +954,25 @@ export default function App() {
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
+  const [favoriteTeamsByUserId, setFavoriteTeamsByUserId] = useState({});
 
-  // On login, fetch all avatars for leaderboard
+  // On login, fetch all avatars + favourite teams for leaderboard/avatar badge
   useEffect(() => {
-    async function loadAllAvatars() {
+    async function loadAllAvatarData() {
       if (isLoggedIn && authToken) {
-        const all = await apiGetAllAvatars(authToken);
-        if (all && typeof all === 'object') setAvatarsByUserId(all);
+        const [allAvatars, allFavoriteTeams] = await Promise.all([
+          apiGetAllAvatars(authToken),
+          apiGetAllFavoriteTeams(authToken),
+        ]);
+        if (allAvatars && typeof allAvatars === "object") {
+          setAvatarsByUserId(allAvatars);
+        }
+        if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
+          setFavoriteTeamsByUserId(allFavoriteTeams);
+        }
       }
     }
-    loadAllAvatars();
+    loadAllAvatarData();
   }, [isLoggedIn, authToken]);
 
   // Sound effects for coins
@@ -909,7 +1000,10 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginEmail, setLoginEmail] = useState("");
+  const [signupName, setSignupName] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupFavoriteTeam, setSignupFavoriteTeam] = useState("");
   const [forgotUsername, setForgotUsername] = useState("");
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotError, setForgotError] = useState("");
@@ -938,6 +1032,10 @@ export default function App() {
   const [accountEmailInput, setAccountEmailInput] = useState("");
   const [accountEmailStatus, setAccountEmailStatus] = useState("");
   const [accountEmailError, setAccountEmailError] = useState("");
+  const [accountFavoriteTeam, setAccountFavoriteTeam] = useState("");
+  const [accountFavoriteTeamInput, setAccountFavoriteTeamInput] = useState("");
+  const [accountFavoriteTeamStatus, setAccountFavoriteTeamStatus] = useState("");
+  const [accountFavoriteTeamError, setAccountFavoriteTeamError] = useState("");
 
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
@@ -1010,6 +1108,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       deadline24h: true,
       bingpot: true,
       betWin: true,
+      favoriteTeamResult: false,
     };
   });
   
@@ -1117,6 +1216,17 @@ const [coinsState, setCoinsState] = useState({
   loading: false,
   error: "",
 });
+
+const favoriteTeamByUsername = useMemo(() => {
+  const out = {};
+  (globalUsers || []).forEach((u) => {
+    if (!u || !u.userId || !u.username) return;
+    const team = favoriteTeamsByUserId[String(u.userId)] || "";
+    if (team) out[u.username] = team;
+  });
+  if (currentPlayer && accountFavoriteTeam) out[currentPlayer] = accountFavoriteTeam;
+  return out;
+}, [globalUsers, favoriteTeamsByUserId, currentPlayer, accountFavoriteTeam]);
 
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
@@ -1924,9 +2034,17 @@ useEffect(() => {
     e.preventDefault();
     setAuthError("");
     setAuthLoading(true);
-    const name = loginName.trim();
-    const pwd = loginPassword.trim();
-    if (!name || !pwd) {
+    const name = (mode === "signup" ? signupName : loginName).trim();
+    const pwd = (mode === "signup" ? signupPassword : loginPassword).trim();
+    const email = signupEmail.trim();
+    const favoriteTeam = signupFavoriteTeam.trim();
+
+    if (mode === "signup") {
+      if (!name || !pwd || !email || !favoriteTeam) {
+        setAuthLoading(false);
+        return setAuthError("Signup requires username, password, email, and favourite team.");
+      }
+    } else if (!name || !pwd) {
       setAuthLoading(false);
       return setAuthError("Enter username + password.");
     }
@@ -1934,7 +2052,7 @@ useEffect(() => {
     try {
       const result =
         mode === "signup"
-          ? await apiSignup(name, pwd, loginEmail)
+          ? await apiSignup(name, pwd, email, favoriteTeam)
           : await apiLogin(name, pwd);
 
       setIsLoggedIn(true);
@@ -1942,6 +2060,9 @@ useEffect(() => {
       setCurrentUserId(result.userId);
       setCurrentPlayer(result.username);
       setLoginPassword("");
+      setSignupPassword("");
+      setSignupEmail("");
+      setSignupFavoriteTeam("");
       setShowForgotPassword(false);
       setShowResetPassword(false);
       setForgotError("");
@@ -2002,6 +2123,8 @@ useEffect(() => {
         if (cancelled) return;
         setAccountEmail(me?.email || "");
         setAccountEmailInput(me?.email || "");
+        setAccountFavoriteTeam(me?.favoriteTeam || "");
+        setAccountFavoriteTeamInput(me?.favoriteTeam || "");
       } catch {}
     })();
     return () => {
@@ -2018,6 +2141,26 @@ useEffect(() => {
       setAccountEmailStatus("Recovery email saved.");
     } catch (err) {
       setAccountEmailError(err.message || "Failed to save recovery email.");
+    }
+  };
+
+  const handleSaveFavoriteTeam = async () => {
+    setAccountFavoriteTeamError("");
+    setAccountFavoriteTeamStatus("");
+    try {
+      const data = await apiSetFavoriteTeam(authToken, accountFavoriteTeamInput);
+      const team = data?.favoriteTeam || accountFavoriteTeamInput;
+      setAccountFavoriteTeam(team);
+      setAccountFavoriteTeamInput(team);
+      if (currentUserId) {
+        setFavoriteTeamsByUserId((prev) => ({
+          ...(prev || {}),
+          [String(currentUserId)]: team,
+        }));
+      }
+      setAccountFavoriteTeamStatus("Favourite team saved.");
+    } catch (err) {
+      setAccountFavoriteTeamError(err.message || "Failed to save favourite team.");
     }
   };
   // ---------- CHANGE PASSWORD ----------
@@ -2044,6 +2187,8 @@ setNewPasswordInput("");
     setLoginPassword("");
     setAuthError("");
     setMyLeagues([]);
+    setAvatarsByUserId({});
+    setFavoriteTeamsByUserId({});
     setShowMobileMenu(false);
     localStorage.removeItem(AUTH_STORAGE_KEY);
   }
@@ -3159,134 +3304,208 @@ if (!isLoggedIn) {
   }}
 >
   <section style={cardStyle}>
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
+    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in</h2>
 
-              <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
-                <label style={{ fontSize: 13, color: theme.muted }}>
-                  Username
-                  <input
-  style={{
-    width: "100%",
-    marginTop: 6,
-    padding: "10px 12px",
-    borderRadius: 10,
-    background: theme.panelHi,
-    color: theme.text,
-    border: `1px solid ${theme.line}`,
-    fontSize: 15,
-    boxSizing: "border-box",
-  }}
-  type="text"
-  value={loginName}
-  onChange={(e) => setLoginName(e.target.value)}
-  placeholder="e.g. Phil"
-  autoComplete="username"
-/>
-                </label>
+    <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
+      <label style={{ fontSize: 13, color: theme.muted }}>
+        Username
+        <input
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: theme.panelHi,
+            color: theme.text,
+            border: `1px solid ${theme.line}`,
+            fontSize: 15,
+            boxSizing: "border-box",
+          }}
+          type="text"
+          value={loginName}
+          onChange={(e) => setLoginName(e.target.value)}
+          placeholder="e.g. Phil"
+          autoComplete="username"
+        />
+      </label>
 
-                <label style={{ fontSize: 13, color: theme.muted }}>
-                  Password
-                  <input
-  style={{
-    width: "100%",
-    marginTop: 6,
-    padding: "10px 12px",
-    borderRadius: 10,
-    background: theme.panelHi,
-    color: theme.text,
-    border: `1px solid ${theme.line}`,
-    fontSize: 15,
-    boxSizing: "border-box",
-  }}
-  type="password"
-  value={loginPassword}
-  onChange={(e) => setLoginPassword(e.target.value)}
-  placeholder="••••"
-  autoComplete="current-password"
-/>
-                </label>
+      <label style={{ fontSize: 13, color: theme.muted }}>
+        Password
+        <input
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: theme.panelHi,
+            color: theme.text,
+            border: `1px solid ${theme.line}`,
+            fontSize: 15,
+            boxSizing: "border-box",
+          }}
+          type="password"
+          value={loginPassword}
+          onChange={(e) => setLoginPassword(e.target.value)}
+          placeholder="••••"
+          autoComplete="current-password"
+        />
+      </label>
 
-                <label style={{ fontSize: 13, color: theme.muted }}>
-                  Email (used for signup + password recovery)
-                  <input
-  style={{
-    width: "100%",
-    marginTop: 6,
-    padding: "10px 12px",
-    borderRadius: 10,
-    background: theme.panelHi,
-    color: theme.text,
-    border: `1px solid ${theme.line}`,
-    fontSize: 15,
-    boxSizing: "border-box",
-  }}
-  type="email"
-  value={loginEmail}
-  onChange={(e) => setLoginEmail(e.target.value)}
-  placeholder="you@example.com"
-  autoComplete="email"
-/>
-                </label>
+      <button
+        type="button"
+        onClick={(e) => handleAuthSubmit(e, "login")}
+        disabled={authLoading}
+        style={{
+          width: "100%",
+          padding: "8px 10px",
+          borderRadius: 10,
+          border: `1px solid ${theme.accent}`,
+          background: "rgba(56,189,248,0.15)",
+          color: theme.text,
+          cursor: authLoading ? "wait" : "pointer",
+          opacity: authLoading ? 0.6 : 1,
+        }}
+      >
+        {authLoading ? "Logging in..." : "Log in"}
+      </button>
+    </form>
 
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    type="button"
-                    onClick={(e) => handleAuthSubmit(e, "login")}
-                    disabled={authLoading}
-                    style={{
-                      flex: 1,
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: `1px solid ${theme.accent}`,
-                      background: "rgba(56,189,248,0.15)",
-                      color: theme.text,
-                      cursor: authLoading ? "wait" : "pointer",
-                      opacity: authLoading ? 0.6 : 1,
-                    }}
-                  >
-                    {authLoading ? "Logging in..." : "Log in"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => handleAuthSubmit(e, "signup")}
-                    disabled={authLoading}
-                    style={{
-                      flex: 1,
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: `1px solid ${theme.accent2}`,
-                      background: "rgba(34,197,94,0.15)",
-                      color: theme.text,
-                      cursor: authLoading ? "wait" : "pointer",
-                      opacity: authLoading ? 0.6 : 1,
-                    }}
-                  >
-                    {authLoading ? "Creating..." : "Create account"}
-                  </button>
-                </div>
+    <div style={{ height: 1, background: theme.line, margin: "16px 0" }} />
 
-                {authError && (
-                  <div
-                    style={{
-                      background: "rgba(239,68,68,0.12)",
-                      border: `1px solid rgba(239,68,68,0.5)`,
-                      color: theme.text,
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      fontSize: 13,
-                    }}
-                  >
-                    {authError}
-                  </div>
-                )}
-              </form>
+    <h2 style={{ marginTop: 0, fontSize: 18 }}>Create account</h2>
+    <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
+      <label style={{ fontSize: 13, color: theme.muted }}>
+        Username
+        <input
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: theme.panelHi,
+            color: theme.text,
+            border: `1px solid ${theme.line}`,
+            fontSize: 15,
+            boxSizing: "border-box",
+          }}
+          type="text"
+          value={signupName}
+          onChange={(e) => setSignupName(e.target.value)}
+          placeholder="Choose a username"
+          autoComplete="username"
+        />
+      </label>
+
+      <label style={{ fontSize: 13, color: theme.muted }}>
+        Password
+        <input
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: theme.panelHi,
+            color: theme.text,
+            border: `1px solid ${theme.line}`,
+            fontSize: 15,
+            boxSizing: "border-box",
+          }}
+          type="password"
+          value={signupPassword}
+          onChange={(e) => setSignupPassword(e.target.value)}
+          placeholder="Create a password"
+          autoComplete="new-password"
+        />
+      </label>
+
+      <label style={{ fontSize: 13, color: theme.muted }}>
+        Email
+        <input
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: theme.panelHi,
+            color: theme.text,
+            border: `1px solid ${theme.line}`,
+            fontSize: 15,
+            boxSizing: "border-box",
+          }}
+          type="email"
+          value={signupEmail}
+          onChange={(e) => setSignupEmail(e.target.value)}
+          placeholder="you@example.com"
+          autoComplete="email"
+        />
+      </label>
+
+      <label style={{ fontSize: 13, color: theme.muted }}>
+        Favourite Premier League team
+        <select
+          value={signupFavoriteTeam}
+          onChange={(e) => setSignupFavoriteTeam(e.target.value)}
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            borderRadius: 10,
+            background: theme.panelHi,
+            color: theme.text,
+            border: `1px solid ${theme.line}`,
+            fontSize: 15,
+            boxSizing: "border-box",
+          }}
+        >
+          <option value="">Select team...</option>
+          {PREMIER_LEAGUE_TEAMS.map((team) => (
+            <option key={team} value={team}>
+              {team}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <button
+        type="button"
+        onClick={(e) => handleAuthSubmit(e, "signup")}
+        disabled={authLoading}
+        style={{
+          width: "100%",
+          padding: "8px 10px",
+          borderRadius: 10,
+          border: `1px solid ${theme.accent2}`,
+          background: "rgba(34,197,94,0.15)",
+          color: theme.text,
+          cursor: authLoading ? "wait" : "pointer",
+          opacity: authLoading ? 0.6 : 1,
+        }}
+      >
+        {authLoading ? "Creating..." : "Create account"}
+      </button>
+    </form>
+
+    {authError && (
+      <div
+        style={{
+          marginTop: 10,
+          background: "rgba(239,68,68,0.12)",
+          border: `1px solid rgba(239,68,68,0.5)`,
+          color: theme.text,
+          padding: "8px 10px",
+          borderRadius: 8,
+          fontSize: 13,
+        }}
+      >
+        {authError}
+      </div>
+    )}
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                 <button
                   type="button"
                   onClick={() => {
                     setShowForgotPassword((v) => !v);
-                    setShowResetPassword(false);
                     setForgotError("");
                     setForgotSuccess("");
                   }}
@@ -3300,25 +3519,6 @@ if (!isLoggedIn) {
                   }}
                 >
                   {showForgotPassword ? "Hide forgot password" : "Forgot password?"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowResetPassword((v) => !v);
-                    setShowForgotPassword(false);
-                    setResetError("");
-                    setResetSuccess("");
-                  }}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: theme.accent2,
-                    cursor: "pointer",
-                    fontSize: 13,
-                    padding: 0,
-                  }}
-                >
-                  {showResetPassword ? "Hide reset form" : "Have a reset token?"}
                 </button>
               </div>
 
@@ -3378,66 +3578,6 @@ if (!isLoggedIn) {
                   )}
                   {forgotSuccess && (
                     <div style={{ fontSize: 13, color: theme.accent2 }}>{forgotSuccess}</div>
-                  )}
-                </form>
-              )}
-
-              {showResetPassword && (
-                <form onSubmit={handleResetPassword} style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                  <div style={{ fontSize: 13, color: theme.muted }}>
-                    Paste reset token and choose a new password.
-                  </div>
-                  <input
-                    type="text"
-                    value={resetTokenInput}
-                    onChange={(e) => setResetTokenInput(e.target.value)}
-                    placeholder="Reset token"
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: theme.panelHi,
-                      color: theme.text,
-                      border: `1px solid ${theme.line}`,
-                      fontSize: 14,
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  <input
-                    type="password"
-                    value={resetPasswordInput}
-                    onChange={(e) => setResetPasswordInput(e.target.value)}
-                    placeholder="New password"
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: theme.panelHi,
-                      color: theme.text,
-                      border: `1px solid ${theme.line}`,
-                      fontSize: 14,
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  <button
-                    type="submit"
-                    style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 10,
-                      border: `1px solid ${theme.accent2}`,
-                      background: "rgba(34,197,94,0.15)",
-                      color: theme.text,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Reset password
-                  </button>
-                  {resetError && (
-                    <div style={{ fontSize: 13, color: theme.danger }}>{resetError}</div>
-                  )}
-                  {resetSuccess && (
-                    <div style={{ fontSize: 13, color: theme.accent2 }}>{resetSuccess}</div>
                   )}
                 </form>
               )}
@@ -3507,6 +3647,14 @@ if (!isLoggedIn) {
               seed={winnerList[winnerIndex]?.player || ""}
               avatarStyle={"avataaars"}
               title={winnerList[winnerIndex]?.player}
+              favoriteTeam={(() => {
+                const winner = winnerList[winnerIndex];
+                if (!winner) return "";
+                const byId = winner.userId
+                  ? favoriteTeamsByUserId[String(winner.userId)] || ""
+                  : "";
+                return byId || favoriteTeamByUsername[winner.player] || "";
+              })()}
             />
             </div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>
@@ -3782,6 +3930,76 @@ if (!isLoggedIn) {
   </div>
 )}
         </header>
+
+        {isLoggedIn && !accountFavoriteTeam && (
+          <section
+            style={{
+              ...cardStyle,
+              border: `1px solid ${theme.warn}`,
+              background: "rgba(245,158,11,0.12)",
+              display: "grid",
+              gap: 6,
+              padding: isMobile ? 10 : 12,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
+              Add your favourite team
+            </div>
+            <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.25 }}>
+              This helps us send optional team-result notifications.
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
+              <select
+                value={accountFavoriteTeamInput}
+                onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
+                style={{
+                  flex: "1 1 auto",
+                  minWidth: 0,
+                  padding: "6px 9px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  fontSize: 13,
+                }}
+              >
+                <option value="">Select team...</option>
+                {PREMIER_LEAGUE_TEAMS.map((team) => (
+                  <option key={team} value={team}>
+                    {team}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleSaveFavoriteTeam}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: theme.accent,
+                  color: "#fff",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Save
+              </button>
+            </div>
+            {accountFavoriteTeamError && (
+              <div style={{ fontSize: 12, color: theme.danger }}>
+                {accountFavoriteTeamError}
+              </div>
+            )}
+            {accountFavoriteTeamStatus && (
+              <div style={{ fontSize: 12, color: theme.accent2 }}>
+                {accountFavoriteTeamStatus}
+              </div>
+            )}
+          </section>
+        )}
         
         {showPasswordModal && (
   <div
@@ -4842,10 +5060,10 @@ if (!isLoggedIn) {
                   {/* Center content */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {/* MINI WRAPPER with +/- buttons */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <CoinIcon />
 
-  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
     <button
       type="button"
       disabled={locked || coinsStake <= 0}
@@ -4857,14 +5075,14 @@ if (!isLoggedIn) {
         }
       }}
       style={{
-        width: 24,
-        height: 24,
+        width: 18,
+        height: 18,
         padding: 0,
-        borderRadius: 6,
+        borderRadius: 5,
         border: (locked || coinsStake <= 0) ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
         background: (locked || coinsStake <= 0) ? theme.panelHi : theme.accent,
         color: (locked || coinsStake <= 0) ? theme.muted : "#fff",
-        fontSize: 16,
+        fontSize: 13,
         fontWeight: 700,
         cursor: (locked || coinsStake <= 0) ? "not-allowed" : "pointer",
         display: "flex",
@@ -4878,11 +5096,11 @@ if (!isLoggedIn) {
 
     <div
       style={{
-        width: 32,
+        width: isMobile ? 34 : 36,
         textAlign: "center",
-        padding: "2px 4px",
-        borderRadius: 6,
-        border: `1px solid ${theme.line}`,
+        padding: isMobile ? "6px 7px" : "6px 8px",
+        borderRadius: 8,
+        border: "1.5px solid #ffffff",
         background: theme.panelHi,
         color: theme.text,
         fontWeight: 700,
@@ -4905,14 +5123,14 @@ if (!isLoggedIn) {
         }
       }}
       style={{
-        width: 24,
-        height: 24,
+        width: 18,
+        height: 18,
         padding: 0,
-        borderRadius: 6,
+        borderRadius: 5,
         border: `1px solid ${theme.line}`,
         background: (locked || coinsState.remaining <= 0) ? theme.panelHi : theme.accent2,
         color: (locked || coinsState.remaining <= 0) ? theme.muted : "#fff",
-        fontSize: 16,
+        fontSize: 13,
         fontWeight: 700,
         cursor: (locked || coinsState.remaining <= 0) ? "not-allowed" : "pointer",
         display: "flex",
@@ -5232,6 +5450,11 @@ if (!isLoggedIn) {
                         }
                         return row.player === currentPlayer ? avatarStyle : 'avataaars';
                       })()}
+                      favoriteTeam={
+                        favoriteTeamsByUserId[String(row.userId || "")] ||
+                        favoriteTeamByUsername[row.player] ||
+                        ""
+                      }
                     />
                     <div style={{ 
                       fontWeight: 700,
@@ -5326,6 +5549,11 @@ if (!isLoggedIn) {
                         }
                         return row.player === currentPlayer ? avatarStyle : "avataaars";
                       })()}
+                      favoriteTeam={
+                        favoriteTeamsByUserId[String(row.userId || "")] ||
+                        favoriteTeamByUsername[row.player] ||
+                        ""
+                      }
                     />
                     <div
                       style={{
@@ -5457,6 +5685,11 @@ if (!isLoggedIn) {
         size={36} 
         seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
         avatarStyle={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+        favoriteTeam={
+          favoriteTeamsByUserId[String(row.userId || "")] ||
+          favoriteTeamByUsername[row.player] ||
+          ""
+        }
       />
       <div style={{ 
         fontWeight: 700,
@@ -6431,6 +6664,7 @@ if (!isLoggedIn) {
                   size={120} 
                   seed={avatarSeed || currentPlayer}
                   avatarStyle={avatarStyle}
+                  favoriteTeam={accountFavoriteTeamInput || accountFavoriteTeam}
                 />
               </div>
 
@@ -6668,6 +6902,7 @@ if (!isLoggedIn) {
                       { key: "deadline24h", label: "Notify 24 hours before deadline" },
                       { key: "bingpot", label: "Bingpot notification" },
                       { key: "betWin", label: "Bet win notification" },
+                      { key: "favoriteTeamResult", label: "Favourite team result notification" },
                     ].map((opt) => (
                       <label
                         key={opt.key}
@@ -6867,6 +7102,66 @@ if (!isLoggedIn) {
                 {accountEmail && (
                   <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
                     Current: {accountEmail}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12, color: theme.muted, marginBottom: 6 }}>
+                  Favourite Premier League team
+                </label>
+                <select
+                  value={accountFavoriteTeamInput}
+                  onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panel,
+                    color: theme.text,
+                    fontSize: 14,
+                    marginBottom: 8,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <option value="">Select team...</option>
+                  {PREMIER_LEAGUE_TEAMS.map((team) => (
+                    <option key={team} value={team}>
+                      {team}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleSaveFavoriteTeam}
+                  style={{
+                    width: "100%",
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panel,
+                    color: theme.text,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save favourite team
+                </button>
+                {accountFavoriteTeamError && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: theme.danger }}>
+                    {accountFavoriteTeamError}
+                  </div>
+                )}
+                {accountFavoriteTeamStatus && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: theme.accent2 }}>
+                    {accountFavoriteTeamStatus}
+                  </div>
+                )}
+                {accountFavoriteTeam && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
+                    Current: {accountFavoriteTeam}
                   </div>
                 )}
               </div>
