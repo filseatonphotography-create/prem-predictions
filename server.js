@@ -151,6 +151,7 @@ const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
+const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -210,6 +211,58 @@ function verifyPassword(password, stored) {
   return hashCheck === hash;
 }
 
+function normalizeEmail(email) {
+  return (email || "").trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  const e = normalizeEmail(email);
+  if (!e) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+function hashResetToken(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function createResetToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+function getResetBaseUrl() {
+  return (
+    process.env.PASSWORD_RESET_BASE_URL ||
+    process.env.FRONTEND_URL ||
+    "http://localhost:3000"
+  );
+}
+
+async function sendPasswordResetEmail({ toEmail, username, resetLink }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESET_FROM_EMAIL;
+  if (!apiKey || !fromEmail) return false;
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [toEmail],
+        subject: "Reset your Prediction Addiction password",
+        html: `<p>Hi ${username || ""},</p><p>Click the link below to reset your password. It expires in 30 minutes.</p><p><a href="${resetLink}">${resetLink}</a></p><p>If you did not request this, you can ignore this email.</p>`,
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error("send reset email error", err);
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // HELPERS: LOAD/SAVE JSON
 // ---------------------------------------------------------------------------
@@ -240,6 +293,9 @@ const loadUsers = () => {
   return users;
 };
 const saveUsers = (users) => saveJson(USERS_FILE, users);
+const loadPasswordResetTokens = () => loadJson(PASSWORD_RESET_TOKENS_FILE, []);
+const savePasswordResetTokens = (tokens) =>
+  saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
 
 // Predictions (userId -> { fixtureId -> prediction })
 const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
@@ -492,9 +548,10 @@ app.get("/", (req, res) => res.send("Backend is running"));
 // ---------------------------------------------------------------------------
 app.post("/api/signup", (req, res) => {
   try {
-    const { username, password } = req.body || {};
+    const { username, password, email } = req.body || {};
     const name = (username || "").trim();
     const pwd = (password || "").trim();
+    const normalizedEmail = normalizeEmail(email);
 
     if (!name || !pwd) {
       return res
@@ -510,6 +567,15 @@ app.post("/api/signup", (req, res) => {
     const users = loadUsers();
     if (users.find((u) => u.username.toLowerCase() === name.toLowerCase())) {
       return res.status(400).json({ error: "That username is already taken." });
+    }
+    if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ error: "Invalid email address." });
+    }
+    if (
+      normalizedEmail &&
+      users.some((u) => normalizeEmail(u.email) === normalizedEmail)
+    ) {
+      return res.status(400).json({ error: "That email is already in use." });
     }
 
     const legacyMap = loadLegacyMap();
@@ -534,6 +600,7 @@ app.post("/api/signup", (req, res) => {
       id: crypto.randomUUID(),
       username: name,
       passwordHash: hashPassword(pwd),
+      email: normalizedEmail || "",
       createdAt: new Date().toISOString(),
     };
     users.push(newUser);
@@ -616,6 +683,168 @@ app.post("/api/login", (req, res) => {
 return res.json({ userId: user.id, username: user.username, token });
   } catch (err) {
     console.error("login error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/account/me", authMiddleware, (req, res) => {
+  try {
+    const users = loadUsers();
+    const user = users.find((u) => u.id === req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    return res.json({
+      userId: user.id,
+      username: user.username,
+      email: user.email || "",
+    });
+  } catch (err) {
+    console.error("account/me error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/account/email", authMiddleware, (req, res) => {
+  try {
+    const email = normalizeEmail(req.body?.email);
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: "Valid email is required." });
+    }
+
+    const users = loadUsers();
+    const user = users.find((u) => u.id === req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const taken = users.some(
+      (u) => u.id !== user.id && normalizeEmail(u.email) === email
+    );
+    if (taken) {
+      return res.status(400).json({ error: "That email is already in use." });
+    }
+
+    user.email = email;
+    saveUsers(users);
+    return res.json({ ok: true, email });
+  } catch (err) {
+    console.error("account/email error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/password/forgot", async (req, res) => {
+  try {
+    const username = (req.body?.username || "").trim();
+    const email = normalizeEmail(req.body?.email);
+    const genericResponse = {
+      ok: true,
+      message:
+        "If your username and email match an account, a reset link has been sent.",
+    };
+
+    if (!username || !email) return res.json(genericResponse);
+    if (!isValidEmail(email)) return res.json(genericResponse);
+
+    const users = loadUsers();
+    const user = users.find(
+      (u) =>
+        (u.username || "").toLowerCase() === username.toLowerCase() &&
+        normalizeEmail(u.email) === email &&
+        typeof u.passwordHash === "string" &&
+        u.passwordHash.length > 0
+    );
+    if (!user) return res.json(genericResponse);
+
+    const now = Date.now();
+    const ttlMs = 30 * 60 * 1000;
+    const token = createResetToken();
+    const tokenHash = hashResetToken(token);
+    const expiresAt = new Date(now + ttlMs).toISOString();
+
+    const existing = loadPasswordResetTokens().filter((t) => {
+      if (!t || !t.expiresAt) return false;
+      return Date.parse(t.expiresAt) > now && !t.usedAt;
+    });
+    existing.push({
+      tokenHash,
+      userId: user.id,
+      createdAt: new Date(now).toISOString(),
+      expiresAt,
+      usedAt: null,
+    });
+    savePasswordResetTokens(existing);
+
+    const resetLink = `${getResetBaseUrl().replace(/\/$/, "")}/reset-password?resetToken=${encodeURIComponent(token)}`;
+    const emailSent = await sendPasswordResetEmail({
+      toEmail: email,
+      username: user.username,
+      resetLink,
+    });
+
+    if (!emailSent) {
+      console.log("[password/forgot] reset link (email not configured or failed):", {
+        username: user.username,
+        email,
+        resetLink,
+      });
+    }
+
+    if (!process.env.RENDER) {
+      return res.json({
+        ...genericResponse,
+        resetLink,
+        emailSent,
+      });
+    }
+
+    return res.json(genericResponse);
+  } catch (err) {
+    console.error("password/forgot error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/password/reset", (req, res) => {
+  try {
+    const token = (req.body?.token || "").trim();
+    const newPassword = (req.body?.newPassword || "").trim();
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: "Token and newPassword are required." });
+    }
+    if (newPassword.length < 4) {
+      return res.status(400).json({ error: "Password must be at least 4 characters." });
+    }
+
+    const now = Date.now();
+    const tokenHash = hashResetToken(token);
+    const tokens = loadPasswordResetTokens().filter((t) => {
+      if (!t || !t.expiresAt) return false;
+      return Date.parse(t.expiresAt) > now;
+    });
+
+    const tokenRow = tokens.find((t) => t.tokenHash === tokenHash && !t.usedAt);
+    if (!tokenRow) {
+      return res.status(400).json({ error: "Invalid or expired reset token." });
+    }
+
+    const users = loadUsers();
+    const user = users.find((u) => u.id === tokenRow.userId);
+    if (!user) {
+      return res.status(400).json({ error: "Invalid reset request." });
+    }
+
+    user.passwordHash = hashPassword(newPassword);
+    user.passwordResetAt = new Date().toISOString();
+    saveUsers(users);
+
+    tokens.forEach((t) => {
+      if (t.userId === user.id || t.tokenHash === tokenHash) {
+        t.usedAt = new Date().toISOString();
+      }
+    });
+    savePasswordResetTokens(tokens);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("password/reset error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

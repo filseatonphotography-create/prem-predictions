@@ -252,11 +252,11 @@ function normalizeTeamName(name) {
 }
 
 // --- API HELPERS ---
-async function apiSignup(username, password) {
+async function apiSignup(username, password, email = "") {
   const res = await fetch(`${BACKEND_BASE}/api/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, email }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Signup failed.");
@@ -298,6 +298,51 @@ async function apiChangePassword(token, oldPassword, newPassword) {
   if (!res.ok) {
     throw new Error(data.error || "Failed to change password.");
   }
+  return data;
+}
+
+async function apiForgotPassword(username, email) {
+  const res = await fetch(`${BACKEND_BASE}/api/password/forgot`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, email }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to request password reset.");
+  return data;
+}
+
+async function apiResetPassword(token, newPassword) {
+  const res = await fetch(`${BACKEND_BASE}/api/password/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to reset password.");
+  return data;
+}
+
+async function apiGetAccountMe(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/account/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load account.");
+  return data;
+}
+
+async function apiSetAccountEmail(token, email) {
+  const res = await fetch(`${BACKEND_BASE}/api/account/email`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ email }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to save email.");
   return data;
 }
 
@@ -864,6 +909,35 @@ export default function App() {
   const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [forgotUsername, setForgotUsername] = useState("");
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotError, setForgotError] = useState("");
+  const [forgotSuccess, setForgotSuccess] = useState("");
+  const [resetTokenInput, setResetTokenInput] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("resetToken") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [resetPasswordInput, setResetPasswordInput] = useState("");
+  const [resetError, setResetError] = useState("");
+  const [resetSuccess, setResetSuccess] = useState("");
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return !!params.get("resetToken");
+    } catch {
+      return false;
+    }
+  });
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountEmailInput, setAccountEmailInput] = useState("");
+  const [accountEmailStatus, setAccountEmailStatus] = useState("");
+  const [accountEmailError, setAccountEmailError] = useState("");
 
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
@@ -952,6 +1026,14 @@ const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
 const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
+  const isResetPasswordRoute = useMemo(() => {
+    try {
+      const clean = (window.location.pathname || "").replace(/\/+$/, "") || "/";
+      return clean === "/reset-password";
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
@@ -1852,7 +1934,7 @@ useEffect(() => {
     try {
       const result =
         mode === "signup"
-          ? await apiSignup(name, pwd)
+          ? await apiSignup(name, pwd, loginEmail)
           : await apiLogin(name, pwd);
 
       setIsLoggedIn(true);
@@ -1860,10 +1942,82 @@ useEffect(() => {
       setCurrentUserId(result.userId);
       setCurrentPlayer(result.username);
       setLoginPassword("");
+      setShowForgotPassword(false);
+      setShowResetPassword(false);
+      setForgotError("");
+      setForgotSuccess("");
+      setResetError("");
+      setResetSuccess("");
       setAuthLoading(false);
     } catch (err) {
       setAuthLoading(false);
       setAuthError(err.message || "Auth failed.");
+    }
+  };
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    setForgotError("");
+    setForgotSuccess("");
+    try {
+      const data = await apiForgotPassword(forgotUsername, forgotEmail);
+      let msg =
+        data?.message ||
+        "If your username and email match an account, a reset link has been sent.";
+      if (data?.resetLink) {
+        msg += ` (Dev link: ${data.resetLink})`;
+      }
+      setForgotSuccess(msg);
+    } catch (err) {
+      setForgotError(err.message || "Failed to request reset.");
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setResetError("");
+    setResetSuccess("");
+    try {
+      await apiResetPassword(resetTokenInput, resetPasswordInput);
+      setResetSuccess("Password updated. You can now log in.");
+      setResetPasswordInput("");
+      setShowResetPassword(false);
+      setShowForgotPassword(false);
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("resetToken");
+        window.history.replaceState({}, "", url.toString());
+      } catch {}
+    } catch (err) {
+      setResetError(err.message || "Failed to reset password.");
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoggedIn || !authToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await apiGetAccountMe(authToken);
+        if (cancelled) return;
+        setAccountEmail(me?.email || "");
+        setAccountEmailInput(me?.email || "");
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, authToken]);
+
+  const handleSaveRecoveryEmail = async () => {
+    setAccountEmailError("");
+    setAccountEmailStatus("");
+    try {
+      const data = await apiSetAccountEmail(authToken, accountEmailInput);
+      setAccountEmail(data?.email || accountEmailInput);
+      setAccountEmailStatus("Recovery email saved.");
+    } catch (err) {
+      setAccountEmailError(err.message || "Failed to save recovery email.");
     }
   };
   // ---------- CHANGE PASSWORD ----------
@@ -2812,6 +2966,138 @@ const winnerConfetti = useMemo(() => {
 
   // ---------- LOGIN PAGE ----------
 if (!isLoggedIn) {
+  if (isResetPasswordRoute) {
+    return (
+      <div style={{
+        ...pageStyle,
+        maxWidth: 1200,
+        margin: "0 auto",
+        padding: isMobile ? "8px" : "16px"
+      }}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <header
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              marginBottom: 10,
+            }}
+          >
+            <div style={{ width: 44, height: 44, borderRadius: 12, overflow: "hidden" }}>
+              <img
+                src="/icon_64.png"
+                alt="Prediction Addiction logo"
+                style={{ width: "100%", height: "100%" }}
+              />
+            </div>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: isMobile ? 24 : 32,
+                letterSpacing: 0.4,
+                textTransform: "uppercase",
+                color: theme.accent,
+                textAlign: "center",
+                whiteSpace: "nowrap",
+              }}
+            >
+              PREDICTION ADDICTION
+            </h1>
+          </header>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr",
+              gap: 12,
+              maxWidth: window.innerWidth <= 600 ? 480 : 560,
+              width: "100%",
+              margin: "0 auto",
+            }}
+          >
+            <section style={cardStyle}>
+              <h2 style={{ marginTop: 0, fontSize: 18 }}>Reset password</h2>
+              <form onSubmit={handleResetPassword} style={{ display: "grid", gap: 8 }}>
+                <div style={{ fontSize: 13, color: theme.muted }}>
+                  Paste your reset token and choose a new password.
+                </div>
+                <input
+                  type="text"
+                  value={resetTokenInput}
+                  onChange={(e) => setResetTokenInput(e.target.value)}
+                  placeholder="Reset token"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                    fontSize: 14,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <input
+                  type="password"
+                  value={resetPasswordInput}
+                  onChange={(e) => setResetPasswordInput(e.target.value)}
+                  placeholder="New password"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                    fontSize: 14,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  type="submit"
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    border: `1px solid ${theme.accent2}`,
+                    background: "rgba(34,197,94,0.15)",
+                    color: theme.text,
+                    cursor: "pointer",
+                  }}
+                >
+                  Reset password
+                </button>
+                {resetError && (
+                  <div style={{ fontSize: 13, color: theme.danger }}>{resetError}</div>
+                )}
+                {resetSuccess && (
+                  <div style={{ fontSize: 13, color: theme.accent2 }}>{resetSuccess}</div>
+                )}
+              </form>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = "/";
+                }}
+                style={{
+                  marginTop: 12,
+                  border: "none",
+                  background: "transparent",
+                  color: theme.accent,
+                  cursor: "pointer",
+                  fontSize: 13,
+                  padding: 0,
+                }}
+              >
+                Back to login
+              </button>
+            </section>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={{ 
       ...pageStyle,
@@ -2920,6 +3206,28 @@ if (!isLoggedIn) {
 />
                 </label>
 
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Email (used for signup + password recovery)
+                  <input
+  style={{
+    width: "100%",
+    marginTop: 6,
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    fontSize: 15,
+    boxSizing: "border-box",
+  }}
+  type="email"
+  value={loginEmail}
+  onChange={(e) => setLoginEmail(e.target.value)}
+  placeholder="you@example.com"
+  autoComplete="email"
+/>
+                </label>
+
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     type="button"
@@ -2972,6 +3280,167 @@ if (!isLoggedIn) {
                   </div>
                 )}
               </form>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForgotPassword((v) => !v);
+                    setShowResetPassword(false);
+                    setForgotError("");
+                    setForgotSuccess("");
+                  }}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: theme.accent,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    padding: 0,
+                  }}
+                >
+                  {showForgotPassword ? "Hide forgot password" : "Forgot password?"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowResetPassword((v) => !v);
+                    setShowForgotPassword(false);
+                    setResetError("");
+                    setResetSuccess("");
+                  }}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: theme.accent2,
+                    cursor: "pointer",
+                    fontSize: 13,
+                    padding: 0,
+                  }}
+                >
+                  {showResetPassword ? "Hide reset form" : "Have a reset token?"}
+                </button>
+              </div>
+
+              {showForgotPassword && (
+                <form onSubmit={handleForgotPassword} style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                  <div style={{ fontSize: 13, color: theme.muted }}>
+                    Enter your username and recovery email.
+                  </div>
+                  <input
+                    type="text"
+                    value={forgotUsername}
+                    onChange={(e) => setForgotUsername(e.target.value)}
+                    placeholder="Username"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="Recovery email"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: `1px solid ${theme.accent}`,
+                      background: "rgba(56,189,248,0.15)",
+                      color: theme.text,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Send reset link
+                  </button>
+                  {forgotError && (
+                    <div style={{ fontSize: 13, color: theme.danger }}>{forgotError}</div>
+                  )}
+                  {forgotSuccess && (
+                    <div style={{ fontSize: 13, color: theme.accent2 }}>{forgotSuccess}</div>
+                  )}
+                </form>
+              )}
+
+              {showResetPassword && (
+                <form onSubmit={handleResetPassword} style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                  <div style={{ fontSize: 13, color: theme.muted }}>
+                    Paste reset token and choose a new password.
+                  </div>
+                  <input
+                    type="text"
+                    value={resetTokenInput}
+                    onChange={(e) => setResetTokenInput(e.target.value)}
+                    placeholder="Reset token"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <input
+                    type="password"
+                    value={resetPasswordInput}
+                    onChange={(e) => setResetPasswordInput(e.target.value)}
+                    placeholder="New password"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 14,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: `1px solid ${theme.accent2}`,
+                      background: "rgba(34,197,94,0.15)",
+                      color: theme.text,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Reset password
+                  </button>
+                  {resetError && (
+                    <div style={{ fontSize: 13, color: theme.danger }}>{resetError}</div>
+                  )}
+                  {resetSuccess && (
+                    <div style={{ fontSize: 13, color: theme.accent2 }}>{resetSuccess}</div>
+                  )}
+                </form>
+              )}
             </section>
           </div>
         </div>
@@ -5506,6 +5975,137 @@ if (!isLoggedIn) {
             <h2 style={{ marginTop: 0, fontSize: 18 }}>Mini‑leagues</h2>
 
             <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={handleLoadLeagues}
+                  disabled={leaguesLoading}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    cursor: "pointer",
+                    fontSize: 13,
+                  }}
+                >
+                  {leaguesLoading ? "Loading…" : "Refresh my leagues"}
+                </button>
+                {leagueSuccess && (
+                  <div style={{ fontSize: 13, color: theme.accent2 }}>
+                    {leagueSuccess}
+                  </div>
+                )}
+                {leagueError && (
+                  <div style={{ fontSize: 13, color: theme.danger }}>
+                    {leagueError}
+                  </div>
+                )}
+              </div>
+
+              <form
+                onSubmit={handleCreateLeague}
+                style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}
+              >
+                <input
+                  value={leagueNameInput}
+                  onChange={(e) => setLeagueNameInput(e.target.value)}
+                  placeholder="New league name"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                  }}
+                />
+                <button
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: theme.accent,
+                    cursor: "pointer",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                    flex: "0 0 auto",
+                    width: isMobile ? 74 : 84,
+                  }}
+                >
+                  Create
+                </button>
+              </form>
+
+              <form
+                onSubmit={handleJoinLeague}
+                style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}
+              >
+                <input
+                  value={leagueJoinCode}
+                  onChange={(e) => setLeagueJoinCode(e.target.value)}
+                  placeholder="Join code"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    border: `1px solid ${theme.line}`,
+                  }}
+                />
+                <button
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: theme.accent2,
+                    cursor: "pointer",
+                    fontWeight: 800,
+                    whiteSpace: "nowrap",
+                    flex: "0 0 auto",
+                    width: isMobile ? 74 : 84,
+                  }}
+                >
+                  Join
+                </button>
+              </form>
+
+              <div style={{ display: "grid", gap: 6 }}>
+                <h2 style={{ margin: "4px 0 2px", fontSize: 18, fontWeight: 800 }}>
+                  My-Leagues
+                </h2>
+                {myLeagues.map((l) => (
+                  <div
+                    key={l.id}
+                    style={{
+                      background: theme.panelHi,
+                      borderRadius: 10,
+                      border: `1px solid ${theme.line}`,
+                      padding: 10,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 800 }}>{l.name}</div>
+                      <div style={{ fontSize: 12, color: theme.muted }}>
+                        Code: {l.joinCode} • Members: {l.memberCount}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {!myLeagues.length && (
+                  <div style={{ fontSize: 13, color: theme.muted }}>
+                    No leagues yet — create or join one above.
+                  </div>
+                )}
+              </div>
+
               <div
                 style={{
                   background: theme.panelHi,
@@ -5524,8 +6124,10 @@ if (!isLoggedIn) {
                     flexWrap: "wrap",
                   }}
                 >
-                  <div style={{ fontWeight: 800 }}>Mini-League Leaderboard</div>
-                  <div style={{ fontSize: 12, color: theme.muted }}>
+                  <h2 style={{ margin: 0, fontSize: 18, textAlign: "center", flex: 1 }}>
+                    Mini-League Leaderboard
+                  </h2>
+                  <div style={{ fontSize: 12, color: theme.muted, textAlign: "center", width: "100%" }}>
                     Ranked by average points per member
                   </div>
                 </div>
@@ -5578,7 +6180,7 @@ if (!isLoggedIn) {
                           <div>
                             <div style={{ fontWeight: 700 }}>{row.leagueName}</div>
                             <div style={{ fontSize: 12, color: theme.muted }}>
-                              Code: {row.joinCode || "-"} • Members: {row.memberCount} • Total: {Math.round(row.totalPoints)}
+                              Members: {row.memberCount} • Total: {Math.round(row.totalPoints)}
                             </div>
                           </div>
                           <div
@@ -5603,126 +6205,6 @@ if (!isLoggedIn) {
                       No mini-leagues found yet.
                     </div>
                   )}
-              </div>
-
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  onClick={handleLoadLeagues}
-                  disabled={leaguesLoading}
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    cursor: "pointer",
-                    fontSize: 13,
-                  }}
-                >
-                  {leaguesLoading ? "Loading…" : "Refresh my leagues"}
-                </button>
-                {leagueSuccess && (
-                  <div style={{ fontSize: 13, color: theme.accent2 }}>
-                    {leagueSuccess}
-                  </div>
-                )}
-                {leagueError && (
-                  <div style={{ fontSize: 13, color: theme.danger }}>
-                    {leagueError}
-                  </div>
-                )}
-              </div>
-
-              <form
-                onSubmit={handleCreateLeague}
-                style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-              >
-                <input
-                  value={leagueNameInput}
-                  onChange={(e) => setLeagueNameInput(e.target.value)}
-                  placeholder="New league name"
-                  style={{
-                    flex: "1 1 220px",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    border: `1px solid ${theme.line}`,
-                  }}
-                />
-                <button
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: theme.accent,
-                    cursor: "pointer",
-                    fontWeight: 800,
-                  }}
-                >
-                  Create
-                </button>
-              </form>
-
-              <form
-                onSubmit={handleJoinLeague}
-                style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-              >
-                <input
-                  value={leagueJoinCode}
-                  onChange={(e) => setLeagueJoinCode(e.target.value)}
-                  placeholder="Join code"
-                  style={{
-                    flex: "1 1 180px",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    border: `1px solid ${theme.line}`,
-                  }}
-                />
-                <button
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: theme.accent2,
-                    cursor: "pointer",
-                    fontWeight: 800,
-                  }}
-                >
-                  Join
-                </button>
-              </form>
-
-              <div style={{ display: "grid", gap: 6 }}>
-                {myLeagues.map((l) => (
-                  <div
-                    key={l.id}
-                    style={{
-                      background: theme.panelHi,
-                      borderRadius: 10,
-                      border: `1px solid ${theme.line}`,
-                      padding: 10,
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 800 }}>{l.name}</div>
-                      <div style={{ fontSize: 12, color: theme.muted }}>
-                        Code: {l.joinCode} • Members: {l.memberCount}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {!myLeagues.length && (
-                  <div style={{ fontSize: 13, color: theme.muted }}>
-                    No leagues yet — create or join one above.
-                  </div>
-                )}
               </div>
             </div>
           </section>
@@ -6332,6 +6814,61 @@ if (!isLoggedIn) {
                 marginBottom: 12
               }}>
                 <strong>Logged in as:</strong> {currentPlayer}
+              </div>
+
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ display: "block", fontSize: 12, color: theme.muted, marginBottom: 6 }}>
+                  Recovery email
+                </label>
+                <input
+                  type="email"
+                  value={accountEmailInput}
+                  onChange={(e) => setAccountEmailInput(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panel,
+                    color: theme.text,
+                    fontSize: 14,
+                    marginBottom: 8,
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveRecoveryEmail}
+                  style={{
+                    width: "100%",
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panel,
+                    color: theme.text,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save recovery email
+                </button>
+                {accountEmailError && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: theme.danger }}>
+                    {accountEmailError}
+                  </div>
+                )}
+                {accountEmailStatus && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: theme.accent2 }}>
+                    {accountEmailStatus}
+                  </div>
+                )}
+                {accountEmail && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
+                    Current: {accountEmail}
+                  </div>
+                )}
               </div>
 
               <button
