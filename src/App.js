@@ -144,7 +144,7 @@ function PlayerAvatar({
             height: "100%",
             objectFit: "cover",
             opacity: 1,
-            transform: "scale(1.32)",
+            transform: "scale(1.12)",
           }}
         />
       )}
@@ -2965,15 +2965,20 @@ useEffect(() => {
 
 const winnerConfetti = useMemo(() => {
   if (!showWinnerModal) return [];
-  return Array.from({ length: 24 }, (_, i) => ({
-    id: i,
-    left: Math.random() * 100,
-    delay: Math.random() * 0.6,
-    duration: 1.6 + Math.random() * 0.8,
-    size: 6 + Math.random() * 6,
-    rotate: Math.random() * 360,
-    hue: Math.floor(Math.random() * 360),
-  }));
+  return Array.from({ length: 84 }, (_, i) => {
+    const wave = i % 3; // stagger bursts over time
+    const burst = i % 2 === 0;
+    return {
+      id: i,
+      left: Math.random() * 100,
+      delay: wave * 0.35 + Math.random() * 0.3,
+      duration: 1.4 + Math.random() * 1.2,
+      size: 6 + Math.random() * 7,
+      rotate: Math.random() * 360,
+      hue: Math.floor(Math.random() * 360),
+      burst,
+    };
+  });
   }, [showWinnerModal]);
 
   // Coins league rows
@@ -3735,6 +3740,7 @@ if (!isLoggedIn) {
                   left: `${c.left}%`,
                   animationDelay: `${c.delay}s`,
                   animationDuration: `${c.duration}s`,
+                  animationName: c.burst ? "confetti-burst" : "confetti-fall",
                   width: c.size,
                   height: c.size * 0.6,
                   backgroundColor: `hsl(${c.hue} 90% 60%)`,
