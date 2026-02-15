@@ -93,6 +93,9 @@ const TEAM_BADGES = {
 };
 const FAVORITE_TEAM_NONE_VALUE = "__NONE__";
 const FAVORITE_TEAM_NONE_LABEL = "None - I hate them all";
+const isLikelyMobileClient = () =>
+  typeof navigator !== "undefined" &&
+  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
 
 async function fetchWithRetry(url, options = {}, config = {}) {
   const {
@@ -488,12 +491,13 @@ async function apiGetMyPredictions(token) {
   return data.predictions || {};
 }
 async function apiGetLeaguePredictions(token, leagueId) {
+  const mobile = isLikelyMobileClient();
   const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 3, timeoutMs: 15000, retryDelayMs: 1200 }
+    { retries: mobile ? 1 : 2, timeoutMs: mobile ? 35000 : 20000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -501,12 +505,13 @@ async function apiGetLeaguePredictions(token, leagueId) {
 }
 
 async function apiGetAllPredictions(token) {
+  const mobile = isLikelyMobileClient();
   const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/predictions/all`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 3, timeoutMs: 15000, retryDelayMs: 1200 }
+    { retries: mobile ? 1 : 2, timeoutMs: mobile ? 35000 : 20000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to fetch global predictions.");
@@ -543,12 +548,13 @@ async function apiSavePrediction(token, fixtureId, prediction) {
 }
 
 async function apiFetchMyLeagues(token) {
+  const mobile = isLikelyMobileClient();
   const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/leagues/my`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 3, timeoutMs: 15000, retryDelayMs: 1200 }
+    { retries: mobile ? 1 : 2, timeoutMs: mobile ? 35000 : 20000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
@@ -596,10 +602,7 @@ async function apiJoinLeague(token, code) {
 // eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults() {
   try {
-    const isMobileUa =
-      typeof navigator !== "undefined" &&
-      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
-    const timeoutMs = isMobileUa ? 20000 : 10000;
+    const timeoutMs = isLikelyMobileClient() ? 30000 : 15000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
@@ -1342,6 +1345,7 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const winnerAudioRef = useRef(null);
   const autoResultsRetryRef = useRef(null);
+  const autoResultsRetryCountRef = useRef(0);
 
 // Coins game state
 const [coinsState, setCoinsState] = useState({
@@ -1563,11 +1567,16 @@ const visibleFixtures = FIXTURES.filter(
     if (error) {
       setApiStatus(`Auto results: failed (${error})`);
       setResultsRefreshing(false);
+      const mobile = isLikelyMobileClient();
+      const maxRetries = mobile ? 4 : 6;
+      if (autoResultsRetryCountRef.current >= maxRetries) return;
+      autoResultsRetryCountRef.current += 1;
       autoResultsRetryRef.current = setTimeout(() => {
         refreshAutoResults();
-      }, 6000);
+      }, mobile ? 9000 : 6000);
       return;
     }
+    autoResultsRetryCountRef.current = 0;
     setApiStatus("Auto results: loaded");
     if (updatedAt) setLastResultsUpdated(updatedAt);
     if (matches?.length) {
@@ -1784,8 +1793,9 @@ useEffect(() => {
 
   const fetchCoinsLeaderboard = async () => {
     try {
+      const mobile = isLikelyMobileClient();
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), mobile ? 30000 : 15000);
       
       const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
         headers: {
@@ -2062,7 +2072,7 @@ useEffect(() => {
     cancelled = true;
     if (retryTimer) clearTimeout(retryTimer);
   };
-}, [activeView, isLoggedIn, authToken]);
+}, [isLoggedIn, authToken]);
   
 useEffect(() => {
   const needsComputedLeagueTotals =
