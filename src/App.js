@@ -91,6 +91,8 @@ const TEAM_BADGES = {
   "Leeds United": "/badges/leeds.png",
   Wolves: "/badges/wolves.png",
 };
+const FAVORITE_TEAM_NONE_VALUE = "__NONE__";
+const FAVORITE_TEAM_NONE_LABEL = "None - I hate them all";
 
 // Simple avatar renderer using DiceBear styles
 function resolveTeamBadge(teamName) {
@@ -141,8 +143,8 @@ function PlayerAvatar({
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            opacity: 0.26,
-            transform: "scale(1.08)",
+            opacity: 1,
+            transform: "scale(1.32)",
           }}
         />
       )}
@@ -955,25 +957,39 @@ export default function App() {
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
   const [favoriteTeamsByUserId, setFavoriteTeamsByUserId] = useState({});
+  const [avatarMetaLoaded, setAvatarMetaLoaded] = useState(false);
 
-  // On login, fetch all avatars + favourite teams for leaderboard/avatar badge
+  // Fetch avatars + favourite teams only when needed (avoid slowing login)
   useEffect(() => {
+    const needsAvatarMeta =
+      activeView === "league" ||
+      activeView === "globalLeague" ||
+      activeView === "coinsLeague" ||
+      activeView === "summary" ||
+      activeView === "settings";
+    if (!needsAvatarMeta) return;
+    if (!isLoggedIn || !authToken || avatarMetaLoaded) return;
+
+    let cancelled = false;
     async function loadAllAvatarData() {
-      if (isLoggedIn && authToken) {
-        const [allAvatars, allFavoriteTeams] = await Promise.all([
-          apiGetAllAvatars(authToken),
-          apiGetAllFavoriteTeams(authToken),
-        ]);
-        if (allAvatars && typeof allAvatars === "object") {
-          setAvatarsByUserId(allAvatars);
-        }
-        if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
-          setFavoriteTeamsByUserId(allFavoriteTeams);
-        }
+      const [allAvatars, allFavoriteTeams] = await Promise.all([
+        apiGetAllAvatars(authToken),
+        apiGetAllFavoriteTeams(authToken),
+      ]);
+      if (cancelled) return;
+      if (allAvatars && typeof allAvatars === "object") {
+        setAvatarsByUserId(allAvatars);
       }
+      if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
+        setFavoriteTeamsByUserId(allFavoriteTeams);
+      }
+      setAvatarMetaLoaded(true);
     }
     loadAllAvatarData();
-  }, [isLoggedIn, authToken]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, authToken, activeView, avatarMetaLoaded]);
 
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
@@ -1020,14 +1036,6 @@ export default function App() {
   const [resetError, setResetError] = useState("");
   const [resetSuccess, setResetSuccess] = useState("");
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [showResetPassword, setShowResetPassword] = useState(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return !!params.get("resetToken");
-    } catch {
-      return false;
-    }
-  });
   const [accountEmail, setAccountEmail] = useState("");
   const [accountEmailInput, setAccountEmailInput] = useState("");
   const [accountEmailStatus, setAccountEmailStatus] = useState("");
@@ -1122,6 +1130,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
 const [showMobileMenu, setShowMobileMenu] = useState(false);
+const [showLeaguesMenu, setShowLeaguesMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
 const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
@@ -1137,6 +1146,16 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('activeView', activeView);
+  }, [activeView]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setAvatarMetaLoaded(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    setShowLeaguesMenu(false);
   }, [activeView]);
 
   // Countdown timer to next deadline
@@ -1839,6 +1858,13 @@ function normalizeCaptainsByGameweek(predsForUser) {
   }, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
   // Auto-load my leagues after login/restore
 useEffect(() => {
+  const needsLeagueData =
+    activeView === "league" ||
+    activeView === "leagues" ||
+    activeView === "summary" ||
+    activeView === "history";
+  if (!needsLeagueData) return;
+
   async function loadLeaguesAuto() {
     if (DEV_USE_LOCAL) return;
     if (!isLoggedIn || !authToken) return;
@@ -1852,9 +1878,14 @@ useEffect(() => {
   }
 
   loadLeaguesAuto();
-}, [isLoggedIn, authToken]);
+}, [activeView, isLoggedIn, authToken]);
   
 useEffect(() => {
+  const needsComputedLeagueTotals =
+    activeView === "league" ||
+    activeView === "summary" ||
+    activeView === "history";
+  if (!needsComputedLeagueTotals) return;
   if (DEV_USE_LOCAL) return;
   if (!isLoggedIn || !authToken) return;
   if (!myLeagues || myLeagues.length === 0) return;
@@ -1991,7 +2022,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues]);
+}, [activeView, results, isLoggedIn, authToken, myLeagues]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -2064,7 +2095,6 @@ useEffect(() => {
       setSignupEmail("");
       setSignupFavoriteTeam("");
       setShowForgotPassword(false);
-      setShowResetPassword(false);
       setForgotError("");
       setForgotSuccess("");
       setResetError("");
@@ -2102,7 +2132,6 @@ useEffect(() => {
       await apiResetPassword(resetTokenInput, resetPasswordInput);
       setResetSuccess("Password updated. You can now log in.");
       setResetPasswordInput("");
-      setShowResetPassword(false);
       setShowForgotPassword(false);
       try {
         const url = new URL(window.location.href);
@@ -2116,6 +2145,7 @@ useEffect(() => {
 
   useEffect(() => {
     if (!isLoggedIn || !authToken) return;
+    if (activeView !== "settings") return;
     let cancelled = false;
     (async () => {
       try {
@@ -2130,7 +2160,7 @@ useEffect(() => {
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn, authToken]);
+  }, [isLoggedIn, authToken, activeView]);
 
   const handleSaveRecoveryEmail = async () => {
     setAccountEmailError("");
@@ -2189,9 +2219,18 @@ setNewPasswordInput("");
     setMyLeagues([]);
     setAvatarsByUserId({});
     setFavoriteTeamsByUserId({});
+    setAvatarMetaLoaded(false);
     setShowMobileMenu(false);
+    setShowLeaguesMenu(false);
     localStorage.removeItem(AUTH_STORAGE_KEY);
   }
+
+  const LEAGUE_VIEW_ITEMS = [
+    { id: "league", label: "Mini League Table" },
+    { id: "globalLeague", label: "Global League Table" },
+    { id: "coinsLeague", label: "Coins League" },
+    { id: "leagues", label: "Mini-Leagues" },
+  ];
 
   const updatePushPref = async (key, value) => {
     const next = { ...pushPrefs, [key]: value };
@@ -3458,6 +3497,9 @@ if (!isLoggedIn) {
           }}
         >
           <option value="">Select team...</option>
+          <option value={FAVORITE_TEAM_NONE_VALUE}>
+            {FAVORITE_TEAM_NONE_LABEL}
+          </option>
           {PREMIER_LEAGUE_TEAMS.map((team) => (
             <option key={team} value={team}>
               {team}
@@ -3807,9 +3849,7 @@ if (!isLoggedIn) {
             )}
           </div>
 
-          {/* Change password / Logout / Menu (uniform buttons, centered) */}
-
-          {/* Change password / Logout / Menu (uniform buttons, centered) */}
+          {/* Top actions (Leagues / Settings / Logout / Sound / Menu) */}
           {isLoggedIn && (
   <div
     style={{
@@ -3819,10 +3859,15 @@ if (!isLoggedIn) {
       gap: isMobile ? 4 : 8,
       width: "100%",
       flexWrap: "nowrap", // stay on one line
+      position: "relative",
     }}
   >
     <button
-      onClick={() => setShowPasswordModal(true)}
+      type="button"
+      onClick={() => {
+        setShowLeaguesMenu((v) => !v);
+        setShowMobileMenu(false);
+      }}
       style={{
         padding: isMobile ? "6px 8px" : "6px 10px",
         borderRadius: 8,
@@ -3832,12 +3877,12 @@ if (!isLoggedIn) {
         cursor: "pointer",
         fontSize: isMobile ? 11 : 12,
         height: isMobile ? 30 : 32,
-        minWidth: isMobile ? 78 : 108,
+        minWidth: isMobile ? 70 : 86,
         textAlign: "center",
         whiteSpace: "nowrap",
       }}
     >
-      {isMobile ? "Password" : "Change Password"}
+      Leagues
     </button>
 
     <button
@@ -3845,6 +3890,7 @@ if (!isLoggedIn) {
       onClick={() => {
         setActiveView("settings");
         setShowMobileMenu(false);
+        setShowLeaguesMenu(false);
       }}
       title="Open settings"
       aria-label="Open settings"
@@ -3909,7 +3955,10 @@ if (!isLoggedIn) {
     {isMobile && (
       <button
         type="button"
-        onClick={() => setShowMobileMenu((v) => !v)}
+        onClick={() => {
+          setShowMobileMenu((v) => !v);
+          setShowLeaguesMenu(false);
+        }}
         style={{
           padding: isMobile ? "6px 8px" : "6px 10px",
           borderRadius: 8,
@@ -3927,80 +3976,54 @@ if (!isLoggedIn) {
         Menu
       </button>
     )}
+
+    {showLeaguesMenu && (
+      <div
+        style={{
+          position: "absolute",
+          top: isMobile ? 36 : 38,
+          left: 0,
+          zIndex: 20,
+        }}
+      >
+        <div
+          style={{
+            background: theme.panel,
+            border: `1px solid ${theme.line}`,
+            borderRadius: 10,
+            padding: 6,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+            minWidth: isMobile ? 165 : 190,
+          }}
+        >
+          {LEAGUE_VIEW_ITEMS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setActiveView(item.id);
+                setShowLeaguesMenu(false);
+              }}
+              style={{
+                ...pillBtn(activeView === item.id),
+                display: "block",
+                textAlign: "left",
+                padding: "6px 10px",
+                fontSize: 14,
+                width: "100%",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    )}
   </div>
 )}
         </header>
 
-        {isLoggedIn && !accountFavoriteTeam && (
-          <section
-            style={{
-              ...cardStyle,
-              border: `1px solid ${theme.warn}`,
-              background: "rgba(245,158,11,0.12)",
-              display: "grid",
-              gap: 6,
-              padding: isMobile ? 10 : 12,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
-              Add your favourite team
-            </div>
-            <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.25 }}>
-              This helps us send optional team-result notifications.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
-              <select
-                value={accountFavoriteTeamInput}
-                onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
-                style={{
-                  flex: "1 1 auto",
-                  minWidth: 0,
-                  padding: "6px 9px",
-                  borderRadius: 8,
-                  border: `1px solid ${theme.line}`,
-                  background: theme.panelHi,
-                  color: theme.text,
-                  fontSize: 13,
-                }}
-              >
-                <option value="">Select team...</option>
-                {PREMIER_LEAGUE_TEAMS.map((team) => (
-                  <option key={team} value={team}>
-                    {team}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={handleSaveFavoriteTeam}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: theme.accent,
-                  color: "#fff",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Save
-              </button>
-            </div>
-            {accountFavoriteTeamError && (
-              <div style={{ fontSize: 12, color: theme.danger }}>
-                {accountFavoriteTeamError}
-              </div>
-            )}
-            {accountFavoriteTeamStatus && (
-              <div style={{ fontSize: 12, color: theme.accent2 }}>
-                {accountFavoriteTeamStatus}
-              </div>
-            )}
-          </section>
-        )}
-        
         {showPasswordModal && (
   <div
     style={{
@@ -4111,13 +4134,9 @@ if (!isLoggedIn) {
   const TABS = [
   { id: "predictions", label: "Predictions" },
   { id: "results", label: "Results" },
-  { id: "league", label: "Mini League Table" },
-  { id: "globalLeague", label: "Global League Table" },
   { id: "summary", label: "Summary" },
-  { id: "coinsLeague", label: "Coins League" },
   { id: "history", label: "History" },
   { id: "winprob", label: "Win Probabilities" },
-  { id: "leagues", label: "Mini-Leagues" },
   { id: "settings", label: "Settings" },
   { id: "rules", label: "Rules" },
 ];
@@ -7126,6 +7145,9 @@ if (!isLoggedIn) {
                   }}
                 >
                   <option value="">Select team...</option>
+                  <option value={FAVORITE_TEAM_NONE_VALUE}>
+                    {FAVORITE_TEAM_NONE_LABEL}
+                  </option>
                   {PREMIER_LEAGUE_TEAMS.map((team) => (
                     <option key={team} value={team}>
                       {team}
@@ -7161,7 +7183,10 @@ if (!isLoggedIn) {
                 )}
                 {accountFavoriteTeam && (
                   <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
-                    Current: {accountFavoriteTeam}
+                    Current:{" "}
+                    {accountFavoriteTeam === FAVORITE_TEAM_NONE_VALUE
+                      ? FAVORITE_TEAM_NONE_LABEL
+                      : accountFavoriteTeam}
                   </div>
                 )}
               </div>
