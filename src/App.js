@@ -94,6 +94,32 @@ const TEAM_BADGES = {
 const FAVORITE_TEAM_NONE_VALUE = "__NONE__";
 const FAVORITE_TEAM_NONE_LABEL = "None - I hate them all";
 
+async function fetchWithRetry(url, options = {}, config = {}) {
+  const {
+    retries = 2,
+    timeoutMs = 20000,
+    retryDelayMs = 1200,
+  } = config;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      return res;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      const isLast = attempt >= retries;
+      if (isLast) throw err;
+      await new Promise((resolve) =>
+        setTimeout(resolve, retryDelayMs * Math.pow(2, attempt))
+      );
+    }
+  }
+  throw new Error("Request failed");
+}
+
 // Simple avatar renderer using DiceBear styles
 function resolveTeamBadge(teamName) {
   const raw = (teamName || "").trim();
@@ -462,11 +488,12 @@ async function apiGetMyPredictions(token) {
   return data.predictions || {};
 }
 async function apiGetLeaguePredictions(token, leagueId) {
-  const res = await fetch(
+  const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
     {
       headers: { Authorization: `Bearer ${token}` },
-    }
+    },
+    { retries: 3, timeoutMs: 20000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -474,9 +501,13 @@ async function apiGetLeaguePredictions(token, leagueId) {
 }
 
 async function apiGetAllPredictions(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/predictions/all`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithRetry(
+    `${BACKEND_BASE}/api/predictions/all`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { retries: 3, timeoutMs: 20000, retryDelayMs: 1200 }
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to fetch global predictions.");
   return data; // { users, predictionsByUserId }
@@ -512,9 +543,13 @@ async function apiSavePrediction(token, fixtureId, prediction) {
 }
 
 async function apiFetchMyLeagues(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/leagues/my`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchWithRetry(
+    `${BACKEND_BASE}/api/leagues/my`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { retries: 3, timeoutMs: 20000, retryDelayMs: 1200 }
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
   return data.leagues || [];
@@ -1917,19 +1952,34 @@ useEffect(() => {
     activeView === "history";
   if (!needsLeagueData) return;
 
+  let cancelled = false;
+  let retryTimer = null;
+  let retryAttempt = 0;
+
   async function loadLeaguesAuto() {
     if (DEV_USE_LOCAL) return;
     if (!isLoggedIn || !authToken) return;
 
     try {
       const leagues = await apiFetchMyLeagues(authToken);
+      if (cancelled) return;
       setMyLeagues(leagues);
+      retryAttempt = 0;
     } catch (err) {
       console.error("Auto load leagues failed:", err);
+      if (cancelled) return;
+      if (retryAttempt < 4) {
+        retryAttempt += 1;
+        retryTimer = setTimeout(loadLeaguesAuto, 1500 * retryAttempt);
+      }
     }
   }
 
   loadLeaguesAuto();
+  return () => {
+    cancelled = true;
+    if (retryTimer) clearTimeout(retryTimer);
+  };
 }, [activeView, isLoggedIn, authToken]);
   
 useEffect(() => {
@@ -1952,6 +2002,8 @@ useEffect(() => {
   if (!leagueId) return;
 
   let cancelled = false;
+  let retryTimer = null;
+  let retryAttempt = 0;
 
   const toLegacyKey = (u) => {
     const uname = (u.username || "").trim();
@@ -2076,6 +2128,7 @@ useEffect(() => {
       setLeagueUserIdByKey(userIdByKey);
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
+      retryAttempt = 0;
 
       // 7) Sync totals back to backend
       // apiSaveLeagueTotals(authToken, leagueId, {
@@ -2084,6 +2137,11 @@ useEffect(() => {
 // }).catch((e) => console.error("Failed to sync totals:", e));
     } catch (err) {
       console.error("Recalc from league failed:", err);
+      if (cancelled) return;
+      if (retryAttempt < 5) {
+        retryAttempt += 1;
+        retryTimer = setTimeout(recalcFromLeague, 1600 * retryAttempt);
+      }
     }
   }
 
@@ -2091,6 +2149,7 @@ useEffect(() => {
 
   return () => {
     cancelled = true;
+    if (retryTimer) clearTimeout(retryTimer);
   };
 }, [activeView, results, isLoggedIn, authToken, myLeagues]);
 
