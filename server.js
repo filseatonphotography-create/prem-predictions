@@ -74,19 +74,22 @@ const ALLOWED_ORIGINS = new Set([
   "https://predictionaddiction-backend.onrender.com",
 ]);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      console.log("CORS request from:", origin);
-      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS: " + origin));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
-  })
-);
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+    return cb(new Error("Not allowed by CORS: " + origin));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
+  // Cache successful preflight responses on the client to avoid repeated OPTIONS.
+  maxAge: 60 * 60 * 12,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 
 app.use(express.json());
 
@@ -287,12 +290,25 @@ function saveJson(file, data) {
   }
 }
 
-// Users
+// Users (tiny hot cache to reduce repeated disk reads during auth bursts)
+let usersCache = null;
+let usersCacheAt = 0;
+const USERS_CACHE_TTL_MS = 2000;
 const loadUsers = () => {
+  const now = Date.now();
+  if (usersCache && now - usersCacheAt < USERS_CACHE_TTL_MS) {
+    return usersCache;
+  }
   const users = loadJson(USERS_FILE, []);
+  usersCache = users;
+  usersCacheAt = now;
   return users;
 };
-const saveUsers = (users) => saveJson(USERS_FILE, users);
+const saveUsers = (users) => {
+  usersCache = Array.isArray(users) ? users : [];
+  usersCacheAt = Date.now();
+  saveJson(USERS_FILE, usersCache);
+};
 const loadPasswordResetTokens = () => loadJson(PASSWORD_RESET_TOKENS_FILE, []);
 const savePasswordResetTokens = (tokens) =>
   saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
