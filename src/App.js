@@ -493,7 +493,7 @@ async function apiGetLeaguePredictions(token, leagueId) {
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 5, timeoutMs: 45000, retryDelayMs: 1500 }
+    { retries: 3, timeoutMs: 15000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -506,7 +506,7 @@ async function apiGetAllPredictions(token) {
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 5, timeoutMs: 45000, retryDelayMs: 1500 }
+    { retries: 3, timeoutMs: 15000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to fetch global predictions.");
@@ -548,7 +548,7 @@ async function apiFetchMyLeagues(token) {
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 5, timeoutMs: 45000, retryDelayMs: 1500 }
+    { retries: 3, timeoutMs: 15000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
@@ -1006,6 +1006,47 @@ export default function App() {
     }
   };
 
+  // Smartphone-style key tap sounds for score +/- buttons
+  const playScoreStepSound = (isIncrease) => {
+    if (!soundEffectsEnabled) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      const duration = 0.022;
+      const frameCount = Math.max(1, Math.floor(ctx.sampleRate * duration));
+      const noiseBuffer = ctx.createBuffer(1, frameCount, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < frameCount; i += 1) {
+        data[i] = (Math.random() * 2 - 1) * (1 - i / frameCount);
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = noiseBuffer;
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      filter.type = "bandpass";
+      filter.frequency.value = isIncrease ? 2800 : 1900;
+      filter.Q.value = 0.9;
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.05, now + 0.002);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+      source.start(now);
+      source.stop(now + duration);
+      source.onended = () => {
+        if (ctx.state !== "closed") {
+          ctx.close().catch(() => {});
+        }
+      };
+    } catch {}
+  };
+
   const updateSoundEffectsEnabled = (enabled) => {
     setSoundEffectsEnabled(enabled);
     localStorage.setItem("sound_effects_enabled_v1", String(enabled));
@@ -1279,6 +1320,7 @@ const [coinsState, setCoinsState] = useState({
 
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
+  const [myLeaguesResolved, setMyLeaguesResolved] = useState(false);
   const [leagueMemberViewKeys, setLeagueMemberViewKeys] = useState([]);
   const [leagueUserIdByKey, setLeagueUserIdByKey] = useState({});
   const [leagueNameInput, setLeagueNameInput] = useState("");
@@ -1440,7 +1482,8 @@ const getRowFavoriteTeam = (row) => {
     return currentPlayer;
   }, [currentPlayer, currentUserId]);
 
-  const hasJoinedMiniLeague = Array.isArray(myLeagues) && myLeagues.length > 0;
+  const hasJoinedMiniLeague =
+    myLeaguesResolved && Array.isArray(myLeagues) && myLeagues.length > 0;
   const currentMiniLeagueName = myLeagues?.[0]?.name || "a mini-league";
 
 // Merge Phil's predictions from both IDs into a synthetic key
@@ -1955,6 +1998,7 @@ function normalizeCaptainsByGameweek(predsForUser) {
 useEffect(() => {
   const needsLeagueData =
     activeView === "league" ||
+    activeView === "coinsLeague" ||
     activeView === "leagues" ||
     activeView === "summary" ||
     activeView === "history";
@@ -1972,6 +2016,7 @@ useEffect(() => {
       const leagues = await apiFetchMyLeagues(authToken);
       if (cancelled) return;
       setMyLeagues(leagues);
+      setMyLeaguesResolved(true);
       retryAttempt = 0;
     } catch (err) {
       console.error("Auto load leagues failed:", err);
@@ -1979,6 +2024,8 @@ useEffect(() => {
       if (retryAttempt < 4) {
         retryAttempt += 1;
         retryTimer = setTimeout(loadLeaguesAuto, 1500 * retryAttempt);
+      } else {
+        setMyLeaguesResolved(true);
       }
     }
   }
@@ -2354,6 +2401,7 @@ setNewPasswordInput("");
     setLoginPassword("");
     setAuthError("");
     setMyLeagues([]);
+    setMyLeaguesResolved(false);
     setLeagueMemberViewKeys([]);
     setLeagueUserIdByKey({});
     setAvatarsByUserId({});
@@ -2391,8 +2439,10 @@ setNewPasswordInput("");
     try {
       const leagues = await apiFetchMyLeagues(authToken);
       setMyLeagues(leagues);
+      setMyLeaguesResolved(true);
       if (!leagues.length) setLeagueSuccess("No mini‑leagues yet.");
     } catch (err) {
+      setMyLeaguesResolved(true);
       setLeagueError(err.message || "Failed to load mini‑leagues.");
     } finally {
       setLeaguesLoading(false);
@@ -2441,7 +2491,6 @@ setNewPasswordInput("");
 
   // ---------- PREDICTIONS ----------
   const updatePrediction = (playerKey, fixtureId, newFields) => {
-    console.log("updatePrediction called", { playerKey, fixtureId, newFields });
     if (!playerKey || fixtureId == null) return;
 
     const fixtureIdNum = Number(fixtureId);
@@ -2482,9 +2531,6 @@ setNewPasswordInput("");
           );
 
           if (lockedCaptainElsewhere && !prevFixturePred.isDouble) {
-            console.log(
-              "Captain change blocked: already used on locked fixture in this gameweek"
-            );
             return prev;
           }
         }
@@ -2590,9 +2636,6 @@ setNewPasswordInput("");
           );
 
           if (!prevFixturePred.isDouble && lockedCaptainElsewhere) {
-            console.log(
-              "Captain change blocked: already used on locked fixture in this gameweek"
-            );
             return prev;
           }
 
@@ -2637,14 +2680,6 @@ setNewPasswordInput("");
             isTriple: false,
           };
 
-        if (Number(id) === fixtureIdNum) {
-          console.log("DIFF CHECK", {
-            id,
-            before,
-            after: pred,
-          });
-        }
-
         const changed =
           String(before.homeGoals ?? "") !== String(pred.homeGoals ?? "") ||
           String(before.awayGoals ?? "") !== String(pred.awayGoals ?? "") ||
@@ -2657,14 +2692,6 @@ setNewPasswordInput("");
             prediction: { ...pred },
           });
         }
-      });
-
-      console.log("PERSIST INNER", {
-        DEV_USE_LOCAL,
-        authToken,
-        changesToPersistLength: Array.isArray(changesToPersist)
-          ? changesToPersist.length
-          : "not array",
       });
 
       if (
@@ -2849,6 +2876,7 @@ const globalLeaderboard = useMemo(() => {
 
 const coinsLeagueVisibleRows = useMemo(() => {
   const rows = Array.isArray(coinsLeagueRows) ? coinsLeagueRows : [];
+  if (!myLeaguesResolved) return [];
   if (!rows.length) return [];
 
   if (!hasJoinedMiniLeague) {
@@ -2875,6 +2903,7 @@ const coinsLeagueVisibleRows = useMemo(() => {
 }, [
   coinsLeagueRows,
   hasJoinedMiniLeague,
+  myLeaguesResolved,
   currentUserId,
   currentPlayer,
   leagueMemberViewKeys,
@@ -4856,6 +4885,7 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.homeGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
+                        playScoreStepSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4896,6 +4926,7 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
+                        playScoreStepSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: (current + 1).toString(),
                         });
@@ -4949,6 +4980,7 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.awayGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
+                        playScoreStepSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4991,6 +5023,7 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
+                        playScoreStepSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: (current + 1).toString(),
                         });
@@ -5783,7 +5816,22 @@ if (!isLoggedIn) {
             </h2>
 
             <div style={{ display: "grid", gap: 8 }}>
-              {!hasJoinedMiniLeague && (
+              {!myLeaguesResolved && (
+                <div
+                  style={{
+                    background: theme.panelHi,
+                    border: `1px solid ${theme.line}`,
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    color: theme.muted,
+                  }}
+                >
+                  Checking mini-league membership...
+                </div>
+              )}
+
+              {myLeaguesResolved && !hasJoinedMiniLeague && (
                 <div
                   style={{
                     background: theme.panelHi,
@@ -5798,7 +5846,7 @@ if (!isLoggedIn) {
                 </div>
               )}
 
-              {hasJoinedMiniLeague && leagueMemberViewKeys.length === 0 && (
+              {myLeaguesResolved && hasJoinedMiniLeague && leagueMemberViewKeys.length === 0 && (
                 <div
                   style={{
                     background: theme.panelHi,
@@ -5814,7 +5862,7 @@ if (!isLoggedIn) {
               )}
 
               {/* Show "no data" when scoped rows are empty */}
-              {coinsLeagueVisibleRows.length === 0 && (
+              {myLeaguesResolved && coinsLeagueVisibleRows.length === 0 && (
                   <div
                     style={{
                       background: theme.panelHi,
