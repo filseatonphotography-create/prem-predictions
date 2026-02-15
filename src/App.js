@@ -1252,6 +1252,48 @@ const favoriteTeamByUsername = useMemo(() => {
   return out;
 }, [globalUsers, favoriteTeamsByUserId, currentPlayer, accountFavoriteTeam]);
 
+const userIdByUsername = useMemo(() => {
+  const out = {};
+  (globalUsers || []).forEach((u) => {
+    if (!u?.username || !u?.userId) return;
+    out[String(u.username).trim().toLowerCase()] = String(u.userId);
+  });
+  Object.entries(leagueUserIdByKey || {}).forEach(([name, id]) => {
+    if (!name || !id) return;
+    out[String(name).trim().toLowerCase()] = String(id);
+  });
+  if (currentPlayer && currentUserId) {
+    out[String(currentPlayer).trim().toLowerCase()] = String(currentUserId);
+  }
+  return out;
+}, [globalUsers, leagueUserIdByKey, currentPlayer, currentUserId]);
+
+const resolveRowUserId = (row) => {
+  const explicit = String(row?.userId || "");
+  if (explicit && avatarsByUserId[explicit]) return explicit;
+  const nameKey = String(row?.player || "").trim().toLowerCase();
+  if (nameKey && userIdByUsername[nameKey]) return String(userIdByUsername[nameKey]);
+  return explicit || "";
+};
+
+const getRowAvatarSeed = (row) => {
+  const uid = resolveRowUserId(row);
+  if (uid && avatarsByUserId[uid]?.seed) return avatarsByUserId[uid].seed;
+  return row?.player === currentPlayer ? avatarSeed || currentPlayer : row?.player || "user";
+};
+
+const getRowAvatarStyle = (row) => {
+  const uid = resolveRowUserId(row);
+  if (uid && avatarsByUserId[uid]?.style) return avatarsByUserId[uid].style;
+  return row?.player === currentPlayer ? avatarStyle : "avataaars";
+};
+
+const getRowFavoriteTeam = (row) => {
+  const uid = resolveRowUserId(row);
+  if (uid && favoriteTeamsByUserId[String(uid)]) return favoriteTeamsByUserId[String(uid)];
+  return favoriteTeamByUsername[row?.player] || "";
+};
+
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
     if (!selectedGameweek) {
@@ -1336,6 +1378,8 @@ const favoriteTeamByUsername = useMemo(() => {
 
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
+  const [leagueMemberViewKeys, setLeagueMemberViewKeys] = useState([]);
+  const [leagueUserIdByKey, setLeagueUserIdByKey] = useState({});
   const [leagueNameInput, setLeagueNameInput] = useState("");
   const [leagueJoinCode, setLeagueJoinCode] = useState("");
   const [leagueError, setLeagueError] = useState("");
@@ -1359,6 +1403,9 @@ const favoriteTeamByUsername = useMemo(() => {
     }
     return currentPlayer;
   }, [currentPlayer, currentUserId]);
+
+  const hasJoinedMiniLeague = Array.isArray(myLeagues) && myLeagues.length > 0;
+  const currentMiniLeagueName = myLeagues?.[0]?.name || "a mini-league";
 
 // Merge Phil's predictions from both IDs into a synthetic key
 useEffect(() => {
@@ -1893,7 +1940,13 @@ useEffect(() => {
   if (!needsComputedLeagueTotals) return;
   if (DEV_USE_LOCAL) return;
   if (!isLoggedIn || !authToken) return;
-  if (!myLeagues || myLeagues.length === 0) return;
+  if (!myLeagues || myLeagues.length === 0) {
+    setComputedWeeklyTotals(null);
+    setComputedLeagueTotals(null);
+    setLeagueMemberViewKeys([]);
+    setLeagueUserIdByKey({});
+    return;
+  }
 
   const leagueId = myLeagues[0].id;
   if (!leagueId) return;
@@ -1914,7 +1967,7 @@ useEffect(() => {
     }
 
     // Otherwise use their userId (modern user)
-    return u.userId;
+    return uname || u.userId;
   };
 
   async function recalcFromLeague() {
@@ -1941,7 +1994,16 @@ useEffect(() => {
 
             // 3) Keys = legacy PLAYERS + league members (mapped)
       const memberKeys = leagueUsers.map(toLegacyKey);
-      const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+      const keys = Array.from(new Set(memberKeys));
+
+      if (keys.length === 0) {
+        if (cancelled) return;
+        setComputedWeeklyTotals({});
+        setComputedLeagueTotals({});
+        setLeagueMemberViewKeys([]);
+        setLeagueUserIdByKey({});
+        return;
+      }
 
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
@@ -2010,6 +2072,8 @@ useEffect(() => {
       // Store all players' predictions so they can be viewed
       setPredictions((prev) => ({ ...prev, ...predsForCalc }));
 
+      setLeagueMemberViewKeys(keys);
+      setLeagueUserIdByKey(userIdByKey);
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
 
@@ -2223,6 +2287,8 @@ setNewPasswordInput("");
     setLoginPassword("");
     setAuthError("");
     setMyLeagues([]);
+    setLeagueMemberViewKeys([]);
+    setLeagueUserIdByKey({});
     setAvatarsByUserId({});
     setFavoriteTeamsByUserId({});
     setAvatarMetaLoaded(false);
@@ -2593,8 +2659,11 @@ const leaderboard = useMemo(() => {
     Phil: "1763873593264",
   };
 
-  // Use backend-computed totals if available
-    if (computedLeagueTotals) {
+  if (!hasJoinedMiniLeague) return [];
+  if (!computedLeagueTotals) return [];
+
+  // Use backend-computed totals (scoped to current mini-league)
+  if (computedLeagueTotals) {
     // Collapse any legacy-userId keys into their legacy name
 
     const idToLegacyName = (id) => {
@@ -2608,7 +2677,7 @@ const leaderboard = useMemo(() => {
       const finalKey = legacyName || key;
       const resolvedUserId = legacyName
         ? key
-        : LEGACY_MAP[finalKey] || (PLAYERS.includes(finalKey) ? null : key);
+        : leagueUserIdByKey[finalKey] || LEGACY_MAP[finalKey] || null;
       if (!collapsed[finalKey]) {
         collapsed[finalKey] = { points: 0, userId: resolvedUserId || null };
       }
@@ -2626,30 +2695,8 @@ const leaderboard = useMemo(() => {
       }))
       .sort((a, b) => b.points - a.points);
   }
-
-  // fallback (old local logic)
-  const totals = {};
-  PLAYERS.forEach((p) => {
-    totals[p] =
-      SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0;
-  });
-
-  FIXTURES.forEach((fixture) => {
-    const res = results[fixture.id];
-    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-    PLAYERS.forEach((p) => {
-      totals[p] += getTotalPoints(predictions[p]?.[fixture.id], res);
-    });
-  });
-
-  return Object.entries(totals)
-    .map(([player, points]) => ({
-      player,
-      points,
-      userId: LEGACY_MAP[player] || null,
-    }))
-    .sort((a, b) => b.points - a.points);
-}, [computedLeagueTotals, predictions, results]);
+  return [];
+}, [computedLeagueTotals, hasJoinedMiniLeague, leagueUserIdByKey]);
 
 const currentGwPoints = useMemo(() => {
   if (!selectedGameweek) return 0;
@@ -2732,6 +2779,40 @@ const globalLeaderboard = useMemo(() => {
 
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
 }, [globalUsers, globalPredictionsByUserId, results]);
+
+const coinsLeagueVisibleRows = useMemo(() => {
+  const rows = Array.isArray(coinsLeagueRows) ? coinsLeagueRows : [];
+  if (!rows.length) return [];
+
+  if (!hasJoinedMiniLeague) {
+    return rows.filter(
+      (row) =>
+        String(row?.userId || "") === String(currentUserId || "") ||
+        String(row?.player || "").toLowerCase() ===
+          String(currentPlayer || "").toLowerCase()
+    );
+  }
+
+  const memberNameSet = new Set(
+    (leagueMemberViewKeys || []).map((k) => String(k || "").toLowerCase())
+  );
+  const memberIdSet = new Set(
+    Object.values(leagueUserIdByKey || {}).map((id) => String(id || ""))
+  );
+
+  return rows.filter((row) => {
+    const playerName = String(row?.player || "").toLowerCase();
+    const userId = String(row?.userId || "");
+    return memberNameSet.has(playerName) || memberIdSet.has(userId);
+  });
+}, [
+  coinsLeagueRows,
+  hasJoinedMiniLeague,
+  currentUserId,
+  currentPlayer,
+  leagueMemberViewKeys,
+  leagueUserIdByKey,
+]);
 
 // Winner popup for league tables (once per user per GW)
 useEffect(() => {
@@ -2897,6 +2978,7 @@ const winnerConfetti = useMemo(() => {
 
   // Coins league rows
  const historicalScores = useMemo(() => {
+  if (!hasJoinedMiniLeague) return [];
   if (computedWeeklyTotals) {
     return GAMEWEEKS.map((gw) => {
       const row = { gameweek: gw };
@@ -2907,27 +2989,19 @@ const winnerConfetti = useMemo(() => {
       return row;
     });
   }
+  return [];
+}, [computedWeeklyTotals, hasJoinedMiniLeague]);
 
-  // fallback to old logic if computed totals not ready yet
-  return GAMEWEEKS.map((gw) => {
-    const row = { gameweek: gw };
-    PLAYERS.forEach((player) => {
-      let score = SPREADSHEET_WEEKLY_TOTALS[player]?.[gw - 1] || 0;
-      FIXTURES.forEach((fixture) => {
-        if (fixture.gameweek !== gw) return;
-        const res = results[fixture.id];
-        if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-        // Only add points if this player has a prediction for this fixture
-        if (predictions[player] && predictions[player][fixture.id]) {
-          score += getTotalPoints(predictions[player][fixture.id], res);
-        }
-        // If no prediction, do not add any points (remains at previous value)
-      });
-      row[player] = score;
-    });
-    return row;
-  });
-}, [computedWeeklyTotals, predictions, results]);
+ const historyPlayerKeys = useMemo(() => {
+  if (!hasJoinedMiniLeague) return [];
+  if (leagueMemberViewKeys && leagueMemberViewKeys.length > 0) {
+    return leagueMemberViewKeys;
+  }
+  if (historicalScores.length > 0) {
+    return Object.keys(historicalScores[0]).filter((k) => k !== "gameweek");
+  }
+  return [];
+ }, [hasJoinedMiniLeague, leagueMemberViewKeys, historicalScores]);
 
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
  const theme = {
@@ -5411,8 +5485,18 @@ if (!isLoggedIn) {
         {activeView === "league" && (
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🏆 Mini League Table</h2>
+            {!hasJoinedMiniLeague && (
+              <div style={{ fontSize: 14, color: theme.muted, textAlign: "center", padding: "8px 0" }}>
+                Join or create a mini-league to see your mini-league table.
+              </div>
+            )}
+            {hasJoinedMiniLeague && leaderboard.length === 0 && (
+              <div style={{ fontSize: 14, color: theme.muted, textAlign: "center", padding: "8px 0" }}>
+                No mini-league scores available for {currentMiniLeagueName} yet.
+              </div>
+            )}
             <div style={{ display: "grid", gap: 8 }}>
-              {leaderboard.map((row, i) => {
+              {hasJoinedMiniLeague && leaderboard.map((row, i) => {
                 // Color scheme based on position
                 let borderColor = theme.line;
                 let emoji = "";
@@ -5459,27 +5543,9 @@ if (!isLoggedIn) {
                     <PlayerAvatar 
                       name={row.player}
                       size={36}
-                      seed={(() => {
-                        // Always use backend avatar if available for any user (including current)
-                        const userId = row.userId || row.player || '';
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
-                          return avatarsByUserId[userId].seed;
-                        }
-                        // Fallback: use local avatar only if backend missing
-                        return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
-                      })()}
-                      avatarStyle={(() => {
-                        const userId = row.userId || row.player || '';
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
-                          return avatarsByUserId[userId].style;
-                        }
-                        return row.player === currentPlayer ? avatarStyle : 'avataaars';
-                      })()}
-                      favoriteTeam={
-                        favoriteTeamsByUserId[String(row.userId || "")] ||
-                        favoriteTeamByUsername[row.player] ||
-                        ""
-                      }
+                      seed={getRowAvatarSeed(row)}
+                      avatarStyle={getRowAvatarStyle(row)}
+                      favoriteTeam={getRowFavoriteTeam(row)}
                     />
                     <div style={{ 
                       fontWeight: 700,
@@ -5560,25 +5626,9 @@ if (!isLoggedIn) {
                     <PlayerAvatar
                       name={row.player}
                       size={36}
-                      seed={(() => {
-                        const userId = row.userId || row.player || "";
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
-                          return avatarsByUserId[userId].seed;
-                        }
-                        return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
-                      })()}
-                      avatarStyle={(() => {
-                        const userId = row.userId || row.player || "";
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
-                          return avatarsByUserId[userId].style;
-                        }
-                        return row.player === currentPlayer ? avatarStyle : "avataaars";
-                      })()}
-                      favoriteTeam={
-                        favoriteTeamsByUserId[String(row.userId || "")] ||
-                        favoriteTeamByUsername[row.player] ||
-                        ""
-                      }
+                      seed={getRowAvatarSeed(row)}
+                      avatarStyle={getRowAvatarStyle(row)}
+                      favoriteTeam={getRowFavoriteTeam(row)}
                     />
                     <div
                       style={{
@@ -5638,8 +5688,38 @@ if (!isLoggedIn) {
             </h2>
 
             <div style={{ display: "grid", gap: 8 }}>
-              {/* Show "no data" only if server data is empty */}
-              {(!coinsLeagueRows || coinsLeagueRows.length === 0) && (
+              {!hasJoinedMiniLeague && (
+                <div
+                  style={{
+                    background: theme.panelHi,
+                    border: `1px solid ${theme.line}`,
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    color: theme.muted,
+                  }}
+                >
+                  You are not in a mini-league yet, so this view is showing only your coins.
+                </div>
+              )}
+
+              {hasJoinedMiniLeague && leagueMemberViewKeys.length === 0 && (
+                <div
+                  style={{
+                    background: theme.panelHi,
+                    border: `1px solid ${theme.line}`,
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    color: theme.muted,
+                  }}
+                >
+                  No mini-league member data available yet.
+                </div>
+              )}
+
+              {/* Show "no data" when scoped rows are empty */}
+              {coinsLeagueVisibleRows.length === 0 && (
                   <div
                     style={{
                       background: theme.panelHi,
@@ -5654,8 +5734,8 @@ if (!isLoggedIn) {
                   </div>
                 )}
 
-              {/* Server coins leaderboard with all users */}
-{(coinsLeagueRows || []).map((row, i) => {
+              {/* Coins leaderboard scoped to mini-league members (or self only if no league) */}
+{coinsLeagueVisibleRows.map((row, i) => {
   const value =
     typeof row.profit === "number"
       ? row.profit
@@ -5676,7 +5756,7 @@ if (!isLoggedIn) {
   } else if (i === 2) {
     borderColor = "#CD7F32"; // Bronze for 3rd
     emoji = "🥉";
-  } else if (i === coinsLeagueRows.length - 1) {
+  } else if (i === coinsLeagueVisibleRows.length - 1) {
     emoji = "💩"; // Poo for last place
   }
 
@@ -5708,13 +5788,9 @@ if (!isLoggedIn) {
       <PlayerAvatar 
         name={row.player} 
         size={36} 
-        seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
-        avatarStyle={row.player === currentPlayer ? avatarStyle : 'avataaars'}
-        favoriteTeam={
-          favoriteTeamsByUserId[String(row.userId || "")] ||
-          favoriteTeamByUsername[row.player] ||
-          ""
-        }
+        seed={getRowAvatarSeed(row)}
+        avatarStyle={getRowAvatarStyle(row)}
+        favoriteTeam={getRowFavoriteTeam(row)}
       />
       <div style={{ 
         fontWeight: 700,
@@ -5929,6 +6005,30 @@ if (!isLoggedIn) {
         {/* History */}
         {activeView === "history" && (
           (() => {
+            if (!hasJoinedMiniLeague) {
+              return (
+                <section style={cardStyle}>
+                  <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>
+                    Weekly Scores
+                  </h2>
+                  <div style={{ fontSize: 14, color: theme.muted, textAlign: "center" }}>
+                    Join or create a mini-league to see weekly scores.
+                  </div>
+                </section>
+              );
+            }
+            if (historyPlayerKeys.length === 0) {
+              return (
+                <section style={cardStyle}>
+                  <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>
+                    Weekly Scores
+                  </h2>
+                  <div style={{ fontSize: 14, color: theme.muted, textAlign: "center" }}>
+                    No weekly scores available for {currentMiniLeagueName} yet.
+                  </div>
+                </section>
+              );
+            }
             return (
               <section
                 style={{
@@ -5986,7 +6086,7 @@ if (!isLoggedIn) {
                         >
                           GW
                         </th>
-                        {PLAYERS.map((p) => (
+                        {historyPlayerKeys.map((p) => (
                           <th
                             key={p}
                             style={{
@@ -6007,7 +6107,7 @@ if (!isLoggedIn) {
                     </thead>
                     <tbody>
                       {historicalScores.map((row, idx) => {
-                        const vals = PLAYERS.map((p) => Number(row[p]) || 0);
+                        const vals = historyPlayerKeys.map((p) => Number(row[p]) || 0);
                         const max = Math.max(...vals);
                         const min = Math.min(...vals);
                         const range = max - min || 1;
@@ -6034,7 +6134,7 @@ if (!isLoggedIn) {
                             >
                               {row.gameweek}
                             </td>
-                            {PLAYERS.map((p) => {
+                            {historyPlayerKeys.map((p) => {
                               const v = Number(row[p]) || 0;
                               const shade = (v - min) / range;
                               const isWinner = v === max && max > 0;
