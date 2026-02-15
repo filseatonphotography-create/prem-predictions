@@ -1241,6 +1241,21 @@ const [coinsState, setCoinsState] = useState({
   error: "",
 });
 
+  // Mini-league
+  const [myLeagues, setMyLeagues] = useState([]);
+  const [leagueMemberViewKeys, setLeagueMemberViewKeys] = useState([]);
+  const [leagueUserIdByKey, setLeagueUserIdByKey] = useState({});
+  const [leagueNameInput, setLeagueNameInput] = useState("");
+  const [leagueJoinCode, setLeagueJoinCode] = useState("");
+  const [leagueError, setLeagueError] = useState("");
+  const [leagueSuccess, setLeagueSuccess] = useState("");
+  const [leaguesLoading, setLeaguesLoading] = useState(false);
+  const [miniLeagueLeaderboardRows, setMiniLeagueLeaderboardRows] = useState([]);
+  const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
+  const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
+  const gwLocked = isGameweekLocked(selectedGameweek);
+  // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
+
 const favoriteTeamByUsername = useMemo(() => {
   const out = {};
   (globalUsers || []).forEach((u) => {
@@ -1375,21 +1390,6 @@ const getRowFavoriteTeam = (row) => {
       byFixture,
     };
   }, [selectedGameweek, coinsState.bets, results]);
-
-  // Mini-league
-  const [myLeagues, setMyLeagues] = useState([]);
-  const [leagueMemberViewKeys, setLeagueMemberViewKeys] = useState([]);
-  const [leagueUserIdByKey, setLeagueUserIdByKey] = useState({});
-  const [leagueNameInput, setLeagueNameInput] = useState("");
-  const [leagueJoinCode, setLeagueJoinCode] = useState("");
-  const [leagueError, setLeagueError] = useState("");
-  const [leagueSuccess, setLeagueSuccess] = useState("");
-  const [leaguesLoading, setLeaguesLoading] = useState(false);
-  const [miniLeagueLeaderboardRows, setMiniLeagueLeaderboardRows] = useState([]);
-  const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
-  const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
-  const gwLocked = isGameweekLocked(selectedGameweek);
-  // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
   // Always use userId for the logged-in user, even if their name is selected
