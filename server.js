@@ -319,6 +319,7 @@ const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 let resultsCache = null;
 let resultsCacheAt = 0;
 const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
+let resultsRefreshInFlight = null;
 
 function buildMatchesFromStoredSnapshot() {
   const fixtures = loadFixturesFromSrc() || [];
@@ -351,6 +352,44 @@ function buildMatchesFromStoredSnapshot() {
   });
 
   return matches;
+}
+
+async function refreshResultsCacheFromFootballData(timeoutMs = 7000) {
+  if (resultsRefreshInFlight) return resultsRefreshInFlight;
+
+  resultsRefreshInFlight = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const apiRes = await fetch(
+        "https://api.football-data.org/v4/competitions/PL/matches",
+        {
+          headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+          signal: controller.signal,
+        }
+      );
+
+      if (!apiRes.ok) {
+        const errorText = await apiRes.text().catch(() => "");
+        console.error("Football-Data API error:", apiRes.status, errorText);
+        return null;
+      }
+
+      const data = await apiRes.json();
+      const matches = Array.isArray(data.matches) ? data.matches : [];
+      resultsCache = matches;
+      resultsCacheAt = Date.now();
+      return matches;
+    } catch (err) {
+      console.error("Football-Data refresh error:", err?.message || err);
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+      resultsRefreshInFlight = null;
+    }
+  })();
+
+  return resultsRefreshInFlight;
 }
 
 // Leagues (backwards compatible)
@@ -1831,46 +1870,25 @@ app.get("/api/results", async (req, res) => {
       return res.json(resultsCache);
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-    let apiRes = null;
-    try {
-      apiRes = await fetch(
-        "https://api.football-data.org/v4/competitions/PL/matches",
-        {
-          headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
-          signal: controller.signal,
-        }
-      );
-    } finally {
-      clearTimeout(timeoutId);
+    const snapshotMatches = buildMatchesFromStoredSnapshot();
+    if (snapshotMatches.length) {
+      // Fast path for live UX: return immediately from local snapshot,
+      // then warm real football-data cache in background.
+      resultsCache = snapshotMatches;
+      resultsCacheAt = Date.now();
+      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      res.setHeader("X-Results-Source", "snapshot-fast");
+      refreshResultsCacheFromFootballData(7000).catch(() => {});
+      return res.json(snapshotMatches);
     }
 
-    if (!apiRes || !apiRes.ok) {
-      const errorText = apiRes ? await apiRes.text().catch(() => "") : "timeout";
-      const status = apiRes ? apiRes.status : 504;
-      console.error("Football-Data API error:", status, errorText);
-      const fallbackMatches = buildMatchesFromStoredSnapshot();
-      if (fallbackMatches.length) {
-        resultsCache = fallbackMatches;
-        resultsCacheAt = Date.now();
-        res.setHeader("X-Results-Updated", String(resultsCacheAt));
-        res.setHeader("X-Results-Source", "snapshot-fallback");
-        return res.json(fallbackMatches);
-      }
-      return res.status(status).json({
-        error: "Football-Data API error",
-        status,
-      });
+    const liveMatches = await refreshResultsCacheFromFootballData(9000);
+    if (liveMatches && liveMatches.length) {
+      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      res.setHeader("X-Results-Source", "football-data");
+      return res.json(liveMatches);
     }
-
-    const data = await apiRes.json();
-    const matches = Array.isArray(data.matches) ? data.matches : [];
-    resultsCache = matches;
-    resultsCacheAt = Date.now();
-    res.setHeader("X-Results-Updated", String(resultsCacheAt));
-    res.setHeader("X-Results-Source", "football-data");
-    res.json(matches);
+    return res.status(504).json({ error: "Results unavailable (timeout)" });
   } catch (err) {
     console.error("results error", err);
     const fallbackMatches = buildMatchesFromStoredSnapshot();

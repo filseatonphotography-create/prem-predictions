@@ -559,10 +559,10 @@ async function apiJoinLeague(token, code) {
 
 // Results & Odds (unchanged)
 // eslint-disable-next-line no-unused-vars
-async function fetchPremierLeagueResults(attempt = 0) {
+async function fetchPremierLeagueResults() {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // allow for live cold starts
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // hard 10s max
     
     const res = await fetch(`${BACKEND_BASE}/api/results`, {
       signal: controller.signal
@@ -576,10 +576,6 @@ async function fetchPremierLeagueResults(attempt = 0) {
     return { matches, error: null, updatedAt };
   } catch (err) {
     if (err.name === 'AbortError') {
-      if (attempt < 1) {
-        await new Promise((resolve) => setTimeout(resolve, 900));
-        return fetchPremierLeagueResults(attempt + 1);
-      }
       return { matches: [], error: 'Request timeout' };
     }
     return { matches: [], error: err.message };
