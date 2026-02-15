@@ -320,6 +320,39 @@ let resultsCache = null;
 let resultsCacheAt = 0;
 const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 
+function buildMatchesFromStoredSnapshot() {
+  const fixtures = loadFixturesFromSrc() || [];
+  const resultsByFixtureId = loadResults() || {};
+  const matches = [];
+
+  fixtures.forEach((fx) => {
+    if (!fx || fx.id === undefined || fx.id === null) return;
+    const r =
+      resultsByFixtureId[String(fx.id)] !== undefined
+        ? resultsByFixtureId[String(fx.id)]
+        : resultsByFixtureId[fx.id];
+    const hg = Number(r?.homeGoals);
+    const ag = Number(r?.awayGoals);
+    if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
+
+    matches.push({
+      id: Number(fx.id) || fx.id,
+      status: "FINISHED",
+      utcDate: fx.kickoff || null,
+      homeTeam: { name: fx.homeTeam || "" },
+      awayTeam: { name: fx.awayTeam || "" },
+      score: {
+        fullTime: {
+          home: hg,
+          away: ag,
+        },
+      },
+    });
+  });
+
+  return matches;
+}
+
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
   return [
@@ -1794,19 +1827,41 @@ app.get("/api/results", async (req, res) => {
     const now = Date.now();
     if (resultsCache && now - resultsCacheAt < RESULTS_CACHE_TTL_MS) {
       res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      res.setHeader("X-Results-Source", "cache");
       return res.json(resultsCache);
     }
-    const apiRes = await fetch(
-      "https://api.football-data.org/v4/competitions/PL/matches",
-      { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
-    );
 
-    if (!apiRes.ok) {
-      const errorText = await apiRes.text().catch(() => "");
-      console.error("Football-Data API error:", apiRes.status, errorText);
-      return res
-        .status(apiRes.status)
-        .json({ error: "Football-Data API error", status: apiRes.status });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    let apiRes = null;
+    try {
+      apiRes = await fetch(
+        "https://api.football-data.org/v4/competitions/PL/matches",
+        {
+          headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+          signal: controller.signal,
+        }
+      );
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!apiRes || !apiRes.ok) {
+      const errorText = apiRes ? await apiRes.text().catch(() => "") : "timeout";
+      const status = apiRes ? apiRes.status : 504;
+      console.error("Football-Data API error:", status, errorText);
+      const fallbackMatches = buildMatchesFromStoredSnapshot();
+      if (fallbackMatches.length) {
+        resultsCache = fallbackMatches;
+        resultsCacheAt = Date.now();
+        res.setHeader("X-Results-Updated", String(resultsCacheAt));
+        res.setHeader("X-Results-Source", "snapshot-fallback");
+        return res.json(fallbackMatches);
+      }
+      return res.status(status).json({
+        error: "Football-Data API error",
+        status,
+      });
     }
 
     const data = await apiRes.json();
@@ -1814,9 +1869,18 @@ app.get("/api/results", async (req, res) => {
     resultsCache = matches;
     resultsCacheAt = Date.now();
     res.setHeader("X-Results-Updated", String(resultsCacheAt));
+    res.setHeader("X-Results-Source", "football-data");
     res.json(matches);
   } catch (err) {
     console.error("results error", err);
+    const fallbackMatches = buildMatchesFromStoredSnapshot();
+    if (fallbackMatches.length) {
+      resultsCache = fallbackMatches;
+      resultsCacheAt = Date.now();
+      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      res.setHeader("X-Results-Source", "snapshot-fallback-exception");
+      return res.json(fallbackMatches);
+    }
     res.status(500).json({ error: "Internal server error" });
   }
 });

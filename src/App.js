@@ -559,10 +559,10 @@ async function apiJoinLeague(token, code) {
 
 // Results & Odds (unchanged)
 // eslint-disable-next-line no-unused-vars
-async function fetchPremierLeagueResults() {
+async function fetchPremierLeagueResults(attempt = 0) {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // allow for live cold starts
     
     const res = await fetch(`${BACKEND_BASE}/api/results`, {
       signal: controller.signal
@@ -576,6 +576,10 @@ async function fetchPremierLeagueResults() {
     return { matches, error: null, updatedAt };
   } catch (err) {
     if (err.name === 'AbortError') {
+      if (attempt < 1) {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        return fetchPremierLeagueResults(attempt + 1);
+      }
       return { matches: [], error: 'Request timeout' };
     }
     return { matches: [], error: err.message };
@@ -1527,8 +1531,8 @@ const visibleFixtures = FIXTURES.filter(
       }
     } catch {}
 
-    // 3) auto results
-    await refreshAutoResults();
+    // 3) auto results (non-blocking so app renders immediately)
+    refreshAutoResults();
 
         // 4) odds (initial load) — use in-app model instead of backend
     const generatedOdds = {};
