@@ -96,9 +96,9 @@ const FAVORITE_TEAM_NONE_LABEL = "None - I hate them all";
 
 async function fetchWithRetry(url, options = {}, config = {}) {
   const {
-    retries = 2,
-    timeoutMs = 20000,
-    retryDelayMs = 1200,
+    retries = 4,
+    timeoutMs = 45000,
+    retryDelayMs = 1500,
   } = config;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -493,7 +493,7 @@ async function apiGetLeaguePredictions(token, leagueId) {
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 3, timeoutMs: 20000, retryDelayMs: 1200 }
+    { retries: 5, timeoutMs: 45000, retryDelayMs: 1500 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -506,7 +506,7 @@ async function apiGetAllPredictions(token) {
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 3, timeoutMs: 20000, retryDelayMs: 1200 }
+    { retries: 5, timeoutMs: 45000, retryDelayMs: 1500 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to fetch global predictions.");
@@ -548,7 +548,7 @@ async function apiFetchMyLeagues(token) {
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: 3, timeoutMs: 20000, retryDelayMs: 1200 }
+    { retries: 5, timeoutMs: 45000, retryDelayMs: 1500 }
   );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
@@ -1265,6 +1265,7 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const winnerAudioRef = useRef(null);
+  const autoResultsRetryRef = useRef(null);
 
 // Coins game state
 const [coinsState, setCoinsState] = useState({
@@ -1475,11 +1476,18 @@ const visibleFixtures = FIXTURES.filter(
 // (debug logs removed)
 
   const refreshAutoResults = async () => {
+    if (autoResultsRetryRef.current) {
+      clearTimeout(autoResultsRetryRef.current);
+      autoResultsRetryRef.current = null;
+    }
     setResultsRefreshing(true);
     const { matches, error, updatedAt } = await fetchPremierLeagueResults();
     if (error) {
       setApiStatus(`Auto results: failed (${error})`);
       setResultsRefreshing(false);
+      autoResultsRetryRef.current = setTimeout(() => {
+        refreshAutoResults();
+      }, 6000);
       return;
     }
     setApiStatus("Auto results: loaded");
@@ -3022,6 +3030,15 @@ useEffect(() => {
   });
 }, [showWinnerModal, soundEffectsEnabled]);
 
+useEffect(() => {
+  return () => {
+    if (autoResultsRetryRef.current) {
+      clearTimeout(autoResultsRetryRef.current);
+      autoResultsRetryRef.current = null;
+    }
+  };
+}, []);
+
 const winnerConfetti = useMemo(() => {
   if (!showWinnerModal) return [];
   return Array.from({ length: 84 }, (_, i) => {
@@ -3948,10 +3965,23 @@ if (!isLoggedIn) {
             <div
               style={{
                 fontSize: 12,
-                color: theme.muted,
-                marginTop: 4,
+                color: /failed/i.test(apiStatus)
+                  ? theme.warn
+                  : /loading/i.test(apiStatus)
+                  ? theme.accent
+                  : theme.muted,
+                marginTop: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: /loading/i.test(apiStatus) ? "2px 8px" : "0",
+                borderRadius: /loading/i.test(apiStatus) ? 999 : 0,
+                background: /loading/i.test(apiStatus) ? "rgba(56,189,248,0.12)" : "transparent",
               }}
             >
+              {(resultsRefreshing || /loading/i.test(apiStatus)) && (
+                <span className="status-spinner" aria-hidden="true" />
+              )}
               {apiStatus}
             </div>
             {lastResultsUpdated && (
