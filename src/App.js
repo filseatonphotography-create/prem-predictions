@@ -596,8 +596,12 @@ async function apiJoinLeague(token, code) {
 // eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults() {
   try {
+    const isMobileUa =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
+    const timeoutMs = isMobileUa ? 20000 : 10000;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // hard 10s max
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
     const res = await fetch(`${BACKEND_BASE}/api/results`, {
       signal: controller.signal
@@ -988,6 +992,7 @@ export default function App() {
     } catch {}
     return true;
   });
+  const scoreSfxCtxRef = useRef(null);
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
@@ -1012,8 +1017,16 @@ export default function App() {
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
-      const ctx = new Ctx();
-      const duration = 0.022;
+      if (!scoreSfxCtxRef.current) {
+        scoreSfxCtxRef.current = new Ctx();
+      }
+      const ctx = scoreSfxCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+
+      const duration = 0.045;
       const frameCount = Math.max(1, Math.floor(ctx.sampleRate * duration));
       const noiseBuffer = ctx.createBuffer(1, frameCount, ctx.sampleRate);
       const data = noiseBuffer.getChannelData(0);
@@ -1026,26 +1039,48 @@ export default function App() {
       const filter = ctx.createBiquadFilter();
       const gain = ctx.createGain();
       filter.type = "bandpass";
-      filter.frequency.value = isIncrease ? 2800 : 1900;
-      filter.Q.value = 0.9;
+      filter.frequency.value = isIncrease ? 2100 : 1500;
+      filter.Q.value = 0.7;
       source.connect(filter);
       filter.connect(gain);
       gain.connect(ctx.destination);
 
       const now = ctx.currentTime;
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.05, now + 0.002);
+      gain.gain.exponentialRampToValueAtTime(0.085, now + 0.004);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
       source.start(now);
       source.stop(now + duration);
-      source.onended = () => {
-        if (ctx.state !== "closed") {
-          ctx.close().catch(() => {});
-        }
-      };
     } catch {}
   };
+
+  useEffect(() => {
+    const unlockScoreSfx = () => {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!scoreSfxCtxRef.current) {
+          scoreSfxCtxRef.current = new Ctx();
+        }
+        if (scoreSfxCtxRef.current.state === "suspended") {
+          scoreSfxCtxRef.current.resume().catch(() => {});
+        }
+      } catch {}
+    };
+
+    window.addEventListener("pointerdown", unlockScoreSfx, { passive: true });
+    window.addEventListener("touchstart", unlockScoreSfx, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", unlockScoreSfx);
+      window.removeEventListener("touchstart", unlockScoreSfx);
+      if (scoreSfxCtxRef.current && scoreSfxCtxRef.current.state !== "closed") {
+        scoreSfxCtxRef.current.close().catch(() => {});
+      }
+      scoreSfxCtxRef.current = null;
+    };
+  }, []);
 
   const updateSoundEffectsEnabled = (enabled) => {
     setSoundEffectsEnabled(enabled);
@@ -1996,14 +2031,6 @@ function normalizeCaptainsByGameweek(predsForUser) {
   }, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
   // Auto-load my leagues after login/restore
 useEffect(() => {
-  const needsLeagueData =
-    activeView === "league" ||
-    activeView === "coinsLeague" ||
-    activeView === "leagues" ||
-    activeView === "summary" ||
-    activeView === "history";
-  if (!needsLeagueData) return;
-
   let cancelled = false;
   let retryTimer = null;
   let retryAttempt = 0;
