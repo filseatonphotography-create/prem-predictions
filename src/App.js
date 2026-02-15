@@ -959,38 +959,6 @@ export default function App() {
   const [favoriteTeamsByUserId, setFavoriteTeamsByUserId] = useState({});
   const [avatarMetaLoaded, setAvatarMetaLoaded] = useState(false);
 
-  // Fetch avatars + favourite teams only when needed (avoid slowing login)
-  useEffect(() => {
-    const needsAvatarMeta =
-      activeView === "league" ||
-      activeView === "globalLeague" ||
-      activeView === "coinsLeague" ||
-      activeView === "summary" ||
-      activeView === "settings";
-    if (!needsAvatarMeta) return;
-    if (!isLoggedIn || !authToken || avatarMetaLoaded) return;
-
-    let cancelled = false;
-    async function loadAllAvatarData() {
-      const [allAvatars, allFavoriteTeams] = await Promise.all([
-        apiGetAllAvatars(authToken),
-        apiGetAllFavoriteTeams(authToken),
-      ]);
-      if (cancelled) return;
-      if (allAvatars && typeof allAvatars === "object") {
-        setAvatarsByUserId(allAvatars);
-      }
-      if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
-        setFavoriteTeamsByUserId(allFavoriteTeams);
-      }
-      setAvatarMetaLoaded(true);
-    }
-    loadAllAvatarData();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn, authToken, activeView, avatarMetaLoaded]);
-
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
     if (!soundEffectsEnabled) return;
@@ -1089,6 +1057,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   // App state
   const [predictions, setPredictions] = useState({});
+  const predictionsRef = useRef({});
   const [results, setResults] = useState({});
   const [odds, setOdds] = useState({});
   const [selectedGameweek, setSelectedGameweek] = useState(() => {
@@ -1143,6 +1112,10 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
     }
   }, []);
 
+  useEffect(() => {
+    predictionsRef.current = predictions || {};
+  }, [predictions]);
+
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('activeView', activeView);
@@ -1157,6 +1130,38 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   useEffect(() => {
     setShowLeaguesMenu(false);
   }, [activeView]);
+
+  // Fetch avatars + favourite teams only when needed (avoid slowing login)
+  useEffect(() => {
+    const needsAvatarMeta =
+      activeView === "league" ||
+      activeView === "globalLeague" ||
+      activeView === "coinsLeague" ||
+      activeView === "summary" ||
+      activeView === "settings";
+    if (!needsAvatarMeta) return;
+    if (!isLoggedIn || !authToken || avatarMetaLoaded) return;
+
+    let cancelled = false;
+    async function loadAllAvatarData() {
+      const [allAvatars, allFavoriteTeams] = await Promise.all([
+        apiGetAllAvatars(authToken),
+        apiGetAllFavoriteTeams(authToken),
+      ]);
+      if (cancelled) return;
+      if (allAvatars && typeof allAvatars === "object") {
+        setAvatarsByUserId(allAvatars);
+      }
+      if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
+        setFavoriteTeamsByUserId(allFavoriteTeams);
+      }
+      setAvatarMetaLoaded(true);
+    }
+    loadAllAvatarData();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, authToken, activeView, avatarMetaLoaded]);
 
   // Countdown timer to next deadline
   useEffect(() => {
@@ -1914,6 +1919,7 @@ useEffect(() => {
 
   async function recalcFromLeague() {
     try {
+      const predictionsSnapshot = predictionsRef.current || {};
       // 1) Fetch all league predictions from backend
       const data = await apiGetLeaguePredictions(authToken, leagueId);
       const users = data.users || [];
@@ -1949,12 +1955,12 @@ useEffect(() => {
 
       keys.forEach((k) => {
         // Special case: For Phil, use merged predictions if available
-        if (k === "Phil" && predictions["Phil_merged"]) {
-          predsForCalc[k] = { ...predictions["Phil_merged"] };
+        if (k === "Phil" && predictionsSnapshot["Phil_merged"]) {
+          predsForCalc[k] = { ...predictionsSnapshot["Phil_merged"] };
           return;
         }
         // Only use this user's predictions, do not fallback to any other user
-        const legacyData = predictions[k] || {};
+        const legacyData = predictionsSnapshot[k] || {};
         const userId = userIdByKey[k];
         const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
 
