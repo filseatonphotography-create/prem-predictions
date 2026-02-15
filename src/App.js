@@ -2040,6 +2040,7 @@ useEffect(() => {
 useEffect(() => {
   const needsComputedLeagueTotals =
     activeView === "league" ||
+    activeView === "coinsLeague" ||
     activeView === "summary" ||
     activeView === "history";
   if (!needsComputedLeagueTotals) return;
