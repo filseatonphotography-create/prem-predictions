@@ -1007,7 +1007,7 @@ export default function App() {
     if (!soundEffectsEnabled) return;
     try {
       const audio = new Audio(isAdding ? '/coin.mp3' : '/negative coin.mp3');
-      audio.volume = 0.3;
+      audio.volume = 0.16;
       audio.play().catch(err => console.log('Audio play failed:', err));
     } catch (err) {
       console.log('Audio error:', err);
@@ -1050,7 +1050,7 @@ export default function App() {
 
       const now = ctx.currentTime;
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.085, now + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.11, now + 0.004);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
       source.start(now);
@@ -1344,6 +1344,9 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const winnerAudioRef = useRef(null);
+  const WINNER_MODAL_DURATION_MS = 5600;
+  const WINNER_AUDIO_BASE_VOLUME = 0.32;
+  const WINNER_AUDIO_FADE_MS = 900;
   const autoResultsRetryRef = useRef(null);
   const autoResultsRetryCountRef = useRef(0);
 
@@ -3077,25 +3080,68 @@ useEffect(() => {
 
 useEffect(() => {
   if (!showWinnerModal) return;
-  const timeout = setTimeout(() => setShowWinnerModal(false), 6500);
+  const timeout = setTimeout(() => setShowWinnerModal(false), WINNER_MODAL_DURATION_MS);
   return () => clearTimeout(timeout);
-}, [showWinnerModal]);
+}, [showWinnerModal, WINNER_MODAL_DURATION_MS]);
 
 useEffect(() => {
   if (!showWinnerModal || !soundEffectsEnabled) return;
   if (!winnerAudioRef.current) {
     winnerAudioRef.current = new Audio("/winner.mp3");
   }
-  winnerAudioRef.current.currentTime = 0;
-  winnerAudioRef.current.volume = 0.5;
-  winnerAudioRef.current.play().catch(() => {
+  const audio = winnerAudioRef.current;
+  let fadeInterval = null;
+  let fadeTimeout = null;
+
+  audio.currentTime = 0;
+  audio.volume = WINNER_AUDIO_BASE_VOLUME;
+  audio.play().catch(() => {
     // Fallback for setups where winner.mp3 hasn't been added yet.
-    if (winnerAudioRef.current?.src?.includes("/winner.mp3")) {
-      winnerAudioRef.current.src = "/coin.mp3";
-      winnerAudioRef.current.play().catch(() => {});
+    if (audio?.src?.includes("/winner.mp3")) {
+      audio.src = "/coin.mp3";
+      audio.volume = WINNER_AUDIO_BASE_VOLUME;
+      audio.play().catch(() => {});
     }
   });
-}, [showWinnerModal, soundEffectsEnabled]);
+
+  const beginFadeOut = () => {
+    const steps = 10;
+    const stepMs = Math.max(40, Math.floor(WINNER_AUDIO_FADE_MS / steps));
+    const startVolume = Number(audio.volume) || WINNER_AUDIO_BASE_VOLUME;
+    let step = 0;
+    fadeInterval = setInterval(() => {
+      step += 1;
+      const nextVolume = Math.max(0, startVolume * (1 - step / steps));
+      audio.volume = nextVolume;
+      if (step >= steps) {
+        clearInterval(fadeInterval);
+        fadeInterval = null;
+        audio.pause();
+        audio.currentTime = 0;
+        audio.volume = WINNER_AUDIO_BASE_VOLUME;
+      }
+    }, stepMs);
+  };
+
+  fadeTimeout = setTimeout(
+    beginFadeOut,
+    Math.max(0, WINNER_MODAL_DURATION_MS - WINNER_AUDIO_FADE_MS)
+  );
+
+  return () => {
+    if (fadeTimeout) clearTimeout(fadeTimeout);
+    if (fadeInterval) clearInterval(fadeInterval);
+    audio.pause();
+    audio.currentTime = 0;
+    audio.volume = WINNER_AUDIO_BASE_VOLUME;
+  };
+}, [
+  showWinnerModal,
+  soundEffectsEnabled,
+  WINNER_MODAL_DURATION_MS,
+  WINNER_AUDIO_BASE_VOLUME,
+  WINNER_AUDIO_FADE_MS,
+]);
 
 useEffect(() => {
   return () => {
