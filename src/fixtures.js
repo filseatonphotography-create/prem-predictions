@@ -1820,13 +1820,6 @@ const FIXTURES = [
     "kickoff": "2026-02-12T20:00:00Z"
   },
   {
-    "id": 381,
-    "gameweek": 26,
-    "homeTeam": "Wolves",
-    "awayTeam": "Arsenal",
-    "kickoff": "2026-02-18T20:00:00Z"
-  },
-  {
     "id": 266,
     "gameweek": 27,
     "homeTeam": "Man City",
