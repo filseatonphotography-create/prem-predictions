@@ -24,7 +24,9 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "fixtures:check": "node scripts/check-fixture-sync.js",
+    "fixtures:update-times": "node patch-fixture-times.js"
   },
   "eslintConfig": {
     "extends": [

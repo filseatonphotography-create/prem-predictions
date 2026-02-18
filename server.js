@@ -10,6 +10,7 @@ const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
+const ADMIN_KEY = process.env.ADMIN_KEY || "prem-admin-reset";
 
 const app = express();
 
@@ -155,6 +156,13 @@ const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
 const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
+const BACKUPS_DIR = path.join(DATA_DIR, "backups");
+
+const BACKUP_CONFIG = {
+  [PREDICTIONS_FILE]: { prefix: "predictions", keep: 120, minIntervalMs: 2 * 60 * 1000 },
+  [COINS_FILE]: { prefix: "coins", keep: 120, minIntervalMs: 2 * 60 * 1000 },
+};
+const backupLastAtByFile = {};
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -168,6 +176,7 @@ const RESERVED_LEGACY_NAMES = [
 
 // Ensure data dir exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(BACKUPS_DIR)) fs.mkdirSync(BACKUPS_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
 // WEB PUSH SETUP (VAPID keys - generate with: npx web-push generate-vapid-keys)
@@ -282,9 +291,58 @@ function loadJson(file, fallback) {
   }
 }
 
+function backupStamp() {
+  // e.g. 20260218T142233123Z
+  return new Date().toISOString().replace(/[-:.]/g, "").replace(/Z$/, "Z").replace("T", "T");
+}
+
+function writeBackupSnapshot(file, reason = "auto") {
+  const cfg = BACKUP_CONFIG[file];
+  if (!cfg) return null;
+  if (!fs.existsSync(file)) return null;
+
+  const now = Date.now();
+  const lastAt = backupLastAtByFile[file] || 0;
+  if (reason === "auto" && now - lastAt < cfg.minIntervalMs) return null;
+
+  const raw = fs.readFileSync(file, "utf8");
+  if (!raw) return null;
+
+  const safeReason =
+    reason && reason !== "auto"
+      ? `-${String(reason).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24)}`
+      : "";
+  const fileName = `${cfg.prefix}-${backupStamp()}${safeReason}.json`;
+  const target = path.join(BACKUPS_DIR, fileName);
+  fs.writeFileSync(target, raw, "utf8");
+  backupLastAtByFile[file] = now;
+
+  // Prune old backups for this file type.
+  const all = fs
+    .readdirSync(BACKUPS_DIR)
+    .filter((n) => n.startsWith(`${cfg.prefix}-`) && n.endsWith(".json"))
+    .sort();
+  const excess = all.length - cfg.keep;
+  if (excess > 0) {
+    for (let i = 0; i < excess; i += 1) {
+      const oldPath = path.join(BACKUPS_DIR, all[i]);
+      try {
+        fs.unlinkSync(oldPath);
+      } catch {}
+    }
+  }
+  return fileName;
+}
+
 function saveJson(file, data) {
   try {
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+    const serialized = JSON.stringify(data, null, 2);
+    if (fs.existsSync(file)) {
+      const current = fs.readFileSync(file, "utf8");
+      if (current === serialized) return;
+    }
+    writeBackupSnapshot(file, "auto");
+    fs.writeFileSync(file, serialized, "utf8");
   } catch (err) {
     console.error("Failed to save", file, err);
   }
@@ -623,6 +681,15 @@ function authOptional(req, res, next) {
 
   req.user = { id: user.id, username: user.username };
   next();
+}
+
+function requireAdminKey(req, res) {
+  const provided = String(req.headers["x-admin-key"] || "").trim();
+  if (!provided || provided !== ADMIN_KEY) {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1062,10 +1129,7 @@ app.post("/api/users/legacy-map", authMiddleware, (req, res) => {
 // ---------------------------------------------------------------------------
 app.post("/api/admin/reset-password", (req, res) => {
   try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
+    if (!requireAdminKey(req, res)) return;
 
     const { username, newPassword } = req.body || {};
     const name = (username || "").trim();
@@ -1095,6 +1159,124 @@ app.post("/api/admin/reset-password", (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error("admin reset error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/admin/backups", (req, res) => {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const fileKey = String(req.query.file || "").trim().toLowerCase();
+    const map = {
+      predictions: BACKUP_CONFIG[PREDICTIONS_FILE],
+      coins: BACKUP_CONFIG[COINS_FILE],
+    };
+    if (!map[fileKey]) {
+      return res.status(400).json({ error: "file must be predictions or coins" });
+    }
+
+    const prefix = map[fileKey].prefix;
+    const backups = fs
+      .readdirSync(BACKUPS_DIR)
+      .filter((n) => n.startsWith(`${prefix}-`) && n.endsWith(".json"))
+      .sort()
+      .reverse()
+      .map((name) => {
+        const full = path.join(BACKUPS_DIR, name);
+        const st = fs.statSync(full);
+        return {
+          name,
+          bytes: st.size,
+          modifiedAt: st.mtime.toISOString(),
+        };
+      });
+
+    return res.json({ file: fileKey, backups });
+  } catch (err) {
+    console.error("admin/backups list error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/admin/backups/snapshot", (req, res) => {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const fileKey = String(req.body?.file || "").trim().toLowerCase();
+    const targets = [];
+    if (fileKey === "all") {
+      targets.push(PREDICTIONS_FILE, COINS_FILE);
+    } else if (fileKey === "predictions") {
+      targets.push(PREDICTIONS_FILE);
+    } else if (fileKey === "coins") {
+      targets.push(COINS_FILE);
+    } else {
+      return res.status(400).json({ error: "file must be predictions, coins, or all" });
+    }
+
+    const created = targets
+      .map((file) => writeBackupSnapshot(file, "manual"))
+      .filter(Boolean);
+
+    return res.json({ ok: true, created });
+  } catch (err) {
+    console.error("admin/backups snapshot error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/admin/backups/restore", (req, res) => {
+  try {
+    if (!requireAdminKey(req, res)) return;
+
+    const fileKey = String(req.body?.file || "").trim().toLowerCase();
+    const backupName = String(req.body?.backupName || "").trim();
+    const fileMap = {
+      predictions: PREDICTIONS_FILE,
+      coins: COINS_FILE,
+    };
+    const cfgMap = {
+      predictions: BACKUP_CONFIG[PREDICTIONS_FILE],
+      coins: BACKUP_CONFIG[COINS_FILE],
+    };
+    const targetFile = fileMap[fileKey];
+    const cfg = cfgMap[fileKey];
+    if (!targetFile || !cfg) {
+      return res.status(400).json({ error: "file must be predictions or coins" });
+    }
+    if (
+      !backupName ||
+      backupName.includes("/") ||
+      backupName.includes("\\") ||
+      !backupName.startsWith(`${cfg.prefix}-`) ||
+      !backupName.endsWith(".json")
+    ) {
+      return res.status(400).json({ error: "Invalid backupName" });
+    }
+
+    const backupPath = path.join(BACKUPS_DIR, backupName);
+    if (!fs.existsSync(backupPath)) {
+      return res.status(404).json({ error: "Backup not found" });
+    }
+
+    // Validate backup JSON before restore.
+    const raw = fs.readFileSync(backupPath, "utf8");
+    JSON.parse(raw);
+
+    // Create safety snapshot of current state before restore.
+    writeBackupSnapshot(targetFile, "pre-restore");
+    fs.writeFileSync(targetFile, raw, "utf8");
+
+    // Invalidate tiny cache for users only if needed.
+    if (targetFile === USERS_FILE) {
+      usersCache = null;
+      usersCacheAt = 0;
+    }
+
+    return res.json({ ok: true, restored: backupName, file: fileKey });
+  } catch (err) {
+    console.error("admin/backups restore error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
