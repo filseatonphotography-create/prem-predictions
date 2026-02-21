@@ -84,6 +84,7 @@ const path = require('path');
 const fetch = require('node-fetch');
 
 const FIXTURES_PATH = path.join(__dirname, 'src', 'fixtures.js');
+const OVERRIDES_PATH = path.join(__dirname, 'data', 'fixture_kickoff_overrides.json');
 const FOOTBALL_DATA_TOKEN = process.env.FOOTBALL_DATA_TOKEN || "18351cddefba4334a5edb3a60ea84ba3";
 const API_URL = 'https://api.football-data.org/v4/competitions/PL/matches?season=2025';
 
@@ -115,10 +116,27 @@ function findApiMatch(fixture, apiFixtures) {
   );
 }
 
+function fixtureKey(gameweek, homeTeam, awayTeam) {
+  return `${String(gameweek)}|${normalizeTeamName(homeTeam)}|${normalizeTeamName(awayTeam)}`;
+}
+
+function loadKickoffOverrides() {
+  if (!fs.existsSync(OVERRIDES_PATH)) {
+    return { byFixtureId: {}, byMatchKey: {} };
+  }
+  const raw = JSON.parse(fs.readFileSync(OVERRIDES_PATH, 'utf8'));
+  return {
+    byFixtureId: raw && typeof raw.byFixtureId === "object" ? raw.byFixtureId : {},
+    byMatchKey: raw && typeof raw.byMatchKey === "object" ? raw.byMatchKey : {},
+  };
+}
+
 async function patchFixtureTimes() {
   const fixtures = await loadFixtures();
   const apiFixtures = await fetchApiFixtures();
+  const overrides = loadKickoffOverrides();
   let updated = 0;
+  let overridden = 0;
   let unmatched = [];
   for (const fixture of fixtures) {
     const apiMatch = findApiMatch(fixture, apiFixtures);
@@ -133,6 +151,14 @@ async function patchFixtureTimes() {
         awayTeam: fixture.awayTeam
       });
     }
+
+    const key = fixtureKey(fixture.gameweek, fixture.homeTeam, fixture.awayTeam);
+    const overrideKickoff =
+      overrides.byFixtureId[String(fixture.id)] || overrides.byMatchKey[key];
+    if (overrideKickoff && fixture.kickoff !== overrideKickoff) {
+      fixture.kickoff = overrideKickoff;
+      overridden++;
+    }
   }
   // Sort fixtures by gameweek, then by kickoff time
   fixtures.sort((a, b) => {
@@ -143,6 +169,7 @@ async function patchFixtureTimes() {
     'const FIXTURES = ' + JSON.stringify(fixtures, null, 2) + '\n\nexport default FIXTURES;\n';
   fs.writeFileSync(FIXTURES_PATH, fileContent);
   console.log(`Patched kickoff times for ${updated} fixtures. IDs preserved and fixtures sorted.`);
+  console.log(`Kickoff overrides applied: ${overridden}`);
   if (unmatched.length > 0) {
     console.log('Fixtures with no API match:', unmatched);
   }

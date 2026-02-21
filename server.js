@@ -130,6 +130,15 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
 const DATA_DIR = path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
 const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
+const FIXTURE_OVERRIDES_FILE = path.join(DATA_DIR, "fixture_kickoff_overrides.json");
+const FIXTURE_SEASON = String(process.env.FIXTURE_SEASON || "2025");
+const FIXTURE_AUTO_SYNC_ENABLED = String(
+  process.env.FIXTURE_AUTO_SYNC_ENABLED || "1"
+).toLowerCase() !== "0";
+const FIXTURE_AUTO_SYNC_INTERVAL_MINUTES = Math.max(
+  15,
+  parseInt(process.env.FIXTURE_AUTO_SYNC_INTERVAL_MINUTES || "360", 10) || 360
+);
 
 // Avatars (userId -> { seed, style })
 const loadAvatars = () => loadJson(AVATARS_FILE, {});
@@ -145,6 +154,182 @@ function loadFixturesFromSrc() {
     return JSON.parse(json);
   } catch {
     return [];
+  }
+}
+
+function saveFixturesToSrc(fixtures) {
+  const arr = Array.isArray(fixtures) ? fixtures : [];
+  const content =
+    "const FIXTURES = " +
+    JSON.stringify(arr, null, 2) +
+    "\n\nexport default FIXTURES;\n";
+  fs.writeFileSync(FIXTURES_SRC_FILE, content, "utf8");
+}
+
+function normalizeFixtureTeamName(name) {
+  if (!name) return "";
+  let s = String(name).toLowerCase().trim();
+  if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
+  if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
+  if (s === "nott'm forest" || s === "nottm forest" || s === "nottingham") {
+    s = "nottingham forest";
+  }
+  if (
+    s === "man utd" ||
+    s === "man u" ||
+    s === "manchester utd" ||
+    s === "manchester u" ||
+    s === "mufc"
+  ) {
+    s = "manchester united";
+  }
+  if (s === "leeds") s = "leeds united";
+  if (s === "west ham" || s === "whu" || s === "hammers") s = "west ham united";
+  if (s === "man city" || s === "mcfc") s = "manchester city";
+  if (s === "newcastle" || s === "nufc") s = "newcastle united";
+
+  s = s.replace(/football club/g, "");
+  s = s.replace(/\bfc\b/g, "");
+  s = s.replace(/\bafc\b/g, "");
+  s = s.replace(/\butd\b/g, "united");
+  s = s.replace(/[^a-z]/g, "");
+  return s;
+}
+
+function fixtureSyncKey(gameweek, homeTeam, awayTeam) {
+  return `${String(gameweek)}|${normalizeFixtureTeamName(homeTeam)}|${normalizeFixtureTeamName(
+    awayTeam
+  )}`;
+}
+
+function loadFixtureKickoffOverrides() {
+  try {
+    if (!fs.existsSync(FIXTURE_OVERRIDES_FILE)) {
+      return { byFixtureId: {}, byMatchKey: {} };
+    }
+    const raw = JSON.parse(fs.readFileSync(FIXTURE_OVERRIDES_FILE, "utf8"));
+    return {
+      byFixtureId:
+        raw && raw.byFixtureId && typeof raw.byFixtureId === "object"
+          ? raw.byFixtureId
+          : {},
+      byMatchKey:
+        raw && raw.byMatchKey && typeof raw.byMatchKey === "object"
+          ? raw.byMatchKey
+          : {},
+    };
+  } catch (err) {
+    console.error("Failed to load fixture kickoff overrides:", err?.message || err);
+    return { byFixtureId: {}, byMatchKey: {} };
+  }
+}
+
+let fixtureAutoSyncInFlight = null;
+let fixtureAutoSyncLast = null;
+
+async function syncFutureFixtureKickoffs(reason = "auto") {
+  if (fixtureAutoSyncInFlight) return fixtureAutoSyncInFlight;
+
+  fixtureAutoSyncInFlight = (async () => {
+    const localFixtures = loadFixturesFromSrc();
+    if (!Array.isArray(localFixtures) || localFixtures.length === 0) {
+      return {
+        ok: true,
+        reason,
+        message: "No local fixtures found",
+        scanned: 0,
+        updatedFromApi: 0,
+        overridden: 0,
+        unchanged: 0,
+        unmatchedFuture: 0,
+        wroteFile: false,
+      };
+    }
+
+    const apiRes = await fetch(
+      `https://api.football-data.org/v4/competitions/PL/matches?season=${encodeURIComponent(
+        FIXTURE_SEASON
+      )}`,
+      {
+        headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+      }
+    );
+    if (!apiRes.ok) {
+      const text = await apiRes.text().catch(() => "");
+      throw new Error(`Fixture sync API error ${apiRes.status}: ${text}`);
+    }
+
+    const data = await apiRes.json();
+    const matches = Array.isArray(data.matches) ? data.matches : [];
+    const apiByKey = new Map();
+    matches.forEach((m) => {
+      if (!m || !m.homeTeam || !m.awayTeam) return;
+      apiByKey.set(fixtureSyncKey(m.matchday, m.homeTeam.name, m.awayTeam.name), m);
+    });
+
+    const overrides = loadFixtureKickoffOverrides();
+    const now = Date.now();
+    let changed = false;
+    let scanned = 0;
+    let updatedFromApi = 0;
+    let overridden = 0;
+    let unchanged = 0;
+    let unmatchedFuture = 0;
+
+    localFixtures.forEach((f) => {
+      if (!f || f.id === undefined || f.id === null) return;
+      const kickoffTs = Date.parse(f.kickoff);
+      if (!Number.isFinite(kickoffTs) || kickoffTs <= now) return;
+      scanned++;
+
+      const key = fixtureSyncKey(f.gameweek, f.homeTeam, f.awayTeam);
+      const apiMatch = apiByKey.get(key);
+      if (apiMatch && apiMatch.utcDate && f.kickoff !== apiMatch.utcDate) {
+        f.kickoff = apiMatch.utcDate;
+        updatedFromApi++;
+        changed = true;
+      } else if (!apiMatch) {
+        unmatchedFuture++;
+      } else {
+        unchanged++;
+      }
+
+      const overrideKickoff =
+        overrides.byFixtureId[String(f.id)] || overrides.byMatchKey[key];
+      if (overrideKickoff && f.kickoff !== overrideKickoff) {
+        f.kickoff = overrideKickoff;
+        overridden++;
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      localFixtures.sort((a, b) => {
+        if (a.gameweek !== b.gameweek) return a.gameweek - b.gameweek;
+        return new Date(a.kickoff) - new Date(b.kickoff);
+      });
+      saveFixturesToSrc(localFixtures);
+    }
+
+    const summary = {
+      ok: true,
+      reason,
+      scanned,
+      updatedFromApi,
+      overridden,
+      unchanged,
+      unmatchedFuture,
+      wroteFile: changed,
+      at: new Date().toISOString(),
+    };
+    fixtureAutoSyncLast = summary;
+    return summary;
+  })();
+
+  try {
+    return await fixtureAutoSyncInFlight;
+  } finally {
+    fixtureAutoSyncInFlight = null;
   }
 }
 const USERS_FILE = path.join(DATA_DIR, "users.json");
@@ -1281,6 +1466,33 @@ app.post("/api/admin/backups/restore", (req, res) => {
   }
 });
 
+app.post("/api/admin/fixtures/sync", async (req, res) => {
+  try {
+    if (!requireAdminKey(req, res)) return;
+    const summary = await syncFutureFixtureKickoffs("admin");
+    return res.json(summary);
+  } catch (err) {
+    console.error("admin fixtures/sync error", err);
+    return res.status(500).json({ error: "Failed to sync fixture kickoffs" });
+  }
+});
+
+app.get("/api/admin/fixtures/sync-last", (req, res) => {
+  try {
+    if (!requireAdminKey(req, res)) return;
+    return res.json({
+      enabled: FIXTURE_AUTO_SYNC_ENABLED,
+      intervalMinutes: FIXTURE_AUTO_SYNC_INTERVAL_MINUTES,
+      season: FIXTURE_SEASON,
+      last: fixtureAutoSyncLast,
+      inFlight: !!fixtureAutoSyncInFlight,
+    });
+  } catch (err) {
+    console.error("admin fixtures/sync-last error", err);
+    return res.status(500).json({ error: "Failed to load fixture sync status" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
@@ -2332,6 +2544,27 @@ function runDeadlineNotifier() {
   notifyForType("deadline1h", 1 * 60 * 60 * 1000);
 
   if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+}
+
+function runFixtureAutoSyncTick(reason) {
+  syncFutureFixtureKickoffs(reason)
+    .then((summary) => {
+      console.log("[FIXTURE SYNC]", summary);
+    })
+    .catch((err) => {
+      console.error("[FIXTURE SYNC] failed:", err?.message || err);
+    });
+}
+
+if (FIXTURE_AUTO_SYNC_ENABLED) {
+  const intervalMs = FIXTURE_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1000;
+  setInterval(() => runFixtureAutoSyncTick("interval"), intervalMs);
+  setTimeout(() => runFixtureAutoSyncTick("startup"), 15 * 1000);
+  console.log(
+    `[FIXTURE SYNC] enabled (season=${FIXTURE_SEASON}, interval=${FIXTURE_AUTO_SYNC_INTERVAL_MINUTES}m)`
+  );
+} else {
+  console.log("[FIXTURE SYNC] disabled by FIXTURE_AUTO_SYNC_ENABLED=0");
 }
 
 setInterval(runDeadlineNotifier, 60 * 1000);

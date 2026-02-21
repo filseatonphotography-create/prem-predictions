@@ -1554,9 +1554,21 @@ useEffect(() => {
 // (Place this after visibleFixtures is defined)
 
 // ---------- DERIVED ----------
-const visibleFixtures = FIXTURES.filter(
-  (f) => f.gameweek === selectedGameweek
-);
+const visibleFixtures = useMemo(() => {
+  return FIXTURES
+    .filter((f) => f.gameweek === selectedGameweek)
+    .slice()
+    .sort((a, b) => {
+      const ta = Date.parse(a.kickoff);
+      const tb = Date.parse(b.kickoff);
+      const aValid = Number.isFinite(ta);
+      const bValid = Number.isFinite(tb);
+      if (aValid && bValid && ta !== tb) return ta - tb;
+      if (aValid && !bValid) return -1;
+      if (!aValid && bValid) return 1;
+      return Number(a.id) - Number(b.id);
+    });
+}, [selectedGameweek]);
 
 // (debug logs removed)
 
