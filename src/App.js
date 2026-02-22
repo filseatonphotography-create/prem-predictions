@@ -373,7 +373,7 @@ async function apiLogin(username, password) {
   return data;
 }
 
-// Save latest results snapshot to backend for coins leaderboard
+// Save latest results snapshot to backend for coins leaderboard + notifications
 async function apiSaveResultsSnapshot(resultsByFixtureId) {
   try {
     await fetch(`${BACKEND_BASE}/api/results/snapshot`, {
@@ -1195,7 +1195,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       if (saved) return JSON.parse(saved);
     } catch {}
     return {
-      deadline1h: true,
       deadline24h: true,
       bingpot: true,
       betWin: true,
@@ -1629,6 +1628,7 @@ const visibleFixtures = useMemo(() => {
           updatedResults[fixture.id] = {
             homeGoals: match.score.fullTime.home,
             awayGoals: match.score.fullTime.away,
+            status: match.status || null,
           };
         }
       });
@@ -2091,6 +2091,7 @@ useEffect(() => {
   
 useEffect(() => {
   const needsComputedLeagueTotals =
+    activeView === "predictions" ||
     activeView === "league" ||
     activeView === "coinsLeague" ||
     activeView === "summary" ||
@@ -2260,6 +2261,40 @@ useEffect(() => {
     if (retryTimer) clearTimeout(retryTimer);
   };
 }, [activeView, results, isLoggedIn, authToken, myLeagues]);
+
+const predictionSelectablePlayers = useMemo(() => {
+  const selfName = String(currentPlayer || "").trim();
+  if (!hasJoinedMiniLeague) {
+    return selfName ? [selfName] : [];
+  }
+
+  const members = Array.isArray(leagueMemberViewKeys) ? leagueMemberViewKeys : [];
+  const out = [];
+  const seen = new Set();
+
+  const pushUnique = (name) => {
+    const value = String(name || "").trim();
+    if (!value) return;
+    const key = value.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(value);
+  };
+
+  members.forEach(pushUnique);
+  pushUnique(selfName);
+
+  return out.length ? out : selfName ? [selfName] : [];
+}, [hasJoinedMiniLeague, leagueMemberViewKeys, currentPlayer]);
+
+useEffect(() => {
+  if (activeView !== "predictions") return;
+  if (!gwLocked) return;
+  if (!predictionSelectablePlayers.length) return;
+  if (!predictionSelectablePlayers.includes(currentPlayer)) {
+    setCurrentPlayer(predictionSelectablePlayers[0]);
+  }
+}, [activeView, gwLocked, predictionSelectablePlayers, currentPlayer]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -4551,7 +4586,7 @@ if (!isLoggedIn) {
                   maxWidth: isMobile ? 90 : 120,
                 }}
               >
-                {PLAYERS.map((p) => (
+                {predictionSelectablePlayers.map((p) => (
                   <option key={p} value={p}>
                     {p}
                   </option>
@@ -7262,8 +7297,7 @@ if (!isLoggedIn) {
 
                   <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
                     {[
-                      { key: "deadline1h", label: "Notify 1 hour before deadline" },
-                      { key: "deadline24h", label: "Notify 24 hours before deadline" },
+                      { key: "deadline24h", label: "Notify 24h before gameweek starts" },
                       { key: "bingpot", label: "Bingpot notification" },
                       { key: "betWin", label: "Bet win notification" },
                       { key: "favoriteTeamResult", label: "Favourite team result notification" },
