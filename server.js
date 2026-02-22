@@ -579,6 +579,11 @@ let resultsCache = null;
 let resultsCacheAt = 0;
 const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let resultsRefreshInFlight = null;
+let resultsRefreshLastAttemptAt = 0;
+let resultsRefreshLastSuccessAt = 0;
+let resultsRefreshLastError = "";
+const RESULTS_AUTO_REFRESH_INTERVAL_MINUTES =
+  parseInt(process.env.RESULTS_AUTO_REFRESH_INTERVAL_MINUTES || "10", 10) || 10;
 
 function buildMatchesFromStoredSnapshot() {
   const fixtures = loadFixturesFromSrc() || [];
@@ -613,10 +618,68 @@ function buildMatchesFromStoredSnapshot() {
   return matches;
 }
 
+function persistFinishedResultsFromMatches(matches) {
+  if (!Array.isArray(matches) || matches.length === 0) return false;
+  const fixtures = loadFixturesFromSrc() || [];
+  const existing = loadResults() || {};
+  const next = { ...existing };
+
+  const byGwAndTeams = new Map();
+  const byTeamsOnly = new Map();
+  fixtures.forEach((fx) => {
+    if (!fx || fx.id === undefined || fx.id === null) return;
+    const home = normalizeTeamName(fx.homeTeam || "");
+    const away = normalizeTeamName(fx.awayTeam || "");
+    if (!home || !away) return;
+    const teamKey = `${home}|${away}`;
+    const gwKey = `${Number(fx.gameweek) || 0}|${teamKey}`;
+    if (!byGwAndTeams.has(gwKey)) byGwAndTeams.set(gwKey, fx);
+    if (!byTeamsOnly.has(teamKey)) byTeamsOnly.set(teamKey, fx);
+  });
+
+  let changed = false;
+  matches.forEach((m) => {
+    const hg = Number(m?.score?.fullTime?.home);
+    const ag = Number(m?.score?.fullTime?.away);
+    if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
+
+    const home = normalizeTeamName(m?.homeTeam?.name || "");
+    const away = normalizeTeamName(m?.awayTeam?.name || "");
+    if (!home || !away) return;
+
+    const gw = Number(m?.matchday) || 0;
+    const teamKey = `${home}|${away}`;
+    const fx =
+      byGwAndTeams.get(`${gw}|${teamKey}`) || byTeamsOnly.get(teamKey) || null;
+    if (!fx) return;
+
+    const key = String(fx.id);
+    const prev = next[key] || {};
+    const nextEntry = {
+      homeGoals: hg,
+      awayGoals: ag,
+      status: m?.status || prev.status || "FINISHED",
+    };
+    if (
+      Number(prev.homeGoals) !== hg ||
+      Number(prev.awayGoals) !== ag ||
+      String(prev.status || "") !== String(nextEntry.status || "")
+    ) {
+      next[key] = nextEntry;
+      changed = true;
+    }
+  });
+
+  if (changed) saveResults(next);
+  return changed;
+}
+
 async function refreshResultsCacheFromFootballData(timeoutMs = 7000) {
   if (resultsRefreshInFlight) return resultsRefreshInFlight;
 
   resultsRefreshInFlight = (async () => {
+    resultsRefreshLastAttemptAt = Date.now();
+    resultsRefreshLastError = "";
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -630,6 +693,7 @@ async function refreshResultsCacheFromFootballData(timeoutMs = 7000) {
 
       if (!apiRes.ok) {
         const errorText = await apiRes.text().catch(() => "");
+        resultsRefreshLastError = `HTTP ${apiRes.status}`;
         console.error("Football-Data API error:", apiRes.status, errorText);
         return null;
       }
@@ -638,8 +702,11 @@ async function refreshResultsCacheFromFootballData(timeoutMs = 7000) {
       const matches = Array.isArray(data.matches) ? data.matches : [];
       resultsCache = matches;
       resultsCacheAt = Date.now();
+      resultsRefreshLastSuccessAt = Date.now();
+      persistFinishedResultsFromMatches(matches);
       return matches;
     } catch (err) {
+      resultsRefreshLastError = err?.message || "fetch failed";
       console.error("Football-Data refresh error:", err?.message || err);
       return null;
     } finally {
@@ -2296,45 +2363,40 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 app.get("/api/results", async (req, res) => {
   try {
     const now = Date.now();
-    if (resultsCache && now - resultsCacheAt < RESULTS_CACHE_TTL_MS) {
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
-      res.setHeader("X-Results-Source", "cache");
-      return res.json(resultsCache);
+    if (!resultsCache || resultsCache.length === 0) {
+      const snapshotMatches = buildMatchesFromStoredSnapshot();
+      if (snapshotMatches.length) {
+        resultsCache = snapshotMatches;
+        resultsCacheAt = Date.now();
+      }
     }
 
-    if (resultsCache && resultsCache.length) {
-      // Serve stale cache immediately for a fast UX, then refresh in background.
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
-      res.setHeader("X-Results-Source", "cache-stale-fast");
-      refreshResultsCacheFromFootballData(7000).catch(() => {});
-      return res.json(resultsCache);
+    const isFresh = !!(resultsCache && now - resultsCacheAt < RESULTS_CACHE_TTL_MS);
+    if (!isFresh && !resultsRefreshInFlight) {
+      refreshResultsCacheFromFootballData(9000).catch(() => {});
     }
 
-    const snapshotMatches = buildMatchesFromStoredSnapshot();
-    if (snapshotMatches.length) {
-      // Fast path for live UX: return immediately from local snapshot,
-      // then warm real football-data cache in background.
-      resultsCache = snapshotMatches;
-      resultsCacheAt = Date.now();
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
-      res.setHeader("X-Results-Source", "snapshot-fast");
-      refreshResultsCacheFromFootballData(7000).catch(() => {});
-      return res.json(snapshotMatches);
-    }
-
-    const liveMatches = await refreshResultsCacheFromFootballData(9000);
-    if (liveMatches && liveMatches.length) {
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
-      res.setHeader("X-Results-Source", "football-data");
-      return res.json(liveMatches);
-    }
-
-    // Never hard-fail the client on startup: return an empty payload quickly
-    // and keep warming live data in the background.
-    refreshResultsCacheFromFootballData(12000).catch(() => {});
+    const payload = Array.isArray(resultsCache) ? resultsCache : [];
+    const source = isFresh
+      ? "cache"
+      : payload.length
+      ? "cache-stale"
+      : "empty";
     res.setHeader("X-Results-Updated", String(resultsCacheAt || now));
-    res.setHeader("X-Results-Source", "empty-fallback");
-    return res.json([]);
+    res.setHeader("X-Results-Source", source);
+    res.setHeader("X-Results-Sync", resultsRefreshInFlight ? "in-flight" : "idle");
+    res.setHeader(
+      "X-Results-Last-Success",
+      String(resultsRefreshLastSuccessAt || 0)
+    );
+    res.setHeader(
+      "X-Results-Last-Attempt",
+      String(resultsRefreshLastAttemptAt || 0)
+    );
+    if (resultsRefreshLastError) {
+      res.setHeader("X-Results-Last-Error", resultsRefreshLastError);
+    }
+    return res.json(payload);
   } catch (err) {
     console.error("results error", err);
     const fallbackMatches = buildMatchesFromStoredSnapshot();
@@ -2343,9 +2405,12 @@ app.get("/api/results", async (req, res) => {
       resultsCacheAt = Date.now();
       res.setHeader("X-Results-Updated", String(resultsCacheAt));
       res.setHeader("X-Results-Source", "snapshot-fallback-exception");
+      res.setHeader("X-Results-Sync", resultsRefreshInFlight ? "in-flight" : "idle");
       return res.json(fallbackMatches);
     }
-    res.status(500).json({ error: "Internal server error" });
+    res.setHeader("X-Results-Source", "empty-exception");
+    res.setHeader("X-Results-Sync", resultsRefreshInFlight ? "in-flight" : "idle");
+    res.json([]);
   }
 });
 
@@ -2598,6 +2663,19 @@ function runFixtureAutoSyncTick(reason) {
     });
 }
 
+function runResultsAutoRefreshTick(reason) {
+  refreshResultsCacheFromFootballData(12000)
+    .then((matches) => {
+      const count = Array.isArray(matches) ? matches.length : 0;
+      console.log(
+        `[RESULTS SYNC] ${reason} ok (matches=${count}, cacheAt=${resultsCacheAt || 0})`
+      );
+    })
+    .catch((err) => {
+      console.error("[RESULTS SYNC] failed:", err?.message || err);
+    });
+}
+
 if (FIXTURE_AUTO_SYNC_ENABLED) {
   const intervalMs = FIXTURE_AUTO_SYNC_INTERVAL_MINUTES * 60 * 1000;
   setInterval(() => runFixtureAutoSyncTick("interval"), intervalMs);
@@ -2608,6 +2686,13 @@ if (FIXTURE_AUTO_SYNC_ENABLED) {
 } else {
   console.log("[FIXTURE SYNC] disabled by FIXTURE_AUTO_SYNC_ENABLED=0");
 }
+
+const resultsIntervalMs = RESULTS_AUTO_REFRESH_INTERVAL_MINUTES * 60 * 1000;
+setInterval(() => runResultsAutoRefreshTick("interval"), resultsIntervalMs);
+setTimeout(() => runResultsAutoRefreshTick("startup"), 8 * 1000);
+console.log(
+  `[RESULTS SYNC] enabled (interval=${RESULTS_AUTO_REFRESH_INTERVAL_MINUTES}m)`
+);
 
 setInterval(runDeadlineNotifier, 60 * 1000);
 setTimeout(runDeadlineNotifier, 5 * 1000);

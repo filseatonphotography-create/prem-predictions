@@ -609,10 +609,11 @@ async function apiJoinLeague(token, code) {
 
 // Results & Odds (unchanged)
 // eslint-disable-next-line no-unused-vars
-async function fetchPremierLeagueResults() {
+async function fetchPremierLeagueResults(timeoutMsOverride) {
   try {
-    // Allow enough time for cold-starting backend instances to wake up.
-    const timeoutMs = isLikelyMobileClient() ? 90000 : 65000;
+    const timeoutMs =
+      Number(timeoutMsOverride) ||
+      (isLikelyMobileClient() ? 18000 : 12000);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
@@ -623,9 +624,11 @@ async function fetchPremierLeagueResults() {
     
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
     const updatedHeader = res.headers.get("x-results-updated");
+    const source = res.headers.get("x-results-source") || "unknown";
+    const sync = res.headers.get("x-results-sync") || "idle";
     const matches = await res.json();
     const updatedAt = updatedHeader ? Number(updatedHeader) : null;
-    return { matches, error: null, updatedAt };
+    return { matches, error: null, updatedAt, source, sync };
   } catch (err) {
     if (err.name === 'AbortError') {
       return { matches: [], error: 'Request timeout' };
@@ -1213,7 +1216,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   
   // eslint-disable-next-line no-unused-vars
-  const [apiStatus, setApiStatus] = useState("Auto results: loading…");
+  const [apiStatus, setApiStatus] = useState("Auto results: pending");
   const [lastResultsUpdated, setLastResultsUpdated] = useState(null);
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
   const [activeView, setActiveView] = useState(() => {
@@ -1581,27 +1584,43 @@ const visibleFixtures = useMemo(() => {
 
 // (debug logs removed)
 
-  const refreshAutoResults = async () => {
-    if (autoResultsRetryRef.current) {
+  const refreshAutoResults = async (opts = {}) => {
+    const {
+      isRetry = false,
+      showSpinner = true,
+      timeoutMs = isLikelyMobileClient() ? 18000 : 12000,
+    } = opts;
+
+    if (!isRetry && autoResultsRetryRef.current) {
       clearTimeout(autoResultsRetryRef.current);
       autoResultsRetryRef.current = null;
     }
-    setResultsRefreshing(true);
-  const { matches, error, updatedAt } = await fetchPremierLeagueResults();
+    if (showSpinner) setResultsRefreshing(true);
+    const { matches, error, updatedAt, source, sync } = await fetchPremierLeagueResults(timeoutMs);
     if (error) {
-      setApiStatus(`Auto results: failed (${error})`);
-      setResultsRefreshing(false);
+      setApiStatus(`Auto results: delayed (${error})`);
+      if (showSpinner) setResultsRefreshing(false);
       const mobile = isLikelyMobileClient();
       const maxRetries = mobile ? 2 : 3;
       if (autoResultsRetryCountRef.current >= maxRetries) return;
       autoResultsRetryCountRef.current += 1;
       autoResultsRetryRef.current = setTimeout(() => {
-        refreshAutoResults();
-      }, mobile ? 20000 : 15000);
+        refreshAutoResults({
+          isRetry: true,
+          showSpinner: false,
+          timeoutMs: mobile ? 25000 : 18000,
+        });
+      }, mobile ? 45000 : 30000);
       return;
     }
     autoResultsRetryCountRef.current = 0;
-    setApiStatus("Auto results: loaded");
+    const syncLabel =
+      sync === "in-flight"
+        ? "Auto results: loaded (updating live data...)"
+        : source === "cache-stale"
+        ? "Auto results: loaded (cached; refresh pending)"
+        : "Auto results: loaded";
+    setApiStatus(syncLabel);
     if (updatedAt) setLastResultsUpdated(updatedAt);
     if (matches?.length) {
       let matchedCount = 0;
@@ -1648,7 +1667,7 @@ const visibleFixtures = useMemo(() => {
         apiSaveResultsSnapshot(updatedResults);
       }
     }
-    setResultsRefreshing(false);
+    if (showSpinner) setResultsRefreshing(false);
   };
 
   // ---------- INIT ----------
