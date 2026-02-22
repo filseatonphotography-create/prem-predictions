@@ -611,16 +611,15 @@ async function apiJoinLeague(token, code) {
 // eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults(timeoutMsOverride) {
   try {
-    const timeoutMs =
-      Number(timeoutMsOverride) ||
-      (isLikelyMobileClient() ? 18000 : 12000);
+    const timeoutMs = Number(timeoutMsOverride) || 0;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    
+    const timeoutId =
+      timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+
     const res = await fetch(`${BACKEND_BASE}/api/results`, {
-      signal: controller.signal
+      signal: controller.signal,
     });
-    clearTimeout(timeoutId);
+    if (timeoutId) clearTimeout(timeoutId);
     
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
     const updatedHeader = res.headers.get("x-results-updated");
@@ -1588,7 +1587,7 @@ const visibleFixtures = useMemo(() => {
     const {
       isRetry = false,
       showSpinner = true,
-      timeoutMs = isLikelyMobileClient() ? 18000 : 12000,
+      timeoutMs = isLikelyMobileClient() ? 140000 : 120000,
     } = opts;
 
     if (!isRetry && autoResultsRetryRef.current) {
@@ -1598,7 +1597,11 @@ const visibleFixtures = useMemo(() => {
     if (showSpinner) setResultsRefreshing(true);
     const { matches, error, updatedAt, source, sync } = await fetchPremierLeagueResults(timeoutMs);
     if (error) {
-      setApiStatus(`Auto results: delayed (${error})`);
+      setApiStatus(
+        /timeout/i.test(String(error || ""))
+          ? "Auto results: server wake-up taking longer than expected..."
+          : `Auto results: delayed (${error})`
+      );
       if (showSpinner) setResultsRefreshing(false);
       const mobile = isLikelyMobileClient();
       const maxRetries = mobile ? 2 : 3;
@@ -1608,7 +1611,7 @@ const visibleFixtures = useMemo(() => {
         refreshAutoResults({
           isRetry: true,
           showSpinner: false,
-          timeoutMs: mobile ? 25000 : 18000,
+          timeoutMs: mobile ? 140000 : 120000,
         });
       }, mobile ? 45000 : 30000);
       return;
