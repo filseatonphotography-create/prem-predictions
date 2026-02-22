@@ -602,7 +602,8 @@ async function apiJoinLeague(token, code) {
 // eslint-disable-next-line no-unused-vars
 async function fetchPremierLeagueResults() {
   try {
-    const timeoutMs = isLikelyMobileClient() ? 30000 : 15000;
+    // Allow enough time for cold-starting backend instances to wake up.
+    const timeoutMs = isLikelyMobileClient() ? 90000 : 65000;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     
@@ -1577,17 +1578,17 @@ const visibleFixtures = useMemo(() => {
       autoResultsRetryRef.current = null;
     }
     setResultsRefreshing(true);
-    const { matches, error, updatedAt } = await fetchPremierLeagueResults();
+  const { matches, error, updatedAt } = await fetchPremierLeagueResults();
     if (error) {
       setApiStatus(`Auto results: failed (${error})`);
       setResultsRefreshing(false);
       const mobile = isLikelyMobileClient();
-      const maxRetries = mobile ? 4 : 6;
+      const maxRetries = mobile ? 2 : 3;
       if (autoResultsRetryCountRef.current >= maxRetries) return;
       autoResultsRetryCountRef.current += 1;
       autoResultsRetryRef.current = setTimeout(() => {
         refreshAutoResults();
-      }, mobile ? 9000 : 6000);
+      }, mobile ? 20000 : 15000);
       return;
     }
     autoResultsRetryCountRef.current = 0;
