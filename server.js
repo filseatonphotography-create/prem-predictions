@@ -90,7 +90,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+app.options("/{*any}", cors(corsOptions));
 
 app.use(express.json());
 
@@ -2140,7 +2140,13 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
 });
 
 // -------------------- SAVE RESULTS SNAPSHOT (from frontend) --------------------
-// Expects body like: { resultsByFixtureId: { "111": { homeGoals: 3, awayGoals: 1 }, ... } }
+// Expects body like:
+// {
+//   resultsByFixtureId: {
+//     "111": { homeGoals: 3, awayGoals: 1, status: "FINISHED" | "IN_PLAY" | ... },
+//     ...
+//   }
+// }
 app.post("/api/results/snapshot", authOptional, (req, res) => {
   try {
     console.log("[SNAPSHOT] /api/results/snapshot called");
@@ -2166,11 +2172,22 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
         const nh = Number(r?.homeGoals);
         const na = Number(r?.awayGoals);
         if (!Number.isFinite(nh) || !Number.isFinite(na)) return;
+
+        const incomingStatus = String(r?.status || "").toUpperCase();
+        // Only treat as completed when provider confirms fixture is finished.
+        if (incomingStatus !== "FINISHED") return;
+
         const prev = current[fixtureId];
-        const ph = Number(prev?.homeGoals);
-        const pa = Number(prev?.awayGoals);
-        if (!Number.isFinite(ph) || !Number.isFinite(pa)) {
-          newlyCompleted.push({ fixtureId: String(fixtureId), homeGoals: nh, awayGoals: na });
+        const prevStatus = String(prev?.status || "").toUpperCase();
+
+        // Trigger notifications only on transition to FINISHED to avoid
+        // sending wins while a match is still in-play at temporary scores.
+        if (prevStatus !== "FINISHED") {
+          newlyCompleted.push({
+            fixtureId: String(fixtureId),
+            homeGoals: nh,
+            awayGoals: na,
+          });
         }
       });
 
@@ -2229,9 +2246,14 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                 }
               }
 
+              const fixtureLabel =
+                fixture && fixture.homeTeam && fixture.awayTeam
+                  ? `${fixture.homeTeam} v ${fixture.awayTeam}`
+                  : `fixture #${fx.fixtureId}`;
+
               sendPushNotification(userId, "betWin", {
                 title: "Bet won! 💰",
-                body: `You won your bet on fixture #${fx.fixtureId}.${payout}`,
+                body: `You won your bet on ${fixtureLabel}.${payout}`,
                 url: "/",
               });
             });
@@ -2491,7 +2513,7 @@ app.get("/api/push/prefs", authMiddleware, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// DEADLINE NOTIFICATIONS (1h + 24h before kickoff)
+// GAMEWEEK START NOTIFICATIONS (24h before first fixture in each GW)
 // ---------------------------------------------------------------------------
 function runDeadlineNotifier() {
   const fixtures = loadFixturesFromSrc();
@@ -2503,45 +2525,51 @@ function runDeadlineNotifier() {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   let changed = false;
 
-  const notifyForType = (type, msBefore) => {
-    fixtures.forEach((fx) => {
-      const kickoff = Date.parse(fx.kickoff);
-      if (!Number.isFinite(kickoff)) return;
-      const deadline = kickoff - msBefore;
-      if (now < deadline || now > deadline + windowMs) return;
+  // Build earliest fixture per gameweek.
+  const earliestByGw = {};
+  fixtures.forEach((fx) => {
+    if (!fx || fx.gameweek === undefined || fx.gameweek === null) return;
+    const kickoff = Date.parse(fx.kickoff);
+    if (!Number.isFinite(kickoff)) return;
+    const gwKey = String(fx.gameweek);
+    const prev = earliestByGw[gwKey];
+    if (!prev || kickoff < prev.kickoffTs) {
+      earliestByGw[gwKey] = { fixture: fx, kickoffTs: kickoff };
+    }
+  });
 
-      Object.entries(subscriptions).forEach(([userId, sub]) => {
-        if (!sub || !sub.subscription) return;
-        const prefs = sub.notifPrefs || {};
-        if (prefs && prefs[type] === false) return;
+  Object.entries(earliestByGw).forEach(([gwKey, info]) => {
+    const fx = info.fixture;
+    const kickoff = info.kickoffTs;
+    const notifyAt = kickoff - 24 * 60 * 60 * 1000;
+    if (now < notifyAt || now > notifyAt + windowMs) return;
 
-        const log = sub.notifLog || {};
-        const typeLog = log[type] || {};
-        if (typeLog[fx.id]) return;
+    Object.entries(subscriptions).forEach(([userId, sub]) => {
+      if (!sub || !sub.subscription) return;
+      const prefs = sub.notifPrefs || {};
+      if (prefs && prefs.deadline24h === false) return;
 
-        const title =
-          type === "deadline1h" ? "1 hour to deadline ⏰" : "24 hours to deadline ⏰";
-        const body = `${fx.homeTeam} vs ${fx.awayTeam} (GW${fx.gameweek})`;
+      const log = sub.notifLog || {};
+      const type = "deadline24h";
+      const typeLog = log[type] || {};
+      const dedupeKey = `gw${gwKey}`;
+      if (typeLog[dedupeKey]) return;
 
-        const sent = sendPushNotification(userId, type, {
-          title,
-          body,
-          url: "/",
-        });
-
-        if (sent) {
-          typeLog[fx.id] = Date.now();
-          log[type] = typeLog;
-          sub.notifLog = log;
-          subscriptions[userId] = sub;
-          changed = true;
-        }
+      const sent = sendPushNotification(userId, type, {
+        title: "Gameweek starts in 24 hours ⏰",
+        body: `GW${gwKey} starts with ${fx.homeTeam} vs ${fx.awayTeam}`,
+        url: "/",
       });
-    });
-  };
 
-  notifyForType("deadline24h", 24 * 60 * 60 * 1000);
-  notifyForType("deadline1h", 1 * 60 * 60 * 1000);
+      if (sent) {
+        typeLog[dedupeKey] = Date.now();
+        log[type] = typeLog;
+        sub.notifLog = log;
+        subscriptions[userId] = sub;
+        changed = true;
+      }
+    });
+  });
 
   if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }
