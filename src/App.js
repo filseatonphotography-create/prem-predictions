@@ -363,11 +363,20 @@ async function apiSignup(username, password, email = "", favoriteTeam = "") {
 }
 
 async function apiLogin(username, password) {
-  const res = await fetch(`${BACKEND_BASE}/api/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
+  const mobile = isLikelyMobileClient();
+  const res = await fetchWithRetry(
+    `${BACKEND_BASE}/api/login`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    },
+    {
+      retries: mobile ? 1 : 2,
+      timeoutMs: mobile ? 90000 : 70000,
+      retryDelayMs: 2000,
+    }
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Login failed.");
   return data;
@@ -1673,10 +1682,7 @@ const visibleFixtures = useMemo(() => {
       }
     } catch {}
 
-    // 3) auto results (non-blocking so app renders immediately)
-    refreshAutoResults();
-
-        // 4) odds (initial load) — use in-app model instead of backend
+        // 3) odds (initial load) — use in-app model instead of backend
     const generatedOdds = {};
     FIXTURES.forEach((f) => {
       generatedOdds[f.id] = generateModelOddsForFixture(f);
@@ -1691,6 +1697,12 @@ const visibleFixtures = useMemo(() => {
 
   init();
 }, []);
+
+useEffect(() => {
+  if (!isLoggedIn) return;
+  refreshAutoResults();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [isLoggedIn]);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
 useEffect(() => {
