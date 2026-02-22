@@ -1721,6 +1721,11 @@ const visibleFixtures = useMemo(() => {
 }, []);
 
 useEffect(() => {
+  // Warm backend as early as possible so auth/league endpoints are hot.
+  fetch(`${BACKEND_BASE}/`).catch(() => {});
+}, []);
+
+useEffect(() => {
   if (!isLoggedIn) return;
   refreshAutoResults();
   // eslint-disable-next-line react-hooks/exhaustive-deps

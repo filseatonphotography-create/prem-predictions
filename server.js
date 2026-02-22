@@ -556,9 +556,22 @@ const loadPasswordResetTokens = () => loadJson(PASSWORD_RESET_TOKENS_FILE, []);
 const savePasswordResetTokens = (tokens) =>
   saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
 
+// Derived league cache invalidation
+let miniLeagueLeaderboardCache = null;
+const LEAGUE_LEADERBOARD_CACHE_TTL_MS = 30 * 1000;
+const leaguePredictionsCache = new Map();
+const LEAGUE_PREDICTIONS_CACHE_TTL_MS = 30 * 1000;
+function invalidateLeagueDerivedCaches() {
+  miniLeagueLeaderboardCache = null;
+  leaguePredictionsCache.clear();
+}
+
 // Predictions (userId -> { fixtureId -> prediction })
 const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
-const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
+const savePredictions = (preds) => {
+  saveJson(PREDICTIONS_FILE, preds);
+  invalidateLeagueDerivedCaches();
+};
 
 // Totals/history (leagueId -> { weeklyTotals, leagueTotals, updatedAt })
 const loadTotals = () => loadJson(TOTALS_FILE, {});
@@ -573,7 +586,10 @@ const loadCoins = () => loadJson(COINS_FILE, {});
 const saveCoins = (coins) => saveJson(COINS_FILE, coins);
 // Results (for coins leaderboard)
 const loadResults = () => loadJson(RESULTS_FILE, {});
-const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
+const saveResults = (results) => {
+  saveJson(RESULTS_FILE, results || {});
+  invalidateLeagueDerivedCaches();
+};
 
 let resultsCache = null;
 let resultsCacheAt = 0;
@@ -748,7 +764,10 @@ function loadLeagues() {
   return leagues;
 }
 
-const saveLeagues = (leagues) => saveJson(LEAGUES_FILE, leagues);
+const saveLeagues = (leagues) => {
+  saveJson(LEAGUES_FILE, leagues);
+  invalidateLeagueDerivedCaches();
+};
 
 // ---------------------------------------------------------------------------
 // TOKENS (stateless, survive restarts)
@@ -1609,6 +1628,14 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
 
 app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
   try {
+    const now = Date.now();
+    if (
+      miniLeagueLeaderboardCache &&
+      now - miniLeagueLeaderboardCache.at < LEAGUE_LEADERBOARD_CACHE_TTL_MS
+    ) {
+      return res.json({ leaderboard: miniLeagueLeaderboardCache.rows });
+    }
+
     const leagues = loadLeagues();
     const predictionsByUserId = loadPredictions();
     const resultsByFixtureId = loadResults();
@@ -1671,6 +1698,11 @@ app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
       if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
       return a.leagueName.localeCompare(b.leagueName);
     });
+
+    miniLeagueLeaderboardCache = {
+      at: now,
+      rows: leaderboard,
+    };
 
     return res.json({ leaderboard });
   } catch (err) {
@@ -1764,10 +1796,6 @@ app.get("/api/predictions/my", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
     const allPreds = loadPredictions();
-    console.log("MY PREDICTIONS:", {
-  userId,
-  predictions: allPreds[userId] || {}
-});
     return res.json({ predictions: allPreds[userId] || {} });
   } catch (err) {
     console.error("predictions/my error", err);
@@ -1805,12 +1833,6 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
       isTriple: !!prediction.isTriple,
       updatedAt: now,
     };
-
-    console.log("SAVE incoming:", {
-  userId,
-  fixtureId,
-  clean
-});
 
     allPreds[userId][fixtureId] = clean;
     savePredictions(allPreds);
@@ -1850,6 +1872,12 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
+    const now = Date.now();
+    const cached = leaguePredictionsCache.get(leagueId);
+    if (cached && now - cached.at < LEAGUE_PREDICTIONS_CACHE_TTL_MS) {
+      return res.json(cached.payload);
+    }
+
     const allPreds = loadPredictions();
     const users = loadUsers();
 
@@ -1863,11 +1891,13 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
       predictionsByUserId[mid] = allPreds[mid] || {};
     });
 
-    return res.json({
+    const payload = {
       leagueId,
       users: usersInLeague,
       predictionsByUserId,
-    });
+    };
+    leaguePredictionsCache.set(leagueId, { at: now, payload });
+    return res.json(payload);
   } catch (err) {
     console.error("predictions/league error", err);
     return res.status(500).json({ error: "Internal server error" });
