@@ -2302,6 +2302,14 @@ app.get("/api/results", async (req, res) => {
       return res.json(resultsCache);
     }
 
+    if (resultsCache && resultsCache.length) {
+      // Serve stale cache immediately for a fast UX, then refresh in background.
+      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      res.setHeader("X-Results-Source", "cache-stale-fast");
+      refreshResultsCacheFromFootballData(7000).catch(() => {});
+      return res.json(resultsCache);
+    }
+
     const snapshotMatches = buildMatchesFromStoredSnapshot();
     if (snapshotMatches.length) {
       // Fast path for live UX: return immediately from local snapshot,
@@ -2320,7 +2328,13 @@ app.get("/api/results", async (req, res) => {
       res.setHeader("X-Results-Source", "football-data");
       return res.json(liveMatches);
     }
-    return res.status(504).json({ error: "Results unavailable (timeout)" });
+
+    // Never hard-fail the client on startup: return an empty payload quickly
+    // and keep warming live data in the background.
+    refreshResultsCacheFromFootballData(12000).catch(() => {});
+    res.setHeader("X-Results-Updated", String(resultsCacheAt || now));
+    res.setHeader("X-Results-Source", "empty-fallback");
+    return res.json([]);
   } catch (err) {
     console.error("results error", err);
     const fallbackMatches = buildMatchesFromStoredSnapshot();
