@@ -13,6 +13,7 @@ const PORT = process.env.PORT || 5001;
 const ADMIN_KEY = process.env.ADMIN_KEY || "prem-admin-reset";
 
 const app = express();
+app.set("etag", false);
 
 // GET /api/coins/user/:userId?gameweek=GW
 // Returns coins state for any user (read-only, no auth restrictions)
@@ -91,6 +92,14 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("/{*any}", cors(corsOptions));
+
+// API responses should never be browser-cached/revalidated (prevents 304 on auth JSON).
+app.use("/api", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
 
 app.use(express.json());
 
