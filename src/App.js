@@ -6,11 +6,12 @@ import FIXTURES from "./fixtures";
 // Fetch all users' avatars from backend
 async function apiGetAllAvatars(token) {
   try {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/avatar/all`,
+    const res = await fetchBackendWithFallback(
+      "/api/avatar/all",
       {
         headers: { Authorization: `Bearer ${token}` },
-      }
+      },
+      { retries: 0, timeoutMs: 30000, retryDelayMs: 1200 }
     );
     if (!res.ok) throw new Error("Avatar fetch failed");
     return await res.json(); // { userId: { seed, style }, ... }
@@ -21,9 +22,13 @@ async function apiGetAllAvatars(token) {
 
 async function apiGetAllFavoriteTeams(token) {
   try {
-    const res = await fetch(`${BACKEND_BASE}/api/account/favorite-team/all`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetchBackendWithFallback(
+      "/api/account/favorite-team/all",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { retries: 0, timeoutMs: 30000, retryDelayMs: 1200 }
+    );
     if (!res.ok) throw new Error("Favourite teams fetch failed");
     const data = await res.json().catch(() => ({}));
     return data.favoriteTeams || {};
@@ -57,6 +62,57 @@ const BACKEND_BASE =
   (window.location.hostname === "localhost"
     ? "http://localhost:5001"
     : "https://prem-predictions-1.onrender.com");
+const BACKEND_BASE_CANDIDATES = Array.from(
+  new Set(
+    [
+      process.env.REACT_APP_BACKEND_BASE,
+      window.location.hostname === "localhost"
+        ? "http://localhost:5001"
+        : "https://prem-predictions-1.onrender.com",
+      "https://predictionaddiction-backend.onrender.com",
+      "https://prem-predictions-p9fy.onrender.com",
+    ].filter(Boolean)
+  )
+);
+let activeBackendBase = BACKEND_BASE_CANDIDATES[0];
+
+async function fetchBackendWithFallback(path, options = {}, config = {}) {
+  const {
+    retries = 0,
+    timeoutMs = 25000,
+    retryDelayMs = 1200,
+  } = config;
+
+  const orderedBases = [
+    activeBackendBase,
+    ...BACKEND_BASE_CANDIDATES.filter((b) => b !== activeBackendBase),
+  ];
+
+  let lastErr = null;
+  for (let i = 0; i < orderedBases.length; i += 1) {
+    const base = orderedBases[i];
+    try {
+      const res = await fetchWithRetry(
+        `${base}${path}`,
+        options,
+        { retries, timeoutMs, retryDelayMs }
+      );
+
+      // Retry on upstream/proxy failures by trying the next backend origin.
+      if (res.status >= 500 && i < orderedBases.length - 1) {
+        continue;
+      }
+
+      activeBackendBase = base;
+      return res;
+    } catch (err) {
+      lastErr = err;
+      if (i === orderedBases.length - 1) throw err;
+    }
+  }
+
+  throw lastErr || new Error("Backend unavailable");
+}
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
@@ -226,9 +282,13 @@ function AnimatedNumber({ value, duration = 400, format = (v) => v }) {
 // Fetch current user's avatar from backend
 async function apiGetAvatar(token) {
   try {
-    const res = await fetch(`${BACKEND_BASE}/api/avatar/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetchBackendWithFallback(
+      "/api/avatar/me",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { retries: 0, timeoutMs: 30000, retryDelayMs: 1200 }
+    );
     if (!res.ok) throw new Error("Avatar fetch failed");
     return await res.json(); // { seed, style }
   } catch {
@@ -366,8 +426,8 @@ async function apiSignup(username, password, email = "", favoriteTeam = "") {
 async function apiLogin(username, password) {
   const mobile = isLikelyMobileClient();
   const startedAt = Date.now();
-  const res = await fetchWithRetry(
-    `${BACKEND_BASE}/api/login`,
+  const res = await fetchBackendWithFallback(
+    "/api/login",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -473,9 +533,13 @@ async function apiSetFavoriteTeam(token, favoriteTeam) {
 }
 
 async function apiGetPushPrefs(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/push/prefs`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchBackendWithFallback(
+    "/api/push/prefs",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { retries: 0, timeoutMs: 30000, retryDelayMs: 1200 }
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to load prefs.");
   return data.prefs || {};
@@ -496,9 +560,13 @@ async function apiSetPushPrefs(token, prefs) {
 }
 
 async function apiGetMyPredictions(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/predictions/my`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchBackendWithFallback(
+    "/api/predictions/my",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { retries: 0, timeoutMs: 45000, retryDelayMs: 1200 }
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data.predictions || {};
@@ -506,8 +574,8 @@ async function apiGetMyPredictions(token) {
 async function apiGetLeaguePredictions(token, leagueId) {
   const mobile = isLikelyMobileClient();
   const startedAt = Date.now();
-  const res = await fetchWithRetry(
-    `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
+  const res = await fetchBackendWithFallback(
+    `/api/predictions/league/${leagueId}`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
@@ -568,8 +636,8 @@ async function apiSavePrediction(token, fixtureId, prediction) {
 async function apiFetchMyLeagues(token) {
   const mobile = isLikelyMobileClient();
   const startedAt = Date.now();
-  const res = await fetchWithRetry(
-    `${BACKEND_BASE}/api/leagues/my`,
+  const res = await fetchBackendWithFallback(
+    "/api/leagues/my",
     {
       headers: { Authorization: `Bearer ${token}` },
     },
@@ -584,9 +652,13 @@ async function apiFetchMyLeagues(token) {
 
 async function apiGetMiniLeagueLeaderboard(token) {
   const startedAt = Date.now();
-  const res = await fetch(`${BACKEND_BASE}/api/leagues/leaderboard`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetchBackendWithFallback(
+    "/api/leagues/leaderboard",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    },
+    { retries: 0, timeoutMs: 45000, retryDelayMs: 1200 }
+  );
   const data = await res.json().catch(() => ({}));
   const elapsedMs = Date.now() - startedAt;
   console.log(
@@ -633,9 +705,9 @@ async function fetchPremierLeagueResults(timeoutMsOverride) {
     const timeoutId =
       timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
-    const res = await fetch(`${BACKEND_BASE}/api/results`, {
+    const res = await fetchBackendWithFallback("/api/results", {
       signal: controller.signal,
-    });
+    }, { retries: 0, timeoutMs, retryDelayMs: 1200 });
     if (timeoutId) clearTimeout(timeoutId);
     
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
@@ -656,13 +728,15 @@ async function fetchPremierLeagueResults(timeoutMsOverride) {
 // --- COINS GAME API HELPERS ---
 async function apiGetMyCoins(token, gameweek) {
   const gw = gameweek != null ? String(gameweek) : "";
-  const url = `${BACKEND_BASE}/api/coins/my?gameweek=${encodeURIComponent(gw)}`;
-
-  const res = await fetch(url, {
+  const res = await fetchBackendWithFallback(
+    `/api/coins/my?gameweek=${encodeURIComponent(gw)}`,
+    {
     headers: {
       Authorization: `Bearer ${token}`,
     },
-  });
+  },
+    { retries: 0, timeoutMs: 45000, retryDelayMs: 1200 }
+  );
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -1739,7 +1813,7 @@ const visibleFixtures = useMemo(() => {
 
 useEffect(() => {
   // Warm backend as early as possible so auth/league endpoints are hot.
-  fetch(`${BACKEND_BASE}/`).catch(() => {});
+  fetchBackendWithFallback("/", {}, { retries: 0, timeoutMs: 20000, retryDelayMs: 1200 }).catch(() => {});
 }, []);
 
 useEffect(() => {
@@ -1869,12 +1943,16 @@ useEffect(() => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), mobile ? 30000 : 15000);
       
-      const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
+      const res = await fetchBackendWithFallback(
+        "/api/coins/leaderboard",
+        {
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+          signal: controller.signal,
         },
-        signal: controller.signal
-      });
+        { retries: 0, timeoutMs: mobile ? 30000 : 15000, retryDelayMs: 1200 }
+      );
       
       clearTimeout(timeoutId);
 
