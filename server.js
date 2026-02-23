@@ -968,6 +968,14 @@ function requireAdminKey(req, res) {
 // ---------------------------------------------------------------------------
 app.get("/", (req, res) => res.send("Backend is running"));
 
+function attachTiming(res, label) {
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    const ms = Date.now() - startedAt;
+    console.log(`[API TIMING] ${label} -> ${res.statusCode} in ${ms}ms`);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // AUTH: SIGNUP
 // - allows reserved legacy names ONLY if unclaimed
@@ -1058,6 +1066,7 @@ app.post("/api/signup", (req, res) => {
 // ---------------------------------------------------------------------------
 app.post("/api/login", (req, res) => {
   try {
+    attachTiming(res, "POST /api/login");
     const { username, password } = req.body || {};
     const name = (username || "").trim();
     const pwd = (password || "").trim();
@@ -1599,6 +1608,7 @@ function generateJoinCode(existingLeagues) {
 
 app.get("/api/leagues/my", authMiddleware, (req, res) => {
   try {
+    attachTiming(res, "GET /api/leagues/my");
     const userId = req.user.id;
     const leagues = loadLeagues();
     const myLeagues = leagues
@@ -1628,6 +1638,7 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
 
 app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
   try {
+    attachTiming(res, "GET /api/leagues/leaderboard");
     const now = Date.now();
     if (
       miniLeagueLeaderboardCache &&
@@ -1851,6 +1862,7 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
   try {
+    attachTiming(res, "GET /api/predictions/league/:leagueId");
     const userId = req.user.id;
     const leagueId = (req.params.leagueId || "").trim();
 

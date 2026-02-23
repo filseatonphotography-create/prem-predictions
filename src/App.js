@@ -60,6 +60,7 @@ const BACKEND_BASE =
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
+const LEAGUE_CACHE_PREFIX = "pl_league_cache_v1";
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const TEAM_BADGES = {
   Arsenal: "/badges/arsenal.png",
@@ -364,6 +365,7 @@ async function apiSignup(username, password, email = "", favoriteTeam = "") {
 
 async function apiLogin(username, password) {
   const mobile = isLikelyMobileClient();
+  const startedAt = Date.now();
   const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/login`,
     {
@@ -378,6 +380,8 @@ async function apiLogin(username, password) {
     }
   );
   const data = await res.json().catch(() => ({}));
+  const elapsedMs = Date.now() - startedAt;
+  console.log(`[CLIENT TIMING] POST /api/login -> ${res.status} in ${elapsedMs}ms`);
   if (!res.ok) throw new Error(data.error || "Login failed.");
   return data;
 }
@@ -501,14 +505,19 @@ async function apiGetMyPredictions(token) {
 }
 async function apiGetLeaguePredictions(token, leagueId) {
   const mobile = isLikelyMobileClient();
+  const startedAt = Date.now();
   const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: mobile ? 1 : 2, timeoutMs: mobile ? 35000 : 20000, retryDelayMs: 1200 }
+    { retries: 0, timeoutMs: mobile ? 60000 : 45000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
+  const elapsedMs = Date.now() - startedAt;
+  console.log(
+    `[CLIENT TIMING] GET /api/predictions/league/${leagueId} -> ${res.status} in ${elapsedMs}ms`
+  );
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data; // { leagueId, users, predictionsByUserId }
 }
@@ -558,23 +567,31 @@ async function apiSavePrediction(token, fixtureId, prediction) {
 
 async function apiFetchMyLeagues(token) {
   const mobile = isLikelyMobileClient();
+  const startedAt = Date.now();
   const res = await fetchWithRetry(
     `${BACKEND_BASE}/api/leagues/my`,
     {
       headers: { Authorization: `Bearer ${token}` },
     },
-    { retries: mobile ? 1 : 2, timeoutMs: mobile ? 35000 : 20000, retryDelayMs: 1200 }
+    { retries: 0, timeoutMs: mobile ? 45000 : 30000, retryDelayMs: 1200 }
   );
   const data = await res.json().catch(() => ({}));
+  const elapsedMs = Date.now() - startedAt;
+  console.log(`[CLIENT TIMING] GET /api/leagues/my -> ${res.status} in ${elapsedMs}ms`);
   if (!res.ok) throw new Error(data.error || "Failed to load leagues.");
   return data.leagues || [];
 }
 
 async function apiGetMiniLeagueLeaderboard(token) {
+  const startedAt = Date.now();
   const res = await fetch(`${BACKEND_BASE}/api/leagues/leaderboard`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json().catch(() => ({}));
+  const elapsedMs = Date.now() - startedAt;
+  console.log(
+    `[CLIENT TIMING] GET /api/leagues/leaderboard -> ${res.status} in ${elapsedMs}ms`
+  );
   if (!res.ok) throw new Error(data.error || "Failed to load mini-league leaderboard.");
   return data.leaderboard || [];
 }
@@ -2113,9 +2130,9 @@ useEffect(() => {
     } catch (err) {
       console.error("Auto load leagues failed:", err);
       if (cancelled) return;
-      if (retryAttempt < 4) {
+      if (retryAttempt < 1) {
         retryAttempt += 1;
-        retryTimer = setTimeout(loadLeaguesAuto, 1500 * retryAttempt);
+        retryTimer = setTimeout(loadLeaguesAuto, 2000 * retryAttempt);
       } else {
         setMyLeaguesResolved(true);
       }
@@ -2149,6 +2166,26 @@ useEffect(() => {
 
   const leagueId = myLeagues[0].id;
   if (!leagueId) return;
+  const leagueCacheKey = `${LEAGUE_CACHE_PREFIX}:${currentUserId || "anon"}:${leagueId}`;
+
+  try {
+    const raw = localStorage.getItem(leagueCacheKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        if (Array.isArray(parsed.keys)) setLeagueMemberViewKeys(parsed.keys);
+        if (parsed.userIdByKey && typeof parsed.userIdByKey === "object") {
+          setLeagueUserIdByKey(parsed.userIdByKey);
+        }
+        if (parsed.weeklyTotals && typeof parsed.weeklyTotals === "object") {
+          setComputedWeeklyTotals(parsed.weeklyTotals);
+        }
+        if (parsed.leagueTotals && typeof parsed.leagueTotals === "object") {
+          setComputedLeagueTotals(parsed.leagueTotals);
+        }
+      }
+    }
+  } catch {}
 
   let cancelled = false;
   let retryTimer = null;
@@ -2277,6 +2314,18 @@ useEffect(() => {
       setLeagueUserIdByKey(userIdByKey);
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
+      try {
+        localStorage.setItem(
+          leagueCacheKey,
+          JSON.stringify({
+            keys,
+            userIdByKey,
+            weeklyTotals,
+            leagueTotals,
+            at: Date.now(),
+          })
+        );
+      } catch {}
       retryAttempt = 0;
 
       // 7) Sync totals back to backend
@@ -2287,9 +2336,9 @@ useEffect(() => {
     } catch (err) {
       console.error("Recalc from league failed:", err);
       if (cancelled) return;
-      if (retryAttempt < 5) {
+      if (retryAttempt < 1) {
         retryAttempt += 1;
-        retryTimer = setTimeout(recalcFromLeague, 1600 * retryAttempt);
+        retryTimer = setTimeout(recalcFromLeague, 2500 * retryAttempt);
       }
     }
   }
@@ -2300,7 +2349,7 @@ useEffect(() => {
     cancelled = true;
     if (retryTimer) clearTimeout(retryTimer);
   };
-}, [activeView, results, isLoggedIn, authToken, myLeagues]);
+}, [activeView, results, isLoggedIn, authToken, myLeagues, currentUserId]);
 
 const predictionSelectablePlayers = useMemo(() => {
   const selfName = String(currentPlayer || "").trim();
