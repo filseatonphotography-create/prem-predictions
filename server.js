@@ -2555,11 +2555,36 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 function sendPushNotification(userId, type, payload) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const sub = subscriptions[userId];
-  if (!sub || !sub.subscription) return false;
+  if (!sub || !sub.subscription) {
+    console.log(`[PUSH] skip user=${userId} type=${type} reason=no-subscription`);
+    return false;
+  }
   const prefs = sub.notifPrefs || null;
-  if (prefs && prefs[type] === false) return false;
+  if (prefs && prefs[type] === false) {
+    console.log(`[PUSH] skip user=${userId} type=${type} reason=pref-disabled`);
+    return false;
+  }
   try {
-    webpush.sendNotification(sub.subscription, JSON.stringify(payload));
+    webpush
+      .sendNotification(sub.subscription, JSON.stringify(payload))
+      .then(() => {
+        console.log(`[PUSH] sent user=${userId} type=${type}`);
+      })
+      .catch((err) => {
+        const statusCode = Number(err?.statusCode) || 0;
+        console.error(
+          `[PUSH] send failed user=${userId} type=${type} status=${statusCode || "n/a"} msg=${err?.message || err}`
+        );
+        // Remove stale subscriptions to avoid repeated silent failures.
+        if (statusCode === 404 || statusCode === 410) {
+          const latest = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+          if (latest[userId]) {
+            delete latest[userId];
+            saveJson(PUSH_SUBSCRIPTIONS_FILE, latest);
+            console.log(`[PUSH] removed stale subscription user=${userId}`);
+          }
+        }
+      });
     return true;
   } catch (err) {
     console.error(`Push notification error for user ${userId}:`, err);
