@@ -1306,7 +1306,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   
   // eslint-disable-next-line no-unused-vars
-  const [apiStatus, setApiStatus] = useState("Auto results: pending");
+  const [apiStatus, setApiStatus] = useState("Updating league tables");
   const [lastResultsUpdated, setLastResultsUpdated] = useState(null);
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
   const [activeView, setActiveView] = useState(() => {
@@ -1710,10 +1710,8 @@ const visibleFixtures = useMemo(() => {
     autoResultsRetryCountRef.current = 0;
     const syncLabel =
       sync === "in-flight"
-        ? "Auto results: loaded (updating live data...)"
-        : source === "cache-stale"
-        ? "Auto results: loaded (cached; refresh pending)"
-        : "Auto results: loaded";
+        ? "Updating league tables"
+        : "Tables updated - refresh page";
     setApiStatus(syncLabel);
     if (updatedAt) setLastResultsUpdated(updatedAt);
     if (matches?.length) {
@@ -4294,19 +4292,19 @@ if (!isLoggedIn) {
                 fontSize: 12,
                 color: /failed/i.test(apiStatus)
                   ? theme.warn
-                  : /loading/i.test(apiStatus)
+                  : /loading|updating/i.test(apiStatus)
                   ? theme.accent
                   : theme.muted,
                 marginTop: 6,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 6,
-                padding: /loading/i.test(apiStatus) ? "2px 8px" : "0",
-                borderRadius: /loading/i.test(apiStatus) ? 999 : 0,
-                background: /loading/i.test(apiStatus) ? "rgba(56,189,248,0.12)" : "transparent",
+                padding: /loading|updating/i.test(apiStatus) ? "2px 8px" : "0",
+                borderRadius: /loading|updating/i.test(apiStatus) ? 999 : 0,
+                background: /loading|updating/i.test(apiStatus) ? "rgba(56,189,248,0.12)" : "transparent",
               }}
             >
-              {(resultsRefreshing || /loading/i.test(apiStatus)) && (
+              {(resultsRefreshing || /loading|updating/i.test(apiStatus)) && (
                 <span className="status-spinner" aria-hidden="true" />
               )}
               {apiStatus}
