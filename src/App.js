@@ -150,6 +150,7 @@ const TEAM_BADGES = {
 };
 const FAVORITE_TEAM_NONE_VALUE = "__NONE__";
 const FAVORITE_TEAM_NONE_LABEL = "None - I hate them all";
+const GLOBAL_LEADERBOARD_PAGE_SIZE = 50;
 const isLikelyMobileClient = () =>
   typeof navigator !== "undefined" &&
   /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
@@ -1441,6 +1442,7 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
   const [globalUsers, setGlobalUsers] = useState([]);
   const [globalPredictionsByUserId, setGlobalPredictionsByUserId] = useState({});
+  const [globalLeaderboardPage, setGlobalLeaderboardPage] = useState(1);
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [winnerList, setWinnerList] = useState([]);
   const [winnerIndex, setWinnerIndex] = useState(0);
@@ -1711,7 +1713,9 @@ const visibleFixtures = useMemo(() => {
     const syncLabel =
       sync === "in-flight"
         ? "Updating league tables"
-        : "Tables updated - refresh page";
+        : source === "cache-stale"
+        ? "Tables updated - refresh page"
+        : "League tables updated";
     setApiStatus(syncLabel);
     if (updatedAt) setLastResultsUpdated(updatedAt);
     if (matches?.length) {
@@ -3126,6 +3130,68 @@ const globalLeaderboard = useMemo(() => {
 
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
 }, [globalUsers, globalPredictionsByUserId, results]);
+
+const globalLeaderboardTotalPages = useMemo(() => {
+  const totalRows = globalLeaderboard.length;
+  return Math.max(1, Math.ceil(totalRows / GLOBAL_LEADERBOARD_PAGE_SIZE));
+}, [globalLeaderboard]);
+
+const globalLeaderboardCurrentPage = Math.min(
+  Math.max(1, globalLeaderboardPage),
+  globalLeaderboardTotalPages
+);
+
+const globalLeaderboardPageStartIndex =
+  (globalLeaderboardCurrentPage - 1) * GLOBAL_LEADERBOARD_PAGE_SIZE;
+
+const globalLeaderboardPageRows = useMemo(() => {
+  return globalLeaderboard.slice(
+    globalLeaderboardPageStartIndex,
+    globalLeaderboardPageStartIndex + GLOBAL_LEADERBOARD_PAGE_SIZE
+  );
+}, [globalLeaderboard, globalLeaderboardPageStartIndex]);
+
+const globalCurrentUserRankIndex = useMemo(() => {
+  return globalLeaderboard.findIndex((row) => {
+    const rowUserId = String(row?.userId || "");
+    const currentId = String(currentUserId || "");
+    if (rowUserId && currentId && rowUserId === currentId) return true;
+    return (
+      String(row?.player || "").trim().toLowerCase() ===
+      String(currentPlayer || "").trim().toLowerCase()
+    );
+  });
+}, [globalLeaderboard, currentUserId, currentPlayer]);
+
+const globalCurrentUserRow =
+  globalCurrentUserRankIndex >= 0 ? globalLeaderboard[globalCurrentUserRankIndex] : null;
+
+const isGlobalCurrentUserRow = (row) => {
+  const rowUserId = String(row?.userId || "");
+  const currentId = String(currentUserId || "");
+  if (rowUserId && currentId && rowUserId === currentId) return true;
+  return (
+    String(row?.player || "").trim().toLowerCase() ===
+    String(currentPlayer || "").trim().toLowerCase()
+  );
+};
+
+const showGlobalPinnedCurrentUser =
+  globalCurrentUserRankIndex >= 20 &&
+  (globalCurrentUserRankIndex < globalLeaderboardPageStartIndex ||
+    globalCurrentUserRankIndex >=
+      globalLeaderboardPageStartIndex + GLOBAL_LEADERBOARD_PAGE_SIZE);
+
+useEffect(() => {
+  setGlobalLeaderboardPage((prev) =>
+    Math.min(Math.max(1, prev), globalLeaderboardTotalPages)
+  );
+}, [globalLeaderboardTotalPages]);
+
+useEffect(() => {
+  if (activeView !== "globalLeague") return;
+  setGlobalLeaderboardPage(1);
+}, [activeView]);
 
 const coinsLeagueVisibleRows = useMemo(() => {
   const rows = Array.isArray(coinsLeagueRows) ? coinsLeagueRows : [];
@@ -6002,20 +6068,22 @@ if (!isLoggedIn) {
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🌍 Global League Table</h2>
             <div style={{ display: "grid", gap: 8 }}>
-              {globalLeaderboard.map((row, i) => {
+              {globalLeaderboardPageRows.map((row, i) => {
+                const rank = globalLeaderboardPageStartIndex + i + 1;
+                const isCurrentUser = isGlobalCurrentUserRow(row);
                 let borderColor = theme.line;
                 let emoji = "";
 
-                if (i === 0) {
+                if (rank === 1) {
                   borderColor = "#FFD700";
                   emoji = "🥇";
-                } else if (i === 1) {
+                } else if (rank === 2) {
                   borderColor = "#C0C0C0";
                   emoji = "🥈";
-                } else if (i === 2) {
+                } else if (rank === 3) {
                   borderColor = "#CD7F32";
                   emoji = "🥉";
-                } else if (i === globalLeaderboard.length - 1) {
+                } else if (rank === globalLeaderboard.length) {
                   emoji = "💩";
                 }
 
@@ -6029,6 +6097,7 @@ if (!isLoggedIn) {
                       alignItems: "center",
                       background: theme.panelHi,
                       border: `2px solid ${borderColor}`,
+                      boxShadow: isCurrentUser ? `0 0 0 2px ${theme.accent}` : "none",
                       padding: "12px 14px",
                       borderRadius: 12,
                       transition: "transform 0.2s",
@@ -6036,7 +6105,7 @@ if (!isLoggedIn) {
                   >
                     <div
                       style={{
-                        color: i < 3 ? borderColor : theme.muted,
+                        color: rank <= 3 ? borderColor : theme.muted,
                         fontWeight: 700,
                         fontSize: 16,
                         display: "flex",
@@ -6045,7 +6114,7 @@ if (!isLoggedIn) {
                       }}
                     >
                       {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
-                      {!emoji && <span>{i + 1}</span>}
+                      {!emoji && <span>{rank}</span>}
                     </div>
                     <PlayerAvatar
                       name={row.player}
@@ -6058,10 +6127,28 @@ if (!isLoggedIn) {
                       style={{
                         fontWeight: 700,
                         fontSize: 15,
-                        color: i === 0 ? "#FFD700" : theme.text,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        color: rank === 1 ? "#FFD700" : theme.text,
                       }}
                     >
-                      {row.player}
+                      <span>{row.player}</span>
+                      {isCurrentUser && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            letterSpacing: 0.4,
+                            padding: "2px 6px",
+                            borderRadius: 999,
+                            border: `1px solid ${theme.accent}`,
+                            color: theme.accent,
+                          }}
+                        >
+                          YOU
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{
@@ -6069,11 +6156,11 @@ if (!isLoggedIn) {
                         fontWeight: 800,
                         fontSize: 18,
                         color:
-                          i === 0
+                          rank === 1
                             ? "#FFD700"
-                            : i === 1
+                            : rank === 2
                             ? "#C0C0C0"
-                            : i === 2
+                            : rank === 3
                             ? "#CD7F32"
                             : theme.accent,
                       }}
@@ -6087,6 +6174,144 @@ if (!isLoggedIn) {
                   </div>
                 );
               })}
+              {showGlobalPinnedCurrentUser && globalCurrentUserRow && (
+                <div
+                  style={{
+                    marginTop: 6,
+                    paddingTop: 10,
+                    borderTop: `1px dashed ${theme.line}`,
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: theme.muted,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    Your Position
+                  </div>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "50px auto 1fr 90px",
+                      gap: 10,
+                      alignItems: "center",
+                      background: theme.panelHi,
+                      border: `2px solid ${theme.accent}`,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: theme.accent,
+                        fontWeight: 700,
+                        fontSize: 16,
+                      }}
+                    >
+                      {globalCurrentUserRankIndex + 1}
+                    </div>
+                    <PlayerAvatar
+                      name={globalCurrentUserRow.player}
+                      size={36}
+                      seed={getRowAvatarSeed(globalCurrentUserRow)}
+                      avatarStyle={getRowAvatarStyle(globalCurrentUserRow)}
+                      favoriteTeam={getRowFavoriteTeam(globalCurrentUserRow)}
+                    />
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>
+                      <span>{globalCurrentUserRow.player}</span>
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          fontSize: 10,
+                          fontWeight: 800,
+                          letterSpacing: 0.4,
+                          padding: "2px 6px",
+                          borderRadius: 999,
+                          border: `1px solid ${theme.accent}`,
+                          color: theme.accent,
+                        }}
+                      >
+                        YOU
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 800,
+                        fontSize: 18,
+                        color: theme.accent,
+                      }}
+                    >
+                      <AnimatedNumber
+                        value={globalCurrentUserRow.points}
+                        duration={450}
+                        format={(v) => Math.round(v)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {globalLeaderboard.length > GLOBAL_LEADERBOARD_PAGE_SIZE && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 10,
+                  }}
+                >
+                  <button
+                    onClick={() => setGlobalLeaderboardPage((p) => Math.max(1, p - 1))}
+                    disabled={globalLeaderboardCurrentPage <= 1}
+                    style={{
+                      borderRadius: 8,
+                      border: `1px solid ${theme.line}`,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      padding: "6px 10px",
+                      cursor: globalLeaderboardCurrentPage <= 1 ? "not-allowed" : "pointer",
+                      opacity: globalLeaderboardCurrentPage <= 1 ? 0.55 : 1,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <div style={{ fontSize: 12, color: theme.muted, minWidth: 92, textAlign: "center" }}>
+                    Page {globalLeaderboardCurrentPage} of {globalLeaderboardTotalPages}
+                  </div>
+                  <button
+                    onClick={() =>
+                      setGlobalLeaderboardPage((p) =>
+                        Math.min(globalLeaderboardTotalPages, p + 1)
+                      )
+                    }
+                    disabled={globalLeaderboardCurrentPage >= globalLeaderboardTotalPages}
+                    style={{
+                      borderRadius: 8,
+                      border: `1px solid ${theme.line}`,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      padding: "6px 10px",
+                      cursor:
+                        globalLeaderboardCurrentPage >= globalLeaderboardTotalPages
+                          ? "not-allowed"
+                          : "pointer",
+                      opacity:
+                        globalLeaderboardCurrentPage >= globalLeaderboardTotalPages ? 0.55 : 1,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Next page
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         )}
