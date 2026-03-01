@@ -1710,14 +1710,8 @@ const visibleFixtures = useMemo(() => {
       return;
     }
     autoResultsRetryCountRef.current = 0;
-    const syncLabel =
-      sync === "in-flight"
-        ? "Updating league tables"
-        : source === "cache-stale"
-        ? "Tables updated - refresh page"
-        : "League tables updated";
-    setApiStatus(syncLabel);
     if (updatedAt) setLastResultsUpdated(updatedAt);
+    let changedCount = 0;
     if (matches?.length) {
       let matchedCount = 0;
       const updatedResults = {};
@@ -1750,10 +1744,19 @@ const visibleFixtures = useMemo(() => {
 
         if (fixture) {
           matchedCount += 1;
+          const prev = results[fixture.id] || {};
+          const nextHome = match.score.fullTime.home;
+          const nextAway = match.score.fullTime.away;
+          const nextStatus = match.status || null;
+          const didChange =
+            Number(prev.homeGoals) !== Number(nextHome) ||
+            Number(prev.awayGoals) !== Number(nextAway) ||
+            String(prev.status || "") !== String(nextStatus || "");
+          if (didChange) changedCount += 1;
           updatedResults[fixture.id] = {
-            homeGoals: match.score.fullTime.home,
-            awayGoals: match.score.fullTime.away,
-            status: match.status || null,
+            homeGoals: nextHome,
+            awayGoals: nextAway,
+            status: nextStatus,
           };
         }
       });
@@ -1763,6 +1766,13 @@ const visibleFixtures = useMemo(() => {
         apiSaveResultsSnapshot(updatedResults);
       }
     }
+    const syncLabel =
+      sync === "in-flight"
+        ? "Updating league tables"
+        : changedCount > 0 || source === "cache-stale"
+        ? "Tables updated - refresh page"
+        : "League tables updated";
+    setApiStatus(syncLabel);
     if (showSpinner) setResultsRefreshing(false);
   };
 
