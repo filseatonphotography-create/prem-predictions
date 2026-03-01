@@ -1678,7 +1678,7 @@ const visibleFixtures = useMemo(() => {
     const {
       isRetry = false,
       showSpinner = true,
-      timeoutMs = isLikelyMobileClient() ? 140000 : 120000,
+      timeoutMs = 45000,
     } = opts;
 
     if (!isRetry && autoResultsRetryRef.current) {
@@ -1695,16 +1695,16 @@ const visibleFixtures = useMemo(() => {
       );
       if (showSpinner) setResultsRefreshing(false);
       const mobile = isLikelyMobileClient();
-      const maxRetries = mobile ? 2 : 3;
+      const maxRetries = 2;
       if (autoResultsRetryCountRef.current >= maxRetries) return;
       autoResultsRetryCountRef.current += 1;
       autoResultsRetryRef.current = setTimeout(() => {
         refreshAutoResults({
           isRetry: true,
           showSpinner: false,
-          timeoutMs: mobile ? 140000 : 120000,
+          timeoutMs: 45000,
         });
-      }, mobile ? 45000 : 30000);
+      }, mobile ? 15000 : 12000);
       return;
     }
     autoResultsRetryCountRef.current = 0;
