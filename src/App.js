@@ -69,8 +69,6 @@ const BACKEND_BASE_CANDIDATES = Array.from(
       window.location.hostname === "localhost"
         ? "http://localhost:5001"
         : "https://prem-predictions-1.onrender.com",
-      "https://predictionaddiction-backend.onrender.com",
-      "https://prem-predictions-p9fy.onrender.com",
     ].filter(Boolean)
   )
 );
