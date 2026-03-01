@@ -1915,7 +1915,7 @@ const FIXTURES = [
     "gameweek": 28,
     "homeTeam": "Brighton",
     "awayTeam": "Nott'm Forest",
-    "kickoff": "2026-02-28T15:00:00Z"
+    "kickoff": "2026-03-01T14:00:00Z"
   },
   {
     "id": 274,
@@ -1936,7 +1936,7 @@ const FIXTURES = [
     "gameweek": 28,
     "homeTeam": "Man Utd",
     "awayTeam": "Crystal Palace",
-    "kickoff": "2026-02-28T15:00:00Z"
+    "kickoff": "2026-03-01T14:00:00Z"
   },
   {
     "id": 279,
