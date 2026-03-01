@@ -73,6 +73,34 @@ const BACKEND_BASE_CANDIDATES = Array.from(
   )
 );
 let activeBackendBase = BACKEND_BASE_CANDIDATES[0];
+let backendWakePromise = null;
+let backendLastWakeAt = 0;
+
+async function ensureBackendAwake(path) {
+  if (!String(path || "").startsWith("/api/")) return;
+  const now = Date.now();
+  // Re-wake at most every 2 minutes; avoids repeated cold-start penalties.
+  if (now - backendLastWakeAt < 120000) return;
+  if (backendWakePromise) {
+    await backendWakePromise;
+    return;
+  }
+  backendWakePromise = (async () => {
+    try {
+      await fetchWithRetry(
+        `${activeBackendBase}/`,
+        {},
+        { retries: 0, timeoutMs: 35000, retryDelayMs: 1200 }
+      );
+      backendLastWakeAt = Date.now();
+    } catch {
+      // Ignore warm-up errors; normal API flow below still handles retries/fallback.
+    } finally {
+      backendWakePromise = null;
+    }
+  })();
+  await backendWakePromise;
+}
 
 async function fetchBackendWithFallback(path, options = {}, config = {}) {
   const {
@@ -80,6 +108,7 @@ async function fetchBackendWithFallback(path, options = {}, config = {}) {
     timeoutMs = 25000,
     retryDelayMs = 1200,
   } = config;
+  await ensureBackendAwake(path);
 
   const orderedBases = [
     activeBackendBase,
