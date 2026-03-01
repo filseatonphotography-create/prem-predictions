@@ -1688,15 +1688,26 @@ const visibleFixtures = useMemo(() => {
     if (showSpinner) setResultsRefreshing(true);
     const { matches, error, updatedAt, source, sync } = await fetchPremierLeagueResults(timeoutMs);
     if (error) {
+      const timedOut = /timeout/i.test(String(error || ""));
       setApiStatus(
-        /timeout/i.test(String(error || ""))
-          ? "Auto results: server wake-up taking longer than expected..."
+        timedOut
+          ? "Updating league tables..."
           : `Auto results: delayed (${error})`
       );
-      if (showSpinner) setResultsRefreshing(false);
       const mobile = isLikelyMobileClient();
       const maxRetries = 2;
-      if (autoResultsRetryCountRef.current >= maxRetries) return;
+      if (autoResultsRetryCountRef.current >= maxRetries) {
+        if (showSpinner) setResultsRefreshing(false);
+        return;
+      }
+      const retryDelayMs =
+        autoResultsRetryCountRef.current === 0
+          ? mobile
+            ? 3000
+            : 2000
+          : mobile
+          ? 12000
+          : 10000;
       autoResultsRetryCountRef.current += 1;
       autoResultsRetryRef.current = setTimeout(() => {
         refreshAutoResults({
@@ -1704,7 +1715,8 @@ const visibleFixtures = useMemo(() => {
           showSpinner: false,
           timeoutMs: 45000,
         });
-      }, mobile ? 15000 : 12000);
+      }, retryDelayMs);
+      if (showSpinner) setResultsRefreshing(false);
       return;
     }
     autoResultsRetryCountRef.current = 0;
