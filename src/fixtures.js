@@ -1827,13 +1827,6 @@ const FIXTURES = [
     "kickoff": "2026-02-18T20:00:00Z"
   },
   {
-    "id": 266,
-    "gameweek": 27,
-    "homeTeam": "Man City",
-    "awayTeam": "Newcastle",
-    "kickoff": "2026-02-21T20:00:00Z"
-  },
-  {
     "id": 261,
     "gameweek": 27,
     "homeTeam": "Aston Villa",
@@ -1855,6 +1848,20 @@ const FIXTURES = [
     "kickoff": "2026-02-21T15:00:00Z"
   },
   {
+    "id": 270,
+    "gameweek": 27,
+    "homeTeam": "West Ham",
+    "awayTeam": "Bournemouth",
+    "kickoff": "2026-02-21T17:30:00Z"
+  },
+  {
+    "id": 266,
+    "gameweek": 27,
+    "homeTeam": "Man City",
+    "awayTeam": "Newcastle",
+    "kickoff": "2026-02-21T20:00:00Z"
+  },
+  {
     "id": 264,
     "gameweek": 27,
     "homeTeam": "Crystal Palace",
@@ -1867,13 +1874,6 @@ const FIXTURES = [
     "homeTeam": "Nott'm Forest",
     "awayTeam": "Liverpool",
     "kickoff": "2026-02-22T14:00:00Z"
-  },
-  {
-    "id": 270,
-    "gameweek": 27,
-    "homeTeam": "West Ham",
-    "awayTeam": "Bournemouth",
-    "kickoff": "2026-02-21T17:30:00Z"
   },
   {
     "id": 268,
@@ -1915,7 +1915,7 @@ const FIXTURES = [
     "gameweek": 28,
     "homeTeam": "Brighton",
     "awayTeam": "Nott'm Forest",
-    "kickoff": "2026-03-01T14:00:00Z"
+    "kickoff": "2026-02-28T15:00:00Z"
   },
   {
     "id": 274,
@@ -1932,13 +1932,6 @@ const FIXTURES = [
     "kickoff": "2026-02-28T15:00:00Z"
   },
   {
-    "id": 278,
-    "gameweek": 28,
-    "homeTeam": "Man Utd",
-    "awayTeam": "Crystal Palace",
-    "kickoff": "2026-03-01T14:00:00Z"
-  },
-  {
     "id": 279,
     "gameweek": 28,
     "homeTeam": "Newcastle",
@@ -1951,6 +1944,13 @@ const FIXTURES = [
     "homeTeam": "Leeds",
     "awayTeam": "Man City",
     "kickoff": "2026-02-28T17:30:00Z"
+  },
+  {
+    "id": 278,
+    "gameweek": 28,
+    "homeTeam": "Man Utd",
+    "awayTeam": "Crystal Palace",
+    "kickoff": "2026-03-01T14:00:00Z"
   },
   {
     "id": 275,
@@ -1967,18 +1967,53 @@ const FIXTURES = [
     "kickoff": "2026-03-01T16:30:00Z"
   },
   {
-    "id": 281,
-    "gameweek": 29,
-    "homeTeam": "Aston Villa",
-    "awayTeam": "Chelsea",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
     "id": 282,
     "gameweek": 29,
     "homeTeam": "Bournemouth",
     "awayTeam": "Brentford",
-    "kickoff": "2026-03-04T20:00:00Z"
+    "kickoff": "2026-03-03T19:30:00Z"
+  },
+  {
+    "id": 284,
+    "gameweek": 29,
+    "homeTeam": "Everton",
+    "awayTeam": "Burnley",
+    "kickoff": "2026-03-03T19:30:00Z"
+  },
+  {
+    "id": 286,
+    "gameweek": 29,
+    "homeTeam": "Leeds",
+    "awayTeam": "Sunderland",
+    "kickoff": "2026-03-03T19:30:00Z"
+  },
+  {
+    "id": 290,
+    "gameweek": 29,
+    "homeTeam": "Wolves",
+    "awayTeam": "Liverpool",
+    "kickoff": "2026-03-03T20:15:00Z"
+  },
+  {
+    "id": 281,
+    "gameweek": 29,
+    "homeTeam": "Aston Villa",
+    "awayTeam": "Chelsea",
+    "kickoff": "2026-03-04T19:30:00Z"
+  },
+  {
+    "id": 285,
+    "gameweek": 29,
+    "homeTeam": "Fulham",
+    "awayTeam": "West Ham",
+    "kickoff": "2026-03-04T19:30:00Z"
+  },
+  {
+    "id": 287,
+    "gameweek": 29,
+    "homeTeam": "Man City",
+    "awayTeam": "Nott'm Forest",
+    "kickoff": "2026-03-04T19:30:00Z"
   },
   {
     "id": 283,
@@ -1988,108 +2023,24 @@ const FIXTURES = [
     "kickoff": "2026-03-04T20:00:00Z"
   },
   {
-    "id": 284,
-    "gameweek": 29,
-    "homeTeam": "Everton",
-    "awayTeam": "Burnley",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
-    "id": 285,
-    "gameweek": 29,
-    "homeTeam": "Fulham",
-    "awayTeam": "West Ham",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
-    "id": 286,
-    "gameweek": 29,
-    "homeTeam": "Leeds",
-    "awayTeam": "Sunderland",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
-    "id": 287,
-    "gameweek": 29,
-    "homeTeam": "Man City",
-    "awayTeam": "Nott'm Forest",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
     "id": 288,
     "gameweek": 29,
     "homeTeam": "Newcastle",
     "awayTeam": "Man Utd",
-    "kickoff": "2026-03-04T20:00:00Z"
+    "kickoff": "2026-03-04T20:15:00Z"
   },
   {
     "id": 289,
     "gameweek": 29,
     "homeTeam": "Spurs",
     "awayTeam": "Crystal Palace",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
-    "id": 290,
-    "gameweek": 29,
-    "homeTeam": "Wolves",
-    "awayTeam": "Liverpool",
-    "kickoff": "2026-03-04T20:00:00Z"
-  },
-  {
-    "id": 291,
-    "gameweek": 30,
-    "homeTeam": "Arsenal",
-    "awayTeam": "Everton",
-    "kickoff": "2026-03-14T15:00:00Z"
-  },
-  {
-    "id": 292,
-    "gameweek": 30,
-    "homeTeam": "Brentford",
-    "awayTeam": "Wolves",
-    "kickoff": "2026-03-14T15:00:00Z"
+    "kickoff": "2026-03-05T20:00:00Z"
   },
   {
     "id": 293,
     "gameweek": 30,
     "homeTeam": "Burnley",
     "awayTeam": "Bournemouth",
-    "kickoff": "2026-03-14T15:00:00Z"
-  },
-  {
-    "id": 294,
-    "gameweek": 30,
-    "homeTeam": "Chelsea",
-    "awayTeam": "Newcastle",
-    "kickoff": "2026-03-14T15:00:00Z"
-  },
-  {
-    "id": 295,
-    "gameweek": 30,
-    "homeTeam": "Crystal Palace",
-    "awayTeam": "Leeds",
-    "kickoff": "2026-03-14T15:00:00Z"
-  },
-  {
-    "id": 296,
-    "gameweek": 30,
-    "homeTeam": "Liverpool",
-    "awayTeam": "Spurs",
-    "kickoff": "2026-03-14T15:00:00Z"
-  },
-  {
-    "id": 297,
-    "gameweek": 30,
-    "homeTeam": "Man Utd",
-    "awayTeam": "Aston Villa",
-    "kickoff": "2026-03-14T15:00:00Z"
-  },
-  {
-    "id": 298,
-    "gameweek": 30,
-    "homeTeam": "Nott'm Forest",
-    "awayTeam": "Fulham",
     "kickoff": "2026-03-14T15:00:00Z"
   },
   {
@@ -2100,38 +2051,87 @@ const FIXTURES = [
     "kickoff": "2026-03-14T15:00:00Z"
   },
   {
+    "id": 294,
+    "gameweek": 30,
+    "homeTeam": "Chelsea",
+    "awayTeam": "Newcastle",
+    "kickoff": "2026-03-14T17:30:00Z"
+  },
+  {
+    "id": 291,
+    "gameweek": 30,
+    "homeTeam": "Arsenal",
+    "awayTeam": "Everton",
+    "kickoff": "2026-03-14T17:30:00Z"
+  },
+  {
     "id": 300,
     "gameweek": 30,
     "homeTeam": "West Ham",
     "awayTeam": "Man City",
-    "kickoff": "2026-03-14T15:00:00Z"
+    "kickoff": "2026-03-14T20:00:00Z"
   },
   {
-    "id": 301,
+    "id": 295,
+    "gameweek": 30,
+    "homeTeam": "Crystal Palace",
+    "awayTeam": "Leeds",
+    "kickoff": "2026-03-15T14:00:00Z"
+  },
+  {
+    "id": 297,
+    "gameweek": 30,
+    "homeTeam": "Man Utd",
+    "awayTeam": "Aston Villa",
+    "kickoff": "2026-03-15T14:00:00Z"
+  },
+  {
+    "id": 298,
+    "gameweek": 30,
+    "homeTeam": "Nott'm Forest",
+    "awayTeam": "Fulham",
+    "kickoff": "2026-03-15T14:00:00Z"
+  },
+  {
+    "id": 296,
+    "gameweek": 30,
+    "homeTeam": "Liverpool",
+    "awayTeam": "Spurs",
+    "kickoff": "2026-03-15T16:30:00Z"
+  },
+  {
+    "id": 292,
+    "gameweek": 30,
+    "homeTeam": "Brentford",
+    "awayTeam": "Wolves",
+    "kickoff": "2026-03-16T20:00:00Z"
+  },
+  {
+    "id": 310,
     "gameweek": 31,
-    "homeTeam": "Aston Villa",
-    "awayTeam": "West Ham",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "homeTeam": "Wolves",
+    "awayTeam": "Arsenal",
+    "kickoff": "2026-02-18T20:00:00Z"
   },
   {
     "id": 302,
     "gameweek": 31,
     "homeTeam": "Bournemouth",
     "awayTeam": "Man Utd",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "kickoff": "2026-03-20T20:00:00Z"
+  },
+  {
+    "id": 307,
+    "gameweek": 31,
+    "homeTeam": "Man City",
+    "awayTeam": "Crystal Palace",
+    "kickoff": "2026-03-21T00:00:00Z"
   },
   {
     "id": 303,
     "gameweek": 31,
     "homeTeam": "Brighton",
     "awayTeam": "Liverpool",
-    "kickoff": "2026-03-21T15:00:00Z"
-  },
-  {
-    "id": 304,
-    "gameweek": 31,
-    "homeTeam": "Everton",
-    "awayTeam": "Chelsea",
     "kickoff": "2026-03-21T15:00:00Z"
   },
   {
@@ -2142,39 +2142,39 @@ const FIXTURES = [
     "kickoff": "2026-03-21T15:00:00Z"
   },
   {
+    "id": 304,
+    "gameweek": 31,
+    "homeTeam": "Everton",
+    "awayTeam": "Chelsea",
+    "kickoff": "2026-03-21T17:30:00Z"
+  },
+  {
     "id": 306,
     "gameweek": 31,
     "homeTeam": "Leeds",
     "awayTeam": "Brentford",
-    "kickoff": "2026-03-21T15:00:00Z"
-  },
-  {
-    "id": 307,
-    "gameweek": 31,
-    "homeTeam": "Man City",
-    "awayTeam": "Crystal Palace",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "kickoff": "2026-03-21T20:00:00Z"
   },
   {
     "id": 308,
     "gameweek": 31,
     "homeTeam": "Newcastle",
     "awayTeam": "Sunderland",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "kickoff": "2026-03-22T12:00:00Z"
+  },
+  {
+    "id": 301,
+    "gameweek": 31,
+    "homeTeam": "Aston Villa",
+    "awayTeam": "West Ham",
+    "kickoff": "2026-03-22T14:15:00Z"
   },
   {
     "id": 309,
     "gameweek": 31,
     "homeTeam": "Spurs",
     "awayTeam": "Nott'm Forest",
-    "kickoff": "2026-03-21T15:00:00Z"
-  },
-  {
-    "id": 310,
-    "gameweek": 31,
-    "homeTeam": "Wolves",
-    "awayTeam": "Arsenal",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "kickoff": "2026-03-22T14:15:00Z"
   },
   {
     "id": 311,
