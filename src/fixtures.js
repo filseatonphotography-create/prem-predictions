@@ -2125,14 +2125,14 @@ const FIXTURES = [
     "gameweek": 31,
     "homeTeam": "Man City",
     "awayTeam": "Crystal Palace",
-    "kickoff": "2026-03-21T00:00:00Z"
+    "kickoff": "2026-03-21T15:00:00Z"
   },
   {
     "id": 303,
     "gameweek": 31,
     "homeTeam": "Brighton",
     "awayTeam": "Liverpool",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "kickoff": "2026-03-21T12:30:00Z"
   },
   {
     "id": 305,
@@ -2167,7 +2167,7 @@ const FIXTURES = [
     "gameweek": 31,
     "homeTeam": "Aston Villa",
     "awayTeam": "West Ham",
-    "kickoff": "2026-03-22T14:15:00Z"
+    "kickoff": "2026-03-21T15:00:00Z"
   },
   {
     "id": 309,
@@ -2177,11 +2177,18 @@ const FIXTURES = [
     "kickoff": "2026-03-22T14:15:00Z"
   },
   {
+    "id": 320,
+    "gameweek": 32,
+    "homeTeam": "West Ham",
+    "awayTeam": "Wolves",
+    "kickoff": "2026-04-10T19:00:00Z"
+  },
+  {
     "id": 311,
     "gameweek": 32,
     "homeTeam": "Arsenal",
     "awayTeam": "Bournemouth",
-    "kickoff": "2026-04-11T14:00:00Z"
+    "kickoff": "2026-04-11T11:30:00Z"
   },
   {
     "id": 312,
@@ -2198,31 +2205,10 @@ const FIXTURES = [
     "kickoff": "2026-04-11T14:00:00Z"
   },
   {
-    "id": 314,
-    "gameweek": 32,
-    "homeTeam": "Chelsea",
-    "awayTeam": "Man City",
-    "kickoff": "2026-04-11T14:00:00Z"
-  },
-  {
     "id": 315,
     "gameweek": 32,
     "homeTeam": "Crystal Palace",
     "awayTeam": "Newcastle",
-    "kickoff": "2026-04-11T14:00:00Z"
-  },
-  {
-    "id": 316,
-    "gameweek": 32,
-    "homeTeam": "Liverpool",
-    "awayTeam": "Fulham",
-    "kickoff": "2026-04-11T14:00:00Z"
-  },
-  {
-    "id": 317,
-    "gameweek": 32,
-    "homeTeam": "Man Utd",
-    "awayTeam": "Leeds",
     "kickoff": "2026-04-11T14:00:00Z"
   },
   {
@@ -2233,18 +2219,39 @@ const FIXTURES = [
     "kickoff": "2026-04-11T14:00:00Z"
   },
   {
+    "id": 316,
+    "gameweek": 32,
+    "homeTeam": "Liverpool",
+    "awayTeam": "Fulham",
+    "kickoff": "2026-04-11T16:30:00Z"
+  },
+  {
     "id": 319,
     "gameweek": 32,
     "homeTeam": "Sunderland",
     "awayTeam": "Spurs",
-    "kickoff": "2026-04-11T14:00:00Z"
+    "kickoff": "2026-04-12T13:00:00Z"
   },
   {
-    "id": 320,
+    "id": 314,
     "gameweek": 32,
-    "homeTeam": "West Ham",
-    "awayTeam": "Wolves",
-    "kickoff": "2026-04-11T14:00:00Z"
+    "homeTeam": "Chelsea",
+    "awayTeam": "Man City",
+    "kickoff": "2026-04-12T15:30:00Z"
+  },
+  {
+    "id": 317,
+    "gameweek": 32,
+    "homeTeam": "Man Utd",
+    "awayTeam": "Leeds",
+    "kickoff": "2026-04-13T19:00:00Z"
+  },
+  {
+    "id": 322,
+    "gameweek": 33,
+    "homeTeam": "Brentford",
+    "awayTeam": "Fulham",
+    "kickoff": "2026-04-18T11:30:00Z"
   },
   {
     "id": 321,
@@ -2254,45 +2261,10 @@ const FIXTURES = [
     "kickoff": "2026-04-18T14:00:00Z"
   },
   {
-    "id": 322,
-    "gameweek": 33,
-    "homeTeam": "Brentford",
-    "awayTeam": "Fulham",
-    "kickoff": "2026-04-18T14:00:00Z"
-  },
-  {
-    "id": 323,
-    "gameweek": 33,
-    "homeTeam": "Chelsea",
-    "awayTeam": "Man Utd",
-    "kickoff": "2026-04-18T14:00:00Z"
-  },
-  {
-    "id": 324,
-    "gameweek": 33,
-    "homeTeam": "Crystal Palace",
-    "awayTeam": "West Ham",
-    "kickoff": "2026-04-18T14:00:00Z"
-  },
-  {
-    "id": 325,
-    "gameweek": 33,
-    "homeTeam": "Everton",
-    "awayTeam": "Liverpool",
-    "kickoff": "2026-04-18T14:00:00Z"
-  },
-  {
     "id": 326,
     "gameweek": 33,
     "homeTeam": "Leeds",
     "awayTeam": "Wolves",
-    "kickoff": "2026-04-18T14:00:00Z"
-  },
-  {
-    "id": 327,
-    "gameweek": 33,
-    "homeTeam": "Man City",
-    "awayTeam": "Arsenal",
     "kickoff": "2026-04-18T14:00:00Z"
   },
   {
@@ -2317,11 +2289,46 @@ const FIXTURES = [
     "kickoff": "2026-04-18T14:00:00Z"
   },
   {
-    "id": 331,
+    "id": 323,
+    "gameweek": 33,
+    "homeTeam": "Chelsea",
+    "awayTeam": "Man Utd",
+    "kickoff": "2026-04-18T19:00:00Z"
+  },
+  {
+    "id": 325,
+    "gameweek": 33,
+    "homeTeam": "Everton",
+    "awayTeam": "Liverpool",
+    "kickoff": "2026-04-19T13:00:00Z"
+  },
+  {
+    "id": 327,
+    "gameweek": 33,
+    "homeTeam": "Man City",
+    "awayTeam": "Arsenal",
+    "kickoff": "2026-04-19T15:30:00Z"
+  },
+  {
+    "id": 324,
+    "gameweek": 33,
+    "homeTeam": "Crystal Palace",
+    "awayTeam": "West Ham",
+    "kickoff": "2026-04-20T19:00:00Z"
+  },
+  {
+    "id": 338,
     "gameweek": 34,
-    "homeTeam": "Arsenal",
-    "awayTeam": "Newcastle",
-    "kickoff": "2026-04-25T14:00:00Z"
+    "homeTeam": "Sunderland",
+    "awayTeam": "Nott'm Forest",
+    "kickoff": "2026-04-24T19:00:00Z"
+  },
+  {
+    "id": 335,
+    "gameweek": 34,
+    "homeTeam": "Fulham",
+    "awayTeam": "Aston Villa",
+    "kickoff": "2026-04-25T11:30:00Z"
   },
   {
     "id": 332,
@@ -2338,38 +2345,10 @@ const FIXTURES = [
     "kickoff": "2026-04-25T14:00:00Z"
   },
   {
-    "id": 334,
-    "gameweek": 34,
-    "homeTeam": "Burnley",
-    "awayTeam": "Man City",
-    "kickoff": "2026-04-25T14:00:00Z"
-  },
-  {
-    "id": 335,
-    "gameweek": 34,
-    "homeTeam": "Fulham",
-    "awayTeam": "Aston Villa",
-    "kickoff": "2026-04-25T14:00:00Z"
-  },
-  {
     "id": 336,
     "gameweek": 34,
     "homeTeam": "Liverpool",
     "awayTeam": "Crystal Palace",
-    "kickoff": "2026-04-25T14:00:00Z"
-  },
-  {
-    "id": 337,
-    "gameweek": 34,
-    "homeTeam": "Man Utd",
-    "awayTeam": "Brentford",
-    "kickoff": "2026-04-25T14:00:00Z"
-  },
-  {
-    "id": 338,
-    "gameweek": 34,
-    "homeTeam": "Sunderland",
-    "awayTeam": "Nott'm Forest",
     "kickoff": "2026-04-25T14:00:00Z"
   },
   {
@@ -2385,6 +2364,27 @@ const FIXTURES = [
     "homeTeam": "Wolves",
     "awayTeam": "Spurs",
     "kickoff": "2026-04-25T14:00:00Z"
+  },
+  {
+    "id": 331,
+    "gameweek": 34,
+    "homeTeam": "Arsenal",
+    "awayTeam": "Newcastle",
+    "kickoff": "2026-04-25T16:30:00Z"
+  },
+  {
+    "id": 334,
+    "gameweek": 34,
+    "homeTeam": "Burnley",
+    "awayTeam": "Man City",
+    "kickoff": "2026-04-26T13:00:00Z"
+  },
+  {
+    "id": 337,
+    "gameweek": 34,
+    "homeTeam": "Man Utd",
+    "awayTeam": "Brentford",
+    "kickoff": "2026-04-27T19:00:00Z"
   },
   {
     "id": 341,
