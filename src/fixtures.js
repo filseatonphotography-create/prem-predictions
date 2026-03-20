@@ -2107,25 +2107,11 @@ const FIXTURES = [
     "kickoff": "2026-03-16T20:00:00Z"
   },
   {
-    "id": 310,
-    "gameweek": 31,
-    "homeTeam": "Wolves",
-    "awayTeam": "Arsenal",
-    "kickoff": "2026-02-18T20:00:00Z"
-  },
-  {
     "id": 302,
     "gameweek": 31,
     "homeTeam": "Bournemouth",
     "awayTeam": "Man Utd",
     "kickoff": "2026-03-20T20:00:00Z"
-  },
-  {
-    "id": 307,
-    "gameweek": 31,
-    "homeTeam": "Man City",
-    "awayTeam": "Crystal Palace",
-    "kickoff": "2026-03-21T15:00:00Z"
   },
   {
     "id": 303,
@@ -2167,7 +2153,7 @@ const FIXTURES = [
     "gameweek": 31,
     "homeTeam": "Aston Villa",
     "awayTeam": "West Ham",
-    "kickoff": "2026-03-21T15:00:00Z"
+    "kickoff": "2026-03-22T14:15:00Z"
   },
   {
     "id": 309,
