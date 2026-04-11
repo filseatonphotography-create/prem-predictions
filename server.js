@@ -126,6 +126,7 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
 const DATA_DIR = path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
 const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
+const BUILD_DIR = path.join(__dirname, "build");
 
 // Avatars (userId -> { seed, style })
 const loadAvatars = () => loadJson(AVATARS_FILE, {});
@@ -165,6 +166,20 @@ const RESERVED_LEGACY_NAMES = [
 
 // Ensure data dir exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Serve frontend build if present (Render build output)
+if (fs.existsSync(BUILD_DIR)) {
+  app.use(
+    express.static(BUILD_DIR, {
+      maxAge: 0,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith(".html")) {
+          res.setHeader("Cache-Control", "no-store");
+        }
+      },
+    })
+  );
+}
 
 // ---------------------------------------------------------------------------
 // WEB PUSH SETUP (VAPID keys - generate with: npx web-push generate-vapid-keys)
@@ -1858,6 +1873,14 @@ app.get("/api/odds", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+// SPA fallback (must be after all API routes)
+if (fs.existsSync(BUILD_DIR)) {
+  app.get(/.*/, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(path.join(BUILD_DIR, "index.html"));
+  });
+}
 
 // ---------------------------------------------------------------------------
 // START SERVER
