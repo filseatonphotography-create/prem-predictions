@@ -1119,6 +1119,108 @@ app.post("/api/admin/repair-data", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN FORCE FIX COINS LEADERBOARD (names + merge Phil)
+// POST /api/admin/force-fix-coins
+// headers: x-admin-key: prem-admin-reset
+// ---------------------------------------------------------------------------
+app.post("/api/admin/force-fix-coins", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const users = loadUsers() || [];
+    const coins = loadCoins() || {};
+    const predictions = loadPredictions() || {};
+    const legacyMap = loadLegacyMap() || {};
+
+    const summary = {
+      addedUsers: [],
+      mergedPhil: false,
+      removedUserIds: [],
+      overridesApplied: [],
+    };
+
+    // Known userId -> username overrides (from live leaderboard)
+    const overrides = {
+      "1763791297309": "Tom",
+      "a1629755-6627-440d-9ed0-c989593b704d": "Edward",
+    };
+
+    const userIds = new Set(users.map((u) => String(u.id)));
+    Object.entries(overrides).forEach(([id, name]) => {
+      if (!userIds.has(id)) {
+        users.push({
+          id,
+          username: name,
+          passwordHash: "",
+          createdAt: new Date().toISOString(),
+        });
+        userIds.add(id);
+        summary.addedUsers.push({ id, username: name });
+      } else {
+        const u = users.find((x) => String(x.id) === id);
+        if (u && u.username !== name) {
+          u.username = name;
+          summary.overridesApplied.push({ id, username: name });
+        }
+      }
+    });
+
+    legacyMap["Tom"] = "1763791297309";
+
+    // Merge duplicate Phil (legacy -> current)
+    const keepId = "1763874000000";
+    const legacyId = "1763789072925";
+    if (legacyId !== keepId) {
+      const legacyCoins = coins[legacyId];
+      const keepCoins = coins[keepId];
+      if (legacyCoins) {
+        const merged = {};
+        Object.entries(legacyCoins).forEach(([gw, bets]) => {
+          merged[gw] = { ...(bets || {}) };
+        });
+        Object.entries(keepCoins || {}).forEach(([gw, bets]) => {
+          merged[gw] = { ...(merged[gw] || {}), ...(bets || {}) };
+        });
+        coins[keepId] = merged;
+        delete coins[legacyId];
+        summary.mergedPhil = true;
+      }
+
+      const legacyPreds = predictions[legacyId];
+      const keepPreds = predictions[keepId];
+      if (legacyPreds) {
+        predictions[keepId] = { ...(legacyPreds || {}), ...(keepPreds || {}) };
+        delete predictions[legacyId];
+        summary.mergedPhil = true;
+      }
+
+      const beforeUsersLen = users.length;
+      const filtered = users.filter((u) => String(u.id) !== legacyId);
+      if (filtered.length !== beforeUsersLen) {
+        summary.removedUserIds.push(legacyId);
+      }
+      users.length = 0;
+      users.push(...filtered);
+
+      legacyMap["Phil"] = keepId;
+    }
+
+    saveUsers(users);
+    saveCoins(coins);
+    savePredictions(predictions);
+    saveLegacyMap(legacyMap);
+
+    return res.json({ ok: true, summary });
+  } catch (err) {
+    console.error("admin force-fix coins error", err);
+    return res.status(500).json({ error: "Admin force-fix failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {
