@@ -3702,7 +3702,7 @@ if (!isLoggedIn) {
         gap: 12, 
         padding: isMobile ? "0 4px" : "0 16px",
         boxSizing: "border-box",
-        overflowX: "hidden",
+        overflowX: "visible",
       }}>
         {/* Header */}
                 {/* Header */}
@@ -3852,7 +3852,8 @@ if (!isLoggedIn) {
           style={{
             position: "absolute",
             top: "100%",
-            right: 0,
+            left: 0,
+            right: "auto",
             marginTop: 6,
             background: theme.panel,
             border: `1px solid ${theme.line}`,
@@ -3860,6 +3861,8 @@ if (!isLoggedIn) {
             padding: 6,
             boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
             minWidth: 190,
+            maxWidth: "min(280px, calc(100vw - 24px))",
+            boxSizing: "border-box",
             zIndex: 1000,
           }}
         >
