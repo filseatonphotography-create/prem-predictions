@@ -1223,6 +1223,92 @@ app.post("/api/admin/force-fix-coins", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: COINS AUDIT (by league)
+// GET /api/admin/coins-audit?leagueId=...
+// headers: x-admin-key: prem-admin-reset
+// ---------------------------------------------------------------------------
+app.get("/api/admin/coins-audit", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const leagueId = (req.query.leagueId || "").trim();
+    const coins = loadCoins() || {};
+    const results = loadResults() || {};
+    const users = loadUsers() || [];
+    const leagues = loadLeagues() || [];
+
+    const userMap = {};
+    users.forEach((u) => {
+      userMap[String(u.id)] = u.username;
+    });
+
+    let allowedIds = null;
+    if (leagueId) {
+      const league = leagues.find((l) => l.id === leagueId);
+      if (!league) return res.status(404).json({ error: "League not found" });
+      const members = Array.isArray(league.members)
+        ? league.members
+        : Array.isArray(league.memberUserIds)
+        ? league.memberUserIds
+        : [];
+      allowedIds = new Set(members.map((m) => String(m)));
+    }
+
+    const audit = [];
+    const ids = allowedIds ? Array.from(allowedIds) : Object.keys(coins);
+    ids.forEach((uid) => {
+      const gwObj = coins[uid] || {};
+      let totalStake = 0;
+      let totalReturn = 0;
+      let bets = 0;
+      Object.values(gwObj).forEach((fixObj) => {
+        if (!fixObj || typeof fixObj !== "object") return;
+        Object.values(fixObj).forEach((bet) => {
+          if (!bet) return;
+          const stake = Number(bet.stake);
+          if (!Number.isFinite(stake) || stake <= 0) return;
+          bets += 1;
+          totalStake += stake;
+          const resObj = results[String(bet.fixtureId)];
+          if (!resObj) return;
+          const hg = Number(resObj.homeGoals);
+          const ag = Number(resObj.awayGoals);
+          if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
+          const resultSide = getResult(hg, ag);
+          if (bet.side !== resultSide) return;
+          const odds = bet.oddsSnapshot || {};
+          const price =
+            resultSide === "H"
+              ? odds.home
+              : resultSide === "D"
+              ? odds.draw
+              : odds.away;
+          const priceNum = Number(price);
+          if (!Number.isFinite(priceNum)) return;
+          totalReturn += stake * priceNum;
+        });
+      });
+      audit.push({
+        userId: String(uid),
+        username: userMap[String(uid)] || "Unknown",
+        bets,
+        totalStake,
+        totalReturn,
+        profit: totalReturn - totalStake,
+      });
+    });
+
+    return res.json({ leagueId: leagueId || null, audit });
+  } catch (err) {
+    console.error("admin coins-audit error", err);
+    return res.status(500).json({ error: "Coins audit failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // ADMIN: REMOVE MEMBER FROM LEAGUE
 // POST /api/admin/leagues/remove-member
 // headers: x-admin-key: prem-admin-reset
