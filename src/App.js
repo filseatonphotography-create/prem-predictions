@@ -1410,12 +1410,20 @@ const visibleFixtures = FIXTURES.filter(
 
       matches.forEach((match) => {
         if (!match.homeTeam || !match.awayTeam) return;
-        if (!match.score?.fullTime) return;
-        if (
-          match.score.fullTime.home === null ||
-          match.score.fullTime.away === null
-        )
-          return;
+        const score = match.score || {};
+        const ft = score.fullTime || {};
+        const rt = score.regularTime || {};
+        const ht = score.halfTime || {};
+        const homeGoals =
+          Number.isFinite(ft.home) ? ft.home :
+          Number.isFinite(rt.home) ? rt.home :
+          Number.isFinite(ht.home) ? ht.home : null;
+        const awayGoals =
+          Number.isFinite(ft.away) ? ft.away :
+          Number.isFinite(rt.away) ? rt.away :
+          Number.isFinite(ht.away) ? ht.away : null;
+
+        if (homeGoals === null || awayGoals === null) return;
 
         // Prefer exact ID match (most reliable)
         let fixture = null;
@@ -1469,8 +1477,8 @@ const visibleFixtures = FIXTURES.filter(
         if (fixture) {
           matchedCount += 1;
           updatedResults[fixture.id] = {
-            homeGoals: match.score.fullTime.home,
-            awayGoals: match.score.fullTime.away,
+            homeGoals,
+            awayGoals,
           };
         }
       });
