@@ -2256,9 +2256,8 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       allowedIds = new Set(members.map((m) => String(m)));
     }
 
-    Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
-      if (allowedIds && !allowedIds.has(String(userIdKey))) return;
-      const summary = computeSeasonCoinsForUser(coinsForUser, results);
+    const addRow = (userIdKey, coinsForUser) => {
+      const summary = computeSeasonCoinsForUser(coinsForUser || {}, results);
       const legacyNameFromId =
         legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
       const legacyNameFromKey = legacyMap[userIdKey] ? String(userIdKey) : null;
@@ -2278,7 +2277,17 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       console.log(
         `[LEADERBOARD] User ${userIdKey}: stake=${summary.totalStake}, return=${summary.totalReturn}, profit=${summary.profit}`
       );
-    });
+    };
+
+    if (allowedIds) {
+      allowedIds.forEach((uid) => {
+        addRow(uid, coins[uid] || coins[String(uid)] || {});
+      });
+    } else {
+      Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
+        addRow(userIdKey, coinsForUser);
+      });
+    }
 
     // Sort by profit descending (typical leaderboard)
     leaderboard.sort((a, b) => b.profit - a.profit);
