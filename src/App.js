@@ -1400,7 +1400,7 @@ const visibleFixtures = FIXTURES.filter(
         const apiHome = normalizeTeamName(match.homeTeam.name);
         const apiAway = normalizeTeamName(match.awayTeam.name);
 
-        const fixture = FIXTURES.find((f) => {
+        const candidates = FIXTURES.filter((f) => {
           const localHome = normalizeTeamName(
             typeof f.homeTeam === "string"
               ? f.homeTeam
@@ -1413,6 +1413,31 @@ const visibleFixtures = FIXTURES.filter(
           );
           return localHome === apiHome && localAway === apiAway;
         });
+
+        let fixture = null;
+        if (candidates.length) {
+          const matchday =
+            typeof match.matchday === "number" ? match.matchday : null;
+          if (matchday != null) {
+            fixture = candidates.find((f) => f.gameweek === matchday) || null;
+          }
+
+          if (!fixture && match.utcDate) {
+            const matchTime = Date.parse(match.utcDate);
+            if (Number.isFinite(matchTime)) {
+              fixture = candidates.reduce((best, f) => {
+                const t = Date.parse(f.kickoff);
+                if (!Number.isFinite(t)) return best || f;
+                const d = Math.abs(t - matchTime);
+                if (!best) return f;
+                const bd = Math.abs(Date.parse(best.kickoff) - matchTime);
+                return d < bd ? f : best;
+              }, null);
+            }
+          }
+
+          if (!fixture) fixture = candidates[0];
+        }
 
         if (fixture) {
           matchedCount += 1;
