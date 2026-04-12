@@ -86,7 +86,7 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
   })
 );
-app.options("*", cors());
+app.options("/*", cors());
 
 app.use(express.json());
 
