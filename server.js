@@ -490,10 +490,11 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
       if (!bet) return;
 
       const { fixtureId, stake, side, oddsSnapshot } = bet || {};
-      if (!Number.isFinite(stake) || stake <= 0) return;
+      const stakeNum = Number(stake);
+      if (!Number.isFinite(stakeNum) || stakeNum <= 0) return;
 
       // Always count stake as "coins used"
-      totalStake += stake;
+      totalStake += stakeNum;
 
       // Only try to compute winnings if we have a result
       const res = results[fixtureId];
@@ -506,15 +507,16 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
       const resultSide = getResult(hg, ag); // "H", "D", or "A"
 
       if (side === resultSide && oddsSnapshot) {
-        const price =
+        const rawPrice =
           resultSide === "H"
             ? oddsSnapshot.home
             : resultSide === "D"
             ? oddsSnapshot.draw
             : oddsSnapshot.away;
 
-        if (typeof price === "number") {
-          totalReturn += stake * price;
+        const priceNum = Number(rawPrice);
+        if (Number.isFinite(priceNum)) {
+          totalReturn += stakeNum * priceNum;
         }
       }
     });
