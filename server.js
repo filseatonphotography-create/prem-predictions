@@ -79,17 +79,14 @@ const ALLOWED_ORIGINS = new Set([
 
 app.use(
   cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      console.log("CORS request from:", origin);
-      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
-      return cb(new Error("Not allowed by CORS: " + origin));
-    },
+    // Allow all origins to prevent CORS blocking during live games
+    origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
   })
 );
+app.options("*", cors());
 
 app.use(express.json());
 
@@ -1425,6 +1422,8 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
           ? data.matches
           : [];
         return { ok: true, matches };
+      } catch (err) {
+        return { ok: false, status: 500, errorText: String(err?.message || err) };
       } finally {
         clearTimeout(timeoutId);
       }
@@ -1519,6 +1518,86 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
     return res.json({ ok: true, filled });
   } catch (err) {
     console.error("backfill legacy results error", err);
+    return res.status(500).json({ error: "Backfill failed", details: String(err?.message || err) });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: BACKFILL LEGACY RESULTS FROM CLIENT-PROVIDED MATCHES
+// POST /api/admin/backfill-legacy-results-from-payload
+// headers: x-admin-key: prem-admin-reset
+// body: { matches: [...] } OR [...]
+// ---------------------------------------------------------------------------
+app.post("/api/admin/backfill-legacy-results-from-payload", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const payload = req.body;
+    const matches = Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.matches)
+      ? payload.matches
+      : [];
+    if (!matches.length) {
+      return res.status(400).json({ error: "No matches provided" });
+    }
+
+    const results = loadResults() || {};
+    const normalize = (name) => normalizeTeamName(name || "");
+
+    const legacyFixtures = [
+      { id: 271, homeTeam: "Arsenal", awayTeam: "Chelsea", kickoff: "2026-02-28T15:00:00Z" },
+      { id: 276, homeTeam: "Leeds", awayTeam: "Man City", kickoff: "2026-02-28T15:00:00Z" },
+      { id: 280, homeTeam: "Wolves", awayTeam: "Aston Villa", kickoff: "2026-02-28T15:00:00Z" },
+      { id: 287, homeTeam: "Man City", awayTeam: "Nott'm Forest", kickoff: "2026-03-04T20:00:00Z" },
+      { id: 291, homeTeam: "Arsenal", awayTeam: "Everton", kickoff: "2026-03-14T15:00:00Z" },
+      { id: 296, homeTeam: "Liverpool", awayTeam: "Spurs", kickoff: "2026-03-14T15:00:00Z" },
+      { id: 300, homeTeam: "West Ham", awayTeam: "Man City", kickoff: "2026-03-14T15:00:00Z" },
+      { id: 303, homeTeam: "Brighton", awayTeam: "Liverpool", kickoff: "2026-03-21T15:00:00Z" },
+    ];
+
+    const findMatch = (fx) => {
+      const home = normalize(fx.homeTeam);
+      const away = normalize(fx.awayTeam);
+      const kickoff = Date.parse(fx.kickoff);
+      const candidates = matches.filter((m) => {
+        if (!m.homeTeam || !m.awayTeam) return false;
+        const mh = normalize(m.homeTeam.name);
+        const ma = normalize(m.awayTeam.name);
+        const sameOrder = mh === home && ma === away;
+        const swapped = mh === away && ma === home;
+        return sameOrder || swapped;
+      });
+      if (!candidates.length) return null;
+      if (!Number.isFinite(kickoff)) return candidates[0];
+      return candidates.reduce((best, m) => {
+        const t = Date.parse(m.utcDate);
+        if (!Number.isFinite(t)) return best;
+        const d = Math.abs(t - kickoff);
+        const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
+        return d < bd ? m : best;
+      }, candidates[0]);
+    };
+
+    let filled = 0;
+    legacyFixtures.forEach((fx) => {
+      const fid = String(fx.id);
+      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
+      const match = findMatch(fx);
+      if (!match) return;
+      const ft = match && match.score && match.score.fullTime;
+      if (!ft || ft.home == null || ft.away == null) return;
+      results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
+      filled += 1;
+    });
+
+    saveResults(results);
+    return res.json({ ok: true, filled });
+  } catch (err) {
+    console.error("backfill legacy results (payload) error", err);
     return res.status(500).json({ error: "Backfill failed", details: String(err?.message || err) });
   }
 });
