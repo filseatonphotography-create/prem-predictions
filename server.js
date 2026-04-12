@@ -1385,7 +1385,7 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    const fixtures = loadFixtures() || [];
+    const fixtures = loadFixturesFromSrc() || [];
     const results = loadResults() || {};
 
     // fetch live matches
