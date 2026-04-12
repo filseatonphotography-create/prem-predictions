@@ -1404,7 +1404,11 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
     }
 
     const data = await apiRes.json();
-    const matches = Array.isArray(data.matches) ? data.matches : [];
+    const matches = Array.isArray(data)
+      ? data
+      : Array.isArray(data.matches)
+      ? data.matches
+      : [];
 
     const normalize = (name) => normalizeTeamName(name || "");
 
@@ -1442,7 +1446,7 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
     return res.json({ ok: true, filled });
   } catch (err) {
     console.error("backfill legacy results error", err);
-    return res.status(500).json({ error: "Backfill failed" });
+    return res.status(500).json({ error: "Backfill failed", details: String(err?.message || err) });
   }
 });
 
