@@ -3885,7 +3885,10 @@ if (!isLoggedIn) {
     <div style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
-        onClick={() => setShowLeaguesMenu((v) => !v)}
+        onClick={() => {
+          setShowMobileMenu(false);
+          setShowLeaguesMenu((v) => !v);
+        }}
         style={{
           padding: isMobile ? "6px 8px" : "6px 10px",
           borderRadius: 8,
@@ -4020,7 +4023,10 @@ if (!isLoggedIn) {
     {isMobile && (
       <button
         type="button"
-        onClick={() => setShowMobileMenu((v) => !v)}
+        onClick={() => {
+          setShowLeaguesMenu(false);
+          setShowMobileMenu((v) => !v);
+        }}
         style={{
           padding: isMobile ? "6px 8px" : "6px 10px",
           borderRadius: 8,
@@ -4035,7 +4041,7 @@ if (!isLoggedIn) {
           whiteSpace: "nowrap",
       }}
       >
-        Menu
+        Menu ▾
       </button>
     )}
   </div>
