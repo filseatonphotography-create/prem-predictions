@@ -1412,7 +1412,50 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
 
     const normalize = (name) => normalizeTeamName(name || "");
 
+    // Legacy fixture mapping (old numeric IDs -> teams/kickoff)
+    const legacyFixtures = [
+      { id: 271, homeTeam: "Arsenal", awayTeam: "Chelsea", kickoff: "2026-02-28T15:00:00Z" },
+      { id: 276, homeTeam: "Leeds", awayTeam: "Man City", kickoff: "2026-02-28T15:00:00Z" },
+      { id: 280, homeTeam: "Wolves", awayTeam: "Aston Villa", kickoff: "2026-02-28T15:00:00Z" },
+      { id: 287, homeTeam: "Man City", awayTeam: "Nott'm Forest", kickoff: "2026-03-04T20:00:00Z" },
+      { id: 291, homeTeam: "Arsenal", awayTeam: "Everton", kickoff: "2026-03-14T15:00:00Z" },
+      { id: 296, homeTeam: "Liverpool", awayTeam: "Spurs", kickoff: "2026-03-14T15:00:00Z" },
+      { id: 300, homeTeam: "West Ham", awayTeam: "Man City", kickoff: "2026-03-14T15:00:00Z" },
+      { id: 303, homeTeam: "Brighton", awayTeam: "Liverpool", kickoff: "2026-03-21T15:00:00Z" },
+    ];
+
     let filled = 0;
+
+    // Backfill only legacy fixtures with missing results
+    legacyFixtures.forEach((fx) => {
+      const fid = String(fx.id);
+      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
+      const home = normalize(fx.homeTeam);
+      const away = normalize(fx.awayTeam);
+      const kickoff = Date.parse(fx.kickoff);
+      const candidates = matches.filter((m) => {
+        if (!m.homeTeam || !m.awayTeam) return false;
+        const mh = normalize(m.homeTeam.name);
+        const ma = normalize(m.awayTeam.name);
+        return mh === home && ma === away;
+      });
+      if (!candidates.length) return;
+      let match = candidates[0];
+      if (Number.isFinite(kickoff)) {
+        match = candidates.reduce((best, m) => {
+          const t = Date.parse(m.utcDate);
+          if (!Number.isFinite(t)) return best;
+          const d = Math.abs(t - kickoff);
+          const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
+          return d < bd ? m : best;
+        }, match);
+      }
+      const ft = match && match.score && match.score.fullTime;
+      if (!ft || ft.home == null || ft.away == null) return;
+      results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
+      filled += 1;
+    });
+
     fixtures.forEach((fx) => {
       const fid = String(fx.id);
       if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
