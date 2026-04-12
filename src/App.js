@@ -1091,6 +1091,7 @@ const [passwordError, setPasswordError] = useState("");
 const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
+  const [authHydrated, setAuthHydrated] = useState(false);
 
   // App state
   const [predictions, setPredictions] = useState({});
@@ -1491,14 +1492,6 @@ const visibleFixtures = FIXTURES.filter(
       }
     } catch {}
 
-    // 1b) Load backend results snapshot (global source of truth)
-    try {
-      const snapshot = await apiGetResultsSnapshot();
-      if (snapshot && Object.keys(snapshot).length > 0) {
-        setResults(snapshot);
-      }
-    } catch {}
-
     // 2) restore auth
     try {
       const savedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
@@ -1511,6 +1504,15 @@ const visibleFixtures = FIXTURES.filter(
           setCurrentPlayer(parsedAuth.username);
           setLoginName(parsedAuth.username);
         }
+      }
+    } catch {}
+    setAuthHydrated(true);
+
+    // 2b) Load backend results snapshot (global source of truth)
+    try {
+      const snapshot = await apiGetResultsSnapshot();
+      if (snapshot && Object.keys(snapshot).length > 0) {
+        setResults((prev) => ({ ...prev, ...snapshot }));
       }
     } catch {}
 
@@ -1767,6 +1769,7 @@ useEffect(() => {
 
   // Persist auth
   useEffect(() => {
+    if (!authHydrated) return;
     if (isLoggedIn && authToken && currentUserId && currentPlayer) {
       localStorage.setItem(
         AUTH_STORAGE_KEY,
@@ -1779,7 +1782,7 @@ useEffect(() => {
     } else {
       localStorage.removeItem(AUTH_STORAGE_KEY);
     }
-  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
+  }, [authHydrated, isLoggedIn, authToken, currentUserId, currentPlayer]);
 
   // Ensure at most one captain (isDouble) per gameweek for a single user
 function normalizeCaptainsByGameweek(predsForUser) {
@@ -4735,14 +4738,9 @@ if (!isLoggedIn) {
                       flex: "0 1 auto",
                     }}
                   >
-                    {(TEAM_BADGES[fixture.homeTeam] ||
-                      getTeamCode(fixture.homeTeam) === "NFO") && (
+                    {resolveTeamBadge(fixture.homeTeam) && (
                       <img
-                        src={
-                          getTeamCode(fixture.homeTeam) === "NFO"
-                            ? "/badges/nottingham_forest.png"
-                            : TEAM_BADGES[fixture.homeTeam]
-                        }
+                        src={resolveTeamBadge(fixture.homeTeam)}
                         alt={fixture.homeTeam}
                         style={{
                           width: isMobile ? 18 : 20,
@@ -4936,14 +4934,9 @@ if (!isLoggedIn) {
                       {getTeamCode(fixture.awayTeam)}
                     </span>
 
-                    {(TEAM_BADGES[fixture.awayTeam] ||
-                      getTeamCode(fixture.awayTeam) === "NFO") && (
+                    {resolveTeamBadge(fixture.awayTeam) && (
                       <img
-                        src={
-                          getTeamCode(fixture.awayTeam) === "NFO"
-                            ? "/badges/nottingham_forest.png"
-                            : TEAM_BADGES[fixture.awayTeam]
-                        }
+                        src={resolveTeamBadge(fixture.awayTeam)}
                         alt={fixture.awayTeam}
                         style={{
                           width: isMobile ? 18 : 20,
@@ -5378,16 +5371,9 @@ if (!isLoggedIn) {
         const homeCode = getTeamCode(fixture.homeTeam);
         const awayCode = getTeamCode(fixture.awayTeam);
 
-        // Badge sources, using your current TEAM_BADGES + NFO fallback
-        const homeBadgeSrc =
-          homeCode === "NFO"
-            ? "/badges/nottingham_forest.png"
-            : TEAM_BADGES[fixture.homeTeam];
-
-        const awayBadgeSrc =
-          awayCode === "NFO"
-            ? "/badges/nottingham_forest.png"
-            : TEAM_BADGES[fixture.awayTeam];
+        // Badge sources (normalized)
+        const homeBadgeSrc = resolveTeamBadge(fixture.homeTeam);
+        const awayBadgeSrc = resolveTeamBadge(fixture.awayTeam);
 
         return (
           <div
@@ -6184,14 +6170,9 @@ if (!isLoggedIn) {
               lineHeight: 1.3
             }}>
               {/* Home team badge */}
-              {(TEAM_BADGES[fixture.homeTeam] ||
-                getTeamCode(fixture.homeTeam) === "NFO") && (
+              {resolveTeamBadge(fixture.homeTeam) && (
                 <img
-                  src={
-                    getTeamCode(fixture.homeTeam) === "NFO"
-                      ? "/badges/nottingham_forest.png"
-                      : TEAM_BADGES[fixture.homeTeam]
-                  }
+                  src={resolveTeamBadge(fixture.homeTeam)}
                   alt={fixture.homeTeam}
                   style={{
                     width: 24,
@@ -6206,14 +6187,9 @@ if (!isLoggedIn) {
               <span>{getTeamCode(fixture.awayTeam)}</span>
               
               {/* Away team badge */}
-              {(TEAM_BADGES[fixture.awayTeam] ||
-                getTeamCode(fixture.awayTeam) === "NFO") && (
+              {resolveTeamBadge(fixture.awayTeam) && (
                 <img
-                  src={
-                    getTeamCode(fixture.awayTeam) === "NFO"
-                      ? "/badges/nottingham_forest.png"
-                      : TEAM_BADGES[fixture.awayTeam]
-                  }
+                  src={resolveTeamBadge(fixture.awayTeam)}
                   alt={fixture.awayTeam}
                   style={{
                     width: 24,
