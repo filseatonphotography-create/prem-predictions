@@ -1898,18 +1898,6 @@ app.get("/api/odds", async (req, res) => {
   }
 });
 
-// SPA fallback (must be after all API routes)
-if (fs.existsSync(BUILD_DIR)) {
-  app.get(/.*/, (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.sendFile(path.join(BUILD_DIR, "index.html"));
-  });
-}
-
-// ---------------------------------------------------------------------------
-// START SERVER
-// ---------------------------------------------------------------------------
-
 // -------------------- COINS LEADERBOARD (SEASON, ALL USERS) --------------------
 app.get("/api/coins/leaderboard", authOptional, (req, res) => {
   try {
@@ -1926,7 +1914,6 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
     const leaderboard = [];
 
-
     Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
       const summary = computeSeasonCoinsForUser(coinsForUser, results);
       leaderboard.push({
@@ -1937,7 +1924,9 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
         profit: summary.profit,
       });
       // Log each user's summary for debugging
-      console.log(`[LEADERBOARD] User ${userIdKey}: stake=${summary.totalStake}, return=${summary.totalReturn}, profit=${summary.profit}`);
+      console.log(
+        `[LEADERBOARD] User ${userIdKey}: stake=${summary.totalStake}, return=${summary.totalReturn}, profit=${summary.profit}`
+      );
     });
 
     // Sort by profit descending (typical leaderboard)
@@ -1951,6 +1940,18 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       .json({ error: "Failed to build coins leaderboard" });
   }
 });
+
+// SPA fallback (must be after all API routes)
+if (fs.existsSync(BUILD_DIR)) {
+  app.get(/.*/, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(path.join(BUILD_DIR, "index.html"));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// START SERVER
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // PUSH NOTIFICATIONS
