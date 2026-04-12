@@ -574,16 +574,23 @@ async function fetchPremierLeagueResults() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
-    const res = await fetch(`${BACKEND_BASE}/api/results`, {
+    let res = await fetch(`${BACKEND_BASE}/api/results`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
     
+    if (res.ok) {
+      const updatedHeader = res.headers.get("x-results-updated");
+      const matches = await res.json();
+      const updatedAt = updatedHeader ? Number(updatedHeader) : null;
+      return { matches, error: null, updatedAt };
+    }
+
+    // Fallback: hit Netlify function directly if backend can't fetch live results
+    res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
-    const updatedHeader = res.headers.get("x-results-updated");
     const matches = await res.json();
-    const updatedAt = updatedHeader ? Number(updatedHeader) : null;
-    return { matches, error: null, updatedAt };
+    return { matches, error: null, updatedAt: Date.now() };
   } catch (err) {
     if (err.name === 'AbortError') {
       return { matches: [], error: 'Request timeout' };
