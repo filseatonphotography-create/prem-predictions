@@ -583,7 +583,10 @@ async function fetchPremierLeagueResults() {
       const updatedHeader = res.headers.get("x-results-updated");
       const matches = await res.json();
       const updatedAt = updatedHeader ? Number(updatedHeader) : null;
-      return { matches, error: null, updatedAt };
+      if (Array.isArray(matches) && matches.length > 0) {
+        return { matches, error: null, updatedAt };
+      }
+      // If backend returns empty, fall back to Netlify source
     }
 
     // Fallback: hit Netlify function directly if backend can't fetch live results
@@ -1492,8 +1495,10 @@ const visibleFixtures = FIXTURES.filter(
   };
 
   // ---------- INIT ----------
-  useEffect(() => {
-    async function init() {
+useEffect(() => {
+  let intervalId = null;
+
+  async function init() {
       // 1) restore app cache (pred/results/odds)
       try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -1534,6 +1539,11 @@ const visibleFixtures = FIXTURES.filter(
     // 3) auto results
     await refreshAutoResults();
 
+    // Keep results fresh during live gameweeks
+    intervalId = setInterval(() => {
+      refreshAutoResults();
+    }, 2 * 60 * 1000);
+
         // 4) odds (initial load) — use in-app model instead of backend
     const generatedOdds = {};
     FIXTURES.forEach((f) => {
@@ -1548,6 +1558,9 @@ const visibleFixtures = FIXTURES.filter(
   }
 
   init();
+  return () => {
+    if (intervalId) clearInterval(intervalId);
+  };
 }, []);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
