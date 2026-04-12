@@ -1655,7 +1655,11 @@ useEffect(() => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
-      const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
+      const leagueId = myLeagues && myLeagues.length ? myLeagues[0].id : "";
+      const url = leagueId
+        ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}`
+        : `${BACKEND_BASE}/api/coins/leaderboard`;
+      const res = await fetch(url, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -1683,7 +1687,7 @@ useEffect(() => {
   };
 
   fetchCoinsLeaderboard();
-}, [activeView, authToken]);
+}, [activeView, authToken, myLeagues]);
 
 // Fetch global predictions (all users) when Global League is opened
 useEffect(() => {
@@ -2691,11 +2695,27 @@ const currentGwTopScore = useMemo(() => {
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
+const dedupedGlobalUsers = useMemo(() => {
+  if (!globalUsers || globalUsers.length === 0) return [];
+  const byName = {};
+  globalUsers.forEach((u) => {
+    const name = u.username || "";
+    if (!name) return;
+    const preds = globalPredictionsByUserId?.[u.userId] || {};
+    const count = Object.keys(preds || {}).length;
+    const existing = byName[name];
+    if (!existing || count > existing.count) {
+      byName[name] = { userId: u.userId, username: name, count };
+    }
+  });
+  return Object.values(byName).map(({ userId, username }) => ({ userId, username }));
+}, [globalUsers, globalPredictionsByUserId]);
+
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
-  if (!gw || !globalUsers || globalUsers.length === 0) return {};
+  if (!gw || !dedupedGlobalUsers || dedupedGlobalUsers.length === 0) return {};
   const scores = {};
-  globalUsers.forEach((u) => {
+  dedupedGlobalUsers.forEach((u) => {
     const base = SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0;
     scores[u.userId] = base;
   });
@@ -2703,7 +2723,7 @@ const globalWeeklyScores = useMemo(() => {
     if (fixture.gameweek !== gw) return;
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-    globalUsers.forEach((u) => {
+    dedupedGlobalUsers.forEach((u) => {
       const preds = globalPredictionsByUserId[u.userId] || {};
       const pred =
         preds[String(fixture.id)] !== undefined
@@ -2714,14 +2734,14 @@ const globalWeeklyScores = useMemo(() => {
     });
   });
   return scores;
-}, [selectedGameweek, globalUsers, globalPredictionsByUserId, results]);
+}, [selectedGameweek, dedupedGlobalUsers, globalPredictionsByUserId, results]);
 
 const globalLeaderboard = useMemo(() => {
-  if (!globalUsers || globalUsers.length === 0) return [];
+  if (!dedupedGlobalUsers || dedupedGlobalUsers.length === 0) return [];
 
   const totalsByUserId = {};
 
-  globalUsers.forEach((u) => {
+  dedupedGlobalUsers.forEach((u) => {
     const base =
       SPREADSHEET_WEEKLY_TOTALS[u.username]?.reduce((a, b) => a + b, 0) || 0;
     totalsByUserId[u.userId] = {
@@ -2735,7 +2755,7 @@ const globalLeaderboard = useMemo(() => {
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
 
-    globalUsers.forEach((u) => {
+    dedupedGlobalUsers.forEach((u) => {
       const preds = globalPredictionsByUserId[u.userId] || {};
       const pred =
         preds[String(fixture.id)] !== undefined
@@ -2747,7 +2767,7 @@ const globalLeaderboard = useMemo(() => {
   });
 
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
-}, [globalUsers, globalPredictionsByUserId, results]);
+}, [dedupedGlobalUsers, globalPredictionsByUserId, results]);
 
 // Winner popup for league tables (once per user per GW)
 useEffect(() => {

@@ -1221,6 +1221,87 @@ app.post("/api/admin/force-fix-coins", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: REMOVE MEMBER FROM LEAGUE
+// POST /api/admin/leagues/remove-member
+// headers: x-admin-key: prem-admin-reset
+// body: { leagueId, userId }
+// ---------------------------------------------------------------------------
+app.post("/api/admin/leagues/remove-member", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { leagueId, userId } = req.body || {};
+    const lid = (leagueId || "").trim();
+    const uid = (userId || "").trim();
+    if (!lid || !uid) {
+      return res.status(400).json({ error: "leagueId and userId are required" });
+    }
+
+    const leagues = loadLeagues() || [];
+    const league = leagues.find((l) => l.id === lid);
+    if (!league) return res.status(404).json({ error: "League not found" });
+
+    const cleanMembers = (arr) =>
+      Array.isArray(arr) ? arr.filter((m) => String(m) !== String(uid)) : arr;
+
+    league.members = cleanMembers(league.members);
+    league.memberUserIds = cleanMembers(league.memberUserIds);
+
+    saveLeagues(leagues);
+    return res.json({ ok: true, leagueId: lid, removedUserId: uid });
+  } catch (err) {
+    console.error("admin remove-member error", err);
+    return res.status(500).json({ error: "Admin remove-member failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: REMOVE MEMBER FROM LEAGUE BY NAME + USERNAME
+// POST /api/admin/leagues/remove-member-by-name
+// headers: x-admin-key: prem-admin-reset
+// body: { leagueName, username }
+// ---------------------------------------------------------------------------
+app.post("/api/admin/leagues/remove-member-by-name", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { leagueName, username } = req.body || {};
+    const lname = (leagueName || "").trim();
+    const uname = (username || "").trim();
+    if (!lname || !uname) {
+      return res.status(400).json({ error: "leagueName and username are required" });
+    }
+
+    const leagues = loadLeagues() || [];
+    const league = leagues.find((l) => (l.name || "").trim() === lname);
+    if (!league) return res.status(404).json({ error: "League not found" });
+
+    const users = loadUsers() || [];
+    const user = users.find((u) => (u.username || "").toLowerCase() === uname.toLowerCase());
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const uid = String(user.id);
+    const cleanMembers = (arr) =>
+      Array.isArray(arr) ? arr.filter((m) => String(m) !== uid) : arr;
+
+    league.members = cleanMembers(league.members);
+    league.memberUserIds = cleanMembers(league.memberUserIds);
+
+    saveLeagues(leagues);
+    return res.json({ ok: true, leagueName: lname, removedUserId: uid });
+  } catch (err) {
+    console.error("admin remove-member-by-name error", err);
+    return res.status(500).json({ error: "Admin remove-member-by-name failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {
@@ -2096,6 +2177,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const results = loadResults() || {};
     const users = loadUsers() || [];
     const legacyMap = loadLegacyMap() || {};
+    const leagueId = (req.query.leagueId || "").trim();
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
@@ -2111,7 +2193,23 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
     const leaderboard = [];
 
+    let allowedIds = null;
+    if (leagueId) {
+      const leagues = loadLeagues() || [];
+      const league = leagues.find((l) => l.id === leagueId);
+      if (!league) {
+        return res.status(404).json({ error: "League not found" });
+      }
+      const members = Array.isArray(league.members)
+        ? league.members
+        : Array.isArray(league.memberUserIds)
+        ? league.memberUserIds
+        : [];
+      allowedIds = new Set(members.map((m) => String(m)));
+    }
+
     Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
+      if (allowedIds && !allowedIds.has(String(userIdKey))) return;
       const summary = computeSeasonCoinsForUser(coinsForUser, results);
       const legacyNameFromId =
         legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
