@@ -1904,6 +1904,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const coins = loadCoins() || {};
     const results = loadResults() || {};
     const users = loadUsers() || [];
+    const legacyMap = loadLegacyMap() || {};
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
@@ -1911,14 +1912,27 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       userMap[u.id] = u.username;
       userMap[String(u.id)] = u.username;
     });
+    // Map legacy userId -> legacy name
+    const legacyIdToName = {};
+    Object.entries(legacyMap).forEach(([name, id]) => {
+      legacyIdToName[String(id)] = name;
+    });
 
     const leaderboard = [];
 
     Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
       const summary = computeSeasonCoinsForUser(coinsForUser, results);
+      const legacyNameFromId =
+        legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
+      const legacyNameFromKey = legacyMap[userIdKey] ? String(userIdKey) : null;
       leaderboard.push({
         userId: String(userIdKey),
-        player: userMap[userIdKey] || userMap[String(userIdKey)] || "Unknown",
+        player:
+          userMap[userIdKey] ||
+          userMap[String(userIdKey)] ||
+          legacyNameFromId ||
+          legacyNameFromKey ||
+          "Unknown",
         totalStake: summary.totalStake,
         totalReturn: summary.totalReturn,
         profit: summary.profit,
