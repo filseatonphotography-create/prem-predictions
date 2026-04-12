@@ -45,6 +45,9 @@ app.get("/api/coins/user/:userId", (req, res) => {
 // Keep real in deployed code (do NOT share publicly).
 const FOOTBALL_DATA_TOKEN =
   process.env.FOOTBALL_DATA_TOKEN || "18351cddefba4334a5edb3a60ea84ba3";
+const RESULTS_PROXY_URL =
+  process.env.RESULTS_PROXY_URL ||
+  "https://predictionaddiction.net/.netlify/functions/results";
 const ODDS_API_KEY =
   process.env.ODDS_API_KEY || "6659ed614cb33000eca5166d4bfc9bd3";
 
@@ -1811,10 +1814,14 @@ app.get("/api/results", async (req, res) => {
       res.setHeader("X-Results-Updated", String(resultsCacheAt));
       return res.json(resultsCache);
     }
-    const apiRes = await fetch(
-      "https://api.football-data.org/v4/competitions/PL/matches",
-      { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
-    );
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const useDirectApi = RESULTS_PROXY_URL.includes("football-data.org");
+    const apiRes = await fetch(RESULTS_PROXY_URL, {
+      headers: useDirectApi ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN } : {},
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
     if (!apiRes.ok) {
       const errorText = await apiRes.text().catch(() => "");
@@ -1832,7 +1839,13 @@ app.get("/api/results", async (req, res) => {
     res.json(matches);
   } catch (err) {
     console.error("results error", err);
-    res.status(500).json({ error: "Internal server error" });
+    if (resultsCache && resultsCacheAt) {
+      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+      res.setHeader("X-Results-Source", "cache-stale");
+      return res.json(resultsCache);
+    }
+    const isTimeout = err?.name === "AbortError" || err?.code === "UND_ERR_CONNECT_TIMEOUT";
+    res.status(503).json({ error: isTimeout ? "Results upstream timeout" : "Internal server error" });
   }
 });
 
