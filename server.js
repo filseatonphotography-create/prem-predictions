@@ -1409,27 +1409,47 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
     const fixtures = loadFixturesFromSrc() || [];
     const results = loadResults() || {};
 
-    // fetch live matches
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-    const useDirectApi = RESULTS_PROXY_URL.includes("football-data.org");
-    const apiRes = await fetch(RESULTS_PROXY_URL, {
-      headers: useDirectApi ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN } : {},
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    const fetchMatches = async (url, headers) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      try {
+        const resp = await fetch(url, { headers, signal: controller.signal });
+        if (!resp.ok) {
+          const errorText = await resp.text().catch(() => "");
+          return { ok: false, status: resp.status, errorText };
+        }
+        const data = await resp.json();
+        const matches = Array.isArray(data)
+          ? data
+          : Array.isArray(data.matches)
+          ? data.matches
+          : [];
+        return { ok: true, matches };
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
 
-    if (!apiRes.ok) {
-      const errorText = await apiRes.text().catch(() => "");
-      return res.status(apiRes.status).json({ error: "Football-Data API error", details: errorText });
+    // Prefer direct Football-Data API (avoids proxy issues), fallback to proxy
+    let matches = [];
+    const direct = await fetchMatches(
+      "https://api.football-data.org/v4/competitions/PL/matches",
+      { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+    );
+    if (direct.ok) {
+      matches = direct.matches;
+    } else {
+      const proxy = await fetchMatches(RESULTS_PROXY_URL, RESULTS_PROXY_URL.includes("football-data.org")
+        ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+        : {});
+      if (!proxy.ok) {
+        return res.status(proxy.status || 500).json({
+          error: "Football-Data API error",
+          details: proxy.errorText || direct.errorText || "Unknown error",
+        });
+      }
+      matches = proxy.matches;
     }
-
-    const data = await apiRes.json();
-    const matches = Array.isArray(data)
-      ? data
-      : Array.isArray(data.matches)
-      ? data.matches
-      : [];
 
     const normalize = (name) => normalizeTeamName(name || "");
 
@@ -1447,30 +1467,37 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
 
     let filled = 0;
 
-    // Backfill only legacy fixtures with missing results
-    legacyFixtures.forEach((fx) => {
-      const fid = String(fx.id);
-      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
+    const findMatch = (fx) => {
       const home = normalize(fx.homeTeam);
       const away = normalize(fx.awayTeam);
       const kickoff = Date.parse(fx.kickoff);
+
       const candidates = matches.filter((m) => {
         if (!m.homeTeam || !m.awayTeam) return false;
         const mh = normalize(m.homeTeam.name);
         const ma = normalize(m.awayTeam.name);
-        return mh === home && ma === away;
+        const sameOrder = mh === home && ma === away;
+        const swapped = mh === away && ma === home;
+        return sameOrder || swapped;
       });
-      if (!candidates.length) return;
-      let match = candidates[0];
-      if (Number.isFinite(kickoff)) {
-        match = candidates.reduce((best, m) => {
-          const t = Date.parse(m.utcDate);
-          if (!Number.isFinite(t)) return best;
-          const d = Math.abs(t - kickoff);
-          const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
-          return d < bd ? m : best;
-        }, match);
-      }
+      if (!candidates.length) return null;
+
+      if (!Number.isFinite(kickoff)) return candidates[0];
+      return candidates.reduce((best, m) => {
+        const t = Date.parse(m.utcDate);
+        if (!Number.isFinite(t)) return best;
+        const d = Math.abs(t - kickoff);
+        const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
+        return d < bd ? m : best;
+      }, candidates[0]);
+    };
+
+    // Backfill only legacy fixtures with missing results
+    legacyFixtures.forEach((fx) => {
+      const fid = String(fx.id);
+      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
+      const match = findMatch(fx);
+      if (!match) return;
       const ft = match && match.score && match.score.fullTime;
       if (!ft || ft.home == null || ft.away == null) return;
       results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
@@ -1480,26 +1507,8 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
     fixtures.forEach((fx) => {
       const fid = String(fx.id);
       if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
-      const home = normalize(fx.homeTeam);
-      const away = normalize(fx.awayTeam);
-      const kickoff = Date.parse(fx.kickoff);
-      const candidates = matches.filter((m) => {
-        if (!m.homeTeam || !m.awayTeam) return false;
-        const mh = normalize(m.homeTeam.name);
-        const ma = normalize(m.awayTeam.name);
-        return mh === home && ma === away;
-      });
-      if (!candidates.length) return;
-      let match = candidates[0];
-      if (Number.isFinite(kickoff)) {
-        match = candidates.reduce((best, m) => {
-          const t = Date.parse(m.utcDate);
-          if (!Number.isFinite(t)) return best;
-          const d = Math.abs(t - kickoff);
-          const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
-          return d < bd ? m : best;
-        }, match);
-      }
+      const match = findMatch(fx);
+      if (!match) return;
       const ft = match && match.score && match.score.fullTime;
       if (!ft || ft.home == null || ft.away == null) return;
       results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
