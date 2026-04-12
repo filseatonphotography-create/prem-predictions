@@ -1030,6 +1030,95 @@ app.post("/api/admin/reset-password", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN REPAIR DATA (coins/users/legacy map)
+// POST /api/admin/repair-data
+// headers: x-admin-key: prem-admin-reset
+// ---------------------------------------------------------------------------
+app.post("/api/admin/repair-data", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const users = loadUsers() || [];
+    const coins = loadCoins() || {};
+    const predictions = loadPredictions() || {};
+    const legacyMap = loadLegacyMap() || {};
+
+    const summary = {
+      addedUsers: [],
+      mergedPhil: false,
+      removedUserIds: [],
+    };
+
+    // Ensure legacyMap IDs exist in users (prevents "Unknown" names)
+    const userIds = new Set(users.map((u) => String(u.id)));
+    Object.entries(legacyMap).forEach(([name, id]) => {
+      const sid = String(id);
+      if (!userIds.has(sid)) {
+        users.push({
+          id: sid,
+          username: name,
+          passwordHash: "",
+          createdAt: new Date().toISOString(),
+        });
+        userIds.add(sid);
+        summary.addedUsers.push({ id: sid, username: name });
+      }
+    });
+
+    // Merge duplicate Phil (legacy -> current)
+    const keepId = "1763874000000";
+    const legacyId = "1763789072925";
+    if (legacyId !== keepId) {
+      const legacyCoins = coins[legacyId];
+      const keepCoins = coins[keepId];
+      if (legacyCoins) {
+        const merged = {};
+        Object.entries(legacyCoins).forEach(([gw, bets]) => {
+          merged[gw] = { ...(bets || {}) };
+        });
+        Object.entries(keepCoins || {}).forEach(([gw, bets]) => {
+          merged[gw] = { ...(merged[gw] || {}), ...(bets || {}) };
+        });
+        coins[keepId] = merged;
+        delete coins[legacyId];
+        summary.mergedPhil = true;
+      }
+
+      const legacyPreds = predictions[legacyId];
+      const keepPreds = predictions[keepId];
+      if (legacyPreds) {
+        predictions[keepId] = { ...(legacyPreds || {}), ...(keepPreds || {}) };
+        delete predictions[legacyId];
+        summary.mergedPhil = true;
+      }
+
+      const beforeUsersLen = users.length;
+      const filtered = users.filter((u) => String(u.id) !== legacyId);
+      if (filtered.length !== beforeUsersLen) {
+        summary.removedUserIds.push(legacyId);
+      }
+      users.length = 0;
+      users.push(...filtered);
+
+      legacyMap["Phil"] = keepId;
+    }
+
+    saveUsers(users);
+    saveCoins(coins);
+    savePredictions(predictions);
+    saveLegacyMap(legacyMap);
+
+    return res.json({ ok: true, summary });
+  } catch (err) {
+    console.error("admin repair error", err);
+    return res.status(500).json({ error: "Admin repair failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {
