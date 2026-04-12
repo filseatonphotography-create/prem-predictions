@@ -1122,9 +1122,10 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     return saved || "predictions";
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
-const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showLeaguesMenu, setShowLeaguesMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
-const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+  const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
   const isResetPasswordRoute = useMemo(() => {
     try {
@@ -1138,6 +1139,10 @@ const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('activeView', activeView);
+  }, [activeView]);
+
+  useEffect(() => {
+    setShowLeaguesMenu(false);
   }, [activeView]);
 
   // Countdown timer to next deadline
@@ -3822,24 +3827,71 @@ if (!isLoggedIn) {
       flexWrap: "nowrap", // stay on one line
     }}
   >
-    <button
-      onClick={() => setShowPasswordModal(true)}
-      style={{
-        padding: isMobile ? "6px 8px" : "6px 10px",
-        borderRadius: 8,
-        background: theme.panelHi,
-        color: theme.text,
-        border: `1px solid ${theme.line}`,
-        cursor: "pointer",
-        fontSize: isMobile ? 11 : 12,
-        height: isMobile ? 30 : 32,
-        minWidth: isMobile ? 78 : 108,
-        textAlign: "center",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {isMobile ? "Password" : "Change Password"}
-    </button>
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        onClick={() => setShowLeaguesMenu((v) => !v)}
+        style={{
+          padding: isMobile ? "6px 8px" : "6px 10px",
+          borderRadius: 8,
+          background: theme.panelHi,
+          color: theme.text,
+          border: `1px solid ${theme.line}`,
+          cursor: "pointer",
+          fontSize: isMobile ? 11 : 12,
+          height: isMobile ? 30 : 32,
+          minWidth: isMobile ? 78 : 108,
+          textAlign: "center",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Leagues ▾
+      </button>
+      {showLeaguesMenu && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            marginTop: 6,
+            background: theme.panel,
+            border: `1px solid ${theme.line}`,
+            borderRadius: 10,
+            padding: 6,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+            minWidth: 190,
+            zIndex: 1000,
+          }}
+        >
+          {[
+            { id: "league", label: "Mini League Table" },
+            { id: "globalLeague", label: "Global League Table" },
+            { id: "coinsLeague", label: "Coins League" },
+            { id: "leagues", label: "Mini‑Leagues" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                setActiveView(item.id);
+                setShowLeaguesMenu(false);
+                setShowMobileMenu(false);
+              }}
+              style={{
+                ...pillBtn(activeView === item.id),
+                display: "block",
+                textAlign: "left",
+                padding: "6px 10px",
+                fontSize: 14,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
 
     <button
       type="button"
@@ -4112,13 +4164,9 @@ if (!isLoggedIn) {
   const TABS = [
   { id: "predictions", label: "Predictions" },
   { id: "results", label: "Results" },
-  { id: "league", label: "Mini League Table" },
-  { id: "globalLeague", label: "Global League Table" },
   { id: "summary", label: "Summary" },
-  { id: "coinsLeague", label: "Coins League" },
   { id: "history", label: "History" },
   { id: "winprob", label: "Win Probabilities" },
-  { id: "leagues", label: "Mini-Leagues" },
   { id: "settings", label: "Settings" },
   { id: "rules", label: "Rules" },
 ];
