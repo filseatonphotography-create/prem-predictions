@@ -1302,6 +1302,54 @@ app.post("/api/admin/leagues/remove-member-by-name", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: ADD MEMBER TO LEAGUE BY NAME + USERNAME
+// POST /api/admin/leagues/add-member-by-name
+// headers: x-admin-key: prem-admin-reset
+// body: { leagueName, username }
+// ---------------------------------------------------------------------------
+app.post("/api/admin/leagues/add-member-by-name", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { leagueName, username } = req.body || {};
+    const lname = (leagueName || "").trim();
+    const uname = (username || "").trim();
+    if (!lname || !uname) {
+      return res.status(400).json({ error: "leagueName and username are required" });
+    }
+
+    const leagues = loadLeagues() || [];
+    const league = leagues.find((l) => (l.name || "").trim() === lname);
+    if (!league) return res.status(404).json({ error: "League not found" });
+
+    const users = loadUsers() || [];
+    const user = users.find((u) => (u.username || "").toLowerCase() === uname.toLowerCase());
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const uid = String(user.id);
+    const ensureMembers = (arr) => (Array.isArray(arr) ? arr : []);
+    const members = new Set(ensureMembers(league.members).map((m) => String(m)));
+    const memberUserIds = new Set(
+      ensureMembers(league.memberUserIds).map((m) => String(m))
+    );
+    members.add(uid);
+    memberUserIds.add(uid);
+
+    league.members = Array.from(members);
+    league.memberUserIds = Array.from(memberUserIds);
+
+    saveLeagues(leagues);
+    return res.json({ ok: true, leagueName: lname, addedUserId: uid });
+  } catch (err) {
+    console.error("admin add-member-by-name error", err);
+    return res.status(500).json({ error: "Admin add-member-by-name failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {

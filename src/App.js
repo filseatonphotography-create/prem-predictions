@@ -1655,7 +1655,14 @@ useEffect(() => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
-      const leagueId = myLeagues && myLeagues.length ? myLeagues[0].id : "";
+      const originals = (myLeagues || []).find(
+        (l) => (l.name || "").trim().toLowerCase() === "the originals"
+      );
+      const leagueId = originals
+        ? originals.id
+        : myLeagues && myLeagues.length
+        ? myLeagues[0].id
+        : "";
       const url = leagueId
         ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}`
         : `${BACKEND_BASE}/api/coins/leaderboard`;
