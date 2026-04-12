@@ -1309,6 +1309,71 @@ app.get("/api/admin/coins-audit", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: COINS BETS DETAIL (by userId)
+// GET /api/admin/coins-bets?userId=...
+// headers: x-admin-key: prem-admin-reset
+// ---------------------------------------------------------------------------
+app.get("/api/admin/coins-bets", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const userId = String(req.query.userId || "").trim();
+    if (!userId) return res.status(400).json({ error: "userId required" });
+
+    const coins = loadCoins() || {};
+    const results = loadResults() || {};
+
+    const gwObj = coins[userId] || {};
+    const details = [];
+
+    Object.entries(gwObj).forEach(([gw, fixObj]) => {
+      if (!fixObj || typeof fixObj !== "object") return;
+      Object.entries(fixObj).forEach(([fid, bet]) => {
+        if (!bet) return;
+        const stake = Number(bet.stake);
+        const fixtureId = String(bet.fixtureId || fid);
+        const resObj = results[fixtureId];
+        const hg = resObj ? Number(resObj.homeGoals) : null;
+        const ag = resObj ? Number(resObj.awayGoals) : null;
+        const resultSide =
+          hg == null || ag == null || !Number.isFinite(hg) || !Number.isFinite(ag)
+            ? null
+            : getResult(hg, ag);
+        const odds = bet.oddsSnapshot || {};
+        const price =
+          resultSide === "H"
+            ? odds.home
+            : resultSide === "D"
+            ? odds.draw
+            : odds.away;
+        const priceNum = Number(price);
+        const payout =
+          resultSide && bet.side === resultSide && Number.isFinite(priceNum)
+            ? stake * priceNum
+            : 0;
+        details.push({
+          gameweek: String(gw),
+          fixtureId,
+          side: bet.side,
+          stake,
+          result: resultSide ? `${hg}-${ag}` : null,
+          odds: odds || null,
+          payout,
+        });
+      });
+    });
+
+    return res.json({ userId, bets: details });
+  } catch (err) {
+    console.error("admin coins-bets error", err);
+    return res.status(500).json({ error: "Coins bets detail failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // ADMIN: REMOVE MEMBER FROM LEAGUE
 // POST /api/admin/leagues/remove-member
 // headers: x-admin-key: prem-admin-reset
