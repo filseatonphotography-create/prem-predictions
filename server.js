@@ -1804,6 +1804,17 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
   }
 });
 
+// Public: return latest results snapshot (global source of truth)
+app.get("/api/results/snapshot", (req, res) => {
+  try {
+    const current = loadResults() || {};
+    return res.json(current);
+  } catch (err) {
+    console.error("[SNAPSHOT] get results snapshot error", err);
+    return res.status(500).json({ error: "Failed to load results snapshot" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------

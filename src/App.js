@@ -342,6 +342,18 @@ async function apiLogin(username, password) {
   return data;
 }
 
+// Load latest results snapshot from backend (global source of truth)
+async function apiGetResultsSnapshot() {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/results/snapshot`);
+    if (!res.ok) return {};
+    const data = await res.json().catch(() => ({}));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
 // Save latest results snapshot to backend for coins leaderboard
 async function apiSaveResultsSnapshot(resultsByFixtureId) {
   try {
@@ -1397,46 +1409,53 @@ const visibleFixtures = FIXTURES.filter(
         )
           return;
 
-        const apiHome = normalizeTeamName(match.homeTeam.name);
-        const apiAway = normalizeTeamName(match.awayTeam.name);
-
-        const candidates = FIXTURES.filter((f) => {
-          const localHome = normalizeTeamName(
-            typeof f.homeTeam === "string"
-              ? f.homeTeam
-              : (f.homeTeam?.name || f.homeTeam?.tla || "")
-          );
-          const localAway = normalizeTeamName(
-            typeof f.awayTeam === "string"
-              ? f.awayTeam
-              : (f.awayTeam?.name || f.awayTeam?.tla || "")
-          );
-          return localHome === apiHome && localAway === apiAway;
-        });
-
+        // Prefer exact ID match (most reliable)
         let fixture = null;
-        if (candidates.length) {
-          const matchday =
-            typeof match.matchday === "number" ? match.matchday : null;
-          if (matchday != null) {
-            fixture = candidates.find((f) => f.gameweek === matchday) || null;
-          }
+        if (match.id != null) {
+          fixture = FIXTURES.find((f) => Number(f.id) === Number(match.id)) || null;
+        }
 
-          if (!fixture && match.utcDate) {
-            const matchTime = Date.parse(match.utcDate);
-            if (Number.isFinite(matchTime)) {
-              fixture = candidates.reduce((best, f) => {
-                const t = Date.parse(f.kickoff);
-                if (!Number.isFinite(t)) return best || f;
-                const d = Math.abs(t - matchTime);
-                if (!best) return f;
-                const bd = Math.abs(Date.parse(best.kickoff) - matchTime);
-                return d < bd ? f : best;
-              }, null);
+        if (!fixture) {
+          const apiHome = normalizeTeamName(match.homeTeam.name);
+          const apiAway = normalizeTeamName(match.awayTeam.name);
+
+          const candidates = FIXTURES.filter((f) => {
+            const localHome = normalizeTeamName(
+              typeof f.homeTeam === "string"
+                ? f.homeTeam
+                : (f.homeTeam?.name || f.homeTeam?.tla || "")
+            );
+            const localAway = normalizeTeamName(
+              typeof f.awayTeam === "string"
+                ? f.awayTeam
+                : (f.awayTeam?.name || f.awayTeam?.tla || "")
+            );
+            return localHome === apiHome && localAway === apiAway;
+          });
+
+          if (candidates.length) {
+            const matchday =
+              typeof match.matchday === "number" ? match.matchday : null;
+            if (matchday != null) {
+              fixture = candidates.find((f) => f.gameweek === matchday) || null;
             }
-          }
 
-          if (!fixture) fixture = candidates[0];
+            if (!fixture && match.utcDate) {
+              const matchTime = Date.parse(match.utcDate);
+              if (Number.isFinite(matchTime)) {
+                fixture = candidates.reduce((best, f) => {
+                  const t = Date.parse(f.kickoff);
+                  if (!Number.isFinite(t)) return best || f;
+                  const d = Math.abs(t - matchTime);
+                  if (!best) return f;
+                  const bd = Math.abs(Date.parse(best.kickoff) - matchTime);
+                  return d < bd ? f : best;
+                }, null);
+              }
+            }
+
+            if (!fixture) fixture = candidates[0];
+          }
         }
 
         if (fixture) {
@@ -1469,6 +1488,14 @@ const visibleFixtures = FIXTURES.filter(
         setOdds(parsed.odds || {});
         if (parsed.selectedGameweek)
           setSelectedGameweek(parsed.selectedGameweek);
+      }
+    } catch {}
+
+    // 1b) Load backend results snapshot (global source of truth)
+    try {
+      const snapshot = await apiGetResultsSnapshot();
+      if (snapshot && Object.keys(snapshot).length > 0) {
+        setResults(snapshot);
       }
     } catch {}
 
