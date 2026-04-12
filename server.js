@@ -420,22 +420,43 @@ function normalizeTeamName(name) {
   if (!name) return "";
   let s = name.toLowerCase().trim();
 
-  if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
-  if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
-  if (s === "nott'm forest" || s === "nottm forest" || s === "nottingham")
-    s = "nottingham forest";
+  // Normalize punctuation + common suffixes
+  s = s.replace(/&/g, "and");
+  s = s.replace(/[^a-z0-9\\s]/g, "");
+  s = s.replace(/\\b(fc|afc|cfc|cf)\\b/g, "");
+  s = s.replace(/\\s+/g, " ").trim();
+
+  // Common aliases -> canonical forms
+  if (s === "spurs" || s === "tottenham" || s === "tottenham hotspur") return "tottenham";
+  if (
+    s === "wolves" ||
+    s === "wolverhampton" ||
+    s === "wolverhampton wanderers"
+  )
+    return "wolverhampton";
+  if (
+    s === "nottm forest" ||
+    s === "nottingham forest" ||
+    s === "nottm" ||
+    s === "nottingham"
+  )
+    return "nottingham forest";
   if (
     s === "man utd" ||
     s === "man u" ||
     s === "manchester utd" ||
     s === "manchester u" ||
-    s === "mufc"
+    s === "mufc" ||
+    s === "manchester united"
   )
-    s = "manchester united";
-  if (s === "leeds") s = "leeds united";
-  if (s === "west ham" || s === "whu" || s === "hammers")
-    s = "west ham united";
-  if (s === "aston villa" || s === "villa") s = "aston villa";
+    return "manchester united";
+  if (s === "man city" || s === "manchester city") return "manchester city";
+  if (s === "leeds") return "leeds united";
+  if (s === "newcastle") return "newcastle united";
+  if (s === "west ham" || s === "whu" || s === "hammers") return "west ham";
+  if (s === "aston villa" || s === "villa") return "aston villa";
+  if (s === "brighton hove albion" || s === "brighton") return "brighton";
+  if (s === "bournemouth" || s === "afc bournemouth") return "bournemouth";
 
   return s;
 }
