@@ -1085,6 +1085,7 @@ export default function App() {
   const [accountFavoriteTeamInput, setAccountFavoriteTeamInput] = useState("");
   const [accountFavoriteTeamStatus, setAccountFavoriteTeamStatus] = useState("");
   const [accountFavoriteTeamError, setAccountFavoriteTeamError] = useState("");
+  const [accountMeLoaded, setAccountMeLoaded] = useState(false);
 
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
@@ -2243,6 +2244,7 @@ useEffect(() => {
   useEffect(() => {
     if (!isLoggedIn || !authToken) return;
     let cancelled = false;
+    setAccountMeLoaded(false);
     (async () => {
       try {
         const me = await apiGetAccountMe(authToken);
@@ -2252,6 +2254,7 @@ useEffect(() => {
         setAccountFavoriteTeam(me?.favoriteTeam || "");
         setAccountFavoriteTeamInput(me?.favoriteTeam || "");
       } catch {}
+      if (!cancelled) setAccountMeLoaded(true);
     })();
     return () => {
       cancelled = true;
@@ -3929,7 +3932,7 @@ if (!isLoggedIn) {
                 disabled={resultsRefreshing}
                 style={{
                   border: "none",
-                  background: theme.accent2,
+                  background: theme.accent,
                   color: "#fff",
                   fontWeight: 700,
                   cursor: resultsRefreshing ? "wait" : "pointer",
@@ -4123,7 +4126,7 @@ if (!isLoggedIn) {
 )}
         </header>
 
-        {isLoggedIn && !accountFavoriteTeam && (
+        {isLoggedIn && accountMeLoaded && !accountFavoriteTeam && (
           <section
             style={{
               ...cardStyle,
