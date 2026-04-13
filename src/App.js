@@ -3932,12 +3932,13 @@ if (!isLoggedIn) {
                 disabled={resultsRefreshing}
                 style={{
                   border: "none",
-                  background: theme.accent,
-                  color: "#fff",
+                  background: "transparent",
+                  color: theme.accent,
                   fontWeight: 700,
                   cursor: resultsRefreshing ? "wait" : "pointer",
                   padding: "2px 8px",
                   borderRadius: 999,
+                  border: `1px solid ${theme.accent}`,
                   lineHeight: "16px",
                 }}
               >
