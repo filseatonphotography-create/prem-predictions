@@ -4825,6 +4825,7 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.homeGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
+                        if (current > 0) playCoinSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4865,6 +4866,7 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
+                        playCoinSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: (current + 1).toString(),
                         });
@@ -4918,6 +4920,7 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.awayGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
+                        if (current > 0) playCoinSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4960,6 +4963,7 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
+                        playCoinSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: (current + 1).toString(),
                         });
