@@ -974,6 +974,7 @@ export default function App() {
     } catch {}
     return true;
   });
+  const scoreAudioCtxRef = useRef(null);
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
@@ -1007,6 +1008,31 @@ export default function App() {
       audio.play().catch(err => console.log('Audio play failed:', err));
     } catch (err) {
       console.log('Audio error:', err);
+    }
+  };
+
+  // Generic click sounds for score +/- (no files)
+  const playScoreSound = (isAdding) => {
+    if (!soundEffectsEnabled) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!scoreAudioCtxRef.current) scoreAudioCtxRef.current = new AudioCtx();
+      const ctx = scoreAudioCtxRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = isAdding ? 880 : 440;
+      gain.gain.value = 0.08;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      const now = ctx.currentTime;
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+      osc.stop(now + 0.09);
+    } catch (err) {
+      console.log("Score sound error:", err);
     }
   };
 
@@ -4825,7 +4851,7 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.homeGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
-                        if (current > 0) playCoinSound(false);
+                        if (current > 0) playScoreSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4866,7 +4892,7 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
-                        playCoinSound(true);
+                        playScoreSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: (current + 1).toString(),
                         });
@@ -4920,7 +4946,7 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.awayGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
-                        if (current > 0) playCoinSound(false);
+                        if (current > 0) playScoreSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4963,7 +4989,7 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
-                        playCoinSound(true);
+                        playScoreSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: (current + 1).toString(),
                         });
