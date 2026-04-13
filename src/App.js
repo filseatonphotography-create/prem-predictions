@@ -3902,51 +3902,45 @@ if (!isLoggedIn) {
 </p>
             <div
               style={{
-                fontSize: 12,
+                marginTop: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: `1px solid ${theme.line}`,
+                background: theme.panelHi,
+                fontSize: 11,
                 color: theme.muted,
-                marginTop: 4,
+                minHeight: 24, // reserve space to prevent layout jump
               }}
             >
-              {apiStatus}
-            </div>
-            {lastResultsUpdated && (
-              <div
+              <span style={{ whiteSpace: "nowrap" }}>
+                {apiStatus}
+                {lastResultsUpdated
+                  ? ` • Updated ${new Date(lastResultsUpdated).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}`
+                  : ""}
+              </span>
+              <button
+                onClick={refreshAutoResults}
+                disabled={resultsRefreshing}
                 style={{
-                  marginTop: 6,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "4px 8px",
+                  border: "none",
+                  background: theme.accent2,
+                  color: "#fff",
+                  fontWeight: 700,
+                  cursor: resultsRefreshing ? "wait" : "pointer",
+                  padding: "2px 8px",
                   borderRadius: 999,
-                  border: `1px solid ${theme.line}`,
-                  background: theme.panelHi,
-                  fontSize: 11,
-                  color: theme.muted,
+                  lineHeight: "16px",
                 }}
               >
-                <span>
-                  Results updated{" "}
-                  {new Date(lastResultsUpdated).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </span>
-                <button
-                  onClick={refreshAutoResults}
-                  disabled={resultsRefreshing}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: theme.accent,
-                    fontWeight: 700,
-                    cursor: resultsRefreshing ? "wait" : "pointer",
-                    padding: 0,
-                  }}
-                >
-                  {resultsRefreshing ? "Refreshing…" : "Refresh"}
-                </button>
-              </div>
-            )}
+                {resultsRefreshing ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
           </div>
 
           {/* Change password / Logout / Menu (uniform buttons, centered) */}
