@@ -1024,13 +1024,13 @@ export default function App() {
       const gain = ctx.createGain();
       osc.type = "sine";
       osc.frequency.value = isAdding ? 880 : 440;
-      gain.gain.value = 0.08;
+      gain.gain.value = 0.18;
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
       const now = ctx.currentTime;
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
-      osc.stop(now + 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+      osc.stop(now + 0.13);
     } catch (err) {
       console.log("Score sound error:", err);
     }
