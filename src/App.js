@@ -1685,8 +1685,11 @@ useEffect(() => {
 useEffect(() => {
   if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
     setPushSupported(true);
-    getExistingPushSubscription()
-      .then(({ subscription }) => {
+    navigator.serviceWorker.getRegistration()
+      .then((registration) => (
+        registration ? registration.pushManager.getSubscription() : null
+      ))
+      .then((subscription) => {
         setPushEnabled(!!subscription);
       })
       .catch((err) => {
@@ -2349,8 +2352,7 @@ setNewPasswordInput("");
   const ensurePushRegistration = async () => {
     const existing = await navigator.serviceWorker.getRegistration();
     if (existing) return existing;
-    const swUrl = `${process.env.PUBLIC_URL || ""}/service-worker.js`;
-    const registration = await navigator.serviceWorker.register(swUrl);
+    const registration = await navigator.serviceWorker.register('/service-worker.js');
     await navigator.serviceWorker.ready;
     return registration;
   };
