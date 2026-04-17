@@ -2682,14 +2682,6 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
   }
 });
 
-// SPA fallback (must be after all API routes)
-if (fs.existsSync(BUILD_DIR)) {
-  app.get(/.*/, (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.sendFile(path.join(BUILD_DIR, "index.html"));
-  });
-}
-
 // ---------------------------------------------------------------------------
 // START SERVER
 // ---------------------------------------------------------------------------
@@ -2850,6 +2842,14 @@ setTimeout(runDeadlineNotifier, 5 * 1000);
 app.get("/api/push/vapid-public-key", (req, res) => {
   return res.json({ publicKey: VAPID_PUBLIC_KEY });
 });
+
+// SPA fallback (must be after all API routes)
+if (fs.existsSync(BUILD_DIR)) {
+  app.get(/.*/, (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.sendFile(path.join(BUILD_DIR, "index.html"));
+  });
+}
 
 
 
