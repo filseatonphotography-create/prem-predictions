@@ -2311,21 +2311,21 @@ const FIXTURES = [
   },
   {
     "id": 538117,
-    "gameweek": 34,
+    "gameweek": 33,
     "homeTeam": "Brighton & Hove Albion FC",
     "awayTeam": "Chelsea FC",
     "kickoff": "2026-04-21T19:00:00Z"
   },
   {
     "id": 538115,
-    "gameweek": 34,
+    "gameweek": 33,
     "homeTeam": "AFC Bournemouth",
     "awayTeam": "Leeds United FC",
     "kickoff": "2026-04-22T19:00:00Z"
   },
   {
     "id": 538119,
-    "gameweek": 34,
+    "gameweek": 33,
     "homeTeam": "Burnley FC",
     "awayTeam": "Manchester City FC",
     "kickoff": "2026-04-22T19:00:00Z"
