@@ -463,6 +463,19 @@ async function apiSetPushPrefs(token, prefs) {
   return data;
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding)
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
 async function apiGetMyPredictions(token) {
   const res = await fetch(`${BACKEND_BASE}/api/predictions/my`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -1672,14 +1685,14 @@ useEffect(() => {
 useEffect(() => {
   if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
     setPushSupported(true);
-    // Check if already subscribed
-    navigator.serviceWorker.getRegistration().then(registration => {
-      if (registration) {
-        registration.pushManager.getSubscription().then(subscription => {
-          setPushEnabled(!!subscription);
-        });
-      }
-    });
+    getExistingPushSubscription()
+      .then(({ subscription }) => {
+        setPushEnabled(!!subscription);
+      })
+      .catch((err) => {
+        console.error("Push support check failed:", err);
+        setPushEnabled(false);
+      });
   }
 }, []);
 
@@ -2331,6 +2344,21 @@ setNewPasswordInput("");
         await apiSetPushPrefs(authToken, next);
       } catch {}
     }
+  };
+
+  const ensurePushRegistration = async () => {
+    const existing = await navigator.serviceWorker.getRegistration();
+    if (existing) return existing;
+    const swUrl = `${process.env.PUBLIC_URL || ""}/service-worker.js`;
+    const registration = await navigator.serviceWorker.register(swUrl);
+    await navigator.serviceWorker.ready;
+    return registration;
+  };
+
+  const getExistingPushSubscription = async () => {
+    const registration = await ensurePushRegistration();
+    const subscription = await registration.pushManager.getSubscription();
+    return { registration, subscription };
   };
 
   // ---------- MINI-LEAGUES ----------
@@ -7096,40 +7124,26 @@ if (!isLoggedIn) {
                   <button
                     onClick={async () => {
                       if (!pushEnabled) {
-                        // Request permission
                         try {
-                          const permission = await Notification.requestPermission();
+                          let permission = Notification.permission;
+                          if (permission === 'default') {
+                            permission = await Notification.requestPermission();
+                          }
                           if (permission === 'granted') {
-                            // Get VAPID public key from backend
                             const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
                             if (!vapidRes.ok) {
                               throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
                             }
-                          const { publicKey } = await vapidRes.json();
+                            const { publicKey } = await vapidRes.json();
+                            const { registration, subscription: existingSubscription } =
+                              await getExistingPushSubscription();
+                            const subscription =
+                              existingSubscription ||
+                              (await registration.pushManager.subscribe({
+                                userVisibleOnly: true,
+                                applicationServerKey: urlBase64ToUint8Array(publicKey)
+                              }));
 
-                          const urlBase64ToUint8Array = (base64String) => {
-                            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-                            const base64 = (base64String + padding)
-                              .replace(/-/g, "+")
-                              .replace(/_/g, "/");
-                            const rawData = window.atob(base64);
-                            const outputArray = new Uint8Array(rawData.length);
-                            for (let i = 0; i < rawData.length; ++i) {
-                              outputArray[i] = rawData.charCodeAt(i);
-                            }
-                            return outputArray;
-                          };
-                            
-                            // Register service worker and subscribe
-                            const registration = await navigator.serviceWorker.register('/service-worker.js');
-                            await navigator.serviceWorker.ready;
-                            
-                          const subscription = await registration.pushManager.subscribe({
-                            userVisibleOnly: true,
-                            applicationServerKey: urlBase64ToUint8Array(publicKey)
-                          });
-                            
-                            // Send subscription to backend
                             const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
                               method: 'POST',
                               headers: {
@@ -7143,9 +7157,11 @@ if (!isLoggedIn) {
                               setPushEnabled(true);
                               alert('✅ Push notifications enabled!');
                             } else {
-                              throw new Error('Failed to save subscription');
+                              const subData = await subRes.json().catch(() => ({}));
+                              throw new Error(subData.error || 'Failed to save subscription');
                             }
                           } else {
+                            setPushEnabled(false);
                             alert('❌ Permission denied for notifications');
                           }
                         } catch (err) {
@@ -7156,7 +7172,9 @@ if (!isLoggedIn) {
                         // Unsubscribe
                         try {
                           const registration = await navigator.serviceWorker.getRegistration();
-                          const subscription = await registration.pushManager.getSubscription();
+                          const subscription = registration
+                            ? await registration.pushManager.getSubscription()
+                            : null;
                           if (subscription) {
                             await subscription.unsubscribe();
                           }
