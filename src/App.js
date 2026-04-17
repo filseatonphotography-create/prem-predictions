@@ -19,19 +19,6 @@ async function apiGetAllAvatars(token) {
   }
 }
 
-async function apiGetAllFavoriteTeams(token) {
-  try {
-    const res = await fetch(`${BACKEND_BASE}/api/account/favorite-team/all`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error("Favourite teams fetch failed");
-    const data = await res.json().catch(() => ({}));
-    return data.favoriteTeams || {};
-  } catch {
-    return {};
-  }
-}
-
 // Set current user's avatar
 async function apiSetAvatar(token, payload) {
   try {
@@ -60,6 +47,7 @@ const BACKEND_BASE =
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
+const FIXTURE_REFRESH_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000;
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const TEAM_BADGES = {
   Arsenal: "/badges/arsenal.png",
@@ -93,67 +81,19 @@ const TEAM_BADGES = {
 };
 
 // Simple avatar renderer using DiceBear styles
-function resolveTeamBadge(teamName) {
-  const raw = (teamName || "").trim();
-  if (!raw) return "";
-  if (TEAM_BADGES[raw]) return TEAM_BADGES[raw];
-
-  const normalized = normalizeTeamName(raw);
-  if (!normalized) return "";
-  const match = Object.entries(TEAM_BADGES).find(
-    ([name]) => normalizeTeamName(name) === normalized
-  );
-  return match ? match[1] : "";
-}
-
-function PlayerAvatar({
-  seed,
-  avatarStyle = "avataaars",
-  size = 48,
-  title = "",
-  favoriteTeam = "",
-}) {
+function PlayerAvatar({ seed, avatarStyle = "avataaars", size = 48, title = "" }) {
   const safeSeed = encodeURIComponent(seed || "user");
   const safeStyle = encodeURIComponent(avatarStyle || "avataaars");
   const src = `https://api.dicebear.com/7.x/${safeStyle}/svg?seed=${safeSeed}`;
-  const badgeSrc = resolveTeamBadge(favoriteTeam);
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 999,
-        position: "relative",
-        overflow: "hidden",
-      }}
+    <img
+      src={src}
+      alt={title || "avatar"}
       title={title || "avatar"}
-    >
-      {badgeSrc && (
-        <img
-          src={badgeSrc}
-          alt=""
-          aria-hidden="true"
-          width={size}
-          height={size}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            opacity: 0.26,
-            transform: "scale(1.08)",
-          }}
-        />
-      )}
-      <img
-        src={src}
-        alt={title || "avatar"}
-        width={size}
-        height={size}
-        style={{ borderRadius: 999, display: "block", position: "relative", zIndex: 1 }}
-      />
-    </div>
+      width={size}
+      height={size}
+      style={{ borderRadius: 999, display: "block" }}
+    />
   );
 }
 
@@ -228,17 +168,6 @@ const SPREADSHEET_WEEKLY_TOTALS = {
   Ian: [23, 10, 7, 20, 20, 24, 24, 22, 12, 4, 21],
   Anthony: [12, 25, 15, 28, 25, 11, 23, 13, 17, 17, 0],
 };
-
-const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
-  (a, b) => a - b
-);
-const PREMIER_LEAGUE_TEAMS = Array.from(
-  new Set(
-    FIXTURES.flatMap((f) => [f.homeTeam, f.awayTeam]).filter(
-      (t) => typeof t === "string" && t.trim().length > 0
-    )
-  )
-).sort((a, b) => a.localeCompare(b));
 
 // --- TEAM NAME NORMALISATION (kept from your version) ---
 function normalizeTeamName(name) {
@@ -320,11 +249,11 @@ function normalizeTeamName(name) {
 }
 
 // --- API HELPERS ---
-async function apiSignup(username, password, email = "", favoriteTeam = "") {
+async function apiSignup(username, password) {
   const res = await fetch(`${BACKEND_BASE}/api/signup`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, email, favoriteTeam }),
+    body: JSON.stringify({ username, password }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Signup failed.");
@@ -340,18 +269,6 @@ async function apiLogin(username, password) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Login failed.");
   return data;
-}
-
-// Load latest results snapshot from backend (global source of truth)
-async function apiGetResultsSnapshot() {
-  try {
-    const res = await fetch(`${BACKEND_BASE}/api/results/snapshot`);
-    if (!res.ok) return {};
-    const data = await res.json().catch(() => ({}));
-    return data && typeof data === "object" ? data : {};
-  } catch {
-    return {};
-  }
 }
 
 // Save latest results snapshot to backend for coins leaderboard
@@ -378,65 +295,6 @@ async function apiChangePassword(token, oldPassword, newPassword) {
   if (!res.ok) {
     throw new Error(data.error || "Failed to change password.");
   }
-  return data;
-}
-
-async function apiForgotPassword(username, email) {
-  const res = await fetch(`${BACKEND_BASE}/api/password/forgot`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, email }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to request password reset.");
-  return data;
-}
-
-async function apiResetPassword(token, newPassword) {
-  const res = await fetch(`${BACKEND_BASE}/api/password/reset`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token, newPassword }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to reset password.");
-  return data;
-}
-
-async function apiGetAccountMe(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/account/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to load account.");
-  return data;
-}
-
-async function apiSetAccountEmail(token, email) {
-  const res = await fetch(`${BACKEND_BASE}/api/account/email`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ email }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to save email.");
-  return data;
-}
-
-async function apiSetFavoriteTeam(token, favoriteTeam) {
-  const res = await fetch(`${BACKEND_BASE}/api/account/favorite-team`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ favoriteTeam }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to save favourite team.");
   return data;
 }
 
@@ -530,15 +388,6 @@ async function apiFetchMyLeagues(token) {
   return data.leagues || [];
 }
 
-async function apiGetMiniLeagueLeaderboard(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/leagues/leaderboard`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to load mini-league leaderboard.");
-  return data.leaderboard || [];
-}
-
 async function apiCreateLeague(token, name) {
   const res = await fetch(`${BACKEND_BASE}/api/league/create`, {
     method: "POST",
@@ -574,31 +423,44 @@ async function fetchPremierLeagueResults() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
-    let res = await fetch(`${BACKEND_BASE}/api/results`, {
+    const res = await fetch(`${BACKEND_BASE}/api/results`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
     
-    if (res.ok) {
-      const updatedHeader = res.headers.get("x-results-updated");
-      const matches = await res.json();
-      const updatedAt = updatedHeader ? Number(updatedHeader) : null;
-      if (Array.isArray(matches) && matches.length > 0) {
-        return { matches, error: null, updatedAt };
-      }
-      // If backend returns empty, fall back to Netlify source
-    }
-
-    // Fallback: hit Netlify function directly if backend can't fetch live results
-    res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
     if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
+    const updatedHeader = res.headers.get("x-results-updated");
     const matches = await res.json();
-    return { matches, error: null, updatedAt: Date.now() };
+    const updatedAt = updatedHeader ? Number(updatedHeader) : null;
+    return { matches, error: null, updatedAt };
   } catch (err) {
     if (err.name === 'AbortError') {
       return { matches: [], error: 'Request timeout' };
     }
     return { matches: [], error: err.message };
+  }
+}
+
+async function fetchPremierLeagueFixtures() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch(`${BACKEND_BASE}/api/fixtures`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return { fixtures: [], error: `HTTP ${res.status}` };
+    const updatedHeader = res.headers.get("x-fixtures-updated");
+    const fixtures = await res.json();
+    const updatedAt = updatedHeader ? Number(updatedHeader) : null;
+    return { fixtures, error: null, updatedAt };
+  } catch (err) {
+    if (err.name === "AbortError") {
+      return { fixtures: [], error: "Request timeout" };
+    }
+    return { fixtures: [], error: err.message };
   }
 }
 
@@ -700,11 +562,11 @@ function isPredictionLocked(fixture) {
   return Date.now() > deadline;
 }
 
-function isGameweekLocked(gameweek) {
-  const fixtures = FIXTURES.filter((f) => f.gameweek === gameweek);
-  if (fixtures.length === 0) return false;
+function isGameweekLocked(gameweek, fixtures) {
+  const gameweekFixtures = fixtures.filter((f) => f.gameweek === gameweek);
+  if (gameweekFixtures.length === 0) return false;
   const earliestDeadline = Math.min(
-    ...fixtures.map(
+    ...gameweekFixtures.map(
       (f) => new Date(f.kickoff).getTime() - 60 * 60 * 1000
     )
   );
@@ -934,8 +796,7 @@ function getTeamCode(name) {
     { match: ["leicester", "leicester city"], code: "LEI" },
     { match: ["liverpool"], code: "LIV" },
     { match: ["manchester city", "man city", "manchester c"], code: "MCI" },
-    { match: ["manchester united", "man united", "man utd"], code: "MUN" },
-    { match: ["leeds", "leeds united"], code: "LEE" },
+    { match: ["manchester united", "man united", "man utd", "united"], code: "MUN" },
     { match: ["newcastle", "newcastle united"], code: "NEW" },
     { match: ["nottingham forest", "nottingham", "forest", "nottm forest"], code: "NFO" },
     { match: ["southampton"], code: "SOU" },
@@ -966,42 +827,23 @@ export default function App() {
   // Auth state (must be first for use in effects)
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState("");
-  const [soundEffectsEnabled, setSoundEffectsEnabled] = useState(() => {
-    try {
-      const saved = localStorage.getItem("sound_effects_enabled_v1");
-      if (saved === null) return true;
-      return saved === "true";
-    } catch {}
-    return true;
-  });
-  const scoreAudioCtxRef = useRef(null);
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
-  const [favoriteTeamsByUserId, setFavoriteTeamsByUserId] = useState({});
 
-  // On login, fetch all avatars + favourite teams for leaderboard/avatar badge
+  // On login, fetch all avatars for leaderboard
   useEffect(() => {
-    async function loadAllAvatarData() {
+    async function loadAllAvatars() {
       if (isLoggedIn && authToken) {
-        const [allAvatars, allFavoriteTeams] = await Promise.all([
-          apiGetAllAvatars(authToken),
-          apiGetAllFavoriteTeams(authToken),
-        ]);
-        if (allAvatars && typeof allAvatars === "object") {
-          setAvatarsByUserId(allAvatars);
-        }
-        if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
-          setFavoriteTeamsByUserId(allFavoriteTeams);
-        }
+        const all = await apiGetAllAvatars(authToken);
+        if (all && typeof all === 'object') setAvatarsByUserId(all);
       }
     }
-    loadAllAvatarData();
+    loadAllAvatars();
   }, [isLoggedIn, authToken]);
 
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
-    if (!soundEffectsEnabled) return;
     try {
       const audio = new Audio(isAdding ? '/coin.mp3' : '/negative coin.mp3');
       audio.volume = 0.3;
@@ -1011,81 +853,10 @@ export default function App() {
     }
   };
 
-  // Generic click sounds for score +/- (no files)
-  const playScoreSound = (isAdding) => {
-    if (!soundEffectsEnabled) return;
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      if (!scoreAudioCtxRef.current) scoreAudioCtxRef.current = new AudioCtx();
-      const ctx = scoreAudioCtxRef.current;
-      if (ctx.state === "suspended") ctx.resume();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = isAdding ? 880 : 440;
-      gain.gain.value = 0.18;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      const now = ctx.currentTime;
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-      osc.stop(now + 0.13);
-    } catch (err) {
-      console.log("Score sound error:", err);
-    }
-  };
-
-  const updateSoundEffectsEnabled = (enabled) => {
-    setSoundEffectsEnabled(enabled);
-    localStorage.setItem("sound_effects_enabled_v1", String(enabled));
-    if (!enabled && winnerAudioRef.current) {
-      winnerAudioRef.current.pause();
-      winnerAudioRef.current.currentTime = 0;
-    }
-  };
-
   const [currentPlayer, setCurrentPlayer] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [signupName, setSignupName] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [signupEmail, setSignupEmail] = useState("");
-  const [signupFavoriteTeam, setSignupFavoriteTeam] = useState("");
-  const [forgotUsername, setForgotUsername] = useState("");
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [forgotError, setForgotError] = useState("");
-  const [forgotSuccess, setForgotSuccess] = useState("");
-  const [resetTokenInput, setResetTokenInput] = useState(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return params.get("resetToken") || "";
-    } catch {
-      return "";
-    }
-  });
-  const [resetPasswordInput, setResetPasswordInput] = useState("");
-  const [resetError, setResetError] = useState("");
-  const [resetSuccess, setResetSuccess] = useState("");
-  const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [showResetPassword, setShowResetPassword] = useState(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      return !!params.get("resetToken");
-    } catch {
-      return false;
-    }
-  });
-  const [accountEmail, setAccountEmail] = useState("");
-  const [accountEmailInput, setAccountEmailInput] = useState("");
-  const [accountEmailStatus, setAccountEmailStatus] = useState("");
-  const [accountEmailError, setAccountEmailError] = useState("");
-  const [accountFavoriteTeam, setAccountFavoriteTeam] = useState("");
-  const [accountFavoriteTeamInput, setAccountFavoriteTeamInput] = useState("");
-  const [accountFavoriteTeamStatus, setAccountFavoriteTeamStatus] = useState("");
-  const [accountFavoriteTeamError, setAccountFavoriteTeamError] = useState("");
-  const [accountMeLoaded, setAccountMeLoaded] = useState(false);
 
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
@@ -1128,12 +899,17 @@ const [passwordError, setPasswordError] = useState("");
 const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
-  const [authHydrated, setAuthHydrated] = useState(false);
 
   // App state
+  const [fixtures, setFixtures] = useState(FIXTURES);
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
   const [odds, setOdds] = useState({});
+  const GAMEWEEKS = useMemo(
+    () =>
+      Array.from(new Set(fixtures.map((f) => f.gameweek))).sort((a, b) => a - b),
+    [fixtures]
+  );
   const [selectedGameweek, setSelectedGameweek] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -1143,7 +919,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         if (Number.isFinite(gw) && gw > 0) return gw;
       }
     } catch {}
-    return GAMEWEEKS[0];
+    return FIXTURES[0]?.gameweek ?? null;
   });
   
   // Push notification state
@@ -1159,7 +935,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       deadline24h: true,
       bingpot: true,
       betWin: true,
-      favoriteTeamResult: false,
     };
   });
   
@@ -1172,27 +947,44 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     return saved || "predictions";
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const [showLeaguesMenu, setShowLeaguesMenu] = useState(false);
+const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
-  const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
-  const isResetPasswordRoute = useMemo(() => {
-    try {
-      const clean = (window.location.pathname || "").replace(/\/+$/, "") || "/";
-      return clean === "/reset-password";
-    } catch {
-      return false;
-    }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshFixtures = async () => {
+      const { fixtures: remoteFixtures, error } = await fetchPremierLeagueFixtures();
+      if (cancelled || error || !Array.isArray(remoteFixtures) || remoteFixtures.length === 0) {
+        return;
+      }
+      setFixtures(remoteFixtures);
+    };
+
+    refreshFixtures();
+    const interval = setInterval(refreshFixtures, FIXTURE_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!fixtures.length) return;
+    setSelectedGameweek((prev) => {
+      if (prev && fixtures.some((fixture) => fixture.gameweek === prev)) return prev;
+      const now = new Date();
+      const nextFixture = fixtures.find((fixture) => new Date(fixture.kickoff) > now);
+      return nextFixture?.gameweek ?? fixtures[0]?.gameweek ?? null;
+    });
+  }, [fixtures]);
 
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('activeView', activeView);
-  }, [activeView]);
-
-  useEffect(() => {
-    setShowLeaguesMenu(false);
   }, [activeView]);
 
   // Countdown timer to next deadline
@@ -1201,7 +993,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       const now = Date.now();
       
       // Find the next upcoming fixture across ALL gameweeks
-      const allUpcomingFixtures = FIXTURES
+      const allUpcomingFixtures = fixtures
         .filter(f => new Date(f.kickoff).getTime() - 60 * 60 * 1000 > now)
         .sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
       
@@ -1240,14 +1032,14 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fixtures]);
 
   // If we don't have any odds yet, generate free built-in odds for all fixtures
   useEffect(() => {
     if (odds && Object.keys(odds).length > 0) return;
 
     const generated = {};
-    FIXTURES.forEach((f) => {
+    fixtures.forEach((f) => {
       generated[f.id] = generatePseudoOddsForFixture(f);
     });
     setOdds(generated);
@@ -1260,7 +1052,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [winnerList, setWinnerList] = useState([]);
   const [winnerIndex, setWinnerIndex] = useState(0);
-  const [winnerModalType, setWinnerModalType] = useState("gw");
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -1273,17 +1064,6 @@ const [coinsState, setCoinsState] = useState({
   error: "",
 });
 
-const favoriteTeamByUsername = useMemo(() => {
-  const out = {};
-  (globalUsers || []).forEach((u) => {
-    if (!u || !u.userId || !u.username) return;
-    const team = favoriteTeamsByUserId[String(u.userId)] || "";
-    if (team) out[u.username] = team;
-  });
-  if (currentPlayer && accountFavoriteTeam) out[currentPlayer] = accountFavoriteTeam;
-  return out;
-}, [globalUsers, favoriteTeamsByUserId, currentPlayer, accountFavoriteTeam]);
-
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
     if (!selectedGameweek) {
@@ -1291,7 +1071,7 @@ const favoriteTeamByUsername = useMemo(() => {
     }
 
     const bets = coinsState.bets || {};
-    const fixturesThisGw = FIXTURES.filter(
+    const fixturesThisGw = fixtures.filter(
       (f) => f.gameweek === selectedGameweek
     );
 
@@ -1373,10 +1153,7 @@ const favoriteTeamByUsername = useMemo(() => {
   const [leagueError, setLeagueError] = useState("");
   const [leagueSuccess, setLeagueSuccess] = useState("");
   const [leaguesLoading, setLeaguesLoading] = useState(false);
-  const [miniLeagueLeaderboardRows, setMiniLeagueLeaderboardRows] = useState([]);
-  const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
-  const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
-  const gwLocked = isGameweekLocked(selectedGameweek);
+  const gwLocked = isGameweekLocked(selectedGameweek, fixtures);
   // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
@@ -1418,7 +1195,7 @@ useEffect(() => {
 // (Place this after visibleFixtures is defined)
 
 // ---------- DERIVED ----------
-const visibleFixtures = FIXTURES.filter(
+const visibleFixtures = fixtures.filter(
   (f) => f.gameweek === selectedGameweek
 );
 
@@ -1440,75 +1217,35 @@ const visibleFixtures = FIXTURES.filter(
 
       matches.forEach((match) => {
         if (!match.homeTeam || !match.awayTeam) return;
-        const score = match.score || {};
-        const ft = score.fullTime || {};
-        const rt = score.regularTime || {};
-        const ht = score.halfTime || {};
-        const homeGoals =
-          Number.isFinite(ft.home) ? ft.home :
-          Number.isFinite(rt.home) ? rt.home :
-          Number.isFinite(ht.home) ? ht.home : null;
-        const awayGoals =
-          Number.isFinite(ft.away) ? ft.away :
-          Number.isFinite(rt.away) ? rt.away :
-          Number.isFinite(ht.away) ? ht.away : null;
+        if (!match.score?.fullTime) return;
+        if (
+          match.score.fullTime.home === null ||
+          match.score.fullTime.away === null
+        )
+          return;
 
-        if (homeGoals === null || awayGoals === null) return;
+        const apiHome = normalizeTeamName(match.homeTeam.name);
+        const apiAway = normalizeTeamName(match.awayTeam.name);
 
-        // Prefer exact ID match (most reliable)
-        let fixture = null;
-        if (match.id != null) {
-          fixture = FIXTURES.find((f) => Number(f.id) === Number(match.id)) || null;
-        }
-
-        if (!fixture) {
-          const apiHome = normalizeTeamName(match.homeTeam.name);
-          const apiAway = normalizeTeamName(match.awayTeam.name);
-
-          const candidates = FIXTURES.filter((f) => {
-            const localHome = normalizeTeamName(
-              typeof f.homeTeam === "string"
-                ? f.homeTeam
-                : (f.homeTeam?.name || f.homeTeam?.tla || "")
-            );
-            const localAway = normalizeTeamName(
-              typeof f.awayTeam === "string"
-                ? f.awayTeam
-                : (f.awayTeam?.name || f.awayTeam?.tla || "")
-            );
-            return localHome === apiHome && localAway === apiAway;
-          });
-
-          if (candidates.length) {
-            const matchday =
-              typeof match.matchday === "number" ? match.matchday : null;
-            if (matchday != null) {
-              fixture = candidates.find((f) => f.gameweek === matchday) || null;
-            }
-
-            if (!fixture && match.utcDate) {
-              const matchTime = Date.parse(match.utcDate);
-              if (Number.isFinite(matchTime)) {
-                fixture = candidates.reduce((best, f) => {
-                  const t = Date.parse(f.kickoff);
-                  if (!Number.isFinite(t)) return best || f;
-                  const d = Math.abs(t - matchTime);
-                  if (!best) return f;
-                  const bd = Math.abs(Date.parse(best.kickoff) - matchTime);
-                  return d < bd ? f : best;
-                }, null);
-              }
-            }
-
-            if (!fixture) fixture = candidates[0];
-          }
-        }
+        const fixture = fixtures.find((f) => {
+          const localHome = normalizeTeamName(
+            typeof f.homeTeam === "string"
+              ? f.homeTeam
+              : (f.homeTeam?.name || f.homeTeam?.tla || "")
+          );
+          const localAway = normalizeTeamName(
+            typeof f.awayTeam === "string"
+              ? f.awayTeam
+              : (f.awayTeam?.name || f.awayTeam?.tla || "")
+          );
+          return localHome === apiHome && localAway === apiAway;
+        });
 
         if (fixture) {
           matchedCount += 1;
           updatedResults[fixture.id] = {
-            homeGoals,
-            awayGoals,
+            homeGoals: match.score.fullTime.home,
+            awayGoals: match.score.fullTime.away,
           };
         }
       });
@@ -1522,10 +1259,8 @@ const visibleFixtures = FIXTURES.filter(
   };
 
   // ---------- INIT ----------
-useEffect(() => {
-  let intervalId = null;
-
-  async function init() {
+  useEffect(() => {
+    async function init() {
       // 1) restore app cache (pred/results/odds)
       try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -1553,27 +1288,13 @@ useEffect(() => {
         }
       }
     } catch {}
-    setAuthHydrated(true);
-
-    // 2b) Load backend results snapshot (global source of truth)
-    try {
-      const snapshot = await apiGetResultsSnapshot();
-      if (snapshot && Object.keys(snapshot).length > 0) {
-        setResults((prev) => ({ ...prev, ...snapshot }));
-      }
-    } catch {}
 
     // 3) auto results
     await refreshAutoResults();
 
-    // Keep results fresh during live gameweeks
-    intervalId = setInterval(() => {
-      refreshAutoResults();
-    }, 2 * 60 * 1000);
-
         // 4) odds (initial load) — use in-app model instead of backend
     const generatedOdds = {};
-    FIXTURES.forEach((f) => {
+    fixtures.forEach((f) => {
       generatedOdds[f.id] = generateModelOddsForFixture(f);
     });
 
@@ -1585,9 +1306,6 @@ useEffect(() => {
   }
 
   init();
-  return () => {
-    if (intervalId) clearInterval(intervalId);
-  };
 }, []);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
@@ -1710,18 +1428,7 @@ useEffect(() => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
-      const originals = (myLeagues || []).find(
-        (l) => (l.name || "").trim().toLowerCase() === "the originals"
-      );
-      const leagueId = originals
-        ? originals.id
-        : myLeagues && myLeagues.length
-        ? myLeagues[0].id
-        : "";
-      const url = leagueId
-        ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}`
-        : `${BACKEND_BASE}/api/coins/leaderboard`;
-      const res = await fetch(url, {
+      const res = await fetch(`${BACKEND_BASE}/api/coins/leaderboard`, {
         headers: {
           Authorization: `Bearer ${authToken}`,
         },
@@ -1749,7 +1456,7 @@ useEffect(() => {
   };
 
   fetchCoinsLeaderboard();
-}, [activeView, authToken, myLeagues]);
+}, [activeView, authToken]);
 
 // Fetch global predictions (all users) when Global League is opened
 useEffect(() => {
@@ -1810,9 +1517,9 @@ useEffect(() => {
   } catch {}
 
   const now = new Date();
-  const next = FIXTURES.find((f) => new Date(f.kickoff) > now);
+  const next = fixtures.find((f) => new Date(f.kickoff) > now);
   if (next) setSelectedGameweek(next.gameweek);
-}, []);
+}, [fixtures]);
 
   // Detect mobile + close menu if switching to desktop
 useEffect(() => {
@@ -1835,7 +1542,6 @@ useEffect(() => {
 
   // Persist auth
   useEffect(() => {
-    if (!authHydrated) return;
     if (isLoggedIn && authToken && currentUserId && currentPlayer) {
       localStorage.setItem(
         AUTH_STORAGE_KEY,
@@ -1848,7 +1554,7 @@ useEffect(() => {
     } else {
       localStorage.removeItem(AUTH_STORAGE_KEY);
     }
-  }, [authHydrated, isLoggedIn, authToken, currentUserId, currentPlayer]);
+  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
 
   // Ensure at most one captain (isDouble) per gameweek for a single user
 function normalizeCaptainsByGameweek(predsForUser) {
@@ -1859,7 +1565,7 @@ function normalizeCaptainsByGameweek(predsForUser) {
   for (const [fixtureId, pred] of Object.entries(predsForUser)) {
     if (!pred || !pred.isDouble) continue;
 
-    const fx = FIXTURES.find((f) => f.id === Number(fixtureId));
+    const fx = fixtures.find((f) => f.id === Number(fixtureId));
     if (!fx) continue;
 
     const gw = fx.gameweek;
@@ -1918,7 +1624,7 @@ function normalizeCaptainsByGameweek(predsForUser) {
     }
 
     loadCloud();
-  }, [isLoggedIn, authToken, currentUserId]);
+  }, [fixtures, isLoggedIn, authToken, currentUserId]);
   
  
     //  // One-time migration: move Phil_legacy local preds into Phil cloud account
@@ -2075,7 +1781,7 @@ useEffect(() => {
         keys.forEach((k) => {
           let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
 
-          FIXTURES.forEach((fx) => {
+          fixtures.forEach((fx) => {
             if (fx.gameweek !== gw) return;
             const r = results[fx.id];
             if (!r || r.homeGoals === "" || r.awayGoals === "") return;
@@ -2118,60 +1824,15 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues]);
-
-useEffect(() => {
-  if (DEV_USE_LOCAL) return;
-  if (activeView !== "leagues") return;
-  if (!isLoggedIn || !authToken) {
-    setMiniLeagueLeaderboardRows([]);
-    setMiniLeagueLeaderboardError("");
-    return;
-  }
-
-  let cancelled = false;
-
-  async function loadMiniLeagueLeaderboard() {
-    setMiniLeagueLeaderboardLoading(true);
-    setMiniLeagueLeaderboardError("");
-
-    try {
-      const sortedRows = await apiGetMiniLeagueLeaderboard(authToken);
-      if (cancelled) return;
-      setMiniLeagueLeaderboardRows(sortedRows);
-    } catch (err) {
-      if (cancelled) return;
-      setMiniLeagueLeaderboardError(
-        err?.message || "Failed to load mini-league leaderboard."
-      );
-      setMiniLeagueLeaderboardRows([]);
-    } finally {
-      if (!cancelled) setMiniLeagueLeaderboardLoading(false);
-    }
-  }
-
-  loadMiniLeagueLeaderboard();
-
-  return () => {
-    cancelled = true;
-  };
-}, [activeView, isLoggedIn, authToken, results]);
+}, [results, predictions, fixtures, isLoggedIn, authToken, myLeagues]);
   // ---------- AUTH ----------
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
     setAuthError("");
     setAuthLoading(true);
-    const name = (mode === "signup" ? signupName : loginName).trim();
-    const pwd = (mode === "signup" ? signupPassword : loginPassword).trim();
-    const email = signupEmail.trim();
-    const favoriteTeam = signupFavoriteTeam.trim();
-
-    if (mode === "signup") {
-      if (!name || !pwd || !email || !favoriteTeam) {
-        setAuthLoading(false);
-        return setAuthError("Signup requires username, password, email, and favourite team.");
-      }
-    } else if (!name || !pwd) {
+    const name = loginName.trim();
+    const pwd = loginPassword.trim();
+    if (!name || !pwd) {
       setAuthLoading(false);
       return setAuthError("Enter username + password.");
     }
@@ -2179,7 +1840,7 @@ useEffect(() => {
     try {
       const result =
         mode === "signup"
-          ? await apiSignup(name, pwd, email, favoriteTeam)
+          ? await apiSignup(name, pwd)
           : await apiLogin(name, pwd);
 
       setIsLoggedIn(true);
@@ -2187,109 +1848,10 @@ useEffect(() => {
       setCurrentUserId(result.userId);
       setCurrentPlayer(result.username);
       setLoginPassword("");
-      setSignupPassword("");
-      setSignupEmail("");
-      setSignupFavoriteTeam("");
-      setShowForgotPassword(false);
-      setShowResetPassword(false);
-      setForgotError("");
-      setForgotSuccess("");
-      setResetError("");
-      setResetSuccess("");
       setAuthLoading(false);
     } catch (err) {
       setAuthLoading(false);
       setAuthError(err.message || "Auth failed.");
-    }
-  };
-
-  const handleForgotPassword = async (e) => {
-    e.preventDefault();
-    setForgotError("");
-    setForgotSuccess("");
-    try {
-      const data = await apiForgotPassword(forgotUsername, forgotEmail);
-      let msg =
-        data?.message ||
-        "If your username and email match an account, a reset link has been sent.";
-      if (data?.resetLink) {
-        msg += ` (Dev link: ${data.resetLink})`;
-      }
-      setForgotSuccess(msg);
-    } catch (err) {
-      setForgotError(err.message || "Failed to request reset.");
-    }
-  };
-
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
-    setResetError("");
-    setResetSuccess("");
-    try {
-      await apiResetPassword(resetTokenInput, resetPasswordInput);
-      setResetSuccess("Password updated. You can now log in.");
-      setResetPasswordInput("");
-      setShowResetPassword(false);
-      setShowForgotPassword(false);
-      try {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("resetToken");
-        window.history.replaceState({}, "", url.toString());
-      } catch {}
-    } catch (err) {
-      setResetError(err.message || "Failed to reset password.");
-    }
-  };
-
-  useEffect(() => {
-    if (!isLoggedIn || !authToken) return;
-    let cancelled = false;
-    setAccountMeLoaded(false);
-    (async () => {
-      try {
-        const me = await apiGetAccountMe(authToken);
-        if (cancelled) return;
-        setAccountEmail(me?.email || "");
-        setAccountEmailInput(me?.email || "");
-        setAccountFavoriteTeam(me?.favoriteTeam || "");
-        setAccountFavoriteTeamInput(me?.favoriteTeam || "");
-      } catch {}
-      if (!cancelled) setAccountMeLoaded(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoggedIn, authToken]);
-
-  const handleSaveRecoveryEmail = async () => {
-    setAccountEmailError("");
-    setAccountEmailStatus("");
-    try {
-      const data = await apiSetAccountEmail(authToken, accountEmailInput);
-      setAccountEmail(data?.email || accountEmailInput);
-      setAccountEmailStatus("Recovery email saved.");
-    } catch (err) {
-      setAccountEmailError(err.message || "Failed to save recovery email.");
-    }
-  };
-
-  const handleSaveFavoriteTeam = async () => {
-    setAccountFavoriteTeamError("");
-    setAccountFavoriteTeamStatus("");
-    try {
-      const data = await apiSetFavoriteTeam(authToken, accountFavoriteTeamInput);
-      const team = data?.favoriteTeam || accountFavoriteTeamInput;
-      setAccountFavoriteTeam(team);
-      setAccountFavoriteTeamInput(team);
-      if (currentUserId) {
-        setFavoriteTeamsByUserId((prev) => ({
-          ...(prev || {}),
-          [String(currentUserId)]: team,
-        }));
-      }
-      setAccountFavoriteTeamStatus("Favourite team saved.");
-    } catch (err) {
-      setAccountFavoriteTeamError(err.message || "Failed to save favourite team.");
     }
   };
   // ---------- CHANGE PASSWORD ----------
@@ -2316,8 +1878,6 @@ setNewPasswordInput("");
     setLoginPassword("");
     setAuthError("");
     setMyLeagues([]);
-    setAvatarsByUserId({});
-    setFavoriteTeamsByUserId({});
     setShowMobileMenu(false);
     localStorage.removeItem(AUTH_STORAGE_KEY);
   }
@@ -2413,7 +1973,7 @@ setNewPasswordInput("");
       // and a different locked fixture in this GW is already captain,
       // block the change.
       if ("isDouble" in newFields && !!newFields.isDouble) {
-        const metaFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+        const metaFixture = fixtures.find((f) => f.id === fixtureIdNum);
 
         if (metaFixture) {
           const gw = metaFixture.gameweek;
@@ -2425,7 +1985,7 @@ setNewPasswordInput("");
               const idNum = Number(id);
               if (idNum === fixtureIdNum) return false; // ignore this fixture
 
-              const f = FIXTURES.find((fx) => fx.id === idNum);
+              const f = fixtures.find((fx) => fx.id === idNum);
               if (!f || f.gameweek !== gw) return false;
 
               return isPredictionLocked(f);
@@ -2480,11 +2040,11 @@ setNewPasswordInput("");
             return prev;
           }
 
-          const tripleFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+          const tripleFixture = fixtures.find((f) => f.id === fixtureIdNum);
           if (tripleFixture) {
             updatedPlayerPreds = Object.fromEntries(
               Object.entries(updatedPlayerPreds).map(([id, pred]) => {
-                const f = FIXTURES.find((fx) => fx.id === Number(id));
+                const f = fixtures.find((fx) => fx.id === Number(id));
                 const sameGW = f && f.gameweek === tripleFixture.gameweek;
                 const isThis = Number(id) === fixtureIdNum;
 
@@ -2515,7 +2075,7 @@ setNewPasswordInput("");
           // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
     if ("isDouble" in newFields) {
       const wantDouble = !!newFields.isDouble;
-      const doubleFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+      const doubleFixture = fixtures.find((f) => f.id === fixtureIdNum);
 
       if (doubleFixture) {
         const gw = doubleFixture.gameweek;
@@ -2529,7 +2089,7 @@ setNewPasswordInput("");
             ([id, pred]) => {
               if (!pred || !pred.isDouble) return false;
 
-              const f = FIXTURES.find((fx) => fx.id === Number(id));
+              const f = fixtures.find((fx) => fx.id === Number(id));
               if (!f || f.gameweek !== gw) return false;
 
               const isThis = Number(id) === fixtureIdNum;
@@ -2550,7 +2110,7 @@ setNewPasswordInput("");
           // Set this as the only captain in that gameweek
           updatedPlayerPreds = Object.fromEntries(
             Object.entries(updatedPlayerPreds).map(([id, pred]) => {
-              const f = FIXTURES.find((fx) => fx.id === Number(id));
+              const f = fixtures.find((fx) => fx.id === Number(id));
               const sameGW = f && f.gameweek === doubleFixture.gameweek;
               const isThis = Number(id) === fixtureIdNum;
 
@@ -2667,19 +2227,18 @@ setNewPasswordInput("");
   // ...existing code...
 
 const leaderboard = useMemo(() => {
-  const LEGACY_MAP = {
-    Tom: "1763801801299",
-    Ian: "1763801801288",
-    Dave: "1763801999658",
-    Anthony: "1763802020494",
-    Steve: "1763812904100",
-    Emma: "1763813732635",
-    Phil: "1763873593264",
-  };
-
   // Use backend-computed totals if available
     if (computedLeagueTotals) {
     // Collapse any legacy-userId keys into their legacy name
+    const LEGACY_MAP = {
+      Tom: "1763801801299",
+      Ian: "1763801801288",
+      Dave: "1763801999658",
+      Anthony: "1763802020494",
+      Steve: "1763812904100",
+      Emma: "1763813732635",
+      Phil: "1763873593264",
+    };
 
     const idToLegacyName = (id) => {
       const found = Object.entries(LEGACY_MAP).find(([, v]) => v === id);
@@ -2690,24 +2249,11 @@ const leaderboard = useMemo(() => {
     Object.entries(computedLeagueTotals).forEach(([key, points]) => {
       const legacyName = idToLegacyName(key);
       const finalKey = legacyName || key;
-      const resolvedUserId = legacyName
-        ? key
-        : LEGACY_MAP[finalKey] || (PLAYERS.includes(finalKey) ? null : key);
-      if (!collapsed[finalKey]) {
-        collapsed[finalKey] = { points: 0, userId: resolvedUserId || null };
-      }
-      collapsed[finalKey].points += points || 0;
-      if (!collapsed[finalKey].userId && resolvedUserId) {
-        collapsed[finalKey].userId = resolvedUserId;
-      }
+      collapsed[finalKey] = (collapsed[finalKey] || 0) + (points || 0);
     });
 
     return Object.entries(collapsed)
-      .map(([player, meta]) => ({
-        player,
-        points: meta.points || 0,
-        userId: meta.userId || LEGACY_MAP[player] || null,
-      }))
+      .map(([player, points]) => ({ player, points }))
       .sort((a, b) => b.points - a.points);
   }
 
@@ -2718,7 +2264,7 @@ const leaderboard = useMemo(() => {
       SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0;
   });
 
-  FIXTURES.forEach((fixture) => {
+  fixtures.forEach((fixture) => {
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
     PLAYERS.forEach((p) => {
@@ -2727,18 +2273,14 @@ const leaderboard = useMemo(() => {
   });
 
   return Object.entries(totals)
-    .map(([player, points]) => ({
-      player,
-      points,
-      userId: LEGACY_MAP[player] || null,
-    }))
+    .map(([player, points]) => ({ player, points }))
     .sort((a, b) => b.points - a.points);
-}, [computedLeagueTotals, predictions, results]);
+}, [computedLeagueTotals, fixtures, predictions, results]);
 
 const currentGwPoints = useMemo(() => {
   if (!selectedGameweek) return 0;
   let total = 0;
-  FIXTURES.forEach((fixture) => {
+  fixtures.forEach((fixture) => {
     if (fixture.gameweek !== selectedGameweek) return;
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
@@ -2747,7 +2289,7 @@ const currentGwPoints = useMemo(() => {
     total += getTotalPoints(pred, res);
   });
   return total;
-}, [selectedGameweek, results, predictions, currentPredictionKey]);
+}, [selectedGameweek, fixtures, results, predictions, currentPredictionKey]);
 
 const currentGwTopScore = useMemo(() => {
   const gw = selectedGameweek;
@@ -2759,35 +2301,19 @@ const currentGwTopScore = useMemo(() => {
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
-const dedupedGlobalUsers = useMemo(() => {
-  if (!globalUsers || globalUsers.length === 0) return [];
-  const byName = {};
-  globalUsers.forEach((u) => {
-    const name = u.username || "";
-    if (!name) return;
-    const preds = globalPredictionsByUserId?.[u.userId] || {};
-    const count = Object.keys(preds || {}).length;
-    const existing = byName[name];
-    if (!existing || count > existing.count) {
-      byName[name] = { userId: u.userId, username: name, count };
-    }
-  });
-  return Object.values(byName).map(({ userId, username }) => ({ userId, username }));
-}, [globalUsers, globalPredictionsByUserId]);
-
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
-  if (!gw || !dedupedGlobalUsers || dedupedGlobalUsers.length === 0) return {};
+  if (!gw || !globalUsers || globalUsers.length === 0) return {};
   const scores = {};
-  dedupedGlobalUsers.forEach((u) => {
+  globalUsers.forEach((u) => {
     const base = SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0;
     scores[u.userId] = base;
   });
-  FIXTURES.forEach((fixture) => {
+  fixtures.forEach((fixture) => {
     if (fixture.gameweek !== gw) return;
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-    dedupedGlobalUsers.forEach((u) => {
+    globalUsers.forEach((u) => {
       const preds = globalPredictionsByUserId[u.userId] || {};
       const pred =
         preds[String(fixture.id)] !== undefined
@@ -2798,14 +2324,14 @@ const globalWeeklyScores = useMemo(() => {
     });
   });
   return scores;
-}, [selectedGameweek, dedupedGlobalUsers, globalPredictionsByUserId, results]);
+}, [selectedGameweek, fixtures, globalUsers, globalPredictionsByUserId, results]);
 
 const globalLeaderboard = useMemo(() => {
-  if (!dedupedGlobalUsers || dedupedGlobalUsers.length === 0) return [];
+  if (!globalUsers || globalUsers.length === 0) return [];
 
   const totalsByUserId = {};
 
-  dedupedGlobalUsers.forEach((u) => {
+  globalUsers.forEach((u) => {
     const base =
       SPREADSHEET_WEEKLY_TOTALS[u.username]?.reduce((a, b) => a + b, 0) || 0;
     totalsByUserId[u.userId] = {
@@ -2815,11 +2341,11 @@ const globalLeaderboard = useMemo(() => {
     };
   });
 
-  FIXTURES.forEach((fixture) => {
+  fixtures.forEach((fixture) => {
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
 
-    dedupedGlobalUsers.forEach((u) => {
+    globalUsers.forEach((u) => {
       const preds = globalPredictionsByUserId[u.userId] || {};
       const pred =
         preds[String(fixture.id)] !== undefined
@@ -2831,7 +2357,7 @@ const globalLeaderboard = useMemo(() => {
   });
 
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
-}, [dedupedGlobalUsers, globalPredictionsByUserId, results]);
+}, [fixtures, globalUsers, globalPredictionsByUserId, results]);
 
 // Winner popup for league tables (once per user per GW)
 useEffect(() => {
@@ -2839,7 +2365,7 @@ useEffect(() => {
   if (activeView !== "league" && activeView !== "globalLeague") return;
   if (!selectedGameweek) return;
 
-  const gwFixtures = FIXTURES.filter((f) => f.gameweek === selectedGameweek);
+  const gwFixtures = fixtures.filter((f) => f.gameweek === selectedGameweek);
   if (!gwFixtures.length) return;
   const lastKickoff = Math.max(
     ...gwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
@@ -2875,7 +2401,6 @@ useEffect(() => {
   if (!winners.length) return;
   setWinnerList(winners);
   setWinnerIndex(0);
-  setWinnerModalType("gw");
   setShowWinnerModal(true);
   localStorage.setItem(seenKey, "true");
 }, [
@@ -2884,70 +2409,7 @@ useEffect(() => {
   computedWeeklyTotals,
   globalWeeklyScores,
   globalUsers,
-  isLoggedIn,
-  currentUserId,
-]);
-
-// Season winner popup (once per user/view, only after season fully completes)
-useEffect(() => {
-  if (!isLoggedIn || !currentUserId) return;
-  if (activeView !== "league" && activeView !== "globalLeague") return;
-  if (!GAMEWEEKS.length) return;
-
-  const finalGw = Math.max(...GAMEWEEKS);
-  const finalGwFixtures = FIXTURES.filter((f) => f.gameweek === finalGw);
-  if (!finalGwFixtures.length) return;
-
-  const lastKickoff = Math.max(
-    ...finalGwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
-  );
-  if (!Number.isFinite(lastKickoff)) return;
-  const seasonEndTime = lastKickoff + 3 * 60 * 60 * 1000;
-  if (Date.now() < seasonEndTime) return;
-
-  const allFixturesCompleted = FIXTURES.every((fixture) => {
-    const res = results[fixture.id];
-    return !!res && res.homeGoals !== "" && res.awayGoals !== "";
-  });
-  if (!allFixturesCompleted) return;
-
-  const seenKey = `season_winner_popup_seen_${activeView}_s${finalGw}_${currentUserId}`;
-  if (localStorage.getItem(seenKey)) return;
-
-  let winners = [];
-  if (activeView === "league") {
-    if (!leaderboard || leaderboard.length === 0) return;
-    const max = Math.max(...leaderboard.map((r) => Number(r.points) || 0));
-    winners = leaderboard
-      .filter((r) => (Number(r.points) || 0) === max)
-      .map((r) => ({
-        player: r.player,
-        userId: r.userId || null,
-        points: Number(r.points) || 0,
-      }));
-  } else {
-    if (!globalLeaderboard || globalLeaderboard.length === 0) return;
-    const max = Math.max(...globalLeaderboard.map((r) => Number(r.points) || 0));
-    winners = globalLeaderboard
-      .filter((r) => (Number(r.points) || 0) === max)
-      .map((r) => ({
-        player: r.player,
-        userId: r.userId || null,
-        points: Number(r.points) || 0,
-      }));
-  }
-
-  if (!winners.length) return;
-  setWinnerList(winners);
-  setWinnerIndex(0);
-  setWinnerModalType("season");
-  setShowWinnerModal(true);
-  localStorage.setItem(seenKey, "true");
-}, [
-  activeView,
-  leaderboard,
-  globalLeaderboard,
-  results,
+  fixtures,
   isLoggedIn,
   currentUserId,
 ]);
@@ -2967,20 +2429,14 @@ useEffect(() => {
 }, [showWinnerModal]);
 
 useEffect(() => {
-  if (!showWinnerModal || !soundEffectsEnabled) return;
+  if (!showWinnerModal) return;
   if (!winnerAudioRef.current) {
-    winnerAudioRef.current = new Audio("/winner.mp3");
+    winnerAudioRef.current = new Audio("/coin.mp3");
   }
   winnerAudioRef.current.currentTime = 0;
   winnerAudioRef.current.volume = 0.5;
-  winnerAudioRef.current.play().catch(() => {
-    // Fallback for setups where winner.mp3 hasn't been added yet.
-    if (winnerAudioRef.current?.src?.includes("/winner.mp3")) {
-      winnerAudioRef.current.src = "/coin.mp3";
-      winnerAudioRef.current.play().catch(() => {});
-    }
-  });
-}, [showWinnerModal, soundEffectsEnabled]);
+  winnerAudioRef.current.play().catch(() => {});
+}, [showWinnerModal]);
 
 const winnerConfetti = useMemo(() => {
   if (!showWinnerModal) return [];
@@ -3013,7 +2469,7 @@ const winnerConfetti = useMemo(() => {
     const row = { gameweek: gw };
     PLAYERS.forEach((player) => {
       let score = SPREADSHEET_WEEKLY_TOTALS[player]?.[gw - 1] || 0;
-      FIXTURES.forEach((fixture) => {
+      fixtures.forEach((fixture) => {
         if (fixture.gameweek !== gw) return;
         const res = results[fixture.id];
         if (!res || res.homeGoals === "" || res.awayGoals === "") return;
@@ -3027,7 +2483,7 @@ const winnerConfetti = useMemo(() => {
     });
     return row;
   });
-}, [computedWeeklyTotals, predictions, results]);
+}, [computedWeeklyTotals, GAMEWEEKS, fixtures, predictions, results]);
 
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
  const theme = {
@@ -3256,138 +2712,6 @@ const winnerConfetti = useMemo(() => {
 
   // ---------- LOGIN PAGE ----------
 if (!isLoggedIn) {
-  if (isResetPasswordRoute) {
-    return (
-      <div style={{
-        ...pageStyle,
-        maxWidth: 1200,
-        margin: "0 auto",
-        padding: isMobile ? "8px" : "16px"
-      }}>
-        <div style={{ display: "grid", gap: 12 }}>
-          <header
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              marginBottom: 10,
-            }}
-          >
-            <div style={{ width: 44, height: 44, borderRadius: 12, overflow: "hidden" }}>
-              <img
-                src="/icon_64.png"
-                alt="Prediction Addiction logo"
-                style={{ width: "100%", height: "100%" }}
-              />
-            </div>
-            <h1
-              style={{
-                margin: 0,
-                fontSize: isMobile ? 24 : 32,
-                letterSpacing: 0.4,
-                textTransform: "uppercase",
-                color: theme.accent,
-                textAlign: "center",
-                whiteSpace: "nowrap",
-              }}
-            >
-              PREDICTION ADDICTION
-            </h1>
-          </header>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: 12,
-              maxWidth: window.innerWidth <= 600 ? 480 : 560,
-              width: "100%",
-              margin: "0 auto",
-            }}
-          >
-            <section style={cardStyle}>
-              <h2 style={{ marginTop: 0, fontSize: 18 }}>Reset password</h2>
-              <form onSubmit={handleResetPassword} style={{ display: "grid", gap: 8 }}>
-                <div style={{ fontSize: 13, color: theme.muted }}>
-                  Paste your reset token and choose a new password.
-                </div>
-                <input
-                  type="text"
-                  value={resetTokenInput}
-                  onChange={(e) => setResetTokenInput(e.target.value)}
-                  placeholder="Reset token"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    border: `1px solid ${theme.line}`,
-                    fontSize: 14,
-                    boxSizing: "border-box",
-                  }}
-                />
-                <input
-                  type="password"
-                  value={resetPasswordInput}
-                  onChange={(e) => setResetPasswordInput(e.target.value)}
-                  placeholder="New password"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    border: `1px solid ${theme.line}`,
-                    fontSize: 14,
-                    boxSizing: "border-box",
-                  }}
-                />
-                <button
-                  type="submit"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 10,
-                    border: `1px solid ${theme.accent2}`,
-                    background: "rgba(34,197,94,0.15)",
-                    color: theme.text,
-                    cursor: "pointer",
-                  }}
-                >
-                  Reset password
-                </button>
-                {resetError && (
-                  <div style={{ fontSize: 13, color: theme.danger }}>{resetError}</div>
-                )}
-                {resetSuccess && (
-                  <div style={{ fontSize: 13, color: theme.accent2 }}>{resetSuccess}</div>
-                )}
-              </form>
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = "/";
-                }}
-                style={{
-                  marginTop: 12,
-                  border: "none",
-                  background: "transparent",
-                  color: theme.accent,
-                  cursor: "pointer",
-                  fontSize: 13,
-                  padding: 0,
-                }}
-              >
-                Back to login
-              </button>
-            </section>
-          </div>
-        </div>
-      </div>
-    );
-  }
   return (
     <div style={{ 
       ...pageStyle,
@@ -3449,283 +2773,105 @@ if (!isLoggedIn) {
   }}
 >
   <section style={cardStyle}>
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in</h2>
+    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in / Create account</h2>
 
-    <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Username
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="text"
-          value={loginName}
-          onChange={(e) => setLoginName(e.target.value)}
-          placeholder="e.g. Phil"
-          autoComplete="username"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Password
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="password"
-          value={loginPassword}
-          onChange={(e) => setLoginPassword(e.target.value)}
-          placeholder="••••"
-          autoComplete="current-password"
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={(e) => handleAuthSubmit(e, "login")}
-        disabled={authLoading}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          borderRadius: 10,
-          border: `1px solid ${theme.accent}`,
-          background: "rgba(56,189,248,0.15)",
-          color: theme.text,
-          cursor: authLoading ? "wait" : "pointer",
-          opacity: authLoading ? 0.6 : 1,
-        }}
-      >
-        {authLoading ? "Logging in..." : "Log in"}
-      </button>
-    </form>
-
-    <div style={{ height: 1, background: theme.line, margin: "16px 0" }} />
-
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Create account</h2>
-    <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Username
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="text"
-          value={signupName}
-          onChange={(e) => setSignupName(e.target.value)}
-          placeholder="Choose a username"
-          autoComplete="username"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Password
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="password"
-          value={signupPassword}
-          onChange={(e) => setSignupPassword(e.target.value)}
-          placeholder="Create a password"
-          autoComplete="new-password"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Email
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="email"
-          value={signupEmail}
-          onChange={(e) => setSignupEmail(e.target.value)}
-          placeholder="you@example.com"
-          autoComplete="email"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Favourite Premier League team
-        <select
-          value={signupFavoriteTeam}
-          onChange={(e) => setSignupFavoriteTeam(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-        >
-          <option value="">Select team...</option>
-          {PREMIER_LEAGUE_TEAMS.map((team) => (
-            <option key={team} value={team}>
-              {team}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <button
-        type="button"
-        onClick={(e) => handleAuthSubmit(e, "signup")}
-        disabled={authLoading}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          borderRadius: 10,
-          border: `1px solid ${theme.accent2}`,
-          background: "rgba(34,197,94,0.15)",
-          color: theme.text,
-          cursor: authLoading ? "wait" : "pointer",
-          opacity: authLoading ? 0.6 : 1,
-        }}
-      >
-        {authLoading ? "Creating..." : "Create account"}
-      </button>
-    </form>
-
-    {authError && (
-      <div
-        style={{
-          marginTop: 10,
-          background: "rgba(239,68,68,0.12)",
-          border: `1px solid rgba(239,68,68,0.5)`,
-          color: theme.text,
-          padding: "8px 10px",
-          borderRadius: 8,
-          fontSize: 13,
-        }}
-      >
-        {authError}
-      </div>
-    )}
-
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowForgotPassword((v) => !v);
-                    setForgotError("");
-                    setForgotSuccess("");
-                  }}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    color: theme.accent,
-                    cursor: "pointer",
-                    fontSize: 13,
-                    padding: 0,
-                  }}
-                >
-                  {showForgotPassword ? "Hide forgot password" : "Forgot password?"}
-                </button>
-              </div>
-
-              {showForgotPassword && (
-                <form onSubmit={handleForgotPassword} style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                  <div style={{ fontSize: 13, color: theme.muted }}>
-                    Enter your username and recovery email.
-                  </div>
+              <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Username
                   <input
-                    type="text"
-                    value={forgotUsername}
-                    onChange={(e) => setForgotUsername(e.target.value)}
-                    placeholder="Username"
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: theme.panelHi,
-                      color: theme.text,
-                      border: `1px solid ${theme.line}`,
-                      fontSize: 14,
-                      boxSizing: "border-box",
-                    }}
-                  />
+  style={{
+    width: "100%",
+    marginTop: 6,
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    fontSize: 15,
+    boxSizing: "border-box",
+  }}
+  type="text"
+  value={loginName}
+  onChange={(e) => setLoginName(e.target.value)}
+  placeholder="e.g. Phil"
+  autoComplete="username"
+/>
+                </label>
+
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Password
                   <input
-                    type="email"
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
-                    placeholder="Recovery email"
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      background: theme.panelHi,
-                      color: theme.text,
-                      border: `1px solid ${theme.line}`,
-                      fontSize: 14,
-                      boxSizing: "border-box",
-                    }}
-                  />
+  style={{
+    width: "100%",
+    marginTop: 6,
+    padding: "10px 12px",
+    borderRadius: 10,
+    background: theme.panelHi,
+    color: theme.text,
+    border: `1px solid ${theme.line}`,
+    fontSize: 15,
+    boxSizing: "border-box",
+  }}
+  type="password"
+  value={loginPassword}
+  onChange={(e) => setLoginPassword(e.target.value)}
+  placeholder="••••"
+  autoComplete="current-password"
+/>
+                </label>
+
+                <div style={{ display: "flex", gap: 8 }}>
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={(e) => handleAuthSubmit(e, "login")}
+                    disabled={authLoading}
                     style={{
-                      width: "100%",
+                      flex: 1,
                       padding: "8px 10px",
                       borderRadius: 10,
                       border: `1px solid ${theme.accent}`,
                       background: "rgba(56,189,248,0.15)",
                       color: theme.text,
-                      cursor: "pointer",
+                      cursor: authLoading ? "wait" : "pointer",
+                      opacity: authLoading ? 0.6 : 1,
                     }}
                   >
-                    Send reset link
+                    {authLoading ? "Logging in..." : "Log in"}
                   </button>
-                  {forgotError && (
-                    <div style={{ fontSize: 13, color: theme.danger }}>{forgotError}</div>
-                  )}
-                  {forgotSuccess && (
-                    <div style={{ fontSize: 13, color: theme.accent2 }}>{forgotSuccess}</div>
-                  )}
-                </form>
-              )}
+                  <button
+                    type="button"
+                    onClick={(e) => handleAuthSubmit(e, "signup")}
+                    disabled={authLoading}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      borderRadius: 10,
+                      border: `1px solid ${theme.accent2}`,
+                      background: "rgba(34,197,94,0.15)",
+                      color: theme.text,
+                      cursor: authLoading ? "wait" : "pointer",
+                      opacity: authLoading ? 0.6 : 1,
+                    }}
+                  >
+                    {authLoading ? "Creating..." : "Create account"}
+                  </button>
+                </div>
+
+                {authError && (
+                  <div
+                    style={{
+                      background: "rgba(239,68,68,0.12)",
+                      border: `1px solid rgba(239,68,68,0.5)`,
+                      color: theme.text,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      fontSize: 13,
+                    }}
+                  >
+                    {authError}
+                  </div>
+                )}
+              </form>
             </section>
           </div>
         </div>
@@ -3781,10 +2927,10 @@ if (!isLoggedIn) {
           >
             <div style={{ fontSize: 28, marginBottom: 6 }}>🏆🎉</div>
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
-              {winnerModalType === "season" ? "Season Winner" : "Gameweek Winner"}
+              Gameweek Winner
             </div>
             <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>
-              {winnerModalType === "season" ? "End of Season" : `GW${selectedGameweek}`}
+              GW{selectedGameweek}
             </div>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <PlayerAvatar
@@ -3792,14 +2938,6 @@ if (!isLoggedIn) {
               seed={winnerList[winnerIndex]?.player || ""}
               avatarStyle={"avataaars"}
               title={winnerList[winnerIndex]?.player}
-              favoriteTeam={(() => {
-                const winner = winnerList[winnerIndex];
-                if (!winner) return "";
-                const byId = winner.userId
-                  ? favoriteTeamsByUserId[String(winner.userId)] || ""
-                  : "";
-                return byId || favoriteTeamByUsername[winner.player] || "";
-              })()}
             />
             </div>
             <div style={{ fontSize: 18, fontWeight: 700 }}>
@@ -3841,7 +2979,7 @@ if (!isLoggedIn) {
         gap: 12, 
         padding: isMobile ? "0 4px" : "0 16px",
         boxSizing: "border-box",
-        overflowX: "visible",
+        overflowX: "hidden",
       }}>
         {/* Header */}
                 {/* Header */}
@@ -3905,46 +3043,51 @@ if (!isLoggedIn) {
 </p>
             <div
               style={{
-                marginTop: 6,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "4px 8px",
-                borderRadius: 999,
-                border: `1px solid ${theme.line}`,
-                background: theme.panelHi,
-                fontSize: 11,
+                fontSize: 12,
                 color: theme.muted,
-                minHeight: 24, // reserve space to prevent layout jump
+                marginTop: 4,
               }}
             >
-              <span style={{ whiteSpace: "nowrap" }}>
-                {apiStatus}
-                {lastResultsUpdated
-                  ? ` • Updated ${new Date(lastResultsUpdated).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}`
-                  : ""}
-              </span>
-              <button
-                onClick={refreshAutoResults}
-                disabled={resultsRefreshing}
+              {apiStatus}
+            </div>
+            {lastResultsUpdated && (
+              <div
                 style={{
-                  border: "none",
-                  background: "transparent",
-                  color: theme.accent,
-                  fontWeight: 700,
-                  cursor: resultsRefreshing ? "wait" : "pointer",
-                  padding: "2px 8px",
+                  marginTop: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "4px 8px",
                   borderRadius: 999,
-                  border: `1px solid ${theme.accent}`,
-                  lineHeight: "16px",
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  fontSize: 11,
+                  color: theme.muted,
                 }}
               >
-                {resultsRefreshing ? "Refreshing…" : "Refresh"}
-              </button>
-            </div>
+                <span>
+                  Results updated{" "}
+                  {new Date(lastResultsUpdated).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <button
+                  onClick={refreshAutoResults}
+                  disabled={resultsRefreshing}
+                  style={{
+                    border: "none",
+                    background: "transparent",
+                    color: theme.accent,
+                    fontWeight: 700,
+                    cursor: resultsRefreshing ? "wait" : "pointer",
+                    padding: 0,
+                  }}
+                >
+                  {resultsRefreshing ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Change password / Logout / Menu (uniform buttons, centered) */}
@@ -3956,246 +3099,70 @@ if (!isLoggedIn) {
       display: "flex",
       justifyContent: "center",
       alignItems: "center",
-      gap: isMobile ? 4 : 8,
+      gap: isMobile ? 6 : 8,
       width: "100%",
       flexWrap: "nowrap", // stay on one line
     }}
   >
-    <div style={{ position: "relative", display: "inline-block" }}>
-      <button
-        type="button"
-        onClick={() => {
-          setShowMobileMenu(false);
-          setShowLeaguesMenu((v) => !v);
-        }}
-        style={{
-          padding: isMobile ? "6px 8px" : "6px 10px",
-          borderRadius: 8,
-          background: theme.panelHi,
-          color: theme.text,
-          border: `1px solid ${theme.line}`,
-          cursor: "pointer",
-          fontSize: isMobile ? 11 : 12,
-          height: isMobile ? 30 : 32,
-          minWidth: isMobile ? 78 : 108,
-          textAlign: "center",
-          whiteSpace: "nowrap",
-        }}
-      >
-        Leagues ▾
-      </button>
-      {showLeaguesMenu && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            left: 0,
-            right: "auto",
-            marginTop: 6,
-            background: theme.panel,
-            border: `1px solid ${theme.line}`,
-            borderRadius: 10,
-            padding: 6,
-            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
-            minWidth: 190,
-            maxWidth: "min(280px, calc(100vw - 24px))",
-            boxSizing: "border-box",
-            zIndex: 1000,
-          }}
-        >
-          {[
-            { id: "league", label: "Mini League Table" },
-            { id: "globalLeague", label: "Global League Table" },
-            { id: "coinsLeague", label: "Coins League" },
-            { id: "leagues", label: "Mini‑Leagues" },
-          ].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                setActiveView(item.id);
-                setShowLeaguesMenu(false);
-                setShowMobileMenu(false);
-              }}
-              style={{
-                ...pillBtn(activeView === item.id),
-                display: "block",
-                textAlign: "left",
-                padding: "6px 10px",
-                fontSize: 14,
-                whiteSpace: "nowrap",
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-
     <button
-      type="button"
-      onClick={() => {
-        setActiveView("settings");
-        setShowMobileMenu(false);
-      }}
-      title="Open settings"
-      aria-label="Open settings"
+      onClick={() => setShowPasswordModal(true)}
       style={{
-        width: isMobile ? 30 : 32,
-        height: isMobile ? 30 : 32,
+        padding: "6px 10px",
         borderRadius: 8,
-        border: `1px solid ${theme.line}`,
         background: theme.panelHi,
-        color: theme.accent,
+        color: theme.text,
+        border: `1px solid ${theme.line}`,
         cursor: "pointer",
-        fontSize: 16,
-        display: "grid",
-        placeItems: "center",
-        padding: 0,
+        fontSize: 12,
+        height: 32,
+        minWidth: isMobile ? 96 : 118,
+        textAlign: "center",
       }}
     >
-      ⚙️
+      {isMobile ? "Password" : "Change Password"}
     </button>
 
     <button
       onClick={handleLogout}
       style={{
-        padding: isMobile ? "6px 8px" : "6px 10px",
+        padding: "6px 10px",
         borderRadius: 8,
         border: `1px solid ${theme.line}`,
         background: theme.panelHi,
         color: theme.text,
         cursor: "pointer",
-        fontSize: isMobile ? 11 : 12,
-        height: isMobile ? 30 : 32,
-        minWidth: isMobile ? 70 : 92,
+        fontSize: 12,
+        height: 32,
+        minWidth: isMobile ? 96 : 118,
         textAlign: "center",
-        whiteSpace: "nowrap",
       }}
     >
       Log out
     </button>
 
-    <button
-      type="button"
-      onClick={() => updateSoundEffectsEnabled(!soundEffectsEnabled)}
-      title={soundEffectsEnabled ? "Mute sound effects" : "Unmute sound effects"}
-      aria-label={soundEffectsEnabled ? "Mute sound effects" : "Unmute sound effects"}
-      style={{
-        width: isMobile ? 30 : 32,
-        height: isMobile ? 30 : 32,
-        borderRadius: 8,
-        border: `1px solid ${theme.line}`,
-        background: theme.panelHi,
-        color: soundEffectsEnabled ? theme.accent2 : theme.muted,
-        cursor: "pointer",
-        fontSize: 16,
-        display: "grid",
-        placeItems: "center",
-        padding: 0,
-      }}
-    >
-      {soundEffectsEnabled ? "🔊" : "🔇"}
-    </button>
-
     {isMobile && (
       <button
         type="button"
-        onClick={() => {
-          setShowLeaguesMenu(false);
-          setShowMobileMenu((v) => !v);
-        }}
+        onClick={() => setShowMobileMenu((v) => !v)}
         style={{
-          padding: isMobile ? "6px 8px" : "6px 10px",
+          padding: "6px 10px",
           borderRadius: 8,
           border: `1px solid ${theme.line}`,
           background: theme.panelHi,
           color: theme.text,
           cursor: "pointer",
-          fontSize: isMobile ? 11 : 12,
-          height: isMobile ? 30 : 32,
-          minWidth: isMobile ? 68 : 108,
+          fontSize: 12,
+          height: 32,
+          minWidth: isMobile ? 96 : 118,
           textAlign: "center",
-          whiteSpace: "nowrap",
       }}
       >
-        Menu ▾
+        Menu
       </button>
     )}
   </div>
 )}
         </header>
-
-        {isLoggedIn && accountMeLoaded && !accountFavoriteTeam && (
-          <section
-            style={{
-              ...cardStyle,
-              border: `1px solid ${theme.warn}`,
-              background: "rgba(245,158,11,0.12)",
-              display: "grid",
-              gap: 6,
-              padding: isMobile ? 10 : 12,
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
-              Add your favourite team
-            </div>
-            <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.25 }}>
-              This helps us send optional team-result notifications.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
-              <select
-                value={accountFavoriteTeamInput}
-                onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
-                style={{
-                  flex: "1 1 auto",
-                  minWidth: 0,
-                  padding: "6px 9px",
-                  borderRadius: 8,
-                  border: `1px solid ${theme.line}`,
-                  background: theme.panelHi,
-                  color: theme.text,
-                  fontSize: 13,
-                }}
-              >
-                <option value="">Select team...</option>
-                {PREMIER_LEAGUE_TEAMS.map((team) => (
-                  <option key={team} value={team}>
-                    {team}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={handleSaveFavoriteTeam}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "none",
-                  background: theme.accent,
-                  color: "#fff",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Save
-              </button>
-            </div>
-            {accountFavoriteTeamError && (
-              <div style={{ fontSize: 12, color: theme.danger }}>
-                {accountFavoriteTeamError}
-              </div>
-            )}
-            {accountFavoriteTeamStatus && (
-              <div style={{ fontSize: 12, color: theme.accent2 }}>
-                {accountFavoriteTeamStatus}
-              </div>
-            )}
-          </section>
-        )}
         
         {showPasswordModal && (
   <div
@@ -4307,9 +3274,13 @@ if (!isLoggedIn) {
   const TABS = [
   { id: "predictions", label: "Predictions" },
   { id: "results", label: "Results" },
+  { id: "league", label: "Mini League Table" },
+  { id: "globalLeague", label: "Global League Table" },
   { id: "summary", label: "Summary" },
+  { id: "coinsLeague", label: "Coins League" },
   { id: "history", label: "History" },
   { id: "winprob", label: "Win Probabilities" },
+  { id: "leagues", label: "Mini-Leagues" },
   { id: "settings", label: "Settings" },
   { id: "rules", label: "Rules" },
 ];
@@ -4386,12 +3357,12 @@ if (!isLoggedIn) {
   );
 })()}
         {/* Controls */}
-        <section
+                <section
           style={{
             ...cardStyle,
             display: "grid",
             gridTemplateColumns: activeView === "predictions" ? "auto auto" : "auto",
-            gap: isMobile ? 8 : 12,
+            gap: 12,
             alignItems: "center",
             justifyContent: "center",
             justifyItems: "center",
@@ -4419,9 +3390,6 @@ if (!isLoggedIn) {
                   color: theme.text,
                   border: `1px solid ${theme.line}`,
                   fontSize: 14,
-                  width: isMobile ? "9ch" : "11ch",
-                  minWidth: isMobile ? 72 : 92,
-                  maxWidth: isMobile ? 90 : 120,
                 }}
               >
                 {PLAYERS.map((p) => (
@@ -4442,13 +3410,13 @@ if (!isLoggedIn) {
               value={selectedGameweek}
               onChange={(e) => setSelectedGameweek(Number(e.target.value))}
                 style={{
-    padding: "6px 10px",
+    padding: "6px 14px",
     borderRadius: 8,
     background: theme.panelHi,
     color: theme.text,
     border: `1px solid ${theme.line}`,
     fontSize: 14,
-    minWidth: isMobile ? 68 : 74,          // keep GW label visible while freeing space for player select
+    minWidth: 82,          // keeps “GW13” fully visible with arrow
     textAlignLast: "center",
   }}
             >
@@ -4649,20 +3617,20 @@ if (!isLoggedIn) {
             display: "flex",
             alignItems: "center",
             gap: 8,
-            padding: isMobile ? "8px 12px" : "9px 14px",
+            padding: "6px 10px",
             borderRadius: 999,
-            border: "2px solid rgba(255, 255, 255, 0.5)",
+            border: `1px solid ${theme.line}`,
             background: theme.panelHi,
-            fontSize: isMobile ? 12 : 13,
+            fontSize: 12,
             color: theme.muted,
           }}
         >
           <span>GW points so far</span>
           <span
             style={{
-              minWidth: isMobile ? 38 : 44,
+              minWidth: 34,
               textAlign: "center",
-              padding: isMobile ? "3px 9px" : "4px 10px",
+              padding: "2px 8px",
               borderRadius: 999,
               fontWeight: 800,
               color:
@@ -4679,8 +3647,8 @@ if (!isLoggedIn) {
                   : "#22c55e",
               border:
                 currentGwPoints === currentGwTopScore && currentGwPoints > 0
-                  ? "2px solid rgba(255,255,255,0.55)"
-                  : "2px solid rgba(255,255,255,0.45)",
+                  ? "1px solid rgba(245,158,11,0.6)"
+                  : "1px solid rgba(34,197,94,0.5)",
             }}
           >
             <AnimatedNumber
@@ -4752,14 +3720,6 @@ if (!isLoggedIn) {
 
         const coinsWin =
           hasResult && coinsStake > 0 && coinsSide === getResult(r.homeGoals, r.awayGoals);
-        const coinsPossibleReturnColor =
-          coinsStake <= 0
-            ? theme.muted
-            : !hasResult
-            ? "#ffffff"
-            : coinsWin
-            ? "#22c55e"
-            : "#ef4444";
 
         return (
           <div
@@ -4823,9 +3783,14 @@ if (!isLoggedIn) {
                       flex: "0 1 auto",
                     }}
                   >
-                    {resolveTeamBadge(fixture.homeTeam) && (
+                    {(TEAM_BADGES[fixture.homeTeam] ||
+                      getTeamCode(fixture.homeTeam) === "NFO") && (
                       <img
-                        src={resolveTeamBadge(fixture.homeTeam)}
+                        src={
+                          getTeamCode(fixture.homeTeam) === "NFO"
+                            ? "/badges/nottingham_forest.png"
+                            : TEAM_BADGES[fixture.homeTeam]
+                        }
                         alt={fixture.homeTeam}
                         style={{
                           width: isMobile ? 18 : 20,
@@ -4849,7 +3814,6 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.homeGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
-                        if (current > 0) playScoreSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4890,7 +3854,6 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.homeGoals || 0);
-                        playScoreSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           homeGoals: (current + 1).toString(),
                         });
@@ -4944,7 +3907,6 @@ if (!isLoggedIn) {
                       disabled={locked || (pred.awayGoals || 0) <= 0}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
-                        if (current > 0) playScoreSound(false);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: Math.max(0, current - 1).toString(),
                         });
@@ -4987,7 +3949,6 @@ if (!isLoggedIn) {
                       disabled={locked}
                       onClick={() => {
                         const current = Number(pred.awayGoals || 0);
-                        playScoreSound(true);
                         updatePrediction(currentPredictionKey, fixture.id, {
                           awayGoals: (current + 1).toString(),
                         });
@@ -5023,9 +3984,14 @@ if (!isLoggedIn) {
                       {getTeamCode(fixture.awayTeam)}
                     </span>
 
-                    {resolveTeamBadge(fixture.awayTeam) && (
+                    {(TEAM_BADGES[fixture.awayTeam] ||
+                      getTeamCode(fixture.awayTeam) === "NFO") && (
                       <img
-                        src={resolveTeamBadge(fixture.awayTeam)}
+                        src={
+                          getTeamCode(fixture.awayTeam) === "NFO"
+                            ? "/badges/nottingham_forest.png"
+                            : TEAM_BADGES[fixture.awayTeam]
+                        }
                         alt={fixture.awayTeam}
                         style={{
                           width: isMobile ? 18 : 20,
@@ -5246,10 +4212,10 @@ if (!isLoggedIn) {
                   {/* Center content */}
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     {/* MINI WRAPPER with +/- buttons */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <CoinIcon />
 
-  <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
     <button
       type="button"
       disabled={locked || coinsStake <= 0}
@@ -5261,14 +4227,14 @@ if (!isLoggedIn) {
         }
       }}
       style={{
-        width: 18,
-        height: 18,
+        width: 24,
+        height: 24,
         padding: 0,
-        borderRadius: 5,
+        borderRadius: 6,
         border: (locked || coinsStake <= 0) ? `2px solid rgba(255, 255, 255, 0.5)` : `1px solid ${theme.line}`,
         background: (locked || coinsStake <= 0) ? theme.panelHi : theme.accent,
         color: (locked || coinsStake <= 0) ? theme.muted : "#fff",
-        fontSize: 13,
+        fontSize: 16,
         fontWeight: 700,
         cursor: (locked || coinsStake <= 0) ? "not-allowed" : "pointer",
         display: "flex",
@@ -5282,11 +4248,11 @@ if (!isLoggedIn) {
 
     <div
       style={{
-        width: isMobile ? 34 : 36,
+        width: 32,
         textAlign: "center",
-        padding: isMobile ? "6px 7px" : "6px 8px",
-        borderRadius: 8,
-        border: "1.5px solid #ffffff",
+        padding: "2px 4px",
+        borderRadius: 6,
+        border: `1px solid ${theme.line}`,
         background: theme.panelHi,
         color: theme.text,
         fontWeight: 700,
@@ -5309,14 +4275,14 @@ if (!isLoggedIn) {
         }
       }}
       style={{
-        width: 18,
-        height: 18,
+        width: 24,
+        height: 24,
         padding: 0,
-        borderRadius: 5,
+        borderRadius: 6,
         border: `1px solid ${theme.line}`,
         background: (locked || coinsState.remaining <= 0) ? theme.panelHi : theme.accent2,
         color: (locked || coinsState.remaining <= 0) ? theme.muted : "#fff",
-        fontSize: 13,
+        fontSize: 16,
         fontWeight: 700,
         cursor: (locked || coinsState.remaining <= 0) ? "not-allowed" : "pointer",
         display: "flex",
@@ -5374,7 +4340,12 @@ if (!isLoggedIn) {
                       fontSize: 11,
                       minWidth: 90,
                       justifyContent: "flex-end",
-                      color: coinsPossibleReturnColor,
+                      color:
+                        coinsPossibleReturn <= 0
+                          ? "#ef4444"
+                          : coinsWin
+                          ? "#f59e0b"
+                          : "#22c55e",
                       fontWeight: 700,
                     }}
                   >
@@ -5460,9 +4431,16 @@ if (!isLoggedIn) {
         const homeCode = getTeamCode(fixture.homeTeam);
         const awayCode = getTeamCode(fixture.awayTeam);
 
-        // Badge sources (normalized)
-        const homeBadgeSrc = resolveTeamBadge(fixture.homeTeam);
-        const awayBadgeSrc = resolveTeamBadge(fixture.awayTeam);
+        // Badge sources, using your current TEAM_BADGES + NFO fallback
+        const homeBadgeSrc =
+          homeCode === "NFO"
+            ? "/badges/nottingham_forest.png"
+            : TEAM_BADGES[fixture.homeTeam];
+
+        const awayBadgeSrc =
+          awayCode === "NFO"
+            ? "/badges/nottingham_forest.png"
+            : TEAM_BADGES[fixture.awayTeam];
 
         return (
           <div
@@ -5586,7 +4564,7 @@ if (!isLoggedIn) {
 
                 return (
                   <div
-                    key={row.userId || row.player}
+                    key={row.player}
                     style={{
                       display: "grid",
                       gridTemplateColumns: "50px auto 1fr 90px",
@@ -5629,11 +4607,6 @@ if (!isLoggedIn) {
                         }
                         return row.player === currentPlayer ? avatarStyle : 'avataaars';
                       })()}
-                      favoriteTeam={
-                        favoriteTeamsByUserId[String(row.userId || "")] ||
-                        favoriteTeamByUsername[row.player] ||
-                        ""
-                      }
                     />
                     <div style={{ 
                       fontWeight: 700,
@@ -5728,11 +4701,6 @@ if (!isLoggedIn) {
                         }
                         return row.player === currentPlayer ? avatarStyle : "avataaars";
                       })()}
-                      favoriteTeam={
-                        favoriteTeamsByUserId[String(row.userId || "")] ||
-                        favoriteTeamByUsername[row.player] ||
-                        ""
-                      }
                     />
                     <div
                       style={{
@@ -5864,11 +4832,6 @@ if (!isLoggedIn) {
         size={36} 
         seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
         avatarStyle={row.player === currentPlayer ? avatarStyle : 'avataaars'}
-        favoriteTeam={
-          favoriteTeamsByUserId[String(row.userId || "")] ||
-          favoriteTeamByUsername[row.player] ||
-          ""
-        }
       />
       <div style={{ 
         fontWeight: 700,
@@ -5923,7 +4886,7 @@ if (!isLoggedIn) {
           };
 
           // Get all completed fixtures
-          const completedFixtures = FIXTURES.filter(f => results[f.id]);
+          const completedFixtures = fixtures.filter(f => results[f.id]);
 
           // Calculate bingpots and missed weeks for each player
           PLAYERS.forEach(player => {
@@ -6082,146 +5045,125 @@ if (!isLoggedIn) {
 
         {/* History */}
         {activeView === "history" && (
-          (() => {
-            return (
-              <section
+          <section
+  style={{
+    ...cardStyle,
+    padding: 0,
+    overflow: "hidden",
+  }}
+>
+            <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>Weekly Scores</h2>
+
+            <div style={{ 
+              overflowX: "auto", 
+              overflowY: "auto",
+              maxHeight: "70vh",
+              position: "relative"
+            }}>
+              <table
                 style={{
-                  ...cardStyle,
-                  padding: 0,
-                  overflow: "hidden",
+                  width: "100%",
+                  borderCollapse: "separate",
+                  borderSpacing: 0,
+                  fontSize: 13,
                 }}
               >
-                <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>
-                  Weekly Scores
-                </h2>
-
-                <div
-                  style={{
-                    overflowX: "auto",
-                    overflowY: "auto",
-                    maxHeight: "70vh",
-                    position: "relative",
-                    padding: "0 0 10px",
-                    background: theme.panel,
-                  }}
-                >
-                  <table
-                    style={{
-                      width: "100%",
-                      borderCollapse: "separate",
-                      borderSpacing: 0,
-                      fontSize: isMobile ? 12 : 13,
-                    }}
-                  >
-                    <thead>
-                      <tr
-                        style={{
-                          position: "sticky",
-                          top: 0,
-                          zIndex: 4,
-                          background: theme.panel,
-                        }}
+                <thead>
+                  <tr style={{ 
+                    position: "sticky", 
+                    top: 0, 
+                    zIndex: 4,
+                    background: theme.panel
+                  }}>
+                    <th
+  style={{
+    textAlign: "center",
+    padding: "10px 12px",
+    position: "sticky",
+    left: 0,
+    zIndex: 5,
+    background: theme.panel,
+    borderRight: `2px solid ${theme.line}`,
+    borderBottom: `2px solid ${theme.line}`,
+    fontWeight: 700,
+    color: theme.accent,
+    width: "60px",
+    minWidth: "60px",
+  }}
+>
+  GW
+</th>
+                    {PLAYERS.map((p) => (
+                      <th key={p} style={{ 
+                        textAlign: "center", 
+                        padding: "10px 6px",
+                        borderBottom: `2px solid ${theme.line}`,
+                        fontWeight: 700,
+                        color: theme.accent,
+                        background: theme.panel,
+                        minWidth: "50px",
+                        maxWidth: "70px",
+                      }}
+                      title={p}
                       >
-                        <th
-                          style={{
-                            textAlign: "center",
-                            padding: isMobile ? "8px 10px" : "10px 12px",
-                            position: "sticky",
-                            left: 0,
-                            zIndex: 5,
-                            background: theme.panel,
-                            borderRight: `1px solid ${theme.line}`,
-                            borderBottom: `1px solid ${theme.line}`,
-                            fontWeight: 800,
-                            color: theme.accent,
-                            width: isMobile ? "54px" : "64px",
-                            minWidth: isMobile ? "54px" : "64px",
-                          }}
-                        >
-                          GW
-                        </th>
-                        {PLAYERS.map((p) => (
-                          <th
-                            key={p}
-                            style={{
-                              textAlign: "center",
-                              padding: isMobile ? "8px 6px" : "10px 8px",
-                              borderBottom: `1px solid ${theme.line}`,
-                              fontWeight: 700,
-                              color: theme.accent,
-                              background: theme.panel,
-                              minWidth: isMobile ? "50px" : "58px",
-                            }}
-                            title={p}
-                          >
-                            {p.slice(0, 4)}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historicalScores.map((row, idx) => {
-                        const vals = PLAYERS.map((p) => Number(row[p]) || 0);
-                        const max = Math.max(...vals);
-                        const min = Math.min(...vals);
-                        const range = max - min || 1;
-                        const rowBg = theme.panelHi;
+                        {p.slice(0, 4)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historicalScores.map((row, idx) => {
+                    const vals = PLAYERS.map((p) => row[p]);
+                    const max = Math.max(...vals);
+                    const min = Math.min(...vals);
+                    const range = max - min || 1;
 
-                        return (
-                          <tr key={row.gameweek}>
+                    return (
+                      <tr key={row.gameweek}>
+                        <td
+  style={{
+    padding: "10px 12px",
+    color: theme.accent,
+    position: "sticky",
+    left: 0,
+    zIndex: 3,
+    background: theme.panel,
+    borderRight: `2px solid ${theme.line}`,
+    fontWeight: 700,
+    textAlign: "center",
+  }}
+>
+  {row.gameweek}
+</td>
+                        {PLAYERS.map((p) => {
+                          const v = row[p];
+                          const shade = (v - min) / range;
+                          const isWinner = v === max && max > 0;
+                          return (
                             <td
+                              key={p}
                               style={{
-                                padding: isMobile ? "8px 10px" : "10px 12px",
-                                color: theme.accent,
-                                position: "sticky",
-                                left: 0,
-                                zIndex: 3,
-                                background: theme.panel,
-                                borderRight: `1px solid ${theme.line}`,
-                                fontWeight: 800,
+                                padding: "10px 12px",
                                 textAlign: "center",
-                                borderBottom:
-                                  idx < historicalScores.length - 1
-                                    ? `1px solid ${theme.line}`
-                                    : "none",
+                                background: isWinner 
+                                  ? `rgba(34,197,94,${0.25 + 0.35 * shade})`
+                                  : theme.panelHi,
+                                fontWeight: isWinner ? 800 : 400,
+                                color: isWinner ? "#fff" : theme.text,
+                                borderBottom: idx < historicalScores.length - 1 ? `1px solid ${theme.line}` : "none",
                               }}
                             >
-                              {row.gameweek}
+                              {v}
                             </td>
-                            {PLAYERS.map((p) => {
-                              const v = Number(row[p]) || 0;
-                              const shade = (v - min) / range;
-                              const isWinner = v === max && max > 0;
-                              return (
-                                <td
-                                  key={p}
-                                  style={{
-                                    padding: isMobile ? "8px 6px" : "10px 8px",
-                                    textAlign: "center",
-                                    background: isWinner
-                                      ? `rgba(34,197,94,${0.28 + 0.37 * shade})`
-                                      : rowBg,
-                                    fontWeight: isWinner ? 800 : 500,
-                                    color: isWinner ? "#ffffff" : theme.text,
-                                    borderBottom:
-                                      idx < historicalScores.length - 1
-                                        ? `1px solid ${theme.line}`
-                                        : "none",
-                                  }}
-                                >
-                                  {v}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            );
-          })()
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
         )}
 
 {/* Win Probabilities */}
@@ -6259,9 +5201,14 @@ if (!isLoggedIn) {
               lineHeight: 1.3
             }}>
               {/* Home team badge */}
-              {resolveTeamBadge(fixture.homeTeam) && (
+              {(TEAM_BADGES[fixture.homeTeam] ||
+                getTeamCode(fixture.homeTeam) === "NFO") && (
                 <img
-                  src={resolveTeamBadge(fixture.homeTeam)}
+                  src={
+                    getTeamCode(fixture.homeTeam) === "NFO"
+                      ? "/badges/nottingham_forest.png"
+                      : TEAM_BADGES[fixture.homeTeam]
+                  }
                   alt={fixture.homeTeam}
                   style={{
                     width: 24,
@@ -6276,9 +5223,14 @@ if (!isLoggedIn) {
               <span>{getTeamCode(fixture.awayTeam)}</span>
               
               {/* Away team badge */}
-              {resolveTeamBadge(fixture.awayTeam) && (
+              {(TEAM_BADGES[fixture.awayTeam] ||
+                getTeamCode(fixture.awayTeam) === "NFO") && (
                 <img
-                  src={resolveTeamBadge(fixture.awayTeam)}
+                  src={
+                    getTeamCode(fixture.awayTeam) === "NFO"
+                      ? "/badges/nottingham_forest.png"
+                      : TEAM_BADGES[fixture.awayTeam]
+                  }
                   alt={fixture.awayTeam}
                   style={{
                     width: 24,
@@ -6407,15 +5359,14 @@ if (!isLoggedIn) {
 
               <form
                 onSubmit={handleCreateLeague}
-                style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}
+                style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
               >
                 <input
                   value={leagueNameInput}
                   onChange={(e) => setLeagueNameInput(e.target.value)}
                   placeholder="New league name"
                   style={{
-                    flex: 1,
-                    minWidth: 0,
+                    flex: "1 1 220px",
                     padding: "8px 10px",
                     borderRadius: 8,
                     background: theme.panelHi,
@@ -6431,9 +5382,6 @@ if (!isLoggedIn) {
                     background: theme.accent,
                     cursor: "pointer",
                     fontWeight: 800,
-                    whiteSpace: "nowrap",
-                    flex: "0 0 auto",
-                    width: isMobile ? 74 : 84,
                   }}
                 >
                   Create
@@ -6442,15 +5390,14 @@ if (!isLoggedIn) {
 
               <form
                 onSubmit={handleJoinLeague}
-                style={{ display: "flex", gap: 8, flexWrap: "nowrap" }}
+                style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
               >
                 <input
                   value={leagueJoinCode}
                   onChange={(e) => setLeagueJoinCode(e.target.value)}
                   placeholder="Join code"
                   style={{
-                    flex: 1,
-                    minWidth: 0,
+                    flex: "1 1 180px",
                     padding: "8px 10px",
                     borderRadius: 8,
                     background: theme.panelHi,
@@ -6466,9 +5413,6 @@ if (!isLoggedIn) {
                     background: theme.accent2,
                     cursor: "pointer",
                     fontWeight: 800,
-                    whiteSpace: "nowrap",
-                    flex: "0 0 auto",
-                    width: isMobile ? 74 : 84,
                   }}
                 >
                   Join
@@ -6476,9 +5420,6 @@ if (!isLoggedIn) {
               </form>
 
               <div style={{ display: "grid", gap: 6 }}>
-                <h2 style={{ margin: "4px 0 2px", fontSize: 18, fontWeight: 800 }}>
-                  My-Leagues
-                </h2>
                 {myLeagues.map((l) => (
                   <div
                     key={l.id}
@@ -6506,107 +5447,6 @@ if (!isLoggedIn) {
                     No leagues yet — create or join one above.
                   </div>
                 )}
-              </div>
-
-              <div
-                style={{
-                  background: theme.panelHi,
-                  borderRadius: 10,
-                  border: `1px solid ${theme.line}`,
-                  padding: 10,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <h2 style={{ margin: 0, fontSize: 18, textAlign: "center", flex: 1 }}>
-                    Mini-League Leaderboard
-                  </h2>
-                  <div style={{ fontSize: 12, color: theme.muted, textAlign: "center", width: "100%" }}>
-                    Ranked by average points per member
-                  </div>
-                </div>
-
-                {miniLeagueLeaderboardLoading && (
-                  <div style={{ fontSize: 13, color: theme.muted }}>
-                    Calculating mini-league rankings...
-                  </div>
-                )}
-
-                {miniLeagueLeaderboardError && (
-                  <div style={{ fontSize: 13, color: theme.danger }}>
-                    {miniLeagueLeaderboardError}
-                  </div>
-                )}
-
-                {!miniLeagueLeaderboardLoading &&
-                  !miniLeagueLeaderboardError &&
-                  miniLeagueLeaderboardRows.length > 0 && (
-                    <div style={{ display: "grid", gap: 6 }}>
-                      {miniLeagueLeaderboardRows.map((row, i) => (
-                        <div
-                          key={row.leagueId}
-                          style={{
-                            background: theme.panel,
-                            borderRadius: 8,
-                            border: `1px solid ${theme.line}`,
-                            padding: "8px 10px",
-                            display: "grid",
-                            gridTemplateColumns: isMobile ? "36px 1fr auto" : "44px 1fr auto",
-                            alignItems: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontWeight: 800,
-                              color:
-                                i === 0
-                                  ? "#FFD700"
-                                  : i === 1
-                                  ? "#C0C0C0"
-                                  : i === 2
-                                  ? "#CD7F32"
-                                  : theme.muted,
-                            }}
-                          >
-                            {i + 1}
-                          </div>
-                          <div>
-                            <div style={{ fontWeight: 700 }}>{row.leagueName}</div>
-                            <div style={{ fontSize: 12, color: theme.muted }}>
-                              Members: {row.memberCount} • Total: {Math.round(row.totalPoints)}
-                            </div>
-                          </div>
-                          <div
-                            style={{
-                              textAlign: "right",
-                              fontWeight: 800,
-                              color: theme.accent2,
-                              minWidth: isMobile ? 64 : 86,
-                            }}
-                          >
-                            {row.averagePoints.toFixed(2)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                {!miniLeagueLeaderboardLoading &&
-                  !miniLeagueLeaderboardError &&
-                  miniLeagueLeaderboardRows.length === 0 && (
-                    <div style={{ fontSize: 13, color: theme.muted }}>
-                      No mini-leagues found yet.
-                    </div>
-                  )}
               </div>
             </div>
           </section>
@@ -6833,7 +5673,6 @@ if (!isLoggedIn) {
                   size={120} 
                   seed={avatarSeed || currentPlayer}
                   avatarStyle={avatarStyle}
-                  favoriteTeam={accountFavoriteTeamInput || accountFavoriteTeam}
                 />
               </div>
 
@@ -6979,50 +5818,6 @@ if (!isLoggedIn) {
               </button>
             </div>
 
-            {/* Sound Effects */}
-            <div style={{
-              background: theme.panelHi,
-              borderRadius: 12,
-              border: `1px solid ${theme.line}`,
-              padding: 20,
-              marginBottom: 16
-            }}>
-              <h3 style={{
-                fontSize: 18,
-                fontWeight: 700,
-                color: theme.text,
-                marginBottom: 12
-              }}>
-                🔊 Sound Effects
-              </h3>
-
-              <p style={{
-                fontSize: 14,
-                color: theme.muted,
-                marginBottom: 14,
-                lineHeight: 1.6
-              }}>
-                Toggle in-app sounds for coins add/remove actions and gameweek winner celebrations.
-              </p>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  fontSize: 14,
-                  color: theme.text,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!soundEffectsEnabled}
-                  onChange={(e) => updateSoundEffectsEnabled(e.target.checked)}
-                />
-                <span>Enable sound effects</span>
-              </label>
-            </div>
-
             {/* Push Notifications */}
             <div style={{
               background: theme.panelHi,
@@ -7071,7 +5866,6 @@ if (!isLoggedIn) {
                       { key: "deadline24h", label: "Notify 24 hours before deadline" },
                       { key: "bingpot", label: "Bingpot notification" },
                       { key: "betWin", label: "Bet win notification" },
-                      { key: "favoriteTeamResult", label: "Favourite team result notification" },
                     ].map((opt) => (
                       <label
                         key={opt.key}
@@ -7218,121 +6012,6 @@ if (!isLoggedIn) {
                 marginBottom: 12
               }}>
                 <strong>Logged in as:</strong> {currentPlayer}
-              </div>
-
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: "block", fontSize: 12, color: theme.muted, marginBottom: 6 }}>
-                  Recovery email
-                </label>
-                <input
-                  type="email"
-                  value={accountEmailInput}
-                  onChange={(e) => setAccountEmailInput(e.target.value)}
-                  placeholder="you@example.com"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panel,
-                    color: theme.text,
-                    fontSize: 14,
-                    marginBottom: 8,
-                    boxSizing: "border-box",
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={handleSaveRecoveryEmail}
-                  style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panel,
-                    color: theme.text,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  Save recovery email
-                </button>
-                {accountEmailError && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: theme.danger }}>
-                    {accountEmailError}
-                  </div>
-                )}
-                {accountEmailStatus && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: theme.accent2 }}>
-                    {accountEmailStatus}
-                  </div>
-                )}
-                {accountEmail && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
-                    Current: {accountEmail}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ display: "block", fontSize: 12, color: theme.muted, marginBottom: 6 }}>
-                  Favourite Premier League team
-                </label>
-                <select
-                  value={accountFavoriteTeamInput}
-                  onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panel,
-                    color: theme.text,
-                    fontSize: 14,
-                    marginBottom: 8,
-                    boxSizing: "border-box",
-                  }}
-                >
-                  <option value="">Select team...</option>
-                  {PREMIER_LEAGUE_TEAMS.map((team) => (
-                    <option key={team} value={team}>
-                      {team}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleSaveFavoriteTeam}
-                  style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panel,
-                    color: theme.text,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  Save favourite team
-                </button>
-                {accountFavoriteTeamError && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: theme.danger }}>
-                    {accountFavoriteTeamError}
-                  </div>
-                )}
-                {accountFavoriteTeamStatus && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: theme.accent2 }}>
-                    {accountFavoriteTeamStatus}
-                  </div>
-                )}
-                {accountFavoriteTeam && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
-                    Current: {accountFavoriteTeam}
-                  </div>
-                )}
               </div>
 
               <button

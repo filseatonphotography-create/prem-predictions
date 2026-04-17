@@ -45,9 +45,6 @@ app.get("/api/coins/user/:userId", (req, res) => {
 // Keep real in deployed code (do NOT share publicly).
 const FOOTBALL_DATA_TOKEN =
   process.env.FOOTBALL_DATA_TOKEN || "18351cddefba4334a5edb3a60ea84ba3";
-const RESULTS_PROXY_URL =
-  process.env.RESULTS_PROXY_URL ||
-  "https://predictionaddiction.net/.netlify/functions/results";
 const ODDS_API_KEY =
   process.env.ODDS_API_KEY || "6659ed614cb33000eca5166d4bfc9bd3";
 
@@ -79,8 +76,12 @@ const ALLOWED_ORIGINS = new Set([
 
 app.use(
   cors({
-    // Allow all origins to prevent CORS blocking during live games
-    origin: true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      console.log("CORS request from:", origin);
+      if (ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS: " + origin));
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
@@ -125,7 +126,6 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
 const DATA_DIR = path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
 const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
-const BUILD_DIR = path.join(__dirname, "build");
 
 // Avatars (userId -> { seed, style })
 const loadAvatars = () => loadJson(AVATARS_FILE, {});
@@ -151,7 +151,7 @@ const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
-const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
+const FIXTURES_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -165,20 +165,6 @@ const RESERVED_LEGACY_NAMES = [
 
 // Ensure data dir exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
-// Serve frontend build if present (Render build output)
-if (fs.existsSync(BUILD_DIR)) {
-  app.use(
-    express.static(BUILD_DIR, {
-      maxAge: 0,
-      setHeaders: (res, filePath) => {
-        if (filePath.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-store");
-        }
-      },
-    })
-  );
-}
 
 // ---------------------------------------------------------------------------
 // WEB PUSH SETUP (VAPID keys - generate with: npx web-push generate-vapid-keys)
@@ -225,58 +211,6 @@ function verifyPassword(password, stored) {
   return hashCheck === hash;
 }
 
-function normalizeEmail(email) {
-  return (email || "").trim().toLowerCase();
-}
-
-function isValidEmail(email) {
-  const e = normalizeEmail(email);
-  if (!e) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-}
-
-function hashResetToken(token) {
-  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
-}
-
-function createResetToken() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
-function getResetBaseUrl() {
-  return (
-    process.env.PASSWORD_RESET_BASE_URL ||
-    process.env.FRONTEND_URL ||
-    "http://localhost:3000"
-  );
-}
-
-async function sendPasswordResetEmail({ toEmail, username, resetLink }) {
-  const apiKey = process.env.RESEND_API_KEY;
-  const fromEmail = process.env.RESET_FROM_EMAIL;
-  if (!apiKey || !fromEmail) return false;
-
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: [toEmail],
-        subject: "Reset your Prediction Addiction password",
-        html: `<p>Hi ${username || ""},</p><p>Click the link below to reset your password. It expires in 30 minutes.</p><p><a href="${resetLink}">${resetLink}</a></p><p>If you did not request this, you can ignore this email.</p>`,
-      }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error("send reset email error", err);
-    return false;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // HELPERS: LOAD/SAVE JSON
 // ---------------------------------------------------------------------------
@@ -307,9 +241,6 @@ const loadUsers = () => {
   return users;
 };
 const saveUsers = (users) => saveJson(USERS_FILE, users);
-const loadPasswordResetTokens = () => loadJson(PASSWORD_RESET_TOKENS_FILE, []);
-const savePasswordResetTokens = (tokens) =>
-  saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
 
 // Predictions (userId -> { fixtureId -> prediction })
 const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
@@ -330,9 +261,21 @@ const saveCoins = (coins) => saveJson(COINS_FILE, coins);
 const loadResults = () => loadJson(RESULTS_FILE, {});
 const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 
+let fixturesCache = null;
+let fixturesCacheAt = 0;
 let resultsCache = null;
 let resultsCacheAt = 0;
 const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function toFixtureSummary(match) {
+  return {
+    id: match.id,
+    gameweek: match.matchday,
+    homeTeam: match.homeTeam?.name || "",
+    awayTeam: match.awayTeam?.name || "",
+    kickoff: match.utcDate,
+  };
+}
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -416,43 +359,22 @@ function normalizeTeamName(name) {
   if (!name) return "";
   let s = name.toLowerCase().trim();
 
-  // Normalize punctuation + common suffixes
-  s = s.replace(/&/g, "and");
-  s = s.replace(/[^a-z0-9\\s]/g, "");
-  s = s.replace(/\\b(fc|afc|cfc|cf)\\b/g, "");
-  s = s.replace(/\\s+/g, " ").trim();
-
-  // Common aliases -> canonical forms
-  if (s === "spurs" || s === "tottenham" || s === "tottenham hotspur") return "tottenham";
-  if (
-    s === "wolves" ||
-    s === "wolverhampton" ||
-    s === "wolverhampton wanderers"
-  )
-    return "wolverhampton";
-  if (
-    s === "nottm forest" ||
-    s === "nottingham forest" ||
-    s === "nottm" ||
-    s === "nottingham"
-  )
-    return "nottingham forest";
+  if (s === "spurs" || s === "tottenham") s = "tottenham hotspur";
+  if (s === "wolves" || s === "wolverhampton") s = "wolverhampton wanderers";
+  if (s === "nott'm forest" || s === "nottm forest" || s === "nottingham")
+    s = "nottingham forest";
   if (
     s === "man utd" ||
     s === "man u" ||
     s === "manchester utd" ||
     s === "manchester u" ||
-    s === "mufc" ||
-    s === "manchester united"
+    s === "mufc"
   )
-    return "manchester united";
-  if (s === "man city" || s === "manchester city") return "manchester city";
-  if (s === "leeds") return "leeds united";
-  if (s === "newcastle") return "newcastle united";
-  if (s === "west ham" || s === "whu" || s === "hammers") return "west ham";
-  if (s === "aston villa" || s === "villa") return "aston villa";
-  if (s === "brighton hove albion" || s === "brighton") return "brighton";
-  if (s === "bournemouth" || s === "afc bournemouth") return "bournemouth";
+    s = "manchester united";
+  if (s === "leeds") s = "leeds united";
+  if (s === "west ham" || s === "whu" || s === "hammers")
+    s = "west ham united";
+  if (s === "aston villa" || s === "villa") s = "aston villa";
 
   return s;
 }
@@ -462,32 +384,6 @@ function getResult(home, away) {
   if (home > away) return "H";
   if (home < away) return "A";
   return "D";
-}
-
-function getPredictionPoints(prediction, result) {
-  if (!prediction || !result) return 0;
-
-  const ph = Number(prediction.homeGoals);
-  const pa = Number(prediction.awayGoals);
-  const rh = Number(result.homeGoals);
-  const ra = Number(result.awayGoals);
-
-  if ([ph, pa, rh, ra].some((n) => !Number.isFinite(n))) return 0;
-
-  let points = 0;
-  if (ph === rh && pa === ra) {
-    points = 7;
-  } else {
-    const predRes = getResult(ph, pa);
-    const realRes = getResult(rh, ra);
-    if (predRes === realRes && ph - pa === rh - ra) points = 4;
-    else if (predRes === realRes) points = 2;
-  }
-
-  if (prediction.isTriple) points *= 3;
-  else if (prediction.isDouble) points *= 2;
-
-  return points;
 }
 
 // --- COINS: compute season totals for ONE user ---
@@ -507,11 +403,10 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
       if (!bet) return;
 
       const { fixtureId, stake, side, oddsSnapshot } = bet || {};
-      const stakeNum = Number(stake);
-      if (!Number.isFinite(stakeNum) || stakeNum <= 0) return;
+      if (!Number.isFinite(stake) || stake <= 0) return;
 
       // Always count stake as "coins used"
-      totalStake += stakeNum;
+      totalStake += stake;
 
       // Only try to compute winnings if we have a result
       const res = results[fixtureId];
@@ -524,16 +419,15 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
       const resultSide = getResult(hg, ag); // "H", "D", or "A"
 
       if (side === resultSide && oddsSnapshot) {
-        const rawPrice =
+        const price =
           resultSide === "H"
             ? oddsSnapshot.home
             : resultSide === "D"
             ? oddsSnapshot.draw
             : oddsSnapshot.away;
 
-        const priceNum = Number(rawPrice);
-        if (Number.isFinite(priceNum)) {
-          totalReturn += stakeNum * priceNum;
+        if (typeof price === "number") {
+          totalReturn += stake * price;
         }
       }
     });
@@ -585,11 +479,9 @@ app.get("/", (req, res) => res.send("Backend is running"));
 // ---------------------------------------------------------------------------
 app.post("/api/signup", (req, res) => {
   try {
-    const { username, password, email, favoriteTeam } = req.body || {};
+    const { username, password } = req.body || {};
     const name = (username || "").trim();
     const pwd = (password || "").trim();
-    const normalizedEmail = normalizeEmail(email);
-    const favTeam = (favoriteTeam || "").trim();
 
     if (!name || !pwd) {
       return res
@@ -605,15 +497,6 @@ app.post("/api/signup", (req, res) => {
     const users = loadUsers();
     if (users.find((u) => u.username.toLowerCase() === name.toLowerCase())) {
       return res.status(400).json({ error: "That username is already taken." });
-    }
-    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ error: "A valid email address is required." });
-    }
-    if (users.some((u) => normalizeEmail(u.email) === normalizedEmail)) {
-      return res.status(400).json({ error: "That email is already in use." });
-    }
-    if (!favTeam) {
-      return res.status(400).json({ error: "Please select your favourite team." });
     }
 
     const legacyMap = loadLegacyMap();
@@ -638,8 +521,6 @@ app.post("/api/signup", (req, res) => {
       id: crypto.randomUUID(),
       username: name,
       passwordHash: hashPassword(pwd),
-      email: normalizedEmail,
-      favoriteTeam: favTeam,
       createdAt: new Date().toISOString(),
     };
     users.push(newUser);
@@ -722,204 +603,6 @@ app.post("/api/login", (req, res) => {
 return res.json({ userId: user.id, username: user.username, token });
   } catch (err) {
     console.error("login error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.get("/api/account/me", authMiddleware, (req, res) => {
-  try {
-    const users = loadUsers();
-    const user = users.find((u) => u.id === req.user.id);
-    if (!user) return res.status(404).json({ error: "User not found." });
-    return res.json({
-      userId: user.id,
-      username: user.username,
-      email: user.email || "",
-      favoriteTeam: user.favoriteTeam || "",
-    });
-  } catch (err) {
-    console.error("account/me error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.post("/api/account/email", authMiddleware, (req, res) => {
-  try {
-    const email = normalizeEmail(req.body?.email);
-    if (!isValidEmail(email)) {
-      return res.status(400).json({ error: "Valid email is required." });
-    }
-
-    const users = loadUsers();
-    const user = users.find((u) => u.id === req.user.id);
-    if (!user) return res.status(404).json({ error: "User not found." });
-
-    const taken = users.some(
-      (u) => u.id !== user.id && normalizeEmail(u.email) === email
-    );
-    if (taken) {
-      return res.status(400).json({ error: "That email is already in use." });
-    }
-
-    user.email = email;
-    saveUsers(users);
-    return res.json({ ok: true, email });
-  } catch (err) {
-    console.error("account/email error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.post("/api/account/favorite-team", authMiddleware, (req, res) => {
-  try {
-    const favoriteTeam = (req.body?.favoriteTeam || "").trim();
-    if (!favoriteTeam) {
-      return res.status(400).json({ error: "Favourite team is required." });
-    }
-
-    const users = loadUsers();
-    const user = users.find((u) => u.id === req.user.id);
-    if (!user) return res.status(404).json({ error: "User not found." });
-
-    user.favoriteTeam = favoriteTeam;
-    saveUsers(users);
-    return res.json({ ok: true, favoriteTeam });
-  } catch (err) {
-    console.error("account/favorite-team error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.get("/api/account/favorite-team/all", authMiddleware, (req, res) => {
-  try {
-    const users = loadUsers() || [];
-    const favoriteTeams = {};
-    users.forEach((u) => {
-      if (!u || !u.id) return;
-      favoriteTeams[String(u.id)] = (u.favoriteTeam || "").trim();
-    });
-    return res.json({ favoriteTeams });
-  } catch (err) {
-    console.error("account/favorite-team/all error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.post("/api/password/forgot", async (req, res) => {
-  try {
-    const username = (req.body?.username || "").trim();
-    const email = normalizeEmail(req.body?.email);
-    const genericResponse = {
-      ok: true,
-      message:
-        "If your username and email match an account, a reset link has been sent.",
-    };
-
-    if (!username || !email) return res.json(genericResponse);
-    if (!isValidEmail(email)) return res.json(genericResponse);
-
-    const users = loadUsers();
-    const user = users.find(
-      (u) =>
-        (u.username || "").toLowerCase() === username.toLowerCase() &&
-        normalizeEmail(u.email) === email &&
-        typeof u.passwordHash === "string" &&
-        u.passwordHash.length > 0
-    );
-    if (!user) return res.json(genericResponse);
-
-    const now = Date.now();
-    const ttlMs = 30 * 60 * 1000;
-    const token = createResetToken();
-    const tokenHash = hashResetToken(token);
-    const expiresAt = new Date(now + ttlMs).toISOString();
-
-    const existing = loadPasswordResetTokens().filter((t) => {
-      if (!t || !t.expiresAt) return false;
-      return Date.parse(t.expiresAt) > now && !t.usedAt;
-    });
-    existing.push({
-      tokenHash,
-      userId: user.id,
-      createdAt: new Date(now).toISOString(),
-      expiresAt,
-      usedAt: null,
-    });
-    savePasswordResetTokens(existing);
-
-    const resetLink = `${getResetBaseUrl().replace(/\/$/, "")}/reset-password?resetToken=${encodeURIComponent(token)}`;
-    const emailSent = await sendPasswordResetEmail({
-      toEmail: email,
-      username: user.username,
-      resetLink,
-    });
-
-    if (!emailSent) {
-      console.log("[password/forgot] reset link (email not configured or failed):", {
-        username: user.username,
-        email,
-        resetLink,
-      });
-    }
-
-    if (!process.env.RENDER) {
-      return res.json({
-        ...genericResponse,
-        resetLink,
-        emailSent,
-      });
-    }
-
-    return res.json(genericResponse);
-  } catch (err) {
-    console.error("password/forgot error", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.post("/api/password/reset", (req, res) => {
-  try {
-    const token = (req.body?.token || "").trim();
-    const newPassword = (req.body?.newPassword || "").trim();
-    if (!token || !newPassword) {
-      return res.status(400).json({ error: "Token and newPassword are required." });
-    }
-    if (newPassword.length < 4) {
-      return res.status(400).json({ error: "Password must be at least 4 characters." });
-    }
-
-    const now = Date.now();
-    const tokenHash = hashResetToken(token);
-    const tokens = loadPasswordResetTokens().filter((t) => {
-      if (!t || !t.expiresAt) return false;
-      return Date.parse(t.expiresAt) > now;
-    });
-
-    const tokenRow = tokens.find((t) => t.tokenHash === tokenHash && !t.usedAt);
-    if (!tokenRow) {
-      return res.status(400).json({ error: "Invalid or expired reset token." });
-    }
-
-    const users = loadUsers();
-    const user = users.find((u) => u.id === tokenRow.userId);
-    if (!user) {
-      return res.status(400).json({ error: "Invalid reset request." });
-    }
-
-    user.passwordHash = hashPassword(newPassword);
-    user.passwordResetAt = new Date().toISOString();
-    saveUsers(users);
-
-    tokens.forEach((t) => {
-      if (t.userId === user.id || t.tokenHash === tokenHash) {
-        t.usedAt = new Date().toISOString();
-      }
-    });
-    savePasswordResetTokens(tokens);
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("password/reset error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -1049,688 +732,6 @@ app.post("/api/admin/reset-password", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// ADMIN REPAIR DATA (coins/users/legacy map)
-// POST /api/admin/repair-data
-// headers: x-admin-key: prem-admin-reset
-// ---------------------------------------------------------------------------
-app.post("/api/admin/repair-data", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const users = loadUsers() || [];
-    const coins = loadCoins() || {};
-    const predictions = loadPredictions() || {};
-    const legacyMap = loadLegacyMap() || {};
-
-    const summary = {
-      addedUsers: [],
-      mergedPhil: false,
-      removedUserIds: [],
-    };
-
-    // Ensure legacyMap IDs exist in users (prevents "Unknown" names)
-    const userIds = new Set(users.map((u) => String(u.id)));
-    Object.entries(legacyMap).forEach(([name, id]) => {
-      const sid = String(id);
-      if (!userIds.has(sid)) {
-        users.push({
-          id: sid,
-          username: name,
-          passwordHash: "",
-          createdAt: new Date().toISOString(),
-        });
-        userIds.add(sid);
-        summary.addedUsers.push({ id: sid, username: name });
-      }
-    });
-
-    // Merge duplicate Phil (legacy -> current)
-    const keepId = "1763874000000";
-    const legacyId = "1763789072925";
-    if (legacyId !== keepId) {
-      const legacyCoins = coins[legacyId];
-      const keepCoins = coins[keepId];
-      if (legacyCoins) {
-        const merged = {};
-        Object.entries(legacyCoins).forEach(([gw, bets]) => {
-          merged[gw] = { ...(bets || {}) };
-        });
-        Object.entries(keepCoins || {}).forEach(([gw, bets]) => {
-          merged[gw] = { ...(merged[gw] || {}), ...(bets || {}) };
-        });
-        coins[keepId] = merged;
-        delete coins[legacyId];
-        summary.mergedPhil = true;
-      }
-
-      const legacyPreds = predictions[legacyId];
-      const keepPreds = predictions[keepId];
-      if (legacyPreds) {
-        predictions[keepId] = { ...(legacyPreds || {}), ...(keepPreds || {}) };
-        delete predictions[legacyId];
-        summary.mergedPhil = true;
-      }
-
-      const beforeUsersLen = users.length;
-      const filtered = users.filter((u) => String(u.id) !== legacyId);
-      if (filtered.length !== beforeUsersLen) {
-        summary.removedUserIds.push(legacyId);
-      }
-      users.length = 0;
-      users.push(...filtered);
-
-      legacyMap["Phil"] = keepId;
-    }
-
-    saveUsers(users);
-    saveCoins(coins);
-    savePredictions(predictions);
-    saveLegacyMap(legacyMap);
-
-    return res.json({ ok: true, summary });
-  } catch (err) {
-    console.error("admin repair error", err);
-    return res.status(500).json({ error: "Admin repair failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN FORCE FIX COINS LEADERBOARD (names + merge Phil)
-// POST /api/admin/force-fix-coins
-// headers: x-admin-key: prem-admin-reset
-// ---------------------------------------------------------------------------
-app.post("/api/admin/force-fix-coins", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const users = loadUsers() || [];
-    const coins = loadCoins() || {};
-    const predictions = loadPredictions() || {};
-    const legacyMap = loadLegacyMap() || {};
-
-    const summary = {
-      addedUsers: [],
-      mergedPhil: false,
-      removedUserIds: [],
-      overridesApplied: [],
-    };
-
-    // Known userId -> username overrides (from live leaderboard)
-    const overrides = {
-      "1763791297309": "Tom",
-      "a1629755-6627-440d-9ed0-c989593b704d": "Edward",
-    };
-
-    const userIds = new Set(users.map((u) => String(u.id)));
-    Object.entries(overrides).forEach(([id, name]) => {
-      if (!userIds.has(id)) {
-        users.push({
-          id,
-          username: name,
-          passwordHash: "",
-          createdAt: new Date().toISOString(),
-        });
-        userIds.add(id);
-        summary.addedUsers.push({ id, username: name });
-      } else {
-        const u = users.find((x) => String(x.id) === id);
-        if (u && u.username !== name) {
-          u.username = name;
-          summary.overridesApplied.push({ id, username: name });
-        }
-      }
-    });
-
-    legacyMap["Tom"] = "1763791297309";
-
-    // Merge duplicate Phil (legacy -> current)
-    const keepId = "1763874000000";
-    const legacyId = "1763789072925";
-    if (legacyId !== keepId) {
-      const legacyCoins = coins[legacyId];
-      const keepCoins = coins[keepId];
-      if (legacyCoins) {
-        const merged = {};
-        Object.entries(legacyCoins).forEach(([gw, bets]) => {
-          merged[gw] = { ...(bets || {}) };
-        });
-        Object.entries(keepCoins || {}).forEach(([gw, bets]) => {
-          merged[gw] = { ...(merged[gw] || {}), ...(bets || {}) };
-        });
-        coins[keepId] = merged;
-        delete coins[legacyId];
-        summary.mergedPhil = true;
-      }
-
-      const legacyPreds = predictions[legacyId];
-      const keepPreds = predictions[keepId];
-      if (legacyPreds) {
-        predictions[keepId] = { ...(legacyPreds || {}), ...(keepPreds || {}) };
-        delete predictions[legacyId];
-        summary.mergedPhil = true;
-      }
-
-      const beforeUsersLen = users.length;
-      const filtered = users.filter((u) => String(u.id) !== legacyId);
-      if (filtered.length !== beforeUsersLen) {
-        summary.removedUserIds.push(legacyId);
-      }
-      users.length = 0;
-      users.push(...filtered);
-
-      legacyMap["Phil"] = keepId;
-    }
-
-    saveUsers(users);
-    saveCoins(coins);
-    savePredictions(predictions);
-    saveLegacyMap(legacyMap);
-
-    return res.json({ ok: true, summary });
-  } catch (err) {
-    console.error("admin force-fix coins error", err);
-    return res.status(500).json({ error: "Admin force-fix failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: COINS AUDIT (by league)
-// GET /api/admin/coins-audit?leagueId=...
-// headers: x-admin-key: prem-admin-reset
-// ---------------------------------------------------------------------------
-app.get("/api/admin/coins-audit", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const leagueId = (req.query.leagueId || "").trim();
-    const coins = loadCoins() || {};
-    const results = loadResults() || {};
-    const users = loadUsers() || [];
-    const leagues = loadLeagues() || [];
-
-    const userMap = {};
-    users.forEach((u) => {
-      userMap[String(u.id)] = u.username;
-    });
-
-    let allowedIds = null;
-    if (leagueId) {
-      const league = leagues.find((l) => l.id === leagueId);
-      if (!league) return res.status(404).json({ error: "League not found" });
-      const members = Array.isArray(league.members)
-        ? league.members
-        : Array.isArray(league.memberUserIds)
-        ? league.memberUserIds
-        : [];
-      allowedIds = new Set(members.map((m) => String(m)));
-    }
-
-    const audit = [];
-    const ids = allowedIds ? Array.from(allowedIds) : Object.keys(coins);
-    ids.forEach((uid) => {
-      const gwObj = coins[uid] || {};
-      let totalStake = 0;
-      let totalReturn = 0;
-      let bets = 0;
-      Object.values(gwObj).forEach((fixObj) => {
-        if (!fixObj || typeof fixObj !== "object") return;
-        Object.values(fixObj).forEach((bet) => {
-          if (!bet) return;
-          const stake = Number(bet.stake);
-          if (!Number.isFinite(stake) || stake <= 0) return;
-          bets += 1;
-          totalStake += stake;
-          const resObj = results[String(bet.fixtureId)];
-          if (!resObj) return;
-          const hg = Number(resObj.homeGoals);
-          const ag = Number(resObj.awayGoals);
-          if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
-          const resultSide = getResult(hg, ag);
-          if (bet.side !== resultSide) return;
-          const odds = bet.oddsSnapshot || {};
-          const price =
-            resultSide === "H"
-              ? odds.home
-              : resultSide === "D"
-              ? odds.draw
-              : odds.away;
-          const priceNum = Number(price);
-          if (!Number.isFinite(priceNum)) return;
-          totalReturn += stake * priceNum;
-        });
-      });
-      audit.push({
-        userId: String(uid),
-        username: userMap[String(uid)] || "Unknown",
-        bets,
-        totalStake,
-        totalReturn,
-        profit: totalReturn - totalStake,
-      });
-    });
-
-    return res.json({ leagueId: leagueId || null, audit });
-  } catch (err) {
-    console.error("admin coins-audit error", err);
-    return res.status(500).json({ error: "Coins audit failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: COINS BETS DETAIL (by userId)
-// GET /api/admin/coins-bets?userId=...
-// headers: x-admin-key: prem-admin-reset
-// ---------------------------------------------------------------------------
-app.get("/api/admin/coins-bets", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const userId = String(req.query.userId || "").trim();
-    if (!userId) return res.status(400).json({ error: "userId required" });
-
-    const coins = loadCoins() || {};
-    const results = loadResults() || {};
-
-    const gwObj = coins[userId] || {};
-    const details = [];
-
-    Object.entries(gwObj).forEach(([gw, fixObj]) => {
-      if (!fixObj || typeof fixObj !== "object") return;
-      Object.entries(fixObj).forEach(([fid, bet]) => {
-        if (!bet) return;
-        const stake = Number(bet.stake);
-        const fixtureId = String(bet.fixtureId || fid);
-        const resObj = results[fixtureId];
-        const hg = resObj ? Number(resObj.homeGoals) : null;
-        const ag = resObj ? Number(resObj.awayGoals) : null;
-        const resultSide =
-          hg == null || ag == null || !Number.isFinite(hg) || !Number.isFinite(ag)
-            ? null
-            : getResult(hg, ag);
-        const odds = bet.oddsSnapshot || {};
-        const price =
-          resultSide === "H"
-            ? odds.home
-            : resultSide === "D"
-            ? odds.draw
-            : odds.away;
-        const priceNum = Number(price);
-        const payout =
-          resultSide && bet.side === resultSide && Number.isFinite(priceNum)
-            ? stake * priceNum
-            : 0;
-        details.push({
-          gameweek: String(gw),
-          fixtureId,
-          side: bet.side,
-          stake,
-          result: resultSide ? `${hg}-${ag}` : null,
-          odds: odds || null,
-          payout,
-        });
-      });
-    });
-
-    return res.json({ userId, bets: details });
-  } catch (err) {
-    console.error("admin coins-bets error", err);
-    return res.status(500).json({ error: "Coins bets detail failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: BACKFILL LEGACY RESULTS (old fixture IDs) FROM LIVE API
-// POST /api/admin/backfill-legacy-results
-// headers: x-admin-key: prem-admin-reset
-// ---------------------------------------------------------------------------
-app.post("/api/admin/backfill-legacy-results", async (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const fixtures = loadFixturesFromSrc() || [];
-    const results = loadResults() || {};
-
-    const fetchMatches = async (url, headers) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
-      try {
-        const resp = await fetch(url, { headers, signal: controller.signal });
-        if (!resp.ok) {
-          const errorText = await resp.text().catch(() => "");
-          return { ok: false, status: resp.status, errorText };
-        }
-        const data = await resp.json();
-        const matches = Array.isArray(data)
-          ? data
-          : Array.isArray(data.matches)
-          ? data.matches
-          : [];
-        return { ok: true, matches };
-      } catch (err) {
-        return { ok: false, status: 500, errorText: String(err?.message || err) };
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    };
-
-    // Prefer direct Football-Data API (avoids proxy issues), fallback to proxy
-    let matches = [];
-    const direct = await fetchMatches(
-      "https://api.football-data.org/v4/competitions/PL/matches",
-      { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
-    );
-    if (direct.ok) {
-      matches = direct.matches;
-    } else {
-      const proxy = await fetchMatches(RESULTS_PROXY_URL, RESULTS_PROXY_URL.includes("football-data.org")
-        ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
-        : {});
-      if (!proxy.ok) {
-        return res.status(proxy.status || 500).json({
-          error: "Football-Data API error",
-          details: proxy.errorText || direct.errorText || "Unknown error",
-        });
-      }
-      matches = proxy.matches;
-    }
-
-    const normalize = (name) => normalizeTeamName(name || "");
-
-    // Legacy fixture mapping (old numeric IDs -> teams/kickoff)
-    const legacyFixtures = [
-      { id: 271, homeTeam: "Arsenal", awayTeam: "Chelsea", kickoff: "2026-02-28T15:00:00Z" },
-      { id: 276, homeTeam: "Leeds", awayTeam: "Man City", kickoff: "2026-02-28T15:00:00Z" },
-      { id: 280, homeTeam: "Wolves", awayTeam: "Aston Villa", kickoff: "2026-02-28T15:00:00Z" },
-      { id: 287, homeTeam: "Man City", awayTeam: "Nott'm Forest", kickoff: "2026-03-04T20:00:00Z" },
-      { id: 291, homeTeam: "Arsenal", awayTeam: "Everton", kickoff: "2026-03-14T15:00:00Z" },
-      { id: 296, homeTeam: "Liverpool", awayTeam: "Spurs", kickoff: "2026-03-14T15:00:00Z" },
-      { id: 300, homeTeam: "West Ham", awayTeam: "Man City", kickoff: "2026-03-14T15:00:00Z" },
-      { id: 303, homeTeam: "Brighton", awayTeam: "Liverpool", kickoff: "2026-03-21T15:00:00Z" },
-    ];
-
-    let filled = 0;
-
-    const findMatch = (fx) => {
-      const home = normalize(fx.homeTeam);
-      const away = normalize(fx.awayTeam);
-      const kickoff = Date.parse(fx.kickoff);
-
-      const candidates = matches.filter((m) => {
-        if (!m.homeTeam || !m.awayTeam) return false;
-        const mh = normalize(m.homeTeam.name);
-        const ma = normalize(m.awayTeam.name);
-        const sameOrder = mh === home && ma === away;
-        const swapped = mh === away && ma === home;
-        return sameOrder || swapped;
-      });
-      if (!candidates.length) return null;
-
-      if (!Number.isFinite(kickoff)) return candidates[0];
-      return candidates.reduce((best, m) => {
-        const t = Date.parse(m.utcDate);
-        if (!Number.isFinite(t)) return best;
-        const d = Math.abs(t - kickoff);
-        const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
-        return d < bd ? m : best;
-      }, candidates[0]);
-    };
-
-    // Backfill only legacy fixtures with missing results
-    legacyFixtures.forEach((fx) => {
-      const fid = String(fx.id);
-      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
-      const match = findMatch(fx);
-      if (!match) return;
-      const ft = match && match.score && match.score.fullTime;
-      if (!ft || ft.home == null || ft.away == null) return;
-      results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
-      filled += 1;
-    });
-
-    fixtures.forEach((fx) => {
-      const fid = String(fx.id);
-      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
-      const match = findMatch(fx);
-      if (!match) return;
-      const ft = match && match.score && match.score.fullTime;
-      if (!ft || ft.home == null || ft.away == null) return;
-      results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
-      filled += 1;
-    });
-
-    saveResults(results);
-    return res.json({ ok: true, filled });
-  } catch (err) {
-    console.error("backfill legacy results error", err);
-    return res.status(500).json({ error: "Backfill failed", details: String(err?.message || err) });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: BACKFILL LEGACY RESULTS FROM CLIENT-PROVIDED MATCHES
-// POST /api/admin/backfill-legacy-results-from-payload
-// headers: x-admin-key: prem-admin-reset
-// body: { matches: [...] } OR [...]
-// ---------------------------------------------------------------------------
-app.post("/api/admin/backfill-legacy-results-from-payload", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const payload = req.body;
-    const matches = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.matches)
-      ? payload.matches
-      : [];
-    if (!matches.length) {
-      return res.status(400).json({ error: "No matches provided" });
-    }
-
-    const results = loadResults() || {};
-    const normalize = (name) => normalizeTeamName(name || "");
-
-    const legacyFixtures = [
-      { id: 271, homeTeam: "Arsenal", awayTeam: "Chelsea", kickoff: "2026-02-28T15:00:00Z" },
-      { id: 276, homeTeam: "Leeds", awayTeam: "Man City", kickoff: "2026-02-28T15:00:00Z" },
-      { id: 280, homeTeam: "Wolves", awayTeam: "Aston Villa", kickoff: "2026-02-28T15:00:00Z" },
-      { id: 287, homeTeam: "Man City", awayTeam: "Nott'm Forest", kickoff: "2026-03-04T20:00:00Z" },
-      { id: 291, homeTeam: "Arsenal", awayTeam: "Everton", kickoff: "2026-03-14T15:00:00Z" },
-      { id: 296, homeTeam: "Liverpool", awayTeam: "Spurs", kickoff: "2026-03-14T15:00:00Z" },
-      { id: 300, homeTeam: "West Ham", awayTeam: "Man City", kickoff: "2026-03-14T15:00:00Z" },
-      { id: 303, homeTeam: "Brighton", awayTeam: "Liverpool", kickoff: "2026-03-21T15:00:00Z" },
-    ];
-
-    const findMatch = (fx) => {
-      const home = normalize(fx.homeTeam);
-      const away = normalize(fx.awayTeam);
-      const kickoff = Date.parse(fx.kickoff);
-      const candidates = matches.filter((m) => {
-        if (!m.homeTeam || !m.awayTeam) return false;
-        const mh = normalize(m.homeTeam.name);
-        const ma = normalize(m.awayTeam.name);
-        const sameOrder = mh === home && ma === away;
-        const swapped = mh === away && ma === home;
-        return sameOrder || swapped;
-      });
-      if (!candidates.length) return null;
-      if (!Number.isFinite(kickoff)) return candidates[0];
-      return candidates.reduce((best, m) => {
-        const t = Date.parse(m.utcDate);
-        if (!Number.isFinite(t)) return best;
-        const d = Math.abs(t - kickoff);
-        const bd = Math.abs(Date.parse(best.utcDate) - kickoff);
-        return d < bd ? m : best;
-      }, candidates[0]);
-    };
-
-    let filled = 0;
-    legacyFixtures.forEach((fx) => {
-      const fid = String(fx.id);
-      if (results[fid] && Number.isFinite(Number(results[fid].homeGoals))) return;
-      const match = findMatch(fx);
-      if (!match) return;
-      const ft = match && match.score && match.score.fullTime;
-      if (!ft || ft.home == null || ft.away == null) return;
-      results[fid] = { homeGoals: ft.home, awayGoals: ft.away };
-      filled += 1;
-    });
-
-    saveResults(results);
-    return res.json({ ok: true, filled });
-  } catch (err) {
-    console.error("backfill legacy results (payload) error", err);
-    return res.status(500).json({ error: "Backfill failed", details: String(err?.message || err) });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: REMOVE MEMBER FROM LEAGUE
-// POST /api/admin/leagues/remove-member
-// headers: x-admin-key: prem-admin-reset
-// body: { leagueId, userId }
-// ---------------------------------------------------------------------------
-app.post("/api/admin/leagues/remove-member", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const { leagueId, userId } = req.body || {};
-    const lid = (leagueId || "").trim();
-    const uid = (userId || "").trim();
-    if (!lid || !uid) {
-      return res.status(400).json({ error: "leagueId and userId are required" });
-    }
-
-    const leagues = loadLeagues() || [];
-    const league = leagues.find((l) => l.id === lid);
-    if (!league) return res.status(404).json({ error: "League not found" });
-
-    const cleanMembers = (arr) =>
-      Array.isArray(arr) ? arr.filter((m) => String(m) !== String(uid)) : arr;
-
-    league.members = cleanMembers(league.members);
-    league.memberUserIds = cleanMembers(league.memberUserIds);
-
-    saveLeagues(leagues);
-    return res.json({ ok: true, leagueId: lid, removedUserId: uid });
-  } catch (err) {
-    console.error("admin remove-member error", err);
-    return res.status(500).json({ error: "Admin remove-member failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: REMOVE MEMBER FROM LEAGUE BY NAME + USERNAME
-// POST /api/admin/leagues/remove-member-by-name
-// headers: x-admin-key: prem-admin-reset
-// body: { leagueName, username }
-// ---------------------------------------------------------------------------
-app.post("/api/admin/leagues/remove-member-by-name", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const { leagueName, username } = req.body || {};
-    const lname = (leagueName || "").trim();
-    const uname = (username || "").trim();
-    if (!lname || !uname) {
-      return res.status(400).json({ error: "leagueName and username are required" });
-    }
-
-    const leagues = loadLeagues() || [];
-    const league = leagues.find((l) => (l.name || "").trim() === lname);
-    if (!league) return res.status(404).json({ error: "League not found" });
-
-    const users = loadUsers() || [];
-    const user = users.find((u) => (u.username || "").toLowerCase() === uname.toLowerCase());
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    const uid = String(user.id);
-    const cleanMembers = (arr) =>
-      Array.isArray(arr) ? arr.filter((m) => String(m) !== uid) : arr;
-
-    league.members = cleanMembers(league.members);
-    league.memberUserIds = cleanMembers(league.memberUserIds);
-
-    saveLeagues(leagues);
-    return res.json({ ok: true, leagueName: lname, removedUserId: uid });
-  } catch (err) {
-    console.error("admin remove-member-by-name error", err);
-    return res.status(500).json({ error: "Admin remove-member-by-name failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
-// ADMIN: ADD MEMBER TO LEAGUE BY NAME + USERNAME
-// POST /api/admin/leagues/add-member-by-name
-// headers: x-admin-key: prem-admin-reset
-// body: { leagueName, username }
-// ---------------------------------------------------------------------------
-app.post("/api/admin/leagues/add-member-by-name", (req, res) => {
-  try {
-    const adminKey = req.headers["x-admin-key"];
-    if (adminKey !== "prem-admin-reset") {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    const { leagueName, username } = req.body || {};
-    const lname = (leagueName || "").trim();
-    const uname = (username || "").trim();
-    if (!lname || !uname) {
-      return res.status(400).json({ error: "leagueName and username are required" });
-    }
-
-    const leagues = loadLeagues() || [];
-    const league = leagues.find((l) => (l.name || "").trim() === lname);
-    if (!league) return res.status(404).json({ error: "League not found" });
-
-    const users = loadUsers() || [];
-    const user = users.find((u) => (u.username || "").toLowerCase() === uname.toLowerCase());
-    if (!user) return res.status(404).json({ error: "User not found" });
-
-    const uid = String(user.id);
-    const ensureMembers = (arr) => (Array.isArray(arr) ? arr : []);
-    const members = new Set(ensureMembers(league.members).map((m) => String(m)));
-    const memberUserIds = new Set(
-      ensureMembers(league.memberUserIds).map((m) => String(m))
-    );
-    members.add(uid);
-    memberUserIds.add(uid);
-
-    league.members = Array.from(members);
-    league.memberUserIds = Array.from(memberUserIds);
-
-    saveLeagues(leagues);
-    return res.json({ ok: true, leagueName: lname, addedUserId: uid });
-  } catch (err) {
-    console.error("admin add-member-by-name error", err);
-    return res.status(500).json({ error: "Admin add-member-by-name failed" });
-  }
-});
-
-// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {
@@ -1774,78 +775,6 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
   } catch (err) {
     console.error("leagues/my error", err);
     return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
-  try {
-    const leagues = loadLeagues();
-    const predictionsByUserId = loadPredictions();
-    const resultsByFixtureId = loadResults();
-    const fixtures = loadFixturesFromSrc();
-
-    const completedFixtureIds = fixtures
-      .map((fx) => fx.id)
-      .filter((fixtureId) => {
-        const r = resultsByFixtureId[fixtureId] || resultsByFixtureId[String(fixtureId)];
-        const hg = Number(r?.homeGoals);
-        const ag = Number(r?.awayGoals);
-        return Number.isFinite(hg) && Number.isFinite(ag);
-      });
-
-    const leaderboard = leagues.map((league) => {
-      const members = Array.isArray(league.members)
-        ? league.members
-        : Array.isArray(league.memberUserIds)
-        ? league.memberUserIds
-        : [];
-
-      let totalPoints = 0;
-      members.forEach((userId) => {
-        const userPreds = predictionsByUserId[userId] || {};
-        let userPoints = 0;
-
-        completedFixtureIds.forEach((fixtureId) => {
-          const pred =
-            userPreds[String(fixtureId)] !== undefined
-              ? userPreds[String(fixtureId)]
-              : userPreds[fixtureId];
-          if (!pred) return;
-
-          const res =
-            resultsByFixtureId[String(fixtureId)] !== undefined
-              ? resultsByFixtureId[String(fixtureId)]
-              : resultsByFixtureId[fixtureId];
-          userPoints += getPredictionPoints(pred, res);
-        });
-
-        totalPoints += userPoints;
-      });
-
-      const memberCount = members.length;
-      const averagePoints = memberCount > 0 ? totalPoints / memberCount : 0;
-      const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
-
-      return {
-        leagueId: league.id,
-        leagueName: league.name || joinCode || "Mini-league",
-        joinCode,
-        memberCount,
-        totalPoints,
-        averagePoints,
-      };
-    });
-
-    leaderboard.sort((a, b) => {
-      if (b.averagePoints !== a.averagePoints) return b.averagePoints - a.averagePoints;
-      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-      return a.leagueName.localeCompare(b.leagueName);
-    });
-
-    return res.json({ leaderboard });
-  } catch (err) {
-    console.error("leagues/leaderboard error", err);
-    return res.status(500).json({ error: "Failed to compute mini-league leaderboard." });
   }
 });
 
@@ -2414,19 +1343,9 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
       if (newlyCompleted.length) {
         const predictions = loadPredictions() || {};
         const coins = loadCoins() || {};
-        const users = loadUsers() || [];
-        const fixtures = loadFixturesFromSrc() || [];
-        const fixtureById = {};
-        fixtures.forEach((fx) => {
-          if (!fx || fx.id === undefined || fx.id === null) return;
-          fixtureById[String(fx.id)] = fx;
-        });
 
         newlyCompleted.forEach((fx) => {
           const resultSide = getResult(fx.homeGoals, fx.awayGoals);
-          const fixture = fixtureById[String(fx.fixtureId)] || null;
-          const homeNorm = normalizeTeamName(fixture?.homeTeam || "");
-          const awayNorm = normalizeTeamName(fixture?.awayTeam || "");
 
           // Bingpot notifications
           Object.entries(predictions).forEach(([userId, preds]) => {
@@ -2473,25 +1392,6 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
               });
             });
           });
-
-          // Favourite team result notifications
-          if (fixture && (homeNorm || awayNorm)) {
-            users.forEach((user) => {
-              if (!user || !user.id) return;
-              const favTeam = (user.favoriteTeam || "").trim();
-              if (!favTeam) return;
-              const favNorm = normalizeTeamName(favTeam);
-              if (!favNorm) return;
-              const isFavFixture = favNorm === homeNorm || favNorm === awayNorm;
-              if (!isFavFixture) return;
-
-              sendPushNotification(user.id, "favoriteTeamResult", {
-                title: "Favourite team result",
-                body: `${fixture.homeTeam} ${fx.homeGoals}-${fx.awayGoals} ${fixture.awayTeam}`,
-                url: "/",
-              });
-            });
-          }
         });
       }
     } catch (err) {
@@ -2505,20 +1405,64 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
   }
 });
 
-// Public: return latest results snapshot (global source of truth)
-app.get("/api/results/snapshot", (req, res) => {
-  try {
-    const current = loadResults() || {};
-    return res.json(current);
-  } catch (err) {
-    console.error("[SNAPSHOT] get results snapshot error", err);
-    return res.status(500).json({ error: "Failed to load results snapshot" });
-  }
-});
-
 // ---------------------------------------------------------------------------
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
+app.get("/api/fixtures", async (req, res) => {
+  try {
+    const now = Date.now();
+    if (fixturesCache && now - fixturesCacheAt < FIXTURES_CACHE_TTL_MS) {
+      res.setHeader("X-Fixtures-Updated", String(fixturesCacheAt));
+      return res.json(fixturesCache);
+    }
+
+    const apiRes = await fetch(
+      "https://api.football-data.org/v4/competitions/PL/matches",
+      { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
+    );
+
+    if (!apiRes.ok) {
+      const errorText = await apiRes.text().catch(() => "");
+      console.error("Football-Data fixtures API error:", apiRes.status, errorText);
+
+      const fallbackFixtures = loadFixturesFromSrc();
+      if (fallbackFixtures.length) {
+        fixturesCache = fallbackFixtures;
+        fixturesCacheAt = Date.now();
+        res.setHeader("X-Fixtures-Updated", String(fixturesCacheAt));
+        return res.json(fallbackFixtures);
+      }
+
+      return res
+        .status(apiRes.status)
+        .json({ error: "Football-Data API error", status: apiRes.status });
+    }
+
+    const data = await apiRes.json();
+    const matches = Array.isArray(data.matches) ? data.matches : [];
+    const normalizedFixtures = matches
+      .map(toFixtureSummary)
+      .filter((fixture) => fixture.id && fixture.gameweek && fixture.kickoff);
+
+    fixturesCache = normalizedFixtures;
+    fixturesCacheAt = Date.now();
+    res.setHeader("X-Fixtures-Updated", String(fixturesCacheAt));
+    res.json(normalizedFixtures);
+  } catch (err) {
+    console.error("fixtures error", err);
+
+    const fallbackFixtures = loadFixturesFromSrc();
+    if (fallbackFixtures.length) {
+      fixturesCache = fallbackFixtures;
+      fixturesCacheAt = Date.now();
+      res.setHeader("X-Fixtures-Updated", String(fixturesCacheAt));
+      return res.json(fallbackFixtures);
+    }
+
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 app.get("/api/results", async (req, res) => {
   try {
     const now = Date.now();
@@ -2526,14 +1470,10 @@ app.get("/api/results", async (req, res) => {
       res.setHeader("X-Results-Updated", String(resultsCacheAt));
       return res.json(resultsCache);
     }
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-    const useDirectApi = RESULTS_PROXY_URL.includes("football-data.org");
-    const apiRes = await fetch(RESULTS_PROXY_URL, {
-      headers: useDirectApi ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN } : {},
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    const apiRes = await fetch(
+      "https://api.football-data.org/v4/competitions/PL/matches",
+      { headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN } }
+    );
 
     if (!apiRes.ok) {
       const errorText = await apiRes.text().catch(() => "");
@@ -2551,13 +1491,7 @@ app.get("/api/results", async (req, res) => {
     res.json(matches);
   } catch (err) {
     console.error("results error", err);
-    if (resultsCache && resultsCacheAt) {
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
-      res.setHeader("X-Results-Source", "cache-stale");
-      return res.json(resultsCache);
-    }
-    const isTimeout = err?.name === "AbortError" || err?.code === "UND_ERR_CONNECT_TIMEOUT";
-    res.status(503).json({ error: isTimeout ? "Results upstream timeout" : "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -2599,14 +1533,16 @@ app.get("/api/odds", async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// START SERVER
+// ---------------------------------------------------------------------------
+
 // -------------------- COINS LEADERBOARD (SEASON, ALL USERS) --------------------
 app.get("/api/coins/leaderboard", authOptional, (req, res) => {
   try {
     const coins = loadCoins() || {};
     const results = loadResults() || {};
     const users = loadUsers() || [];
-    const legacyMap = loadLegacyMap() || {};
-    const leagueId = (req.query.leagueId || "").trim();
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
@@ -2614,61 +1550,22 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       userMap[u.id] = u.username;
       userMap[String(u.id)] = u.username;
     });
-    // Map legacy userId -> legacy name
-    const legacyIdToName = {};
-    Object.entries(legacyMap).forEach(([name, id]) => {
-      legacyIdToName[String(id)] = name;
-    });
 
     const leaderboard = [];
 
-    let allowedIds = null;
-    if (leagueId) {
-      const leagues = loadLeagues() || [];
-      const league = leagues.find((l) => l.id === leagueId);
-      if (!league) {
-        return res.status(404).json({ error: "League not found" });
-      }
-      const members = Array.isArray(league.members)
-        ? league.members
-        : Array.isArray(league.memberUserIds)
-        ? league.memberUserIds
-        : [];
-      allowedIds = new Set(members.map((m) => String(m)));
-    }
 
-    const addRow = (userIdKey, coinsForUser) => {
-      const summary = computeSeasonCoinsForUser(coinsForUser || {}, results);
-      const legacyNameFromId =
-        legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
-      const legacyNameFromKey = legacyMap[userIdKey] ? String(userIdKey) : null;
+    Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
+      const summary = computeSeasonCoinsForUser(coinsForUser, results);
       leaderboard.push({
         userId: String(userIdKey),
-        player:
-          userMap[userIdKey] ||
-          userMap[String(userIdKey)] ||
-          legacyNameFromId ||
-          legacyNameFromKey ||
-          "Unknown",
+        player: userMap[userIdKey] || userMap[String(userIdKey)] || "Unknown",
         totalStake: summary.totalStake,
         totalReturn: summary.totalReturn,
         profit: summary.profit,
       });
       // Log each user's summary for debugging
-      console.log(
-        `[LEADERBOARD] User ${userIdKey}: stake=${summary.totalStake}, return=${summary.totalReturn}, profit=${summary.profit}`
-      );
-    };
-
-    if (allowedIds) {
-      allowedIds.forEach((uid) => {
-        addRow(uid, coins[uid] || coins[String(uid)] || {});
-      });
-    } else {
-      Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {
-        addRow(userIdKey, coinsForUser);
-      });
-    }
+      console.log(`[LEADERBOARD] User ${userIdKey}: stake=${summary.totalStake}, return=${summary.totalReturn}, profit=${summary.profit}`);
+    });
 
     // Sort by profit descending (typical leaderboard)
     leaderboard.sort((a, b) => b.profit - a.profit);
@@ -2681,18 +1578,6 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       .json({ error: "Failed to build coins leaderboard" });
   }
 });
-
-// SPA fallback (must be after all API routes)
-if (fs.existsSync(BUILD_DIR)) {
-  app.get(/.*/, (req, res) => {
-    res.setHeader("Cache-Control", "no-store");
-    res.sendFile(path.join(BUILD_DIR, "index.html"));
-  });
-}
-
-// ---------------------------------------------------------------------------
-// START SERVER
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // PUSH NOTIFICATIONS
