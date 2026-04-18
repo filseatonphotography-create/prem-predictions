@@ -621,21 +621,25 @@ async function fetchPremierLeagueResults() {
       const matches = await res.json();
       const updatedAt = updatedHeader ? Number(updatedHeader) : null;
       if (Array.isArray(matches) && matches.length > 0) {
-        return { matches, error: null, updatedAt };
+        return { matches, error: null, updatedAt, rateLimited: false };
       }
       // If backend returns empty, fall back to Netlify source
     }
 
+    if (res.status === 429) {
+      return { matches: [], error: null, updatedAt: null, rateLimited: true };
+    }
+
     // Fallback: hit Netlify function directly if backend can't fetch live results
     res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
-    if (!res.ok) return { matches: [], error: `HTTP ${res.status}` };
+    if (!res.ok) return { matches: [], error: `HTTP ${res.status}`, rateLimited: false };
     const matches = await res.json();
-    return { matches, error: null, updatedAt: Date.now() };
+    return { matches, error: null, updatedAt: Date.now(), rateLimited: false };
   } catch (err) {
     if (err.name === 'AbortError') {
-      return { matches: [], error: 'Request timeout' };
+      return { matches: [], error: 'Request timeout', rateLimited: false };
     }
-    return { matches: [], error: err.message };
+    return { matches: [], error: err.message, rateLimited: false };
   }
 }
 
@@ -1788,7 +1792,12 @@ const premierLeagueInsights = useMemo(() => {
 
   const refreshAutoResults = async () => {
     setResultsRefreshing(true);
-    const { matches, error, updatedAt } = await fetchPremierLeagueResults();
+    const { matches, error, updatedAt, rateLimited } = await fetchPremierLeagueResults();
+    if (rateLimited) {
+      setApiStatus("Auto results: rate limited, using cached data");
+      setResultsRefreshing(false);
+      return;
+    }
     if (error) {
       setApiStatus(`Auto results: failed (${error})`);
       setResultsRefreshing(false);
@@ -6596,7 +6605,7 @@ if (!isLoggedIn) {
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: isMobile ? "52px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
+                              gridTemplateColumns: isMobile ? "44px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
                               gap: 8,
                               alignItems: "center",
                             }}
@@ -6614,11 +6623,10 @@ if (!isLoggedIn) {
                             </div>
                             <div
                               style={{
-                                display: "flex",
+                                display: "grid",
+                                gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
                                 gap: 6,
-                                flexWrap: "nowrap",
-                                overflowX: "auto",
-                                paddingBottom: 2,
+                                minWidth: 0,
                               }}
                             >
                               {insights.form.length > 0 ? (
@@ -6633,16 +6641,19 @@ if (!isLoggedIn) {
                                     <div
                                       key={`form-${item.fixtureId}`}
                                       style={{
-                                        minWidth: isMobile ? 54 : 60,
-                                        padding: "6px 8px",
+                                        minWidth: 0,
+                                        width: "100%",
+                                        padding: isMobile ? "6px 4px" : "6px 8px",
                                         borderRadius: 10,
                                         background: outcomeColor,
                                         color: outcomeColor === "#eab308" ? "#111827" : "#ffffff",
                                         display: "flex",
                                         flexDirection: "column",
                                         gap: 1,
-                                        justifyItems: "center",
-                                        flexShrink: 0,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        minHeight: isMobile ? 42 : 48,
+                                        boxSizing: "border-box",
                                       }}
                                     >
                                       <div style={{ fontWeight: 800, fontSize: 12, textAlign: "center" }}>
@@ -6651,7 +6662,6 @@ if (!isLoggedIn) {
                                       <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>
                                         {item.opponentCode} ({item.venue})
                                       </div>
-                                      <div style={{ fontSize: 10, textAlign: "center" }}>{item.scoreText}</div>
                                     </div>
                                   );
                                 })
@@ -6666,7 +6676,7 @@ if (!isLoggedIn) {
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: isMobile ? "52px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
+                              gridTemplateColumns: isMobile ? "44px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
                               gap: 8,
                               alignItems: "center",
                             }}
@@ -6684,11 +6694,10 @@ if (!isLoggedIn) {
                             </div>
                             <div
                               style={{
-                                display: "flex",
+                                display: "grid",
+                                gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
                                 gap: 6,
-                                flexWrap: "nowrap",
-                                overflowX: "auto",
-                                paddingBottom: 2,
+                                minWidth: 0,
                               }}
                             >
                               {insights.upcoming.length > 0 ? (
@@ -6696,22 +6705,23 @@ if (!isLoggedIn) {
                                   <div
                                     key={`upcoming-${item.fixtureId}`}
                                     style={{
-                                      minWidth: isMobile ? 66 : 78,
-                                      padding: "6px 8px",
+                                      minWidth: 0,
+                                      width: "100%",
+                                      padding: isMobile ? "6px 4px" : "6px 8px",
                                       borderRadius: 10,
                                       background: item.color,
                                       color: item.difficultyScore <= 2 ? "#0b1220" : "#ffffff",
                                       display: "flex",
                                       flexDirection: "column",
                                       gap: 1,
-                                      flexShrink: 0,
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      minHeight: isMobile ? 42 : 48,
+                                      boxSizing: "border-box",
                                     }}
                                   >
                                     <div style={{ fontWeight: 800, fontSize: 12, textAlign: "center" }}>
                                       {item.opponentCode} ({item.venue})
-                                    </div>
-                                    <div style={{ fontSize: 10, fontWeight: 700, textAlign: "center" }}>
-                                      {item.label}
                                     </div>
                                   </div>
                                 ))
