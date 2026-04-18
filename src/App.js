@@ -1962,7 +1962,7 @@ useEffect(() => {
   return () => {
     if (intervalId) clearInterval(intervalId);
   };
-}, [generatedModelOddsByFixture]);
+}, []);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
 useEffect(() => {
