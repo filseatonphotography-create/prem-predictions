@@ -356,12 +356,12 @@ async function apiGetResultsSnapshot() {
 }
 
 // Save latest results snapshot to backend for coins leaderboard
-async function apiSaveResultsSnapshot(resultsByFixtureId) {
+async function apiSaveResultsSnapshot(resultsByFixtureId, matchStateByFixtureId = {}) {
   try {
     await fetch(`${BACKEND_BASE}/api/results/snapshot`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resultsByFixtureId }),
+      body: JSON.stringify({ resultsByFixtureId, matchStateByFixtureId }),
     });
   } catch {}
 }
@@ -462,6 +462,29 @@ async function apiSetPushPrefs(token, prefs) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to save prefs.");
   return data;
+}
+
+async function apiGetFixturePushPrefs(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/fixtures`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load fixture notification prefs.");
+  return data.fixturePrefs || {};
+}
+
+async function apiSetFixturePushPref(token, fixtureId, enabled) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/fixtures`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ fixtureId, enabled }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to save fixture notification preference.");
+  return data.fixturePrefs || {};
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -617,42 +640,73 @@ async function fetchPremierLeagueResults() {
 }
 
 async function fetchPremierLeagueStandings() {
-  try {
+  const attemptFetch = async (timeoutMs) => {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const res = await fetch(`${BACKEND_BASE}/api/standings`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
+    try {
+      const res = await fetch(`${BACKEND_BASE}/api/standings`, {
+        signal: controller.signal,
+      });
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          table: [],
+          error: data.error || `HTTP ${res.status}`,
+          updatedAt: null,
+          timedOut: false,
+        };
+      }
+
+      const updatedHeader = res.headers.get("x-standings-updated");
+      const standings = Array.isArray(data.standings) ? data.standings : [];
+      const totalTable =
+        standings.find((entry) => entry?.type === "TOTAL")?.table ||
+        standings[0]?.table ||
+        [];
+
+      return {
+        table: Array.isArray(totalTable) ? totalTable : [],
+        error: null,
+        updatedAt: updatedHeader ? Number(updatedHeader) : null,
+        timedOut: false,
+      };
+    } catch (err) {
+      if (err.name === "AbortError") {
+        return {
+          table: [],
+          error: "Request timeout",
+          updatedAt: null,
+          timedOut: true,
+        };
+      }
       return {
         table: [],
-        error: data.error || `HTTP ${res.status}`,
+        error: err.message,
         updatedAt: null,
+        timedOut: false,
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
+  };
 
-    const updatedHeader = res.headers.get("x-standings-updated");
-    const standings = Array.isArray(data.standings) ? data.standings : [];
-    const totalTable =
-      standings.find((entry) => entry?.type === "TOTAL")?.table ||
-      standings[0]?.table ||
-      [];
-
+  const first = await attemptFetch(20000);
+  if (!first.timedOut) {
     return {
-      table: Array.isArray(totalTable) ? totalTable : [],
-      error: null,
-      updatedAt: updatedHeader ? Number(updatedHeader) : null,
+      table: first.table,
+      error: first.error,
+      updatedAt: first.updatedAt,
     };
-  } catch (err) {
-    if (err.name === "AbortError") {
-      return { table: [], error: "Request timeout", updatedAt: null };
-    }
-    return { table: [], error: err.message, updatedAt: null };
   }
+
+  const second = await attemptFetch(20000);
+  return {
+    table: second.table,
+    error: second.error,
+    updatedAt: second.updatedAt,
+  };
 }
 
 // --- COINS GAME API HELPERS ---
@@ -1202,6 +1256,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
+  const [fixturePushPrefs, setFixturePushPrefs] = useState({});
   const [pushPrefs, setPushPrefs] = useState(() => {
     try {
       const saved = localStorage.getItem("push_prefs_v1");
@@ -1437,23 +1492,24 @@ const favoriteTeamByUsername = useMemo(() => {
   // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
-  // Always use userId for the logged-in user, even if their name is selected
+  // Always use the logged-in user's real userId for their own predictions.
+  // Only fall back to the synthetic Phil merge when viewing legacy Phil data.
   const currentPredictionKey = useMemo(() => {
-    // If Phil is selected, merge predictions from both Phil IDs
-    if (currentPlayer === "Phil") {
-      return "Phil_merged";
-    }
+    if (currentPlayer === loginName && currentUserId) return currentUserId;
     if (currentPlayer === currentUserId) {
       return currentUserId;
     }
+    if (currentPlayer === "Phil") {
+      return "Phil_merged";
+    }
     return currentPlayer;
-  }, [currentPlayer, currentUserId]);
+  }, [currentPlayer, currentUserId, loginName]);
 
 // Merge Phil's predictions from both IDs into a synthetic key
 useEffect(() => {
   if (typeof window !== 'undefined') {
     if (currentPlayer === "Phil") {
-      const oldPhil = predictions["1763874000000"] || {};
+      const oldPhil = predictions[currentUserId || "1763874000000"] || {};
       const newPhil = predictions["1763789072925"] || {};
       // Merge, newPhil wins if duplicate fixture
       const merged = { ...oldPhil, ...newPhil };
@@ -1464,7 +1520,7 @@ useEffect(() => {
     }
   }
   // eslint-disable-next-line
-}, [predictions["1763874000000"], predictions["1763789072925"], currentPlayer]);
+}, [predictions[currentUserId || "1763874000000"], predictions["1763789072925"], currentPlayer, currentUserId]);
 
 // ...existing code...
 
@@ -1494,6 +1550,7 @@ const visibleFixtures = FIXTURES.filter(
     if (matches?.length) {
       let matchedCount = 0;
       const updatedResults = {};
+      const matchStateUpdates = {};
 
       matches.forEach((match) => {
         if (!match.homeTeam || !match.awayTeam) return;
@@ -1562,17 +1619,34 @@ const visibleFixtures = FIXTURES.filter(
         }
 
         if (fixture) {
-          matchedCount += 1;
-          updatedResults[fixture.id] = {
+          const status = String(match.status || "");
+          const halfTimeHomeGoals = Number.isFinite(ht.home) ? ht.home : null;
+          const halfTimeAwayGoals = Number.isFinite(ht.away) ? ht.away : null;
+
+          matchStateUpdates[fixture.id] = {
+            status,
             homeGoals,
             awayGoals,
+            halfTimeHomeGoals,
+            halfTimeAwayGoals,
+            utcDate: match.utcDate || "",
+          };
+
+          if (homeGoals !== null && awayGoals !== null) {
+            matchedCount += 1;
+            updatedResults[fixture.id] = {
+              homeGoals,
+              awayGoals,
+            };
           };
         }
       });
 
       if (matchedCount) {
         setResults((prev) => ({ ...prev, ...updatedResults }));
-        apiSaveResultsSnapshot(updatedResults);
+      }
+      if (matchedCount || Object.keys(matchStateUpdates).length) {
+        apiSaveResultsSnapshot(updatedResults, matchStateUpdates);
       }
     }
     setResultsRefreshing(false);
@@ -1756,6 +1830,20 @@ useEffect(() => {
           return next;
         });
       }
+    } catch {}
+  })();
+}, [isLoggedIn, authToken]);
+
+useEffect(() => {
+  if (!isLoggedIn || !authToken) {
+    setFixturePushPrefs({});
+    return;
+  }
+
+  (async () => {
+    try {
+      const fixturePrefs = await apiGetFixturePushPrefs(authToken);
+      setFixturePushPrefs(fixturePrefs || {});
     } catch {}
   })();
 }, [isLoggedIn, authToken]);
@@ -2133,15 +2221,11 @@ useEffect(() => {
       const predsForCalc = {};
 
       keys.forEach((k) => {
-        // Special case: For Phil, use merged predictions if available
-        if (k === "Phil" && predictions["Phil_merged"]) {
-          predsForCalc[k] = { ...predictions["Phil_merged"] };
-          return;
-        }
         // Only use this user's predictions, do not fallback to any other user
         const legacyData = predictions[k] || {};
         const userId = userIdByKey[k];
         const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
+        const philMergedData = k === "Phil" ? (predictions["Phil_merged"] || {}) : {};
 
         // Normalise all fixture IDs to STRING keys
         const legacyDataStr = Object.fromEntries(
@@ -2150,11 +2234,19 @@ useEffect(() => {
         const cloudDataStr = Object.fromEntries(
           Object.entries(cloudData).map(([id, val]) => [String(id), val])
         );
+        const philMergedDataStr = Object.fromEntries(
+          Object.entries(philMergedData).map(([id, val]) => [String(id), val])
+        );
 
-        // Only use this user's predictions, do not merge from any other user
-        predsForCalc[k] = Object.keys(cloudDataStr).length > 0
-          ? { ...cloudDataStr }
-          : { ...legacyDataStr };
+        // Prefer cloud data when available; only fall back to the local Phil merge
+        // for legacy migration cases where the backend has no current record yet.
+        if (Object.keys(cloudDataStr).length > 0) {
+          predsForCalc[k] = { ...cloudDataStr };
+        } else if (k === "Phil" && Object.keys(philMergedDataStr).length > 0) {
+          predsForCalc[k] = { ...philMergedDataStr };
+        } else {
+          predsForCalc[k] = { ...legacyDataStr };
+        }
       });
 
       // 5) Compute weekly totals (spreadsheet base + recalculated points)
@@ -2434,6 +2526,102 @@ setNewPasswordInput("");
     const registration = await ensurePushRegistration();
     const subscription = await registration.pushManager.getSubscription();
     return { registration, subscription };
+  };
+
+  const enablePushNotifications = async () => {
+    let permission = Notification.permission;
+    if (permission === "default") {
+      permission = await Notification.requestPermission();
+    }
+    if (permission !== "granted") {
+      setPushEnabled(false);
+      throw new Error("Permission denied for notifications");
+    }
+
+    const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
+    if (!vapidRes.ok) {
+      throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
+    }
+
+    const { publicKey } = await vapidRes.json();
+    const { registration, subscription: existingSubscription } =
+      await getExistingPushSubscription();
+    const subscription =
+      existingSubscription ||
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      }));
+
+    const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ subscription, prefs: pushPrefs }),
+    });
+
+    if (!subRes.ok) {
+      const subData = await subRes.json().catch(() => ({}));
+      throw new Error(subData.error || "Failed to save subscription");
+    }
+
+    setPushEnabled(true);
+    return true;
+  };
+
+  const disablePushNotifications = async () => {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = registration
+      ? await registration.pushManager.getSubscription()
+      : null;
+    if (subscription) {
+      await subscription.unsubscribe();
+    }
+
+    await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    setPushEnabled(false);
+    return true;
+  };
+
+  const toggleFixturePush = async (fixtureId) => {
+    if (!authToken) {
+      alert("Please log in again.");
+      return;
+    }
+    if (!pushSupported) {
+      alert("Push notifications are not supported in this browser.");
+      return;
+    }
+
+    const fixtureKey = String(fixtureId);
+    const previousEnabled = !!fixturePushPrefs[fixtureKey];
+    const nextEnabled = !previousEnabled;
+
+    try {
+      if (nextEnabled && !pushEnabled) {
+        await enablePushNotifications();
+      }
+
+      setFixturePushPrefs((prev) => ({
+        ...prev,
+        [fixtureKey]: nextEnabled,
+      }));
+
+      const savedPrefs = await apiSetFixturePushPref(authToken, fixtureKey, nextEnabled);
+      setFixturePushPrefs(savedPrefs || {});
+    } catch (err) {
+      setFixturePushPrefs((prev) => ({ ...prev, [fixtureKey]: previousEnabled }));
+      alert(`Failed to update fixture notifications: ${err.message}`);
+    }
   };
 
   // ---------- MINI-LEAGUES ----------
@@ -4819,6 +5007,7 @@ if (!isLoggedIn) {
         const pointsForThisFixture = hasResult
           ? getTotalPoints(pred, r)
           : null;
+        const fixturePushEnabled = !!fixturePushPrefs[String(fixture.id)];
 
         const coinsBet =
           (coinsState.bets && coinsState.bets[fixture.id]) || {};
@@ -5152,12 +5341,12 @@ if (!isLoggedIn) {
                   marginTop: 6,
                 }}
               >
-                {/* POINTS + LOCK */}
+                {/* POINTS + LOCK + FIXTURE BELL */}
                 <div
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 6,
+                    gap: 10,
                     alignSelf: "center",
                     flexShrink: 0,
                   }}
@@ -5229,6 +5418,39 @@ if (!isLoggedIn) {
                   >
                     {locked ? "🔒" : "🔑"}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => toggleFixturePush(fixture.id)}
+                    title={
+                      fixturePushEnabled
+                        ? "Fixture notifications enabled"
+                        : "Fixture notifications disabled"
+                    }
+                    aria-label={
+                      fixturePushEnabled
+                        ? `Disable notifications for ${fixture.homeTeam} vs ${fixture.awayTeam}`
+                        : `Enable notifications for ${fixture.homeTeam} vs ${fixture.awayTeam}`
+                    }
+                    style={{
+                      width: 28,
+                      height: 28,
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
+                      borderRadius: "50%",
+                      border: `1px solid ${fixturePushEnabled ? "#22c55e" : "#ef4444"}`,
+                      background: fixturePushEnabled ? "rgba(34,197,94,0.18)" : "rgba(239,68,68,0.18)",
+                      color: fixturePushEnabled ? "#22c55e" : "#ef4444",
+                      fontSize: 15,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      marginTop: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    🔔
+                  </button>
                 </div>
               </div>
 
@@ -7384,45 +7606,8 @@ if (!isLoggedIn) {
                     onClick={async () => {
                       if (!pushEnabled) {
                         try {
-                          let permission = Notification.permission;
-                          if (permission === 'default') {
-                            permission = await Notification.requestPermission();
-                          }
-                          if (permission === 'granted') {
-                            const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
-                            if (!vapidRes.ok) {
-                              throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
-                            }
-                            const { publicKey } = await vapidRes.json();
-                            const { registration, subscription: existingSubscription } =
-                              await getExistingPushSubscription();
-                            const subscription =
-                              existingSubscription ||
-                              (await registration.pushManager.subscribe({
-                                userVisibleOnly: true,
-                                applicationServerKey: urlBase64ToUint8Array(publicKey)
-                              }));
-
-                            const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                                Authorization: `Bearer ${authToken}`
-                              },
-                              body: JSON.stringify({ subscription, prefs: pushPrefs })
-                            });
-                            
-                            if (subRes.ok) {
-                              setPushEnabled(true);
-                              alert('✅ Push notifications enabled!');
-                            } else {
-                              const subData = await subRes.json().catch(() => ({}));
-                              throw new Error(subData.error || 'Failed to save subscription');
-                            }
-                          } else {
-                            setPushEnabled(false);
-                            alert('❌ Permission denied for notifications');
-                          }
+                          await enablePushNotifications();
+                          alert('✅ Push notifications enabled!');
                         } catch (err) {
                           console.error('Push subscription failed:', err);
                           alert('Failed to enable push notifications: ' + err.message);
@@ -7430,24 +7615,7 @@ if (!isLoggedIn) {
                       } else {
                         // Unsubscribe
                         try {
-                          const registration = await navigator.serviceWorker.getRegistration();
-                          const subscription = registration
-                            ? await registration.pushManager.getSubscription()
-                            : null;
-                          if (subscription) {
-                            await subscription.unsubscribe();
-                          }
-                          
-                          // Tell backend to remove subscription
-                          await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              Authorization: `Bearer ${authToken}`
-                            }
-                          });
-                          
-                          setPushEnabled(false);
+                          await disablePushNotifications();
                           alert('❌ Push notifications disabled');
                         } catch (err) {
                           console.error('Push unsubscribe failed:', err);

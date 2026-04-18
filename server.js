@@ -150,6 +150,7 @@ const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
+const MATCH_STATES_FILE = path.join(DATA_DIR, "matchStates.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
 const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
 
@@ -307,6 +308,8 @@ const loadUsers = () => {
   return users;
 };
 const saveUsers = (users) => saveJson(USERS_FILE, users);
+const loadMatchStates = () => loadJson(MATCH_STATES_FILE, {});
+const saveMatchStates = (states) => saveJson(MATCH_STATES_FILE, states || {});
 const loadPasswordResetTokens = () => loadJson(PASSWORD_RESET_TOKENS_FILE, []);
 const savePasswordResetTokens = (tokens) =>
   saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
@@ -2384,25 +2387,31 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
 app.post("/api/results/snapshot", authOptional, (req, res) => {
   try {
     console.log("[SNAPSHOT] /api/results/snapshot called");
-    const { resultsByFixtureId } = req.body || {};
-    if (!resultsByFixtureId || typeof resultsByFixtureId !== "object") {
+    const { resultsByFixtureId, matchStateByFixtureId } = req.body || {};
+    const hasResults = resultsByFixtureId && typeof resultsByFixtureId === "object";
+    const hasMatchStates = matchStateByFixtureId && typeof matchStateByFixtureId === "object";
+
+    if (!hasResults && !hasMatchStates) {
       console.log("[SNAPSHOT] Invalid results payload", req.body);
       return res.status(400).json({ error: "Invalid results payload" });
     }
 
     const current = loadResults() || {};
-    console.log("[SNAPSHOT] Merging keys:", Object.keys(resultsByFixtureId));
+    const currentMatchStates = loadMatchStates() || {};
+    console.log("[SNAPSHOT] Merging keys:", Object.keys(resultsByFixtureId || {}));
 
     // Merge new snapshot into existing results (new data overwrites old)
-    const merged = { ...current, ...resultsByFixtureId };
+    const merged = { ...current, ...(resultsByFixtureId || {}) };
+    const mergedMatchStates = { ...currentMatchStates, ...(matchStateByFixtureId || {}) };
 
     saveResults(merged);
+    saveMatchStates(mergedMatchStates);
     console.log("[SNAPSHOT] Results saved successfully");
 
-    // --- Push notifications for newly completed fixtures ---
+    // --- Push notifications for newly completed fixtures + fixture bells ---
     try {
       const newlyCompleted = [];
-      Object.entries(resultsByFixtureId).forEach(([fixtureId, r]) => {
+      Object.entries(resultsByFixtureId || {}).forEach(([fixtureId, r]) => {
         const nh = Number(r?.homeGoals);
         const na = Number(r?.awayGoals);
         if (!Number.isFinite(nh) || !Number.isFinite(na)) return;
@@ -2423,6 +2432,52 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
         fixtures.forEach((fx) => {
           if (!fx || fx.id === undefined || fx.id === null) return;
           fixtureById[String(fx.id)] = fx;
+        });
+
+        const liveUpdates = {};
+        const liveFixtureIds = new Set([
+          ...Object.keys(resultsByFixtureId || {}),
+          ...Object.keys(matchStateByFixtureId || {}),
+        ]);
+
+        liveFixtureIds.forEach((fixtureId) => {
+          const prevState = currentMatchStates[String(fixtureId)] || {};
+          const nextState = mergedMatchStates[String(fixtureId)] || {};
+          const prevScore = current[String(fixtureId)] || {};
+          const nextScore = merged[String(fixtureId)] || {};
+
+          const prevHome = Number.isFinite(Number(prevScore?.homeGoals))
+            ? Number(prevScore.homeGoals)
+            : Number.isFinite(Number(prevState?.homeGoals))
+            ? Number(prevState.homeGoals)
+            : null;
+          const prevAway = Number.isFinite(Number(prevScore?.awayGoals))
+            ? Number(prevScore.awayGoals)
+            : Number.isFinite(Number(prevState?.awayGoals))
+            ? Number(prevState.awayGoals)
+            : null;
+          const nextHome = Number.isFinite(Number(nextScore?.homeGoals))
+            ? Number(nextScore.homeGoals)
+            : Number.isFinite(Number(nextState?.homeGoals))
+            ? Number(nextState.homeGoals)
+            : null;
+          const nextAway = Number.isFinite(Number(nextScore?.awayGoals))
+            ? Number(nextScore.awayGoals)
+            : Number.isFinite(Number(nextState?.awayGoals))
+            ? Number(nextState.awayGoals)
+            : null;
+
+          const prevStatus = String(prevState?.status || "");
+          const nextStatus = String(nextState?.status || "");
+
+          liveUpdates[String(fixtureId)] = {
+            prevHome,
+            prevAway,
+            nextHome,
+            nextAway,
+            prevStatus,
+            nextStatus,
+          };
         });
 
         newlyCompleted.forEach((fx) => {
@@ -2496,12 +2551,75 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
             });
           }
         });
+
+        Object.entries(liveUpdates).forEach(([fixtureId, update]) => {
+          const fixture = fixtureById[String(fixtureId)] || null;
+          if (!fixture) return;
+
+          const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);
+          if (!subscribedUserIds.length) return;
+
+          const hasScoreNow =
+            Number.isFinite(update.nextHome) && Number.isFinite(update.nextAway);
+          const hadScoreBefore =
+            Number.isFinite(update.prevHome) && Number.isFinite(update.prevAway);
+          const scoreChanged =
+            hasScoreNow &&
+            (!hadScoreBefore ||
+              update.nextHome !== update.prevHome ||
+              update.nextAway !== update.prevAway);
+
+          const statusNow = update.nextStatus;
+          const statusBefore = update.prevStatus;
+          const liveishStatuses = new Set(["IN_PLAY", "PAUSED", "FINISHED"]);
+
+          if (scoreChanged && liveishStatuses.has(statusNow)) {
+            const shouldSendGoal =
+              hadScoreBefore ||
+              statusNow === "IN_PLAY" ||
+              statusNow === "PAUSED";
+
+            if (shouldSendGoal) {
+              subscribedUserIds.forEach((userId) => {
+                sendPushNotification(userId, "fixtureUpdates", {
+                  title: "Goal alert",
+                  body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
+                  url: "/",
+                });
+              });
+            }
+          }
+
+          if (statusNow === "PAUSED" && statusBefore !== "PAUSED" && hasScoreNow) {
+            subscribedUserIds.forEach((userId) => {
+              sendPushNotification(userId, "fixtureUpdates", {
+                title: "Half-time",
+                body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
+                url: "/",
+              });
+            });
+          }
+
+          if (statusNow === "FINISHED" && statusBefore !== "FINISHED" && hasScoreNow) {
+            subscribedUserIds.forEach((userId) => {
+              sendPushNotification(userId, "fixtureUpdates", {
+                title: "Full-time",
+                body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
+                url: "/",
+              });
+            });
+          }
+        });
       }
     } catch (err) {
       console.error("[SNAPSHOT] push notification error", err);
     }
 
-    return res.json({ ok: true, updatedCount: Object.keys(resultsByFixtureId).length });
+    return res.json({
+      ok: true,
+      updatedCount: Object.keys(resultsByFixtureId || {}).length,
+      matchStateCount: Object.keys(matchStateByFixtureId || {}).length,
+    });
   } catch (err) {
     console.error("[SNAPSHOT] save results snapshot error", err);
     return res.status(500).json({ error: "Failed to save results snapshot" });
@@ -2576,7 +2694,7 @@ app.get("/api/standings", async (req, res) => {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const timeoutId = setTimeout(() => controller.abort(), 35000);
     const apiRes = await fetch(
       "https://api.football-data.org/v4/competitions/PL/standings",
       {
@@ -2758,6 +2876,14 @@ function sendPushNotification(userId, type, payload) {
 }
 // ---------------------------------------------------------------------------
 
+function getFixtureNotificationUserIds(fixtureId) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const targetFixtureId = String(fixtureId);
+  return Object.entries(subscriptions)
+    .filter(([, sub]) => !!sub?.subscription && sub?.fixturePrefs?.[targetFixtureId] === true)
+    .map(([userId]) => userId);
+}
+
 // Subscribe to push notifications
 app.post("/api/push/subscribe", authMiddleware, (req, res) => {
   try {
@@ -2770,6 +2896,7 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
     subscriptions[userId] = {
       subscription,
       notifPrefs: notifPrefs || (subscriptions[userId] && subscriptions[userId].notifPrefs) || null,
+      fixturePrefs: (subscriptions[userId] && subscriptions[userId].fixturePrefs) || {},
     };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
@@ -2787,7 +2914,12 @@ app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
     const userId = req.user.id;
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
-    delete subscriptions[userId];
+    const existing = subscriptions[userId] || {};
+    subscriptions[userId] = {
+      subscription: null,
+      notifPrefs: existing.notifPrefs || null,
+      fixturePrefs: existing.fixturePrefs || {},
+    };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
     console.log(`Push subscription removed for user ${userId}`);
@@ -2809,6 +2941,7 @@ app.post("/api/push/prefs", authMiddleware, (req, res) => {
     subscriptions[userId] = {
       subscription: existing.subscription || null,
       notifPrefs: prefs,
+      fixturePrefs: existing.fixturePrefs || {},
     };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
@@ -2829,6 +2962,48 @@ app.get("/api/push/prefs", authMiddleware, (req, res) => {
   } catch (err) {
     console.error("push prefs get error", err);
     return res.status(500).json({ error: "Failed to load preferences" });
+  }
+});
+
+app.get("/api/push/fixtures", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const fixturePrefs = (subscriptions[userId] && subscriptions[userId].fixturePrefs) || {};
+    return res.json({ fixturePrefs });
+  } catch (err) {
+    console.error("push fixture prefs get error", err);
+    return res.status(500).json({ error: "Failed to load fixture preferences" });
+  }
+});
+
+app.post("/api/push/fixtures", authMiddleware, (req, res) => {
+  try {
+    const userId = req.user.id;
+    const fixtureId = String(req.body?.fixtureId || "").trim();
+    const enabled = !!req.body?.enabled;
+    if (!fixtureId) {
+      return res.status(400).json({ error: "fixtureId is required" });
+    }
+
+    const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const existing = subscriptions[userId] || {};
+    const fixturePrefs = { ...(existing.fixturePrefs || {}) };
+
+    if (enabled) fixturePrefs[fixtureId] = true;
+    else delete fixturePrefs[fixtureId];
+
+    subscriptions[userId] = {
+      subscription: existing.subscription || null,
+      notifPrefs: existing.notifPrefs || null,
+      fixturePrefs,
+    };
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+
+    return res.json({ ok: true, fixturePrefs });
+  } catch (err) {
+    console.error("push fixture prefs save error", err);
+    return res.status(500).json({ error: "Failed to save fixture preferences" });
   }
 });
 
@@ -2903,8 +3078,208 @@ function runDeadlineNotifier() {
   if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }
 
+async function fetchLivePremierLeagueMatches() {
+  const fetchMatches = async (url, headers) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    try {
+      const resp = await fetch(url, { headers, signal: controller.signal });
+      if (!resp.ok) {
+        const errorText = await resp.text().catch(() => "");
+        return { ok: false, status: resp.status, errorText };
+      }
+      const data = await resp.json();
+      const matches = Array.isArray(data)
+        ? data
+        : Array.isArray(data.matches)
+        ? data.matches
+        : [];
+      return { ok: true, matches };
+    } catch (err) {
+      return { ok: false, status: 500, errorText: String(err?.message || err) };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  };
+
+  const direct = await fetchMatches(
+    "https://api.football-data.org/v4/competitions/PL/matches",
+    { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+  );
+  if (direct.ok) return direct.matches;
+
+  const proxy = await fetchMatches(
+    RESULTS_PROXY_URL,
+    RESULTS_PROXY_URL.includes("football-data.org")
+      ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+      : {}
+  );
+  if (proxy.ok) return proxy.matches;
+
+  throw new Error(proxy.errorText || direct.errorText || "Failed to fetch live matches");
+}
+
+function findLocalFixtureForApiMatch(match, fixtures) {
+  if (match.id != null) {
+    const exact = fixtures.find((f) => Number(f.id) === Number(match.id));
+    if (exact) return exact;
+  }
+
+  const apiHome = normalizeTeamName(match.homeTeam?.name || "");
+  const apiAway = normalizeTeamName(match.awayTeam?.name || "");
+  const candidates = fixtures.filter((f) => {
+    const localHome = normalizeTeamName(f.homeTeam || f.homeTeam?.name || "");
+    const localAway = normalizeTeamName(f.awayTeam || f.awayTeam?.name || "");
+    return localHome === apiHome && localAway === apiAway;
+  });
+
+  if (!candidates.length) return null;
+
+  const matchday = typeof match.matchday === "number" ? match.matchday : null;
+  if (matchday != null) {
+    const byGw = candidates.find((f) => Number(f.gameweek) === matchday);
+    if (byGw) return byGw;
+  }
+
+  if (match.utcDate) {
+    const matchTime = Date.parse(match.utcDate);
+    if (Number.isFinite(matchTime)) {
+      return candidates.reduce((best, f) => {
+        const t = Date.parse(f.kickoff);
+        if (!Number.isFinite(t)) return best || f;
+        if (!best) return f;
+        const bestTime = Date.parse(best.kickoff);
+        return Math.abs(t - matchTime) < Math.abs(bestTime - matchTime) ? f : best;
+      }, null);
+    }
+  }
+
+  return candidates[0];
+}
+
+async function runLiveFixtureNotifier() {
+  try {
+    const matches = await fetchLivePremierLeagueMatches();
+    if (!Array.isArray(matches) || matches.length === 0) return;
+
+    const fixtures = loadFixturesFromSrc() || [];
+    const currentResults = loadResults() || {};
+    const currentMatchStates = loadMatchStates() || {};
+    const nextResults = { ...currentResults };
+    const nextMatchStates = { ...currentMatchStates };
+    let resultsChanged = false;
+    let statesChanged = false;
+
+    matches.forEach((match) => {
+      if (!match?.homeTeam || !match?.awayTeam) return;
+      const fixture = findLocalFixtureForApiMatch(match, fixtures);
+      if (!fixture) return;
+
+      const score = match.score || {};
+      const ft = score.fullTime || {};
+      const rt = score.regularTime || {};
+      const ht = score.halfTime || {};
+      const homeGoals =
+        Number.isFinite(ft.home) ? ft.home :
+        Number.isFinite(rt.home) ? rt.home :
+        Number.isFinite(ht.home) ? ht.home :
+        null;
+      const awayGoals =
+        Number.isFinite(ft.away) ? ft.away :
+        Number.isFinite(rt.away) ? rt.away :
+        Number.isFinite(ht.away) ? ht.away :
+        null;
+
+      const fixtureId = String(fixture.id);
+      const prevState = currentMatchStates[fixtureId] || {};
+      const prevResult = currentResults[fixtureId] || {};
+      const status = String(match.status || "");
+      const nextState = {
+        status,
+        homeGoals,
+        awayGoals,
+        halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
+        halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
+        utcDate: match.utcDate || "",
+      };
+
+      if (JSON.stringify(prevState) !== JSON.stringify(nextState)) {
+        nextMatchStates[fixtureId] = nextState;
+        statesChanged = true;
+      }
+
+      const hadScoreBefore =
+        Number.isFinite(Number(prevResult.homeGoals)) &&
+        Number.isFinite(Number(prevResult.awayGoals));
+      const hasScoreNow =
+        Number.isFinite(homeGoals) &&
+        Number.isFinite(awayGoals);
+
+      const prevHome = hadScoreBefore ? Number(prevResult.homeGoals) : null;
+      const prevAway = hadScoreBefore ? Number(prevResult.awayGoals) : null;
+      const scoreChanged =
+        hasScoreNow && (!hadScoreBefore || prevHome !== homeGoals || prevAway !== awayGoals);
+
+      if (hasScoreNow) {
+        const nextResult = { homeGoals, awayGoals };
+        if (JSON.stringify(prevResult) !== JSON.stringify(nextResult)) {
+          nextResults[fixtureId] = nextResult;
+          resultsChanged = true;
+        }
+      }
+
+      const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);
+      if (!subscribedUserIds.length) return;
+
+      const prevStatus = String(prevState.status || "");
+
+      if (scoreChanged && new Set(["IN_PLAY", "PAUSED", "FINISHED"]).has(status)) {
+        const shouldSendGoal = hadScoreBefore || status === "IN_PLAY" || status === "PAUSED";
+        if (shouldSendGoal) {
+          subscribedUserIds.forEach((userId) => {
+            sendPushNotification(userId, "fixtureUpdates", {
+              title: "Goal alert",
+              body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
+              url: "/",
+            });
+          });
+        }
+      }
+
+      if (status === "PAUSED" && prevStatus !== "PAUSED" && hasScoreNow) {
+        subscribedUserIds.forEach((userId) => {
+          sendPushNotification(userId, "fixtureUpdates", {
+            title: "Half-time",
+            body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
+            url: "/",
+          });
+        });
+      }
+
+      if (status === "FINISHED" && prevStatus !== "FINISHED" && hasScoreNow) {
+        subscribedUserIds.forEach((userId) => {
+          sendPushNotification(userId, "fixtureUpdates", {
+            title: "Full-time",
+            body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
+            url: "/",
+          });
+        });
+      }
+    });
+
+    if (statesChanged) saveMatchStates(nextMatchStates);
+    if (resultsChanged) {
+      saveResults(nextResults);
+    }
+  } catch (err) {
+    console.error("live fixture notifier error", err);
+  }
+}
+
 setInterval(runDeadlineNotifier, 60 * 1000);
 setTimeout(runDeadlineNotifier, 5 * 1000);
+setInterval(runLiveFixtureNotifier, 60 * 1000);
+setTimeout(runLiveFixtureNotifier, 10 * 1000);
 
 // Get VAPID public key
 app.get("/api/push/vapid-public-key", (req, res) => {
