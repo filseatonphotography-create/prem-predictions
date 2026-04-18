@@ -48,6 +48,9 @@ const FOOTBALL_DATA_TOKEN =
 const RESULTS_PROXY_URL =
   process.env.RESULTS_PROXY_URL ||
   "https://predictionaddiction.net/.netlify/functions/results";
+const STANDINGS_PROXY_URL =
+  process.env.STANDINGS_PROXY_URL ||
+  "https://predictionaddiction.net/.netlify/functions/standings";
 const ODDS_API_KEY =
   process.env.ODDS_API_KEY || "6659ed614cb33000eca5166d4bfc9bd3";
 
@@ -2693,26 +2696,58 @@ app.get("/api/standings", async (req, res) => {
       return res.json(standingsCache);
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 35000);
-    const apiRes = await fetch(
-      "https://api.football-data.org/v4/competitions/PL/standings",
-      {
-        headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
-        signal: controller.signal,
-      }
-    );
-    clearTimeout(timeoutId);
+    const fetchStandings = async (url, headers = {}) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      try {
+        const apiRes = await fetch(url, {
+          headers,
+          signal: controller.signal,
+        });
 
-    if (!apiRes.ok) {
-      const errorText = await apiRes.text().catch(() => "");
-      console.error("Football-Data standings error:", apiRes.status, errorText);
-      return res
-        .status(apiRes.status)
-        .json({ error: "Football-Data standings error", status: apiRes.status });
+        if (!apiRes.ok) {
+          const errorText = await apiRes.text().catch(() => "");
+          return {
+            ok: false,
+            status: apiRes.status,
+            error: errorText || `HTTP ${apiRes.status}`,
+          };
+        }
+
+        const data = await apiRes.json();
+        return { ok: true, data };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 503,
+          error: err?.message || "Standings fetch failed",
+        };
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    const direct = await fetchStandings(
+      "https://api.football-data.org/v4/competitions/PL/standings",
+      { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+    );
+    const fallback = direct.ok
+      ? null
+      : await fetchStandings(STANDINGS_PROXY_URL);
+
+    const chosen = direct.ok ? direct : fallback;
+    if (!chosen || !chosen.ok) {
+      console.error("Football-Data standings error:", {
+        direct: direct.error,
+        fallback: fallback?.error || null,
+      });
+      return res.status((chosen && chosen.status) || 503).json({
+        error: "Football-Data standings error",
+        details: direct.error || fallback?.error || "Unknown error",
+      });
     }
 
-    const data = await apiRes.json();
+    const data = chosen.data;
     standingsCache = data || {};
     standingsCacheAt = Date.now();
     res.setHeader("X-Standings-Updated", String(standingsCacheAt));

@@ -2213,10 +2213,32 @@ useEffect(() => {
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
       const userIdByKey = {};
-      leagueUsers.forEach((u) => {
+      const rankedLeagueUsers = [...leagueUsers].sort((a, b) => {
+        const aName = (a?.username || "").trim();
+        const bName = (b?.username || "").trim();
+        const aIsCurrent = String(a?.userId || "") === String(currentUserId || "");
+        const bIsCurrent = String(b?.userId || "") === String(currentUserId || "");
+        if (aIsCurrent !== bIsCurrent) return aIsCurrent ? -1 : 1;
+
+        const aIsLegacyAlias = /_legacy$/i.test(aName);
+        const bIsLegacyAlias = /_legacy$/i.test(bName);
+        if (aIsLegacyAlias !== bIsLegacyAlias) return aIsLegacyAlias ? 1 : -1;
+
+        const aIsExactLegacy = PLAYERS.includes(aName);
+        const bIsExactLegacy = PLAYERS.includes(bName);
+        if (aIsExactLegacy !== bIsExactLegacy) return aIsExactLegacy ? -1 : 1;
+
+        return 0;
+      });
+
+      rankedLeagueUsers.forEach((u) => {
         const key = toLegacyKey(u);
         if (!userIdByKey[key]) userIdByKey[key] = u.userId;
       });
+
+      if (currentUserId && currentPlayer && PLAYERS.includes(currentPlayer)) {
+        userIdByKey[currentPlayer] = currentUserId;
+      }
 
       const predsForCalc = {};
 
