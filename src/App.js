@@ -62,7 +62,7 @@ const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const TEAM_BADGES = {
-  Arsenal: "/badges/arsenal.png",
+  Arsenal: "/badges/Arsenal.png",
   "Aston Villa": "/badges/aston_ville.png",
   Bournemouth: "/badges/bournemouth.png",
   Brentford: "/badges/brentford.png",
@@ -613,6 +613,45 @@ async function fetchPremierLeagueResults() {
       return { matches: [], error: 'Request timeout' };
     }
     return { matches: [], error: err.message };
+  }
+}
+
+async function fetchPremierLeagueStandings() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    const res = await fetch(`${BACKEND_BASE}/api/standings`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        table: [],
+        error: data.error || `HTTP ${res.status}`,
+        updatedAt: null,
+      };
+    }
+
+    const updatedHeader = res.headers.get("x-standings-updated");
+    const standings = Array.isArray(data.standings) ? data.standings : [];
+    const totalTable =
+      standings.find((entry) => entry?.type === "TOTAL")?.table ||
+      standings[0]?.table ||
+      [];
+
+    return {
+      table: Array.isArray(totalTable) ? totalTable : [],
+      error: null,
+      updatedAt: updatedHeader ? Number(updatedHeader) : null,
+    };
+  } catch (err) {
+    if (err.name === "AbortError") {
+      return { table: [], error: "Request timeout", updatedAt: null };
+    }
+    return { table: [], error: err.message, updatedAt: null };
   }
 }
 
@@ -1181,6 +1220,10 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
   const [lastResultsUpdated, setLastResultsUpdated] = useState(null);
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
+  const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
+  const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
+  const [premierLeagueTableError, setPremierLeagueTableError] = useState("");
+  const [lastStandingsUpdated, setLastStandingsUpdated] = useState(null);
   const [activeView, setActiveView] = useState(() => {
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
@@ -1791,6 +1834,35 @@ useEffect(() => {
     cancelled = true;
   };
 }, [activeView, isLoggedIn, authToken]);
+
+useEffect(() => {
+  if (activeView !== "premierLeagueTable") return;
+
+  let cancelled = false;
+
+  async function loadStandings() {
+    setPremierLeagueTableLoading(true);
+    setPremierLeagueTableError("");
+
+    const { table, error, updatedAt } = await fetchPremierLeagueStandings();
+    if (cancelled) return;
+
+    if (error) {
+      setPremierLeagueTableError(error);
+      setPremierLeagueTableLoading(false);
+      return;
+    }
+
+    setPremierLeagueTableRows(table);
+    if (updatedAt) setLastStandingsUpdated(updatedAt);
+    setPremierLeagueTableLoading(false);
+  }
+
+  loadStandings();
+  return () => {
+    cancelled = true;
+  };
+}, [activeView]);
 
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
@@ -4037,6 +4109,7 @@ if (!isLoggedIn) {
           {[
             { id: "league", label: "Mini League Table" },
             { id: "globalLeague", label: "Global League Table" },
+            { id: "premierLeagueTable", label: "Premier League Table" },
             { id: "coinsLeague", label: "Coins League" },
             { id: "leagues", label: "Mini‑Leagues" },
           ].map((item) => (
@@ -5798,6 +5871,189 @@ if (!isLoggedIn) {
                   </div>
                 );
               })}
+            </div>
+          </section>
+        )}
+
+        {activeView === "premierLeagueTable" && (
+          <section style={cardStyle}>
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>
+              Premier League Table
+            </h2>
+            {lastStandingsUpdated && (
+              <div
+                style={{
+                  marginTop: -6,
+                  marginBottom: 12,
+                  textAlign: "center",
+                  fontSize: 12,
+                  color: theme.muted,
+                }}
+              >
+                Updated {new Date(lastStandingsUpdated).toLocaleString()}
+              </div>
+            )}
+
+            <div style={{ display: "grid", gap: 8 }}>
+              {premierLeagueTableLoading && (
+                <div
+                  style={{
+                    background: theme.panelHi,
+                    border: `1px solid ${theme.line}`,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    color: theme.muted,
+                    textAlign: "center",
+                  }}
+                >
+                  Loading standings...
+                </div>
+              )}
+
+              {!premierLeagueTableLoading && premierLeagueTableError && (
+                <div
+                  style={{
+                    background: theme.panelHi,
+                    border: `1px solid ${theme.danger}`,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    color: theme.text,
+                    textAlign: "center",
+                  }}
+                >
+                  Failed to load standings: {premierLeagueTableError}
+                </div>
+              )}
+
+              {!premierLeagueTableLoading &&
+                !premierLeagueTableError &&
+                premierLeagueTableRows.map((row, i) => {
+                  const teamName =
+                    row?.team?.shortName ||
+                    row?.team?.name ||
+                    row?.team?.tla ||
+                    "Unknown";
+                  const badgeSrc =
+                    resolveTeamBadge(teamName) ||
+                    resolveTeamBadge(row?.team?.name) ||
+                    row?.team?.crest ||
+                    "";
+
+                  let borderColor = theme.line;
+                  if (i === 0) borderColor = "#FFD700";
+                  else if (i < 4) borderColor = "#22C55E";
+                  else if (i >= premierLeagueTableRows.length - 3) borderColor = "#EF4444";
+
+                  return (
+                    <div
+                      key={row?.team?.id || `${teamName}-${i}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: isMobile ? "36px auto 64px" : "42px auto 146px",
+                        gap: 10,
+                        alignItems: "center",
+                        background: theme.panelHi,
+                        border: `2px solid ${borderColor}`,
+                        padding: isMobile ? "10px 12px" : "12px 14px",
+                        borderRadius: 12,
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: i === 0 ? "#FFD700" : theme.muted,
+                          fontWeight: 800,
+                          fontSize: 16,
+                          textAlign: "center",
+                        }}
+                      >
+                        {row.position || i + 1}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          minWidth: 0,
+                        }}
+                      >
+                        {badgeSrc && (
+                          <img
+                            src={badgeSrc}
+                            alt={teamName}
+                            style={{
+                              width: isMobile ? 28 : 32,
+                              height: isMobile ? 28 : 32,
+                              objectFit: "contain",
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontWeight: 700,
+                              fontSize: isMobile ? 14 : 15,
+                              color: theme.text,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                            title={row?.team?.name || teamName}
+                          >
+                            {teamName}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: theme.muted,
+                              marginTop: 2,
+                            }}
+                          >
+                            P {row.playedGames ?? 0}  GD {row.goalDifference ?? 0}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
+                          gap: 6,
+                          textAlign: "center",
+                        }}
+                      >
+                        {[
+                          { label: "W", value: row.won ?? 0 },
+                          { label: "D", value: row.draw ?? 0 },
+                          { label: "L", value: row.lost ?? 0 },
+                          { label: "PTS", value: row.points ?? 0, accent: true },
+                        ].map((stat) => (
+                          <div key={stat.label}>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: theme.muted,
+                                letterSpacing: 0.3,
+                              }}
+                            >
+                              {stat.label}
+                            </div>
+                            <div
+                              style={{
+                                fontWeight: 800,
+                                fontSize: stat.accent ? 16 : 14,
+                                color: stat.accent ? theme.accent : theme.text,
+                              }}
+                            >
+                              {stat.value}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           </section>
         )}

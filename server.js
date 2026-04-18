@@ -333,6 +333,9 @@ const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 let resultsCache = null;
 let resultsCacheAt = 0;
 const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
+let standingsCache = null;
+let standingsCacheAt = 0;
+const STANDINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -2558,6 +2561,56 @@ app.get("/api/results", async (req, res) => {
     }
     const isTimeout = err?.name === "AbortError" || err?.code === "UND_ERR_CONNECT_TIMEOUT";
     res.status(503).json({ error: isTimeout ? "Results upstream timeout" : "Internal server error" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// STANDINGS (football-data.org) – proxy
+// ---------------------------------------------------------------------------
+app.get("/api/standings", async (req, res) => {
+  try {
+    const now = Date.now();
+    if (standingsCache && now - standingsCacheAt < STANDINGS_CACHE_TTL_MS) {
+      res.setHeader("X-Standings-Updated", String(standingsCacheAt));
+      return res.json(standingsCache);
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const apiRes = await fetch(
+      "https://api.football-data.org/v4/competitions/PL/standings",
+      {
+        headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeoutId);
+
+    if (!apiRes.ok) {
+      const errorText = await apiRes.text().catch(() => "");
+      console.error("Football-Data standings error:", apiRes.status, errorText);
+      return res
+        .status(apiRes.status)
+        .json({ error: "Football-Data standings error", status: apiRes.status });
+    }
+
+    const data = await apiRes.json();
+    standingsCache = data || {};
+    standingsCacheAt = Date.now();
+    res.setHeader("X-Standings-Updated", String(standingsCacheAt));
+    res.json(standingsCache);
+  } catch (err) {
+    console.error("standings error", err);
+    if (standingsCache && standingsCacheAt) {
+      res.setHeader("X-Standings-Updated", String(standingsCacheAt));
+      res.setHeader("X-Standings-Source", "cache-stale");
+      return res.json(standingsCache);
+    }
+    const isTimeout =
+      err?.name === "AbortError" || err?.code === "UND_ERR_CONNECT_TIMEOUT";
+    res
+      .status(503)
+      .json({ error: isTimeout ? "Standings upstream timeout" : "Internal server error" });
   }
 });
 
