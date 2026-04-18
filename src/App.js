@@ -1196,16 +1196,23 @@ function buildFixtureModel(fixture, context = {}) {
   const awayGdPerGame =
     Number(awayPerf.played) > 0 ? Number(awayPerf.goalDifference || 0) / Number(awayPerf.played) : 0;
 
-  const priorEdge = (getTeamRating(fixture.homeTeam) - getTeamRating(fixture.awayTeam)) * 0.11;
-  const tableEdge = (awayPosition - homePosition) * 0.38;
-  const formEdge = (homeFormPoints - awayFormPoints) * 0.24;
-  const gdEdge = (homeGdPerGame - awayGdPerGame) * 0.9;
-  const homeAdvantage = 0.85;
+  const ratingGap = getTeamRating(fixture.homeTeam) - getTeamRating(fixture.awayTeam);
+  const positionGap = awayPosition - homePosition;
+  const formGap = homeFormPoints - awayFormPoints;
+  const gdGap = homeGdPerGame - awayGdPerGame;
 
-  const homeEdge = priorEdge + tableEdge + formEdge + gdEdge + homeAdvantage;
-  const homeRaw = 1 / (1 + Math.exp(-homeEdge / 1.65));
-  let drawProb = 0.26 - Math.min(Math.abs(homeEdge) * 0.018, 0.09);
-  drawProb = Math.max(0.17, Math.min(0.30, drawProb));
+  // Keep the prior as the anchor, then blend in live context more gently.
+  const priorEdge = ratingGap * 0.07;
+  const tableEdge = positionGap * 0.14;
+  const formEdge = formGap * 0.08;
+  const gdEdge = gdGap * 0.22;
+  const homeAdvantage = 0.42;
+
+  const rawEdge = priorEdge + tableEdge + formEdge + gdEdge + homeAdvantage;
+  const cappedEdge = Math.max(-2.25, Math.min(2.25, rawEdge));
+  const homeRaw = 1 / (1 + Math.exp(-cappedEdge / 2.45));
+  let drawProb = 0.285 - Math.min(Math.abs(cappedEdge) * 0.016, 0.07);
+  drawProb = Math.max(0.20, Math.min(0.31, drawProb));
   const nonDrawProb = 1 - drawProb;
   const homeProb = homeRaw * nonDrawProb;
   const awayProb = (1 - homeRaw) * nonDrawProb;
