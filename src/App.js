@@ -1075,9 +1075,153 @@ function getDifficultyMeta(score) {
   return { label: "Very hard", color: "#ef4444" };
 }
 
-function buildPremierTeamInsights(teamName, results) {
+function buildLeaguePerformanceContext(results) {
+  const byTeam = {};
+  PREMIER_LEAGUE_TEAMS.forEach((team) => {
+    byTeam[normalizeTeamName(team)] = {
+      team,
+      played: 0,
+      points: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      goalDifference: 0,
+      lastFive: [],
+      formPoints: 0,
+      position: 10,
+    };
+  });
+
+  const completedFixtures = FIXTURES.filter((fixture) => isFixtureCompleted(fixture, results)).sort(
+    (a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff)
+  );
+
+  completedFixtures.forEach((fixture) => {
+    const res = results[fixture.id];
+    const homeKey = normalizeTeamName(fixture.homeTeam);
+    const awayKey = normalizeTeamName(fixture.awayTeam);
+    const home = byTeam[homeKey];
+    const away = byTeam[awayKey];
+    if (!home || !away) return;
+
+    const homeGoals = Number(res.homeGoals);
+    const awayGoals = Number(res.awayGoals);
+    if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return;
+
+    home.played += 1;
+    away.played += 1;
+    home.goalsFor += homeGoals;
+    home.goalsAgainst += awayGoals;
+    away.goalsFor += awayGoals;
+    away.goalsAgainst += homeGoals;
+    home.goalDifference = home.goalsFor - home.goalsAgainst;
+    away.goalDifference = away.goalsFor - away.goalsAgainst;
+
+    let homeOutcome = "D";
+    let awayOutcome = "D";
+    if (homeGoals > awayGoals) {
+      home.points += 3;
+      homeOutcome = "W";
+      awayOutcome = "L";
+    } else if (homeGoals < awayGoals) {
+      away.points += 3;
+      homeOutcome = "L";
+      awayOutcome = "W";
+    } else {
+      home.points += 1;
+      away.points += 1;
+    }
+
+    home.lastFive.push(homeOutcome);
+    away.lastFive.push(awayOutcome);
+    if (home.lastFive.length > 5) home.lastFive.shift();
+    if (away.lastFive.length > 5) away.lastFive.shift();
+  });
+
+  Object.values(byTeam).forEach((team) => {
+    team.formPoints = team.lastFive.reduce((sum, outcome) => {
+      if (outcome === "W") return sum + 3;
+      if (outcome === "D") return sum + 1;
+      return sum;
+    }, 0);
+  });
+
+  const ordered = Object.values(byTeam).sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.goalDifference !== a.goalDifference) return b.goalDifference - a.goalDifference;
+    if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+    return a.team.localeCompare(b.team);
+  });
+
+  ordered.forEach((team, index) => {
+    team.position = index + 1;
+  });
+
+  return byTeam;
+}
+
+function buildFixtureModel(fixture, context = {}) {
+  if (!fixture) {
+    return {
+      homeProb: 0.38,
+      drawProb: 0.24,
+      awayProb: 0.38,
+      homeDifficultyScore: 3,
+      awayDifficultyScore: 3,
+    };
+  }
+
+  const performanceByTeam = context.performanceByTeam || {};
+  const homeKey = normalizeTeamName(fixture.homeTeam);
+  const awayKey = normalizeTeamName(fixture.awayTeam);
+  const homePerf = performanceByTeam[homeKey] || {};
+  const awayPerf = performanceByTeam[awayKey] || {};
+
+  const homePosition = Number(homePerf.position) || 10;
+  const awayPosition = Number(awayPerf.position) || 10;
+  const homeFormPoints = Number(homePerf.formPoints) || 0;
+  const awayFormPoints = Number(awayPerf.formPoints) || 0;
+  const homeGdPerGame =
+    Number(homePerf.played) > 0 ? Number(homePerf.goalDifference || 0) / Number(homePerf.played) : 0;
+  const awayGdPerGame =
+    Number(awayPerf.played) > 0 ? Number(awayPerf.goalDifference || 0) / Number(awayPerf.played) : 0;
+
+  const priorEdge = (getTeamRating(fixture.homeTeam) - getTeamRating(fixture.awayTeam)) * 0.11;
+  const tableEdge = (awayPosition - homePosition) * 0.38;
+  const formEdge = (homeFormPoints - awayFormPoints) * 0.24;
+  const gdEdge = (homeGdPerGame - awayGdPerGame) * 0.9;
+  const homeAdvantage = 0.85;
+
+  const homeEdge = priorEdge + tableEdge + formEdge + gdEdge + homeAdvantage;
+  const homeRaw = 1 / (1 + Math.exp(-homeEdge / 1.65));
+  let drawProb = 0.26 - Math.min(Math.abs(homeEdge) * 0.018, 0.09);
+  drawProb = Math.max(0.17, Math.min(0.30, drawProb));
+  const nonDrawProb = 1 - drawProb;
+  const homeProb = homeRaw * nonDrawProb;
+  const awayProb = (1 - homeRaw) * nonDrawProb;
+
+  const homeExpectedPoints = homeProb * 3 + drawProb;
+  const awayExpectedPoints = awayProb * 3 + drawProb;
+
+  const toDifficultyScore = (expectedPoints) => {
+    if (expectedPoints >= 2.2) return 1;
+    if (expectedPoints >= 1.75) return 2;
+    if (expectedPoints >= 1.2) return 3;
+    if (expectedPoints >= 0.7) return 4;
+    return 5;
+  };
+
+  return {
+    homeProb,
+    drawProb,
+    awayProb,
+    homeDifficultyScore: toDifficultyScore(homeExpectedPoints),
+    awayDifficultyScore: toDifficultyScore(awayExpectedPoints),
+  };
+}
+
+function buildPremierTeamInsights(teamName, results, context = {}) {
   const normalizedTeam = normalizeTeamName(teamName);
-  const teamRating = getTeamRating(teamName);
+  const performanceByTeam = context.performanceByTeam || {};
 
   const form = FIXTURES.filter((fixture) => {
     const isTeamFixture =
@@ -1115,15 +1259,10 @@ function buildPremierTeamInsights(teamName, results) {
     .map((fixture) => {
       const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
       const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
-      const opponentRating = getTeamRating(opponent);
-      const rawDifficulty = opponentRating - teamRating + (isHome ? -3 : 3);
-
-      let difficultyScore = 3;
-      if (rawDifficulty <= -8) difficultyScore = 1;
-      else if (rawDifficulty <= -2) difficultyScore = 2;
-      else if (rawDifficulty <= 4) difficultyScore = 3;
-      else if (rawDifficulty <= 9) difficultyScore = 4;
-      else difficultyScore = 5;
+      const model = buildFixtureModel(fixture, context);
+      const difficultyScore = isHome
+        ? model.homeDifficultyScore
+        : model.awayDifficultyScore;
 
       return {
         fixtureId: fixture.id,
@@ -1136,7 +1275,11 @@ function buildPremierTeamInsights(teamName, results) {
       };
     });
 
-  return { form, upcoming };
+  return {
+    form,
+    upcoming,
+    formPoints: Number(performanceByTeam[normalizedTeam]?.formPoints) || 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1435,13 +1578,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // If we don't have any odds yet, generate free built-in odds for all fixtures
   useEffect(() => {
     if (odds && Object.keys(odds).length > 0) return;
-
-    const generated = {};
-    FIXTURES.forEach((f) => {
-      generated[f.id] = generatePseudoOddsForFixture(f);
-    });
-    setOdds(generated);
-  }, [odds]);
+    setOdds(generatedModelOddsByFixture);
+  }, [odds, generatedModelOddsByFixture]);
 
 // Coins League data from backend
   const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
@@ -1613,15 +1751,38 @@ const visibleFixtures = FIXTURES.filter(
   (f) => f.gameweek === selectedGameweek
 );
 
+const leaguePerformanceContext = useMemo(
+  () => ({ performanceByTeam: buildLeaguePerformanceContext(results) }),
+  [results]
+);
+
 const premierLeagueInsights = useMemo(() => {
   const out = {};
   (premierLeagueTableRows || []).forEach((row) => {
     const teamName = row?.team?.shortName || row?.team?.name || row?.team?.tla || "";
     if (!teamName) return;
-    out[normalizeTeamName(teamName)] = buildPremierTeamInsights(teamName, results);
+    out[normalizeTeamName(teamName)] = buildPremierTeamInsights(
+      teamName,
+      results,
+      leaguePerformanceContext
+    );
   });
   return out;
-}, [premierLeagueTableRows, results]);
+}, [premierLeagueTableRows, results, leaguePerformanceContext]);
+
+const generatedModelOddsByFixture = useMemo(() => {
+  const out = {};
+  FIXTURES.forEach((fixture) => {
+    const model = buildFixtureModel(fixture, leaguePerformanceContext);
+    const overround = 0.94;
+    out[fixture.id] = {
+      home: Number((overround / model.homeProb).toFixed(2)),
+      draw: Number((overround / model.drawProb).toFixed(2)),
+      away: Number((overround / model.awayProb).toFixed(2)),
+    };
+  });
+  return out;
+}, [leaguePerformanceContext]);
 
 // (debug logs removed)
 
@@ -1790,16 +1951,10 @@ useEffect(() => {
       refreshAutoResults();
     }, 2 * 60 * 1000);
 
-        // 4) odds (initial load) — use in-app model instead of backend
-    const generatedOdds = {};
-    FIXTURES.forEach((f) => {
-      generatedOdds[f.id] = generateModelOddsForFixture(f);
-    });
-
-    // Model odds are defaults; any stored/manual odds still override them
+        // 4) odds (initial load) — use shared in-app context model
     setOdds((prev) => ({
   ...prev,
-  ...generatedOdds,
+  ...generatedModelOddsByFixture,
 }));
   }
 
@@ -1807,7 +1962,7 @@ useEffect(() => {
   return () => {
     if (intervalId) clearInterval(intervalId);
   };
-}, []);
+}, [generatedModelOddsByFixture]);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
 useEffect(() => {
@@ -5107,7 +5262,7 @@ if (!isLoggedIn) {
         const pred =
           predictions[currentPredictionKey]?.[fixture.id] || {};
         const locked = isPredictionLocked(fixture);
-        const o = odds[fixture.id] || {};
+        const o = odds[fixture.id] || generatedModelOddsByFixture[fixture.id] || {};
         // eslint-disable-next-line no-unused-vars
         const probs = computeProbabilities(o);
 
@@ -6434,11 +6589,18 @@ if (!isLoggedIn) {
                             borderTop: `1px solid ${theme.line}`,
                             padding: isMobile ? "10px 12px 12px" : "12px 14px 14px",
                             display: "grid",
-                            gap: 12,
+                            gap: 8,
                             background: "rgba(255,255,255,0.02)",
                           }}
                         >
-                          <div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: isMobile ? "52px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
+                              gap: 8,
+                              alignItems: "center",
+                            }}
+                          >
                             <div
                               style={{
                                 fontSize: 11,
@@ -6446,12 +6608,19 @@ if (!isLoggedIn) {
                                 color: theme.muted,
                                 textTransform: "uppercase",
                                 letterSpacing: 0.5,
-                                marginBottom: 8,
                               }}
                             >
-                              Last 5 Form
+                              Form
                             </div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                flexWrap: "nowrap",
+                                overflowX: "auto",
+                                paddingBottom: 2,
+                              }}
+                            >
                               {insights.form.length > 0 ? (
                                 insights.form.map((item) => {
                                   const outcomeColor =
@@ -6464,23 +6633,25 @@ if (!isLoggedIn) {
                                     <div
                                       key={`form-${item.fixtureId}`}
                                       style={{
-                                        minWidth: 70,
-                                        padding: "8px 10px",
+                                        minWidth: isMobile ? 54 : 60,
+                                        padding: "6px 8px",
                                         borderRadius: 10,
                                         background: outcomeColor,
                                         color: outcomeColor === "#eab308" ? "#111827" : "#ffffff",
-                                        display: "grid",
-                                        gap: 2,
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: 1,
                                         justifyItems: "center",
+                                        flexShrink: 0,
                                       }}
                                     >
-                                      <div style={{ fontWeight: 800, fontSize: 13 }}>
+                                      <div style={{ fontWeight: 800, fontSize: 12, textAlign: "center" }}>
                                         {item.outcome}
                                       </div>
-                                      <div style={{ fontSize: 12, fontWeight: 700 }}>
+                                      <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>
                                         {item.opponentCode} ({item.venue})
                                       </div>
-                                      <div style={{ fontSize: 11 }}>{item.scoreText}</div>
+                                      <div style={{ fontSize: 10, textAlign: "center" }}>{item.scoreText}</div>
                                     </div>
                                   );
                                 })
@@ -6492,7 +6663,14 @@ if (!isLoggedIn) {
                             </div>
                           </div>
 
-                          <div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: isMobile ? "52px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
+                              gap: 8,
+                              alignItems: "center",
+                            }}
+                          >
                             <div
                               style={{
                                 fontSize: 11,
@@ -6500,33 +6678,39 @@ if (!isLoggedIn) {
                                 color: theme.muted,
                                 textTransform: "uppercase",
                                 letterSpacing: 0.5,
-                                marginBottom: 8,
                               }}
                             >
-                              Next 5 Difficulty
+                              Difficulty
                             </div>
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 6,
+                                flexWrap: "nowrap",
+                                overflowX: "auto",
+                                paddingBottom: 2,
+                              }}
+                            >
                               {insights.upcoming.length > 0 ? (
                                 insights.upcoming.map((item) => (
                                   <div
                                     key={`upcoming-${item.fixtureId}`}
                                     style={{
-                                      minWidth: isMobile ? 92 : 106,
-                                      padding: "8px 10px",
+                                      minWidth: isMobile ? 66 : 78,
+                                      padding: "6px 8px",
                                       borderRadius: 10,
                                       background: item.color,
                                       color: item.difficultyScore <= 2 ? "#0b1220" : "#ffffff",
-                                      display: "grid",
-                                      gap: 2,
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: 1,
+                                      flexShrink: 0,
                                     }}
                                   >
-                                    <div style={{ fontWeight: 800, fontSize: 13, textAlign: "center" }}>
+                                    <div style={{ fontWeight: 800, fontSize: 12, textAlign: "center" }}>
                                       {item.opponentCode} ({item.venue})
                                     </div>
-                                    <div style={{ fontSize: 11, textAlign: "center" }}>
-                                      {formatKickoffShort(item.kickoff)}
-                                    </div>
-                                    <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>
+                                    <div style={{ fontSize: 10, fontWeight: 700, textAlign: "center" }}>
                                       {item.label}
                                     </div>
                                   </div>
@@ -7009,7 +7193,7 @@ if (!isLoggedIn) {
 
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
-        const o = odds[fixture.id] || {};
+        const o = odds[fixture.id] || generatedModelOddsByFixture[fixture.id] || {};
         const probs = computeProbabilities(o);
 
         return (
