@@ -7207,7 +7207,7 @@ if (!isLoggedIn) {
 
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
-        const o = odds[fixture.id] || generatedModelOddsByFixture[fixture.id] || {};
+        const o = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
         const probs = computeProbabilities(o);
 
         return (
