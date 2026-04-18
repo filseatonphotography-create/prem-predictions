@@ -848,7 +848,14 @@ const TEAM_RATINGS = {
 };
 
 function getTeamRating(name) {
-  const rating = TEAM_RATINGS[name];
+  const raw = (name || "").trim();
+  if (typeof TEAM_RATINGS[raw] === "number") return TEAM_RATINGS[raw];
+
+  const normalized = normalizeTeamName(raw);
+  const match = Object.entries(TEAM_RATINGS).find(
+    ([teamName]) => normalizeTeamName(teamName) === normalized
+  );
+  const rating = match ? match[1] : undefined;
   if (typeof rating === "number") return rating;
   // Fallback: mid-table-ish team
   return 82;
@@ -5271,7 +5278,7 @@ if (!isLoggedIn) {
         const pred =
           predictions[currentPredictionKey]?.[fixture.id] || {};
         const locked = isPredictionLocked(fixture);
-        const o = odds[fixture.id] || generatedModelOddsByFixture[fixture.id] || {};
+        const o = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
         // eslint-disable-next-line no-unused-vars
         const probs = computeProbabilities(o);
 
