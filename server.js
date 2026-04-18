@@ -2792,12 +2792,22 @@ function runDeadlineNotifier() {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   let changed = false;
 
-  const notifyForType = (type, msBefore) => {
-    fixtures.forEach((fx) => {
-      const kickoff = Date.parse(fx.kickoff);
-      if (!Number.isFinite(kickoff)) return;
-      const deadline = kickoff - msBefore;
-      if (now < deadline || now > deadline + windowMs) return;
+  const earliestFixtureByGameweek = {};
+  fixtures.forEach((fx) => {
+    const kickoff = Date.parse(fx.kickoff);
+    const gw = fx?.gameweek;
+    if (!Number.isFinite(kickoff) || !Number.isFinite(Number(gw))) return;
+    const current = earliestFixtureByGameweek[gw];
+    if (!current || kickoff < current.kickoff) {
+      earliestFixtureByGameweek[gw] = { fixture: fx, kickoff };
+    }
+  });
+
+  const notifyGameweekDeadline = (type, msBeforeDeadline, title) => {
+    Object.values(earliestFixtureByGameweek).forEach(({ fixture, kickoff }) => {
+      const gameweekDeadline = kickoff - 60 * 60 * 1000;
+      const notifyAt = gameweekDeadline - msBeforeDeadline;
+      if (now < notifyAt || now > notifyAt + windowMs) return;
 
       Object.entries(subscriptions).forEach(([userId, sub]) => {
         if (!sub || !sub.subscription) return;
@@ -2806,20 +2816,17 @@ function runDeadlineNotifier() {
 
         const log = sub.notifLog || {};
         const typeLog = log[type] || {};
-        if (typeLog[fx.id]) return;
-
-        const title =
-          type === "deadline1h" ? "1 hour to deadline ⏰" : "24 hours to deadline ⏰";
-        const body = `${fx.homeTeam} vs ${fx.awayTeam} (GW${fx.gameweek})`;
+        const logKey = `gw-${fixture.gameweek}`;
+        if (typeLog[logKey]) return;
 
         const sent = sendPushNotification(userId, type, {
           title,
-          body,
+          body: `GW${fixture.gameweek} deadline: ${fixture.homeTeam} vs ${fixture.awayTeam}`,
           url: "/",
         });
 
         if (sent) {
-          typeLog[fx.id] = Date.now();
+          typeLog[logKey] = Date.now();
           log[type] = typeLog;
           sub.notifLog = log;
           subscriptions[userId] = sub;
@@ -2829,8 +2836,16 @@ function runDeadlineNotifier() {
     });
   };
 
-  notifyForType("deadline24h", 24 * 60 * 60 * 1000);
-  notifyForType("deadline1h", 1 * 60 * 60 * 1000);
+  notifyGameweekDeadline(
+    "deadline24h",
+    24 * 60 * 60 * 1000,
+    "24 hours to deadline ⏰"
+  );
+  notifyGameweekDeadline(
+    "deadline1h",
+    1 * 60 * 60 * 1000,
+    "1 hour to deadline ⏰"
+  );
 
   if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }

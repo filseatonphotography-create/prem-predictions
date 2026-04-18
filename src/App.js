@@ -141,7 +141,8 @@ function PlayerAvatar({
             width: "100%",
             height: "100%",
             objectFit: "cover",
-            opacity: 0.26,
+            opacity: 0.46,
+            filter: "brightness(1.12) saturate(1.15)",
             transform: "scale(1.08)",
           }}
         />
