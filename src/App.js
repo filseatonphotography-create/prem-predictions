@@ -1519,6 +1519,25 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     }
   }, []);
 
+  const leaguePerformanceContext = useMemo(
+    () => ({ performanceByTeam: buildLeaguePerformanceContext(results) }),
+    [results]
+  );
+
+  const generatedModelOddsByFixture = useMemo(() => {
+    const out = {};
+    FIXTURES.forEach((fixture) => {
+      const model = buildFixtureModel(fixture, leaguePerformanceContext);
+      const overround = 0.94;
+      out[fixture.id] = {
+        home: Number((overround / model.homeProb).toFixed(2)),
+        draw: Number((overround / model.drawProb).toFixed(2)),
+        away: Number((overround / model.awayProb).toFixed(2)),
+      };
+    });
+    return out;
+  }, [leaguePerformanceContext]);
+
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('activeView', activeView);
@@ -1751,11 +1770,6 @@ const visibleFixtures = FIXTURES.filter(
   (f) => f.gameweek === selectedGameweek
 );
 
-const leaguePerformanceContext = useMemo(
-  () => ({ performanceByTeam: buildLeaguePerformanceContext(results) }),
-  [results]
-);
-
 const premierLeagueInsights = useMemo(() => {
   const out = {};
   (premierLeagueTableRows || []).forEach((row) => {
@@ -1769,20 +1783,6 @@ const premierLeagueInsights = useMemo(() => {
   });
   return out;
 }, [premierLeagueTableRows, results, leaguePerformanceContext]);
-
-const generatedModelOddsByFixture = useMemo(() => {
-  const out = {};
-  FIXTURES.forEach((fixture) => {
-    const model = buildFixtureModel(fixture, leaguePerformanceContext);
-    const overround = 0.94;
-    out[fixture.id] = {
-      home: Number((overround / model.homeProb).toFixed(2)),
-      draw: Number((overround / model.drawProb).toFixed(2)),
-      away: Number((overround / model.awayProb).toFixed(2)),
-    };
-  });
-  return out;
-}, [leaguePerformanceContext]);
 
 // (debug logs removed)
 
