@@ -1062,6 +1062,83 @@ function getTeamCode(name) {
   return clean.substring(0, 3).toUpperCase();
 }
 
+function isFixtureCompleted(fixture, results) {
+  const res = results?.[fixture?.id];
+  return !!res && res.homeGoals !== "" && res.awayGoals !== "";
+}
+
+function getDifficultyMeta(score) {
+  if (score <= 1) return { label: "Easy", color: "#22c55e" };
+  if (score <= 2) return { label: "Favourable", color: "#84cc16" };
+  if (score <= 3) return { label: "Balanced", color: "#eab308" };
+  if (score <= 4) return { label: "Hard", color: "#f97316" };
+  return { label: "Very hard", color: "#ef4444" };
+}
+
+function buildPremierTeamInsights(teamName, results) {
+  const normalizedTeam = normalizeTeamName(teamName);
+  const teamRating = getTeamRating(teamName);
+
+  const form = FIXTURES.filter((fixture) => {
+    const isTeamFixture =
+      normalizeTeamName(fixture.homeTeam) === normalizedTeam ||
+      normalizeTeamName(fixture.awayTeam) === normalizedTeam;
+    return isTeamFixture && isFixtureCompleted(fixture, results);
+  })
+    .sort((a, b) => Date.parse(b.kickoff) - Date.parse(a.kickoff))
+    .slice(0, 5)
+    .map((fixture) => {
+      const res = results[fixture.id];
+      const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
+      const goalsFor = isHome ? Number(res.homeGoals) : Number(res.awayGoals);
+      const goalsAgainst = isHome ? Number(res.awayGoals) : Number(res.homeGoals);
+      const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
+
+      return {
+        fixtureId: fixture.id,
+        outcome: goalsFor > goalsAgainst ? "W" : goalsFor < goalsAgainst ? "L" : "D",
+        opponent,
+        opponentCode: getTeamCode(opponent),
+        venue: isHome ? "H" : "A",
+        scoreText: `${goalsFor}-${goalsAgainst}`,
+      };
+    });
+
+  const upcoming = FIXTURES.filter((fixture) => {
+    const isTeamFixture =
+      normalizeTeamName(fixture.homeTeam) === normalizedTeam ||
+      normalizeTeamName(fixture.awayTeam) === normalizedTeam;
+    return isTeamFixture && !isFixtureCompleted(fixture, results);
+  })
+    .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff))
+    .slice(0, 5)
+    .map((fixture) => {
+      const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
+      const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
+      const opponentRating = getTeamRating(opponent);
+      const rawDifficulty = opponentRating - teamRating + (isHome ? -3 : 3);
+
+      let difficultyScore = 3;
+      if (rawDifficulty <= -8) difficultyScore = 1;
+      else if (rawDifficulty <= -2) difficultyScore = 2;
+      else if (rawDifficulty <= 4) difficultyScore = 3;
+      else if (rawDifficulty <= 9) difficultyScore = 4;
+      else difficultyScore = 5;
+
+      return {
+        fixtureId: fixture.id,
+        opponent,
+        opponentCode: getTeamCode(opponent),
+        venue: isHome ? "H" : "A",
+        kickoff: fixture.kickoff,
+        difficultyScore,
+        ...getDifficultyMeta(difficultyScore),
+      };
+    });
+
+  return { form, upcoming };
+}
+
 // ---------------------------------------------------------------------------
 const TAGLINES = [
   "Where Every Score Matters",
@@ -1279,6 +1356,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
   const [premierLeagueTableError, setPremierLeagueTableError] = useState("");
   const [lastStandingsUpdated, setLastStandingsUpdated] = useState(null);
+  const [expandedPremierTeam, setExpandedPremierTeam] = useState("");
   const [activeView, setActiveView] = useState(() => {
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
@@ -1534,6 +1612,16 @@ useEffect(() => {
 const visibleFixtures = FIXTURES.filter(
   (f) => f.gameweek === selectedGameweek
 );
+
+const premierLeagueInsights = useMemo(() => {
+  const out = {};
+  (premierLeagueTableRows || []).forEach((row) => {
+    const teamName = row?.team?.shortName || row?.team?.name || row?.team?.tla || "";
+    if (!teamName) return;
+    out[normalizeTeamName(teamName)] = buildPremierTeamInsights(teamName, results);
+  });
+  return out;
+}, [premierLeagueTableRows, results]);
 
 // (debug logs removed)
 
@@ -6124,6 +6212,17 @@ if (!isLoggedIn) {
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>
               Premier League Table
             </h2>
+            <div
+              style={{
+                marginTop: -2,
+                marginBottom: 10,
+                textAlign: "center",
+                fontSize: 12,
+                color: theme.muted,
+              }}
+            >
+              Click a team row to view last 5 form and next 5 fixture difficulty.
+            </div>
             {lastStandingsUpdated && (
               <div
                 style={{
@@ -6177,6 +6276,9 @@ if (!isLoggedIn) {
                     row?.team?.name ||
                     row?.team?.tla ||
                     "Unknown";
+                  const teamKey = normalizeTeamName(teamName);
+                  const insights = premierLeagueInsights[teamKey] || { form: [], upcoming: [] };
+                  const isExpanded = expandedPremierTeam === teamKey;
                   const badgeSrc =
                     resolveTeamBadge(teamName) ||
                     resolveTeamBadge(row?.team?.name) ||
@@ -6192,109 +6294,252 @@ if (!isLoggedIn) {
                     <div
                       key={row?.team?.id || `${teamName}-${i}`}
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: isMobile ? "36px auto 64px" : "42px auto 146px",
-                        gap: 10,
-                        alignItems: "center",
                         background: theme.panelHi,
                         border: `2px solid ${borderColor}`,
-                        padding: isMobile ? "10px 12px" : "12px 14px",
                         borderRadius: 12,
+                        overflow: "hidden",
                       }}
                     >
                       <div
-                        style={{
-                          color: i === 0 ? "#FFD700" : theme.muted,
-                          fontWeight: 800,
-                          fontSize: 16,
-                          textAlign: "center",
+                        role="button"
+                        tabIndex={0}
+                        onClick={() =>
+                          setExpandedPremierTeam((prev) => (prev === teamKey ? "" : teamKey))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setExpandedPremierTeam((prev) => (prev === teamKey ? "" : teamKey));
+                          }
                         }}
-                      >
-                        {row.position || i + 1}
-                      </div>
-
-                      <div
                         style={{
-                          display: "flex",
-                          alignItems: "center",
+                          display: "grid",
+                          gridTemplateColumns: isMobile ? "36px auto 78px" : "42px auto 158px",
                           gap: 10,
-                          minWidth: 0,
+                          alignItems: "center",
+                          padding: isMobile ? "10px 12px" : "12px 14px",
+                          cursor: "pointer",
                         }}
                       >
-                        {badgeSrc && (
-                          <img
-                            src={badgeSrc}
-                            alt={teamName}
-                            style={{
-                              width: isMobile ? 28 : 32,
-                              height: isMobile ? 28 : 32,
-                              objectFit: "contain",
-                              flexShrink: 0,
-                            }}
-                          />
-                        )}
                         <div style={{ minWidth: 0 }}>
                           <div
                             style={{
-                              fontWeight: 700,
-                              fontSize: isMobile ? 14 : 15,
-                              color: theme.text,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
+                              color: i === 0 ? "#FFD700" : theme.muted,
+                              fontWeight: 800,
+                              fontSize: 16,
+                              textAlign: "center",
                             }}
-                            title={row?.team?.name || teamName}
                           >
-                            {teamName}
+                            {row.position || i + 1}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            minWidth: 0,
+                          }}
+                        >
+                          {badgeSrc && (
+                            <img
+                              src={badgeSrc}
+                              alt={teamName}
+                              style={{
+                                width: isMobile ? 28 : 32,
+                                height: isMobile ? 28 : 32,
+                                objectFit: "contain",
+                                flexShrink: 0,
+                              }}
+                            />
+                          )}
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                fontSize: isMobile ? 14 : 15,
+                                color: theme.text,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={row?.team?.name || teamName}
+                            >
+                              {teamName}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: theme.muted,
+                                marginTop: 2,
+                              }}
+                            >
+                              P {row.playedGames ?? 0}  GD {row.goalDifference ?? 0}
+                            </div>
                           </div>
                           <div
                             style={{
-                              fontSize: 12,
+                              marginLeft: "auto",
                               color: theme.muted,
-                              marginTop: 2,
+                              fontSize: 14,
+                              fontWeight: 700,
                             }}
                           >
-                            P {row.playedGames ?? 0}  GD {row.goalDifference ?? 0}
+                            {isExpanded ? "▲" : "▼"}
                           </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
+                            gap: 6,
+                            textAlign: "center",
+                          }}
+                        >
+                          {[
+                            { label: "W", value: row.won ?? 0 },
+                            { label: "D", value: row.draw ?? 0 },
+                            { label: "L", value: row.lost ?? 0 },
+                            { label: "PTS", value: row.points ?? 0, accent: true },
+                          ].map((stat) => (
+                            <div key={stat.label}>
+                              <div
+                                style={{
+                                  fontSize: 10,
+                                  color: theme.muted,
+                                  letterSpacing: 0.3,
+                                }}
+                              >
+                                {stat.label}
+                              </div>
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  fontSize: stat.accent ? 16 : 14,
+                                  color: stat.accent ? theme.accent : theme.text,
+                                }}
+                              >
+                                {stat.value}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
-                          gap: 6,
-                          textAlign: "center",
-                        }}
-                      >
-                        {[
-                          { label: "W", value: row.won ?? 0 },
-                          { label: "D", value: row.draw ?? 0 },
-                          { label: "L", value: row.lost ?? 0 },
-                          { label: "PTS", value: row.points ?? 0, accent: true },
-                        ].map((stat) => (
-                          <div key={stat.label}>
+                      {isExpanded && (
+                        <div
+                          style={{
+                            borderTop: `1px solid ${theme.line}`,
+                            padding: isMobile ? "10px 12px 12px" : "12px 14px 14px",
+                            display: "grid",
+                            gap: 12,
+                            background: "rgba(255,255,255,0.02)",
+                          }}
+                        >
+                          <div>
                             <div
                               style={{
-                                fontSize: 10,
-                                color: theme.muted,
-                                letterSpacing: 0.3,
-                              }}
-                            >
-                              {stat.label}
-                            </div>
-                            <div
-                              style={{
+                                fontSize: 11,
                                 fontWeight: 800,
-                                fontSize: stat.accent ? 16 : 14,
-                                color: stat.accent ? theme.accent : theme.text,
+                                color: theme.muted,
+                                textTransform: "uppercase",
+                                letterSpacing: 0.5,
+                                marginBottom: 8,
                               }}
                             >
-                              {stat.value}
+                              Last 5 Form
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {insights.form.length > 0 ? (
+                                insights.form.map((item) => {
+                                  const outcomeColor =
+                                    item.outcome === "W"
+                                      ? "#22c55e"
+                                      : item.outcome === "D"
+                                      ? "#eab308"
+                                      : "#ef4444";
+                                  return (
+                                    <div
+                                      key={`form-${item.fixtureId}`}
+                                      style={{
+                                        minWidth: 70,
+                                        padding: "8px 10px",
+                                        borderRadius: 10,
+                                        background: outcomeColor,
+                                        color: outcomeColor === "#eab308" ? "#111827" : "#ffffff",
+                                        display: "grid",
+                                        gap: 2,
+                                        justifyItems: "center",
+                                      }}
+                                    >
+                                      <div style={{ fontWeight: 800, fontSize: 13 }}>
+                                        {item.outcome}
+                                      </div>
+                                      <div style={{ fontSize: 12, fontWeight: 700 }}>
+                                        {item.opponentCode} ({item.venue})
+                                      </div>
+                                      <div style={{ fontSize: 11 }}>{item.scoreText}</div>
+                                    </div>
+                                  );
+                                })
+                              ) : (
+                                <div style={{ fontSize: 12, color: theme.muted }}>
+                                  No completed fixtures yet.
+                                </div>
+                              )}
                             </div>
                           </div>
-                        ))}
-                      </div>
+
+                          <div>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 800,
+                                color: theme.muted,
+                                textTransform: "uppercase",
+                                letterSpacing: 0.5,
+                                marginBottom: 8,
+                              }}
+                            >
+                              Next 5 Difficulty
+                            </div>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              {insights.upcoming.length > 0 ? (
+                                insights.upcoming.map((item) => (
+                                  <div
+                                    key={`upcoming-${item.fixtureId}`}
+                                    style={{
+                                      minWidth: isMobile ? 92 : 106,
+                                      padding: "8px 10px",
+                                      borderRadius: 10,
+                                      background: item.color,
+                                      color: item.difficultyScore <= 2 ? "#0b1220" : "#ffffff",
+                                      display: "grid",
+                                      gap: 2,
+                                    }}
+                                  >
+                                    <div style={{ fontWeight: 800, fontSize: 13, textAlign: "center" }}>
+                                      {item.opponentCode} ({item.venue})
+                                    </div>
+                                    <div style={{ fontSize: 11, textAlign: "center" }}>
+                                      {formatKickoffShort(item.kickoff)}
+                                    </div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>
+                                      {item.label}
+                                    </div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div style={{ fontSize: 12, color: theme.muted }}>
+                                  No upcoming fixtures found.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
