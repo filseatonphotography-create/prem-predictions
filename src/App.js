@@ -6385,7 +6385,7 @@ if (!isLoggedIn) {
                 color: theme.muted,
               }}
             >
-              Click a team row to view last 5 form and next 5 fixture difficulty.
+              Click team for form and fixture rating.
             </div>
             {lastStandingsUpdated && (
               <div
@@ -6605,7 +6605,7 @@ if (!isLoggedIn) {
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: isMobile ? "44px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
+                              gridTemplateColumns: isMobile ? "58px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
                               gap: 8,
                               alignItems: "center",
                             }}
@@ -6625,7 +6625,7 @@ if (!isLoggedIn) {
                               style={{
                                 display: "grid",
                                 gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
-                                gap: 6,
+                                gap: isMobile ? 4 : 6,
                                 minWidth: 0,
                               }}
                             >
@@ -6643,7 +6643,7 @@ if (!isLoggedIn) {
                                       style={{
                                         minWidth: 0,
                                         width: "100%",
-                                        padding: isMobile ? "6px 4px" : "6px 8px",
+                                        padding: isMobile ? "5px 3px" : "6px 8px",
                                         borderRadius: 10,
                                         background: outcomeColor,
                                         color: outcomeColor === "#eab308" ? "#111827" : "#ffffff",
@@ -6652,15 +6652,17 @@ if (!isLoggedIn) {
                                         gap: 1,
                                         alignItems: "center",
                                         justifyContent: "center",
-                                        minHeight: isMobile ? 42 : 48,
+                                        minHeight: isMobile ? 36 : 48,
                                         boxSizing: "border-box",
                                       }}
                                     >
-                                      <div style={{ fontWeight: 800, fontSize: 12, textAlign: "center" }}>
+                                      <div style={{ fontWeight: 800, fontSize: isMobile ? 11 : 12, lineHeight: 1, textAlign: "center" }}>
                                         {item.outcome}
                                       </div>
-                                      <div style={{ fontSize: 11, fontWeight: 700, textAlign: "center" }}>
-                                        {item.opponentCode} ({item.venue})
+                                      <div style={{ fontSize: isMobile ? 9 : 11, fontWeight: 700, lineHeight: 1.05, textAlign: "center" }}>
+                                        {item.opponentCode}
+                                        <br />
+                                        {item.venue}
                                       </div>
                                     </div>
                                   );
@@ -6676,7 +6678,7 @@ if (!isLoggedIn) {
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: isMobile ? "44px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
+                              gridTemplateColumns: isMobile ? "58px minmax(0, 1fr)" : "68px minmax(0, 1fr)",
                               gap: 8,
                               alignItems: "center",
                             }}
@@ -6696,7 +6698,7 @@ if (!isLoggedIn) {
                               style={{
                                 display: "grid",
                                 gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
-                                gap: 6,
+                                gap: isMobile ? 4 : 6,
                                 minWidth: 0,
                               }}
                             >
@@ -6707,7 +6709,7 @@ if (!isLoggedIn) {
                                     style={{
                                       minWidth: 0,
                                       width: "100%",
-                                      padding: isMobile ? "6px 4px" : "6px 8px",
+                                      padding: isMobile ? "5px 3px" : "6px 8px",
                                       borderRadius: 10,
                                       background: item.color,
                                       color: item.difficultyScore <= 2 ? "#0b1220" : "#ffffff",
@@ -6716,12 +6718,14 @@ if (!isLoggedIn) {
                                       gap: 1,
                                       alignItems: "center",
                                       justifyContent: "center",
-                                      minHeight: isMobile ? 42 : 48,
+                                      minHeight: isMobile ? 36 : 48,
                                       boxSizing: "border-box",
                                     }}
                                   >
-                                    <div style={{ fontWeight: 800, fontSize: 12, textAlign: "center" }}>
-                                      {item.opponentCode} ({item.venue})
+                                    <div style={{ fontWeight: 800, fontSize: isMobile ? 9 : 12, lineHeight: 1.05, textAlign: "center" }}>
+                                      {item.opponentCode}
+                                      <br />
+                                      {item.venue}
                                     </div>
                                   </div>
                                 ))
