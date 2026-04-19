@@ -306,6 +306,10 @@ function normalizeTeamName(name) {
     mcfc: "manchestercity",
     bournemouth: "bournemouth",
     brighton: "brightonandhovealbion",
+    brightonhove: "brightonandhovealbion",
+    brightonhovealbion: "brightonandhovealbion",
+    brightonandhove: "brightonandhovealbion",
+    brightonandhovealbion: "brightonandhovealbion",
     hovealbion: "brightonandhovealbion",
     fulham: "fulham",
     brentford: "brentford",
@@ -1799,7 +1803,7 @@ const visibleFixtures = FIXTURES.filter(
 const premierLeagueInsights = useMemo(() => {
   const out = {};
   (premierLeagueTableRows || []).forEach((row) => {
-    const teamName = row?.team?.shortName || row?.team?.name || row?.team?.tla || "";
+    const teamName = row?.team?.name || row?.team?.shortName || row?.team?.tla || "";
     if (!teamName) return;
     out[normalizeTeamName(teamName)] = buildPremierTeamInsights(
       teamName,
@@ -6458,8 +6462,8 @@ if (!isLoggedIn) {
                 !premierLeagueTableError &&
                 premierLeagueTableRows.map((row, i) => {
                   const teamName =
-                    row?.team?.shortName ||
                     row?.team?.name ||
+                    row?.team?.shortName ||
                     row?.team?.tla ||
                     "Unknown";
                   const teamKey = normalizeTeamName(teamName);

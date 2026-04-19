@@ -473,6 +473,19 @@ function getResult(home, away) {
   return "D";
 }
 
+function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
+  if (
+    !Number.isFinite(prevHome) ||
+    !Number.isFinite(prevAway) ||
+    !Number.isFinite(nextHome) ||
+    !Number.isFinite(nextAway)
+  ) {
+    return false;
+  }
+
+  return nextHome + nextAway > prevHome + prevAway;
+}
+
 function getPredictionPoints(prediction, result) {
   if (!prediction || !result) return 0;
 
@@ -2578,9 +2591,13 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
           if (scoreChanged && liveishStatuses.has(statusNow)) {
             const shouldSendGoal =
-              hadScoreBefore ||
-              statusNow === "IN_PLAY" ||
-              statusNow === "PAUSED";
+              (statusNow === "IN_PLAY" || statusNow === "PAUSED") &&
+              didGoalCountIncrease(
+                update.prevHome,
+                update.prevAway,
+                update.nextHome,
+                update.nextAway
+              );
 
             if (shouldSendGoal) {
               subscribedUserIds.forEach((userId) => {
@@ -3269,7 +3286,9 @@ async function runLiveFixtureNotifier() {
       const prevStatus = String(prevState.status || "");
 
       if (scoreChanged && new Set(["IN_PLAY", "PAUSED", "FINISHED"]).has(status)) {
-        const shouldSendGoal = hadScoreBefore || status === "IN_PLAY" || status === "PAUSED";
+        const shouldSendGoal =
+          (status === "IN_PLAY" || status === "PAUSED") &&
+          didGoalCountIncrease(prevHome, prevAway, homeGoals, awayGoals);
         if (shouldSendGoal) {
           subscribedUserIds.forEach((userId) => {
             sendPushNotification(userId, "fixtureUpdates", {
