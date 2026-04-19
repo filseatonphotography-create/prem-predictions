@@ -1073,6 +1073,13 @@ function getTeamCode(name) {
   return clean.substring(0, 3).toUpperCase();
 }
 
+function resolveCanonicalPremierLeagueTeam(name) {
+  const normalized = normalizeTeamName(name);
+  if (!normalized) return name || "";
+  const match = PREMIER_LEAGUE_TEAMS.find((team) => normalizeTeamName(team) === normalized);
+  return match || name || "";
+}
+
 function isFixtureCompleted(fixture, results) {
   const res = results?.[fixture?.id];
   return !!res && res.homeGoals !== "" && res.awayGoals !== "";
@@ -1221,10 +1228,10 @@ function buildFixtureModel(fixture, context = {}) {
   const awayExpectedPoints = awayProb * 3 + drawProb;
 
   const toDifficultyScore = (expectedPoints) => {
-    if (expectedPoints >= 2.2) return 1;
-    if (expectedPoints >= 1.75) return 2;
-    if (expectedPoints >= 1.2) return 3;
-    if (expectedPoints >= 0.7) return 4;
+    if (expectedPoints >= 2.15) return 1;
+    if (expectedPoints >= 1.7) return 2;
+    if (expectedPoints >= 1.25) return 3;
+    if (expectedPoints >= 0.9) return 4;
     return 5;
   };
 
@@ -1238,7 +1245,8 @@ function buildFixtureModel(fixture, context = {}) {
 }
 
 function buildPremierTeamInsights(teamName, results, context = {}) {
-  const normalizedTeam = normalizeTeamName(teamName);
+  const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
+  const normalizedTeam = normalizeTeamName(canonicalTeamName);
   const performanceByTeam = context.performanceByTeam || {};
 
   const form = FIXTURES.filter((fixture) => {
