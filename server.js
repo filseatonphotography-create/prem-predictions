@@ -804,6 +804,7 @@ app.get("/api/account/me", authMiddleware, (req, res) => {
       username: user.username,
       email: user.email || "",
       favoriteTeam: user.favoriteTeam || "",
+      favoriteCountry: user.favoriteCountry || "",
     });
   } catch (err) {
     console.error("account/me error", err);
@@ -841,17 +842,28 @@ app.post("/api/account/email", authMiddleware, (req, res) => {
 app.post("/api/account/favorite-team", authMiddleware, (req, res) => {
   try {
     const favoriteTeam = (req.body?.favoriteTeam || "").trim();
+    const mode = normalizeLeagueMode(req.body?.mode);
     if (!favoriteTeam) {
-      return res.status(400).json({ error: "Favourite team is required." });
+      return res.status(400).json({
+        error: mode === "worldcup" ? "Favourite country is required." : "Favourite team is required.",
+      });
     }
 
     const users = loadUsers();
     const user = users.find((u) => u.id === req.user.id);
     if (!user) return res.status(404).json({ error: "User not found." });
 
-    user.favoriteTeam = favoriteTeam;
+    if (mode === "worldcup") {
+      user.favoriteCountry = favoriteTeam;
+    } else {
+      user.favoriteTeam = favoriteTeam;
+    }
     saveUsers(users);
-    return res.json({ ok: true, favoriteTeam });
+    return res.json({
+      ok: true,
+      favoriteTeam: mode === "worldcup" ? user.favoriteCountry : user.favoriteTeam,
+      mode,
+    });
   } catch (err) {
     console.error("account/favorite-team error", err);
     return res.status(500).json({ error: "Internal server error" });
@@ -862,11 +874,13 @@ app.get("/api/account/favorite-team/all", authMiddleware, (req, res) => {
   try {
     const users = loadUsers() || [];
     const favoriteTeams = {};
+    const favoriteCountries = {};
     users.forEach((u) => {
       if (!u || !u.id) return;
       favoriteTeams[String(u.id)] = (u.favoriteTeam || "").trim();
+      favoriteCountries[String(u.id)] = (u.favoriteCountry || "").trim();
     });
-    return res.json({ favoriteTeams });
+    return res.json({ favoriteTeams, favoriteCountries });
   } catch (err) {
     console.error("account/favorite-team/all error", err);
     return res.status(500).json({ error: "Internal server error" });
@@ -2497,7 +2511,10 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
         const predictions = loadPredictions() || {};
         const coins = loadCoins() || {};
         const users = loadUsers() || [];
-        const fixtures = loadFixturesFromSrc() || [];
+        const premierFixtures = loadFixturesFromSrc() || [];
+        const worldCupFixtures = loadWorldCupFixturesFromSrc() || [];
+        const worldCupFixtureIds = new Set(worldCupFixtures.map((fx) => String(fx?.id)).filter(Boolean));
+        const fixtures = [...premierFixtures, ...worldCupFixtures];
         const fixtureById = {};
         fixtures.forEach((fx) => {
           if (!fx || fx.id === undefined || fx.id === null) return;
@@ -2606,9 +2623,12 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           if (fixture && (homeNorm || awayNorm)) {
             users.forEach((user) => {
               if (!user || !user.id) return;
-              const favTeam = (user.favoriteTeam || "").trim();
-              if (!favTeam) return;
-              const favNorm = normalizeTeamName(favTeam);
+              const isWorldCupFixture = worldCupFixtureIds.has(String(fx.fixtureId));
+              const favoriteSelection = isWorldCupFixture
+                ? (user.favoriteCountry || "").trim()
+                : (user.favoriteTeam || "").trim();
+              if (!favoriteSelection) return;
+              const favNorm = normalizeTeamName(favoriteSelection);
               if (!favNorm) return;
               const isFavFixture = favNorm === homeNorm || favNorm === awayNorm;
               if (!isFavFixture) return;

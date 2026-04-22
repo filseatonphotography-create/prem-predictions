@@ -27,9 +27,12 @@ async function apiGetAllFavoriteTeams(token) {
     });
     if (!res.ok) throw new Error("Favourite teams fetch failed");
     const data = await res.json().catch(() => ({}));
-    return data.favoriteTeams || {};
+    return {
+      favoriteTeams: data.favoriteTeams || {},
+      favoriteCountries: data.favoriteCountries || {},
+    };
   } catch {
-    return {};
+    return { favoriteTeams: {}, favoriteCountries: {} };
   }
 }
 
@@ -148,6 +151,7 @@ const WORLD_CUP_FLAGS = {
   Uzbekistan: "🇺🇿",
   "New Zealand": "🇳🇿",
 };
+const WORLD_CUP_COUNTRIES = Object.keys(WORLD_CUP_FLAGS).sort((a, b) => a.localeCompare(b));
 
 function getFixturesForMode(mode) {
   return mode === WORLD_CUP_MODE ? WORLD_CUP_FIXTURES : FIXTURES;
@@ -189,11 +193,13 @@ function PlayerAvatar({
   size = 48,
   title = "",
   favoriteTeam = "",
+  favoriteMode = PREMIER_MODE,
 }) {
   const safeSeed = encodeURIComponent(seed || "user");
   const safeStyle = encodeURIComponent(avatarStyle || "avataaars");
   const src = `https://api.dicebear.com/7.x/${safeStyle}/svg?seed=${safeSeed}`;
   const badgeSrc = resolveTeamBadge(favoriteTeam);
+  const flagBg = favoriteMode === WORLD_CUP_MODE ? getWorldCupFlag(favoriteTeam) : "";
   return (
     <div
       style={{
@@ -205,7 +211,24 @@ function PlayerAvatar({
       }}
       title={title || "avatar"}
     >
-      {badgeSrc && (
+      {flagBg && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: Math.round(size * 0.88),
+            opacity: 0.42,
+            transform: "scale(1.05)",
+          }}
+        >
+          {flagBg}
+        </div>
+      )}
+      {!flagBg && badgeSrc && (
         <img
           src={badgeSrc}
           alt=""
@@ -636,14 +659,14 @@ async function apiSetAccountEmail(token, email) {
   return data;
 }
 
-async function apiSetFavoriteTeam(token, favoriteTeam) {
+async function apiSetFavoriteTeam(token, favoriteTeam, mode = PREMIER_MODE) {
   const res = await fetch(`${BACKEND_BASE}/api/account/favorite-team`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ favoriteTeam }),
+    body: JSON.stringify({ favoriteTeam, mode: getModeKey(mode) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to save favourite team.");
@@ -1618,21 +1641,21 @@ export default function App() {
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
   const [favoriteTeamsByUserId, setFavoriteTeamsByUserId] = useState({});
+  const [favoriteCountriesByUserId, setFavoriteCountriesByUserId] = useState({});
 
   // On login, fetch all avatars + favourite teams for leaderboard/avatar badge
   useEffect(() => {
     async function loadAllAvatarData() {
       if (isLoggedIn && authToken) {
-        const [allAvatars, allFavoriteTeams] = await Promise.all([
+        const [allAvatars, allFavorites] = await Promise.all([
           apiGetAllAvatars(authToken),
           apiGetAllFavoriteTeams(authToken),
         ]);
         if (allAvatars && typeof allAvatars === "object") {
           setAvatarsByUserId(allAvatars);
         }
-        if (allFavoriteTeams && typeof allFavoriteTeams === "object") {
-          setFavoriteTeamsByUserId(allFavoriteTeams);
-        }
+        setFavoriteTeamsByUserId(allFavorites?.favoriteTeams || {});
+        setFavoriteCountriesByUserId(allFavorites?.favoriteCountries || {});
       }
     }
     loadAllAvatarData();
@@ -1722,9 +1745,12 @@ export default function App() {
   const [accountEmailError, setAccountEmailError] = useState("");
   const [accountFavoriteTeam, setAccountFavoriteTeam] = useState("");
   const [accountFavoriteTeamInput, setAccountFavoriteTeamInput] = useState("");
+  const [accountFavoriteCountry, setAccountFavoriteCountry] = useState("");
+  const [accountFavoriteCountryInput, setAccountFavoriteCountryInput] = useState("");
   const [accountFavoriteTeamStatus, setAccountFavoriteTeamStatus] = useState("");
   const [accountFavoriteTeamError, setAccountFavoriteTeamError] = useState("");
   const [accountMeLoaded, setAccountMeLoaded] = useState(false);
+  const [showWorldCupFavoritePrompt, setShowWorldCupFavoritePrompt] = useState(false);
 
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
@@ -1807,12 +1833,24 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
           };
         }
       }
+      const legacySaved = localStorage.getItem(STORAGE_KEY);
+      if (legacySaved) {
+        const parsedLegacy = JSON.parse(legacySaved);
+        const legacySelected = Number(parsedLegacy?.selectedGameweek);
+        if (Number.isFinite(legacySelected) && legacySelected > 0) {
+          return {
+            [PREMIER_MODE]: legacySelected,
+            [WORLD_CUP_MODE]: WORLD_CUP_GAMEWEEKS[0],
+          };
+        }
+      }
     } catch {}
     return {
       [PREMIER_MODE]: GAMEWEEKS[0],
       [WORLD_CUP_MODE]: WORLD_CUP_GAMEWEEKS[0],
     };
   });
+  const modeSwitchSyncRef = useRef(false);
   const isWorldCupMode = gameMode === WORLD_CUP_MODE;
   const activeFixtures = useMemo(() => {
     const baseFixtures = getFixturesForMode(gameMode);
@@ -1904,15 +1942,21 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   useEffect(() => {
     const remembered = selectedGameweekByMode[gameMode];
     if (remembered && activeGameweeks.includes(remembered) && remembered !== selectedGameweek) {
+      modeSwitchSyncRef.current = true;
       setSelectedGameweek(remembered);
       return;
     }
     if (activeGameweeks.includes(selectedGameweek)) return;
+    modeSwitchSyncRef.current = true;
     setSelectedGameweek(activeGameweeks[0] || 1);
   }, [activeGameweeks, selectedGameweek, selectedGameweekByMode, gameMode]);
 
   useEffect(() => {
     if (!selectedGameweek || !activeGameweeks.includes(selectedGameweek)) return;
+    if (modeSwitchSyncRef.current) {
+      modeSwitchSyncRef.current = false;
+      return;
+    }
     setSelectedGameweekByMode((prev) => {
       if (prev[gameMode] === selectedGameweek) return prev;
       return {
@@ -2023,6 +2067,20 @@ const favoriteTeamByUsername = useMemo(() => {
   if (currentPlayer && accountFavoriteTeam) out[currentPlayer] = accountFavoriteTeam;
   return out;
 }, [globalUsers, favoriteTeamsByUserId, currentPlayer, accountFavoriteTeam]);
+
+const favoriteCountryByUsername = useMemo(() => {
+  const out = {};
+  (globalUsers || []).forEach((u) => {
+    if (!u || !u.userId || !u.username) return;
+    const country = favoriteCountriesByUserId[String(u.userId)] || "";
+    if (country) out[u.username] = country;
+  });
+  if (currentPlayer && accountFavoriteCountry) out[currentPlayer] = accountFavoriteCountry;
+  return out;
+}, [globalUsers, favoriteCountriesByUserId, currentPlayer, accountFavoriteCountry]);
+
+const activeFavoriteByUserId = isWorldCupMode ? favoriteCountriesByUserId : favoriteTeamsByUserId;
+const activeFavoriteByUsername = isWorldCupMode ? favoriteCountryByUsername : favoriteTeamByUsername;
 
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
@@ -3036,6 +3094,8 @@ useEffect(() => {
         setAccountEmailInput(me?.email || "");
         setAccountFavoriteTeam(me?.favoriteTeam || "");
         setAccountFavoriteTeamInput(me?.favoriteTeam || "");
+        setAccountFavoriteCountry(me?.favoriteCountry || "");
+        setAccountFavoriteCountryInput(me?.favoriteCountry || "");
       } catch {}
       if (!cancelled) setAccountMeLoaded(true);
     })();
@@ -3060,21 +3120,46 @@ useEffect(() => {
     setAccountFavoriteTeamError("");
     setAccountFavoriteTeamStatus("");
     try {
-      const data = await apiSetFavoriteTeam(authToken, accountFavoriteTeamInput);
-      const team = data?.favoriteTeam || accountFavoriteTeamInput;
-      setAccountFavoriteTeam(team);
-      setAccountFavoriteTeamInput(team);
-      if (currentUserId) {
-        setFavoriteTeamsByUserId((prev) => ({
-          ...(prev || {}),
-          [String(currentUserId)]: team,
-        }));
+      const targetValue = isWorldCupMode ? accountFavoriteCountryInput : accountFavoriteTeamInput;
+      const data = await apiSetFavoriteTeam(authToken, targetValue, gameMode);
+      const team = data?.favoriteTeam || targetValue;
+      if (isWorldCupMode) {
+        setAccountFavoriteCountry(team);
+        setAccountFavoriteCountryInput(team);
+        if (currentUserId) {
+          setFavoriteCountriesByUserId((prev) => ({
+            ...(prev || {}),
+            [String(currentUserId)]: team,
+          }));
+        }
+        setAccountFavoriteTeamStatus("Favourite country saved.");
+        setShowWorldCupFavoritePrompt(false);
+        localStorage.setItem(`wc_favorite_prompt_seen_${currentUserId}`, "true");
+      } else {
+        setAccountFavoriteTeam(team);
+        setAccountFavoriteTeamInput(team);
+        if (currentUserId) {
+          setFavoriteTeamsByUserId((prev) => ({
+            ...(prev || {}),
+            [String(currentUserId)]: team,
+          }));
+        }
+        setAccountFavoriteTeamStatus("Favourite team saved.");
       }
-      setAccountFavoriteTeamStatus("Favourite team saved.");
     } catch (err) {
-      setAccountFavoriteTeamError(err.message || "Failed to save favourite team.");
+      setAccountFavoriteTeamError(
+        err.message || (isWorldCupMode ? "Failed to save favourite country." : "Failed to save favourite team.")
+      );
     }
   };
+
+  useEffect(() => {
+    if (!isWorldCupMode || !isLoggedIn || !currentUserId || !accountMeLoaded) return;
+    if (accountFavoriteCountry) return;
+    const promptKey = `wc_favorite_prompt_seen_${currentUserId}`;
+    if (localStorage.getItem(promptKey) === "true") return;
+    setShowWorldCupFavoritePrompt(true);
+  }, [isWorldCupMode, isLoggedIn, currentUserId, accountMeLoaded, accountFavoriteCountry]);
   // ---------- CHANGE PASSWORD ----------
 const handlePasswordChange = async () => {
   setPasswordError("");
@@ -4657,6 +4742,100 @@ if (!isLoggedIn) {
   // ---------- MAIN APP ----------
   return (
     <div style={pageStyle}>
+      {showWorldCupFavoritePrompt && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 16,
+              padding: 20,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 20, color: theme.text }}>Pick Your World Cup Country</h3>
+            <div style={{ fontSize: 14, color: theme.muted }}>
+              Choose your favourite country for World Cup mode. Its flag will show behind your avatar and favourite-team notifications will follow that country.
+            </div>
+            <select
+              value={accountFavoriteCountryInput}
+              onChange={(e) => setAccountFavoriteCountryInput(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: `1px solid ${theme.line}`,
+                background: theme.panelHi,
+                color: theme.text,
+                fontSize: 14,
+              }}
+            >
+              <option value="">Select country...</option>
+              {WORLD_CUP_COUNTRIES.map((country) => (
+                <option key={country} value={country}>
+                  {getWorldCupFlag(country)} {country}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={handleSaveFavoriteTeam}
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: `1px solid ${theme.accent}`,
+                  background: theme.accent,
+                  color: "#111827",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Save Country
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowWorldCupFavoritePrompt(false);
+                  if (currentUserId) {
+                    localStorage.setItem(`wc_favorite_prompt_seen_${currentUserId}`, "true");
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Later
+              </button>
+            </div>
+            {accountFavoriteTeamError && (
+              <div style={{ fontSize: 12, color: theme.danger }}>{accountFavoriteTeamError}</div>
+            )}
+          </div>
+        </div>
+      )}
       {showWinnerModal && winnerList.length > 0 && (
         <div
           style={{
@@ -4713,13 +4892,14 @@ if (!isLoggedIn) {
               seed={winnerList[winnerIndex]?.player || ""}
               avatarStyle={"avataaars"}
               title={winnerList[winnerIndex]?.player}
+              favoriteMode={gameMode}
               favoriteTeam={(() => {
                 const winner = winnerList[winnerIndex];
                 if (!winner) return "";
                 const byId = winner.userId
-                  ? favoriteTeamsByUserId[String(winner.userId)] || ""
+                  ? activeFavoriteByUserId[String(winner.userId)] || ""
                   : "";
-                return byId || favoriteTeamByUsername[winner.player] || "";
+                return byId || activeFavoriteByUsername[winner.player] || "";
               })()}
             />
             </div>
@@ -6638,9 +6818,10 @@ if (!isLoggedIn) {
                         }
                         return row.player === currentPlayer ? avatarStyle : 'avataaars';
                       })()}
+                      favoriteMode={gameMode}
                       favoriteTeam={
-                        favoriteTeamsByUserId[String(row.userId || "")] ||
-                        favoriteTeamByUsername[row.player] ||
+                        activeFavoriteByUserId[String(row.userId || "")] ||
+                        activeFavoriteByUsername[row.player] ||
                         ""
                       }
                     />
@@ -6737,9 +6918,10 @@ if (!isLoggedIn) {
                         }
                         return row.player === currentPlayer ? avatarStyle : "avataaars";
                       })()}
+                      favoriteMode={gameMode}
                       favoriteTeam={
-                        favoriteTeamsByUserId[String(row.userId || "")] ||
-                        favoriteTeamByUsername[row.player] ||
+                        activeFavoriteByUserId[String(row.userId || "")] ||
+                        activeFavoriteByUsername[row.player] ||
                         ""
                       }
                     />
@@ -7247,9 +7429,10 @@ if (!isLoggedIn) {
         size={36} 
         seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
         avatarStyle={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+        favoriteMode={gameMode}
         favoriteTeam={
-          favoriteTeamsByUserId[String(row.userId || "")] ||
-          favoriteTeamByUsername[row.player] ||
+          activeFavoriteByUserId[String(row.userId || "")] ||
+          activeFavoriteByUsername[row.player] ||
           ""
         }
       />
@@ -8235,7 +8418,12 @@ if (!isLoggedIn) {
                   size={120} 
                   seed={avatarSeed || currentPlayer}
                   avatarStyle={avatarStyle}
-                  favoriteTeam={accountFavoriteTeamInput || accountFavoriteTeam}
+                  favoriteMode={gameMode}
+                  favoriteTeam={
+                    isWorldCupMode
+                      ? (accountFavoriteCountryInput || accountFavoriteCountry)
+                      : (accountFavoriteTeamInput || accountFavoriteTeam)
+                  }
                 />
               </div>
 
@@ -8615,11 +8803,14 @@ if (!isLoggedIn) {
 
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: "block", fontSize: 12, color: theme.muted, marginBottom: 6 }}>
-                  Favourite Premier League team
+                  {isWorldCupMode ? "Favourite World Cup country" : "Favourite Premier League team"}
                 </label>
                 <select
-                  value={accountFavoriteTeamInput}
-                  onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
+                  value={isWorldCupMode ? accountFavoriteCountryInput : accountFavoriteTeamInput}
+                  onChange={(e) => {
+                    if (isWorldCupMode) setAccountFavoriteCountryInput(e.target.value);
+                    else setAccountFavoriteTeamInput(e.target.value);
+                  }}
                   style={{
                     width: "100%",
                     padding: "10px 12px",
@@ -8632,10 +8823,10 @@ if (!isLoggedIn) {
                     boxSizing: "border-box",
                   }}
                 >
-                  <option value="">Select team...</option>
-                  {PREMIER_LEAGUE_TEAMS.map((team) => (
+                  <option value="">{isWorldCupMode ? "Select country..." : "Select team..."}</option>
+                  {(isWorldCupMode ? WORLD_CUP_COUNTRIES : PREMIER_LEAGUE_TEAMS).map((team) => (
                     <option key={team} value={team}>
-                      {team}
+                      {isWorldCupMode ? `${getWorldCupFlag(team)} ${team}` : team}
                     </option>
                   ))}
                 </select>
@@ -8654,7 +8845,7 @@ if (!isLoggedIn) {
                     cursor: "pointer",
                   }}
                 >
-                  Save favourite team
+                  {isWorldCupMode ? "Save favourite country" : "Save favourite team"}
                 </button>
                 {accountFavoriteTeamError && (
                   <div style={{ marginTop: 6, fontSize: 12, color: theme.danger }}>
@@ -8666,9 +8857,9 @@ if (!isLoggedIn) {
                     {accountFavoriteTeamStatus}
                   </div>
                 )}
-                {accountFavoriteTeam && (
+                {(isWorldCupMode ? accountFavoriteCountry : accountFavoriteTeam) && (
                   <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
-                    Current: {accountFavoriteTeam}
+                    Current: {isWorldCupMode ? accountFavoriteCountry : accountFavoriteTeam}
                   </div>
                 )}
               </div>
