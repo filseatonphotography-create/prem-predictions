@@ -2280,6 +2280,84 @@ useEffect(() => {
 const visibleFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
 const worldCupKickoffTimesSynced = !isWorldCupMode
   || visibleFixtures.every((fixture) => fixture.kickoffTimeConfirmed !== false);
+const worldCupGroupTables = useMemo(() => {
+  if (!isWorldCupMode) return [];
+
+  const groups = new Map();
+
+  activeFixtures.forEach((fixture) => {
+    const group = fixture.group || "?";
+    if (!groups.has(group)) {
+      groups.set(group, new Map());
+    }
+    const table = groups.get(group);
+
+    [fixture.homeTeam, fixture.awayTeam].forEach((teamName) => {
+      if (!table.has(teamName)) {
+        table.set(teamName, {
+          team: teamName,
+          played: 0,
+          won: 0,
+          draw: 0,
+          lost: 0,
+          goalsFor: 0,
+          goalsAgainst: 0,
+          goalDifference: 0,
+          points: 0,
+          position: 0,
+        });
+      }
+    });
+
+    if (!isFixtureCompleted(fixture, results)) return;
+
+    const home = table.get(fixture.homeTeam);
+    const away = table.get(fixture.awayTeam);
+    const res = results[fixture.id];
+    const homeGoals = Number(res.homeGoals);
+    const awayGoals = Number(res.awayGoals);
+    if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return;
+
+    home.played += 1;
+    away.played += 1;
+    home.goalsFor += homeGoals;
+    home.goalsAgainst += awayGoals;
+    away.goalsFor += awayGoals;
+    away.goalsAgainst += homeGoals;
+    home.goalDifference = home.goalsFor - home.goalsAgainst;
+    away.goalDifference = away.goalsFor - away.goalsAgainst;
+
+    if (homeGoals > awayGoals) {
+      home.won += 1;
+      away.lost += 1;
+      home.points += 3;
+    } else if (homeGoals < awayGoals) {
+      away.won += 1;
+      home.lost += 1;
+      away.points += 3;
+    } else {
+      home.draw += 1;
+      away.draw += 1;
+      home.points += 1;
+      away.points += 1;
+    }
+  });
+
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([group, table]) => {
+      const rows = Array.from(table.values()).sort((a, b) => {
+        if (b.points !== a.points) return b.points - a.points;
+        if (b.goalDifference !== a.goalDifference) return b.goalDifference - a.goalDifference;
+        if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+        return a.team.localeCompare(b.team);
+      });
+      rows.forEach((row, index) => {
+        row.position = index + 1;
+      });
+      return { group, rows };
+    });
+}, [isWorldCupMode, activeFixtures, results]);
 
 const premierLeagueInsights = useMemo(() => {
   const out = {};
@@ -5726,6 +5804,116 @@ if (!isLoggedIn) {
                     : "Pick one in WC Settings"}
                 </div>
               </div>
+            </div>
+          </section>
+        )}
+        {isWorldCupMode && worldCupGroupTables.length > 0 && (
+          <section style={cardStyle}>
+            <div style={{ textAlign: "center", marginBottom: 12 }}>
+              <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>World Cup Group Tables</h2>
+              <div style={{ fontSize: 12, color: theme.muted }}>
+                Top two in each group highlighted as qualification places.
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                gap: 10,
+              }}
+            >
+              {worldCupGroupTables.map(({ group, rows }) => (
+                <div
+                  key={group}
+                  style={{
+                    background: theme.panelHi,
+                    borderRadius: 14,
+                    border: `1px solid ${theme.line}`,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      background: "rgba(245,158,11,0.14)",
+                      borderBottom: `1px solid rgba(245,158,11,0.2)`,
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: theme.accent }}>Group {group}</div>
+                    <div style={{ fontSize: 11, color: theme.muted }}>P  W  D  L  GD  PTS</div>
+                  </div>
+                  <div style={{ display: "grid" }}>
+                    {rows.map((row, index) => {
+                      const qualified = index < 2;
+                      return (
+                        <div
+                          key={row.team}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: isMobile ? "26px minmax(0, 1fr) 120px" : "30px minmax(0, 1fr) 156px",
+                            gap: 8,
+                            alignItems: "center",
+                            padding: isMobile ? "9px 10px" : "10px 12px",
+                            background: qualified ? "rgba(34,197,94,0.08)" : "transparent",
+                            borderLeft: qualified ? "4px solid #22c55e" : "4px solid transparent",
+                            borderTop: index > 0 ? `1px solid ${theme.line}` : "none",
+                          }}
+                        >
+                          <div style={{ textAlign: "center", fontWeight: 800, color: qualified ? "#22c55e" : theme.muted }}>
+                            {row.position}
+                          </div>
+                          <div style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 18, flexShrink: 0 }}>{getWorldCupFlag(row.team)}</span>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                color: theme.text,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                              title={row.team}
+                            >
+                              {row.team}
+                            </div>
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+                              gap: 4,
+                              textAlign: "center",
+                              fontSize: isMobile ? 11 : 12,
+                            }}
+                          >
+                            {[
+                              row.played,
+                              row.won,
+                              row.draw,
+                              row.lost,
+                              row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference,
+                              row.points,
+                            ].map((value, statIndex) => (
+                              <div
+                                key={`${row.team}-${statIndex}`}
+                                style={{
+                                  fontWeight: statIndex === 5 ? 800 : 700,
+                                  color: statIndex === 5 ? theme.accent : theme.text,
+                                }}
+                              >
+                                {value}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         )}
