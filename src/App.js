@@ -4105,12 +4105,33 @@ const historicalScores = useMemo(() => {
     boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
   };
 
+  const wcMenuTextColor = "#d4af37";
+  const premierModeTextColor = "#38bdf8";
+  const worldCupHeaderBackground = isWorldCupMode
+    ? [
+        "linear-gradient(180deg, rgba(5,16,28,0.76) 0%, rgba(5,16,28,0.82) 100%)",
+        "radial-gradient(circle at 12px 12px, rgba(255,255,255,0.92) 0 1.4px, transparent 1.5px)",
+        "linear-gradient(180deg, #1f4fa3 0%, #1f4fa3 40%, transparent 40%, transparent 100%)",
+        "repeating-linear-gradient(180deg, #b91c1c 0 18px, #f8fafc 18px 36px)",
+      ].join(", ")
+    : undefined;
+  const worldCupHeaderBackgroundSize = isWorldCupMode
+    ? "auto, 18px 18px, 38% 44%, auto"
+    : undefined;
+  const worldCupHeaderBackgroundPosition = isWorldCupMode
+    ? "0 0, 12px 12px, 0 0, 0 0"
+    : undefined;
+
   const pillBtn = (active) => ({
     padding: "8px 12px",
     borderRadius: 999,
     border: `1px solid ${active ? theme.accent : theme.line}`,
-    background: active ? "rgba(56,189,248,0.15)" : theme.panelHi,
-    color: active ? theme.text : theme.muted,
+    background: active
+      ? isWorldCupMode
+        ? "rgba(212,175,55,0.18)"
+        : "rgba(56,189,248,0.15)"
+      : theme.panelHi,
+    color: isWorldCupMode ? wcMenuTextColor : active ? theme.text : theme.muted,
     cursor: "pointer",
     fontSize: 13,
     whiteSpace: "nowrap",
@@ -4988,6 +5009,11 @@ if (!isLoggedIn) {
             top: 8,
             zIndex: 5,
             backdropFilter: "blur(6px)",
+            backgroundImage: worldCupHeaderBackground,
+            backgroundSize: worldCupHeaderBackgroundSize,
+            backgroundPosition: worldCupHeaderBackgroundPosition,
+            backgroundRepeat: isWorldCupMode ? "no-repeat, repeat, no-repeat, repeat" : undefined,
+            overflow: "hidden",
           }}
         >
           {/* Title + API status (centered) */}
@@ -5127,7 +5153,7 @@ if (!isLoggedIn) {
           padding: isMobile ? "6px 8px" : "6px 10px",
           borderRadius: 8,
           background: theme.panelHi,
-          color: theme.text,
+          color: isWorldCupMode ? wcMenuTextColor : theme.text,
           border: `1px solid ${theme.line}`,
           cursor: "pointer",
           fontSize: isMobile ? 11 : 12,
@@ -5175,10 +5201,14 @@ if (!isLoggedIn) {
                   { action: "view", id: "leagues", label: "Mini‑Leagues" },
                 ]
           ).map((item) => {
-            const isWorldCupModeEntry =
-              !isWorldCupMode &&
-              item.action === "mode" &&
-              item.mode === WORLD_CUP_MODE;
+            const itemColor =
+              item.action === "mode" && item.mode === PREMIER_MODE
+                ? premierModeTextColor
+                : item.action === "mode" && item.mode === WORLD_CUP_MODE
+                ? wcMenuTextColor
+                : isWorldCupMode
+                ? wcMenuTextColor
+                : undefined;
             return (
             <button
               key={item.id || item.label}
@@ -5200,7 +5230,7 @@ if (!isLoggedIn) {
                 padding: "6px 10px",
                 fontSize: 14,
                 whiteSpace: "nowrap",
-                color: isWorldCupModeEntry ? "#d4af37" : undefined,
+                color: itemColor,
               }}
             >
               {item.label}
