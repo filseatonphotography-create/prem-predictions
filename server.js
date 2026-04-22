@@ -45,6 +45,8 @@ app.get("/api/coins/user/:userId", (req, res) => {
 // Keep real in deployed code (do NOT share publicly).
 const FOOTBALL_DATA_TOKEN =
   process.env.FOOTBALL_DATA_TOKEN || "18351cddefba4334a5edb3a60ea84ba3";
+const FOOTBALL_DATA_API_BASE = "https://api.football-data.org/v4";
+const WORLD_CUP_SEASON = 2026;
 const RESULTS_PROXY_URL =
   process.env.RESULTS_PROXY_URL ||
   "https://predictionaddiction.net/.netlify/functions/results";
@@ -128,6 +130,7 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
 const DATA_DIR = path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
 const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
+const WORLD_CUP_FIXTURES_SRC_FILE = path.join(__dirname, "src", "worldCupFixtures.js");
 const BUILD_DIR = path.join(__dirname, "build");
 
 // Avatars (userId -> { seed, style })
@@ -145,6 +148,30 @@ function loadFixturesFromSrc() {
   } catch {
     return [];
   }
+}
+
+function loadWorldCupFixturesFromSrc() {
+  try {
+    const raw = fs.readFileSync(WORLD_CUP_FIXTURES_SRC_FILE, "utf8");
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    if (start === -1 || end === -1) return [];
+    return JSON.parse(raw.slice(start, end + 1));
+  } catch {
+    return [];
+  }
+}
+
+function normalizeLeagueMode(mode) {
+  return String(mode || "premier").trim().toLowerCase() === "worldcup"
+    ? "worldcup"
+    : "premier";
+}
+
+function getFixturesForMode(mode) {
+  return normalizeLeagueMode(mode) === "worldcup"
+    ? loadWorldCupFixturesFromSrc()
+    : loadFixturesFromSrc();
 }
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
@@ -336,12 +363,30 @@ const saveCoins = (coins) => saveJson(COINS_FILE, coins);
 const loadResults = () => loadJson(RESULTS_FILE, {});
 const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 
-let resultsCache = null;
-let resultsCacheAt = 0;
+let resultsCacheByKey = {};
+let resultsCacheAtByKey = {};
 const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let standingsCache = null;
 let standingsCacheAt = 0;
 const STANDINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function getResultsFetchConfig(mode) {
+  const normalizedMode = normalizeLeagueMode(mode);
+  if (normalizedMode === "worldcup") {
+    return {
+      cacheKey: `worldcup:${WORLD_CUP_SEASON}`,
+      url: `${FOOTBALL_DATA_API_BASE}/competitions/WC/matches?season=${WORLD_CUP_SEASON}`,
+      headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+    };
+  }
+
+  const useDirectApi = RESULTS_PROXY_URL.includes("football-data.org");
+  return {
+    cacheKey: "premier:default",
+    url: RESULTS_PROXY_URL,
+    headers: useDirectApi ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN } : {},
+  };
+}
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -351,6 +396,7 @@ function createDefaultLeagues() {
       name: "The Originals",
       joinCode: "ORIGINALS",
       inviteCode: "ORIGINALS",
+      mode: "premier",
       ownerId: null,
       members: [],
       createdAt: new Date().toISOString(),
@@ -1773,6 +1819,7 @@ function generateJoinCode(existingLeagues) {
 app.get("/api/leagues/my", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
+    const mode = normalizeLeagueMode(req.query.mode);
     const leagues = loadLeagues();
     const myLeagues = leagues
       .map((league) => {
@@ -1784,6 +1831,7 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
         const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
         return { raw: league, members, joinCode };
       })
+      .filter((w) => normalizeLeagueMode(w.raw.mode) === mode)
       .filter((w) => w.members.includes(userId))
       .map((w) => ({
         id: w.raw.id,
@@ -1801,10 +1849,11 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
 
 app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
   try {
+    const mode = normalizeLeagueMode(req.query.mode);
     const leagues = loadLeagues();
     const predictionsByUserId = loadPredictions();
     const resultsByFixtureId = loadResults();
-    const fixtures = loadFixturesFromSrc();
+    const fixtures = getFixturesForMode(mode);
 
     const completedFixtureIds = fixtures
       .map((fx) => fx.id)
@@ -1815,7 +1864,9 @@ app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
         return Number.isFinite(hg) && Number.isFinite(ag);
       });
 
-    const leaderboard = leagues.map((league) => {
+    const leaderboard = leagues
+      .filter((league) => normalizeLeagueMode(league.mode) === mode)
+      .map((league) => {
       const members = Array.isArray(league.members)
         ? league.members
         : Array.isArray(league.memberUserIds)
@@ -1856,7 +1907,7 @@ app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
         totalPoints,
         averagePoints,
       };
-    });
+      });
 
     leaderboard.sort((a, b) => {
       if (b.averagePoints !== a.averagePoints) return b.averagePoints - a.averagePoints;
@@ -1875,6 +1926,7 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
     const name = ((req.body && req.body.name) || "").trim();
+    const mode = normalizeLeagueMode(req.body && req.body.mode);
     if (!name) return res.status(400).json({ error: "League name is required." });
 
     const leagues = loadLeagues();
@@ -1885,6 +1937,7 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
       name,
       joinCode,
       inviteCode: joinCode,
+      mode,
       ownerId: userId,
       members: [userId],
       memberUserIds: [userId],
@@ -1912,13 +1965,14 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
     const code = (((req.body && req.body.code) || "")).trim().toUpperCase();
+    const mode = normalizeLeagueMode(req.body && req.body.mode);
     if (!code)
       return res.status(400).json({ error: "Invite/join code is required." });
 
     const leagues = loadLeagues();
     const league = leagues.find((l) => {
       const stored = (l.joinCode || l.inviteCode || "").toUpperCase();
-      return stored === code;
+      return stored === code && normalizeLeagueMode(l.mode) === mode;
     });
 
     if (!league) return res.status(404).json({ error: "Mini-league not found." });
@@ -2646,6 +2700,66 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
   }
 });
 
+// -------------------- ADMIN WC SNAPSHOT OVERRIDE --------------------
+// headers: x-admin-key: prem-admin-reset
+// body: { resultsByFixtureId?: {...}, matchStateByFixtureId?: {...} }
+app.post("/api/admin/worldcup/results", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { resultsByFixtureId, matchStateByFixtureId } = req.body || {};
+    const hasResults = resultsByFixtureId && typeof resultsByFixtureId === "object";
+    const hasMatchStates = matchStateByFixtureId && typeof matchStateByFixtureId === "object";
+    if (!hasResults && !hasMatchStates) {
+      return res.status(400).json({ error: "Invalid World Cup payload" });
+    }
+
+    const worldCupFixtureIds = new Set(
+      (loadWorldCupFixturesFromSrc() || [])
+        .map((fixture) => String(fixture?.id))
+        .filter(Boolean)
+    );
+
+    const sanitizeFixtureMap = (input) => {
+      const out = {};
+      Object.entries(input || {}).forEach(([fixtureId, value]) => {
+        const normalizedId = String(fixtureId);
+        if (!worldCupFixtureIds.has(normalizedId)) return;
+        if (!value || typeof value !== "object") return;
+        out[normalizedId] = value;
+      });
+      return out;
+    };
+
+    const safeResults = sanitizeFixtureMap(resultsByFixtureId);
+    const safeMatchStates = sanitizeFixtureMap(matchStateByFixtureId);
+    if (!Object.keys(safeResults).length && !Object.keys(safeMatchStates).length) {
+      return res.status(400).json({ error: "No valid World Cup fixture IDs provided" });
+    }
+
+    const currentResults = loadResults() || {};
+    const currentMatchStates = loadMatchStates() || {};
+    saveResults({ ...currentResults, ...safeResults });
+    saveMatchStates({ ...currentMatchStates, ...safeMatchStates });
+
+    const worldCupCacheKey = `worldcup:${WORLD_CUP_SEASON}`;
+    delete resultsCacheByKey[worldCupCacheKey];
+    delete resultsCacheAtByKey[worldCupCacheKey];
+
+    return res.json({
+      ok: true,
+      updatedResults: Object.keys(safeResults).length,
+      updatedMatchStates: Object.keys(safeMatchStates).length,
+    });
+  } catch (err) {
+    console.error("admin worldcup results error", err);
+    return res.status(500).json({ error: "Failed to save World Cup override" });
+  }
+});
+
 // Public: return latest results snapshot (global source of truth)
 app.get("/api/results/snapshot", (req, res) => {
   try {
@@ -2662,16 +2776,18 @@ app.get("/api/results/snapshot", (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
   try {
+    const mode = normalizeLeagueMode(req.query && req.query.mode);
+    const { cacheKey, url, headers } = getResultsFetchConfig(mode);
     const now = Date.now();
-    if (resultsCache && now - resultsCacheAt < RESULTS_CACHE_TTL_MS) {
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
-      return res.json(resultsCache);
+    if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < RESULTS_CACHE_TTL_MS) {
+      res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
+      res.setHeader("X-Results-Mode", mode);
+      return res.json(resultsCacheByKey[cacheKey]);
     }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000);
-    const useDirectApi = RESULTS_PROXY_URL.includes("football-data.org");
-    const apiRes = await fetch(RESULTS_PROXY_URL, {
-      headers: useDirectApi ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN } : {},
+    const apiRes = await fetch(url, {
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -2686,16 +2802,20 @@ app.get("/api/results", async (req, res) => {
 
     const data = await apiRes.json();
     const matches = Array.isArray(data.matches) ? data.matches : [];
-    resultsCache = matches;
-    resultsCacheAt = Date.now();
-    res.setHeader("X-Results-Updated", String(resultsCacheAt));
+    resultsCacheByKey[cacheKey] = matches;
+    resultsCacheAtByKey[cacheKey] = Date.now();
+    res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
+    res.setHeader("X-Results-Mode", mode);
     res.json(matches);
   } catch (err) {
     console.error("results error", err);
-    if (resultsCache && resultsCacheAt) {
-      res.setHeader("X-Results-Updated", String(resultsCacheAt));
+    const mode = normalizeLeagueMode(req.query && req.query.mode);
+    const { cacheKey } = getResultsFetchConfig(mode);
+    if (resultsCacheByKey[cacheKey] && resultsCacheAtByKey[cacheKey]) {
+      res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
       res.setHeader("X-Results-Source", "cache-stale");
-      return res.json(resultsCache);
+      res.setHeader("X-Results-Mode", mode);
+      return res.json(resultsCacheByKey[cacheKey]);
     }
     const isTimeout = err?.name === "AbortError" || err?.code === "UND_ERR_CONNECT_TIMEOUT";
     res.status(503).json({ error: isTimeout ? "Results upstream timeout" : "Internal server error" });

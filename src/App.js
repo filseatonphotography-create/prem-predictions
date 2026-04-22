@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
+import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 
 // ---- CONFIG ----
 // Fetch all users' avatars from backend
@@ -60,6 +61,9 @@ const BACKEND_BASE =
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
+const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
+const PREMIER_MODE = "premierLeague";
+const WORLD_CUP_MODE = "worldCup";
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const TEAM_BADGES = {
   Arsenal: "/badges/Arsenal.png",
@@ -91,6 +95,78 @@ const TEAM_BADGES = {
   "Leeds United": "/badges/leeds.png",
   Wolves: "/badges/wolves.png",
 };
+
+const WORLD_CUP_FLAGS = {
+  Algeria: "🇩🇿",
+  Argentina: "🇦🇷",
+  Australia: "🇦🇺",
+  Austria: "🇦🇹",
+  Belgium: "🇧🇪",
+  "Bosnia and Herzegovina": "🇧🇦",
+  Brazil: "🇧🇷",
+  "Cabo Verde": "🇨🇻",
+  Denmark: "🇩🇰",
+  Colombia: "🇨🇴",
+  "Congo DR": "🇨🇩",
+  Croatia: "🇭🇷",
+  Curacao: "🇨🇼",
+  Czechia: "🇨🇿",
+  "Cote d'Ivoire": "🇨🇮",
+  Ecuador: "🇪🇨",
+  Egypt: "🇪🇬",
+  England: "🏴",
+  France: "🇫🇷",
+  Germany: "🇩🇪",
+  Ghana: "🇬🇭",
+  Haiti: "🇭🇹",
+  Iraq: "🇮🇶",
+  "IR Iran": "🇮🇷",
+  Japan: "🇯🇵",
+  Jordan: "🇯🇴",
+  Mexico: "🇲🇽",
+  Morocco: "🇲🇦",
+  Netherlands: "🇳🇱",
+  Norway: "🇳🇴",
+  Panama: "🇵🇦",
+  Paraguay: "🇵🇾",
+  Poland: "🇵🇱",
+  Portugal: "🇵🇹",
+  Qatar: "🇶🇦",
+  Scotland: "🏴",
+  Senegal: "🇸🇳",
+  "South Africa": "🇿🇦",
+  Serbia: "🇷🇸",
+  "South Korea": "🇰🇷",
+  Spain: "🇪🇸",
+  Sweden: "🇸🇪",
+  Switzerland: "🇨🇭",
+  Tunisia: "🇹🇳",
+  Türkiye: "🇹🇷",
+  "United States": "🇺🇸",
+  Uruguay: "🇺🇾",
+  Uzbekistan: "🇺🇿",
+  "New Zealand": "🇳🇿",
+};
+
+function getFixturesForMode(mode) {
+  return mode === WORLD_CUP_MODE ? WORLD_CUP_FIXTURES : FIXTURES;
+}
+
+function getModeKey(mode) {
+  return mode === WORLD_CUP_MODE ? "worldcup" : "premier";
+}
+
+function getModeLabel(mode) {
+  return mode === WORLD_CUP_MODE ? "World Cup" : "Premier League";
+}
+
+function getModeGameweekLabel(mode, gameweek) {
+  return mode === WORLD_CUP_MODE ? `MD${gameweek}` : `GW${gameweek}`;
+}
+
+function getWorldCupFlag(teamName) {
+  return WORLD_CUP_FLAGS[(teamName || "").trim()] || "🏳️";
+}
 
 // Simple avatar renderer using DiceBear styles
 function resolveTeamBadge(teamName) {
@@ -233,6 +309,9 @@ const SPREADSHEET_WEEKLY_TOTALS = {
 const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
   (a, b) => a - b
 );
+const WORLD_CUP_GAMEWEEKS = Array.from(
+  new Set(WORLD_CUP_FIXTURES.map((f) => f.gameweek))
+).sort((a, b) => a - b);
 const PREMIER_LEAGUE_TEAMS = Array.from(
   new Set(
     FIXTURES.flatMap((f) => [f.homeTeam, f.awayTeam]).filter(
@@ -242,7 +321,7 @@ const PREMIER_LEAGUE_TEAMS = Array.from(
 ).sort((a, b) => a.localeCompare(b));
 
 // --- TEAM NAME NORMALISATION (kept from your version) ---
-function normalizeTeamName(name) {
+export function normalizeTeamName(name) {
   if (!name) return "";
   let s = name.toLowerCase().trim();
 
@@ -318,10 +397,135 @@ function normalizeTeamName(name) {
     everton: "everton",
     leicester: "leicester",
     leicestercity: "leicestercity",
+    bosniaherzegovina: "bosniaandherzegovina",
+    bosniaandherzegovina: "bosniaandherzegovina",
+    bosniah: "bosniaandherzegovina",
+    korearepublic: "southkorea",
+    southkorea: "southkorea",
+    usa: "unitedstates",
+    unitedstates: "unitedstates",
+    turkey: "turkiye",
+    trkiye: "turkiye",
+    turkiye: "turkiye",
+    cotedivoire: "cotedivoire",
+    coteivoire: "cotedivoire",
+    drcongo: "congodr",
+    congodr: "congodr",
+    capeverde: "caboverde",
+    caboverde: "caboverde",
+    iran: "iriran",
+    iriran: "iriran",
   };
 
   if (aliasMap[s]) s = aliasMap[s];
   return s;
+}
+
+export function findFixtureForApiMatch(match, fixtures) {
+  if (!match?.homeTeam || !match?.awayTeam || !Array.isArray(fixtures)) return null;
+
+  let fixture = null;
+  if (match.id != null) {
+    fixture = fixtures.find((f) => Number(f.id) === Number(match.id)) || null;
+  }
+
+  if (fixture) return fixture;
+
+  const apiHome = normalizeTeamName(match.homeTeam.name);
+  const apiAway = normalizeTeamName(match.awayTeam.name);
+
+  const candidates = fixtures.filter((f) => {
+    const localHome = normalizeTeamName(
+      typeof f.homeTeam === "string"
+        ? f.homeTeam
+        : (f.homeTeam?.name || f.homeTeam?.tla || "")
+    );
+    const localAway = normalizeTeamName(
+      typeof f.awayTeam === "string"
+        ? f.awayTeam
+        : (f.awayTeam?.name || f.awayTeam?.tla || "")
+    );
+    return localHome === apiHome && localAway === apiAway;
+  });
+
+  if (!candidates.length) return null;
+
+  const matchday = typeof match.matchday === "number" ? match.matchday : null;
+  if (matchday != null) {
+    fixture = candidates.find((f) => f.gameweek === matchday) || null;
+  }
+
+  if (!fixture && match.utcDate) {
+    const matchTime = Date.parse(match.utcDate);
+    if (Number.isFinite(matchTime)) {
+      fixture = candidates.reduce((best, f) => {
+        const t = Date.parse(f.kickoff);
+        if (!Number.isFinite(t)) return best || f;
+        const d = Math.abs(t - matchTime);
+        if (!best) return f;
+        const bd = Math.abs(Date.parse(best.kickoff) - matchTime);
+        return d < bd ? f : best;
+      }, null);
+    }
+  }
+
+  return fixture || candidates[0] || null;
+}
+
+export function buildFixtureSyncPayload(matches, fixtures) {
+  const updatedResults = {};
+  const matchStateUpdates = {};
+  const fixtureOverrides = {};
+  let matchedCount = 0;
+
+  (matches || []).forEach((match) => {
+    if (!match?.homeTeam || !match?.awayTeam) return;
+
+    const score = match.score || {};
+    const ft = score.fullTime || {};
+    const rt = score.regularTime || {};
+    const ht = score.halfTime || {};
+    const homeGoals =
+      Number.isFinite(ft.home) ? ft.home :
+      Number.isFinite(rt.home) ? rt.home :
+      Number.isFinite(ht.home) ? ht.home : null;
+    const awayGoals =
+      Number.isFinite(ft.away) ? ft.away :
+      Number.isFinite(rt.away) ? rt.away :
+      Number.isFinite(ht.away) ? ht.away : null;
+
+    const fixture = findFixtureForApiMatch(match, fixtures);
+    if (!fixture) return;
+
+    if (match.utcDate) {
+      fixtureOverrides[fixture.id] = {
+        ...(fixtureOverrides[fixture.id] || {}),
+        kickoff: match.utcDate,
+        kickoffTimeConfirmed: true,
+      };
+    }
+
+    matchStateUpdates[fixture.id] = {
+      status: String(match.status || ""),
+      homeGoals,
+      awayGoals,
+      halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
+      halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
+      utcDate: match.utcDate || "",
+    };
+
+    if (homeGoals !== null && awayGoals !== null) {
+      matchedCount += 1;
+      updatedResults[fixture.id] = { homeGoals, awayGoals };
+    }
+  });
+
+  return {
+    updatedResults,
+    matchStateUpdates,
+    fixtureOverrides,
+    matchedCount,
+  };
 }
 
 // --- API HELPERS ---
@@ -562,8 +766,8 @@ async function apiSavePrediction(token, fixtureId, prediction) {
   return true;
 }
 
-async function apiFetchMyLeagues(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/leagues/my`, {
+async function apiFetchMyLeagues(token, mode = PREMIER_MODE) {
+  const res = await fetch(`${BACKEND_BASE}/api/leagues/my?mode=${encodeURIComponent(getModeKey(mode))}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json().catch(() => ({}));
@@ -571,8 +775,8 @@ async function apiFetchMyLeagues(token) {
   return data.leagues || [];
 }
 
-async function apiGetMiniLeagueLeaderboard(token) {
-  const res = await fetch(`${BACKEND_BASE}/api/leagues/leaderboard`, {
+async function apiGetMiniLeagueLeaderboard(token, mode = PREMIER_MODE) {
+  const res = await fetch(`${BACKEND_BASE}/api/leagues/leaderboard?mode=${encodeURIComponent(getModeKey(mode))}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   const data = await res.json().catch(() => ({}));
@@ -580,28 +784,28 @@ async function apiGetMiniLeagueLeaderboard(token) {
   return data.leaderboard || [];
 }
 
-async function apiCreateLeague(token, name) {
+async function apiCreateLeague(token, name, mode = PREMIER_MODE) {
   const res = await fetch(`${BACKEND_BASE}/api/league/create`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, mode: getModeKey(mode) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to create league.");
   return data.league || data;
 }
 
-async function apiJoinLeague(token, code) {
+async function apiJoinLeague(token, code, mode = PREMIER_MODE) {
   const res = await fetch(`${BACKEND_BASE}/api/league/join`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, mode: getModeKey(mode) }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to join league.");
@@ -610,12 +814,12 @@ async function apiJoinLeague(token, code) {
 
 // Results & Odds (unchanged)
 // eslint-disable-next-line no-unused-vars
-async function fetchPremierLeagueResults() {
+async function fetchCompetitionResults(mode = PREMIER_MODE) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
     
-    let res = await fetch(`${BACKEND_BASE}/api/results`, {
+    let res = await fetch(`${BACKEND_BASE}/api/results?mode=${encodeURIComponent(getModeKey(mode))}`, {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -627,18 +831,22 @@ async function fetchPremierLeagueResults() {
       if (Array.isArray(matches) && matches.length > 0) {
         return { matches, error: null, updatedAt, rateLimited: false };
       }
-      // If backend returns empty, fall back to Netlify source
+      // If backend returns empty in Premier League mode, fall back to Netlify source
     }
 
     if (res.status === 429) {
       return { matches: [], error: null, updatedAt: null, rateLimited: true };
     }
 
-    // Fallback: hit Netlify function directly if backend can't fetch live results
-    res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
-    if (!res.ok) return { matches: [], error: `HTTP ${res.status}`, rateLimited: false };
-    const matches = await res.json();
-    return { matches, error: null, updatedAt: Date.now(), rateLimited: false };
+    if (mode === PREMIER_MODE) {
+      // Fallback: hit Netlify function directly if backend can't fetch live results
+      res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
+      if (!res.ok) return { matches: [], error: `HTTP ${res.status}`, rateLimited: false };
+      const matches = await res.json();
+      return { matches, error: null, updatedAt: Date.now(), rateLimited: false };
+    }
+
+    return { matches: [], error: `HTTP ${res.status}`, updatedAt: null, rateLimited: false };
   } catch (err) {
     if (err.name === 'AbortError') {
       return { matches: [], error: 'Request timeout', rateLimited: false };
@@ -811,16 +1019,20 @@ function getTotalPoints(pred, result) {
 // --- DEADLINES ---
 function isPredictionLocked(fixture) {
   const kickoff = new Date(fixture.kickoff).getTime();
-  const deadline = kickoff - 60 * 60 * 1000;
+  const deadline = fixture?.kickoffTimeConfirmed === false
+    ? kickoff
+    : kickoff - 60 * 60 * 1000;
   return Date.now() > deadline;
 }
 
-function isGameweekLocked(gameweek) {
-  const fixtures = FIXTURES.filter((f) => f.gameweek === gameweek);
+function isGameweekLocked(gameweek, fixturesSource = FIXTURES) {
+  const fixtures = fixturesSource.filter((f) => f.gameweek === gameweek);
   if (fixtures.length === 0) return false;
   const earliestDeadline = Math.min(
     ...fixtures.map(
-      (f) => new Date(f.kickoff).getTime() - 60 * 60 * 1000
+      (f) => f?.kickoffTimeConfirmed === false
+        ? new Date(f.kickoff).getTime()
+        : new Date(f.kickoff).getTime() - 60 * 60 * 1000
     )
   );
   return Date.now() > earliestDeadline;
@@ -1022,6 +1234,18 @@ function formatKickoffShort(kickoff) {
   const mins = String(d.getMinutes()).padStart(2, "0");
   return `${day} ${month} ${hours}:${mins}`;
 }
+
+function formatFixtureKickoff(fixture, mode = PREMIER_MODE) {
+  if (!fixture?.kickoff) return "";
+  if (mode === WORLD_CUP_MODE && fixture.kickoffTimeConfirmed === false) {
+    const d = new Date(fixture.kickoff);
+    if (Number.isNaN(d.getTime())) return "";
+    const day = String(d.getDate()).padStart(2, "0");
+    const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${day} ${monthNames[d.getMonth()]} • ${fixture.stadium || "Venue TBC"}`;
+  }
+  return formatKickoffShort(fixture.kickoff);
+}
 // eslint-disable-next-line no-unused-vars
 function formatOdds(value) {
   if (value === undefined || value === null || value === "") return "-";
@@ -1031,8 +1255,63 @@ function formatOdds(value) {
 }
 
 
-function getTeamCode(name) {
+function getTeamCode(name, mode = PREMIER_MODE) {
   if (!name) return "";
+
+  if (mode === WORLD_CUP_MODE) {
+    const wcCodes = {
+      Algeria: "ALG",
+      Argentina: "ARG",
+      Australia: "AUS",
+      Austria: "AUT",
+      Belgium: "BEL",
+      "Bosnia and Herzegovina": "BIH",
+      Brazil: "BRA",
+      "Cabo Verde": "CPV",
+      Colombia: "COL",
+      "Congo DR": "COD",
+      Croatia: "CRO",
+      Curacao: "CUW",
+      Czechia: "CZE",
+      Denmark: "DEN",
+      "Cote d'Ivoire": "CIV",
+      Ecuador: "ECU",
+      Egypt: "EGY",
+      England: "ENG",
+      France: "FRA",
+      Germany: "GER",
+      Ghana: "GHA",
+      Haiti: "HAI",
+      Iraq: "IRQ",
+      "IR Iran": "IRN",
+      Japan: "JPN",
+      Jordan: "JOR",
+      Mexico: "MEX",
+      Morocco: "MAR",
+      Netherlands: "NED",
+      "New Zealand": "NZL",
+      Norway: "NOR",
+      Panama: "PAN",
+      Paraguay: "PAR",
+      Poland: "POL",
+      Portugal: "POR",
+      Qatar: "QAT",
+      Scotland: "SCO",
+      Senegal: "SEN",
+      Serbia: "SRB",
+      "South Africa": "RSA",
+      "South Korea": "KOR",
+      Spain: "ESP",
+      Sweden: "SWE",
+      Switzerland: "SUI",
+      Tunisia: "TUN",
+      Türkiye: "TUR",
+      "United States": "USA",
+      Uruguay: "URU",
+      Uzbekistan: "UZB",
+    };
+    return wcCodes[name] || name.slice(0, 3).toUpperCase();
+  }
 
   const clean = name
     .toLowerCase()
@@ -1491,6 +1770,17 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
   const [odds, setOdds] = useState({});
+  const [fixtureOverridesByMode, setFixtureOverridesByMode] = useState(() => ({
+    [PREMIER_MODE]: {},
+    [WORLD_CUP_MODE]: {},
+  }));
+  const [gameMode, setGameMode] = useState(() => {
+    try {
+      return localStorage.getItem(GAME_MODE_STORAGE_KEY) || PREMIER_MODE;
+    } catch {
+      return PREMIER_MODE;
+    }
+  });
   const [selectedGameweek, setSelectedGameweek] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -1502,6 +1792,19 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     } catch {}
     return GAMEWEEKS[0];
   });
+  const isWorldCupMode = gameMode === WORLD_CUP_MODE;
+  const activeFixtures = useMemo(() => {
+    const baseFixtures = getFixturesForMode(gameMode);
+    const overrides = fixtureOverridesByMode[gameMode] || {};
+    return baseFixtures.map((fixture) => {
+      const override = overrides[fixture.id];
+      return override ? { ...fixture, ...override } : fixture;
+    });
+  }, [gameMode, fixtureOverridesByMode]);
+  const activeGameweeks = useMemo(
+    () => (isWorldCupMode ? WORLD_CUP_GAMEWEEKS : GAMEWEEKS),
+    [isWorldCupMode]
+  );
   
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -1574,6 +1877,22 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   }, [activeView]);
 
   useEffect(() => {
+    localStorage.setItem(GAME_MODE_STORAGE_KEY, gameMode);
+  }, [gameMode]);
+
+  useEffect(() => {
+    if (activeGameweeks.includes(selectedGameweek)) return;
+    setSelectedGameweek(activeGameweeks[0] || 1);
+  }, [activeGameweeks, selectedGameweek]);
+
+  useEffect(() => {
+    if (!isWorldCupMode) return;
+    if (["coinsLeague", "premierLeagueTable", "winprob"].includes(activeView)) {
+      setActiveView("predictions");
+    }
+  }, [isWorldCupMode, activeView]);
+
+  useEffect(() => {
     setShowLeaguesMenu(false);
   }, [activeView]);
 
@@ -1583,7 +1902,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       const now = Date.now();
       
       // Find the next upcoming fixture across ALL gameweeks
-      const allUpcomingFixtures = FIXTURES
+      const allUpcomingFixtures = activeFixtures
         .filter(f => new Date(f.kickoff).getTime() - 60 * 60 * 1000 > now)
         .sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
       
@@ -1622,7 +1941,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [activeFixtures]);
 
   // If we don't have any odds yet, generate free built-in odds for all fixtures
   useEffect(() => {
@@ -1753,7 +2072,7 @@ const favoriteTeamByUsername = useMemo(() => {
   const [miniLeagueLeaderboardRows, setMiniLeagueLeaderboardRows] = useState([]);
   const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
   const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
-  const gwLocked = isGameweekLocked(selectedGameweek);
+  const gwLocked = isGameweekLocked(selectedGameweek, activeFixtures);
   // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
@@ -1796,9 +2115,9 @@ useEffect(() => {
 // (Place this after visibleFixtures is defined)
 
 // ---------- DERIVED ----------
-const visibleFixtures = FIXTURES.filter(
-  (f) => f.gameweek === selectedGameweek
-);
+const visibleFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
+const worldCupKickoffTimesSynced = !isWorldCupMode
+  || visibleFixtures.every((fixture) => fixture.kickoffTimeConfirmed !== false);
 
 const premierLeagueInsights = useMemo(() => {
   const out = {};
@@ -1816,9 +2135,9 @@ const premierLeagueInsights = useMemo(() => {
 
 // (debug logs removed)
 
-  const refreshAutoResults = async () => {
+  const refreshAutoResults = async (mode = gameMode, fixtures = activeFixtures) => {
     setResultsRefreshing(true);
-    const { matches, error, updatedAt, rateLimited } = await fetchPremierLeagueResults();
+    const { matches, error, updatedAt, rateLimited } = await fetchCompetitionResults(mode);
     if (rateLimited) {
       setApiStatus("Auto results: rate limited, using cached data");
       setResultsRefreshing(false);
@@ -1832,99 +2151,22 @@ const premierLeagueInsights = useMemo(() => {
     setApiStatus("Auto results: loaded");
     if (updatedAt) setLastResultsUpdated(updatedAt);
     if (matches?.length) {
-      let matchedCount = 0;
-      const updatedResults = {};
-      const matchStateUpdates = {};
+      const {
+        updatedResults,
+        matchStateUpdates,
+        fixtureOverrides,
+        matchedCount,
+      } = buildFixtureSyncPayload(matches, fixtures);
 
-      matches.forEach((match) => {
-        if (!match.homeTeam || !match.awayTeam) return;
-        const score = match.score || {};
-        const ft = score.fullTime || {};
-        const rt = score.regularTime || {};
-        const ht = score.halfTime || {};
-        const homeGoals =
-          Number.isFinite(ft.home) ? ft.home :
-          Number.isFinite(rt.home) ? rt.home :
-          Number.isFinite(ht.home) ? ht.home : null;
-        const awayGoals =
-          Number.isFinite(ft.away) ? ft.away :
-          Number.isFinite(rt.away) ? rt.away :
-          Number.isFinite(ht.away) ? ht.away : null;
-
-        if (homeGoals === null || awayGoals === null) return;
-
-        // Prefer exact ID match (most reliable)
-        let fixture = null;
-        if (match.id != null) {
-          fixture = FIXTURES.find((f) => Number(f.id) === Number(match.id)) || null;
-        }
-
-        if (!fixture) {
-          const apiHome = normalizeTeamName(match.homeTeam.name);
-          const apiAway = normalizeTeamName(match.awayTeam.name);
-
-          const candidates = FIXTURES.filter((f) => {
-            const localHome = normalizeTeamName(
-              typeof f.homeTeam === "string"
-                ? f.homeTeam
-                : (f.homeTeam?.name || f.homeTeam?.tla || "")
-            );
-            const localAway = normalizeTeamName(
-              typeof f.awayTeam === "string"
-                ? f.awayTeam
-                : (f.awayTeam?.name || f.awayTeam?.tla || "")
-            );
-            return localHome === apiHome && localAway === apiAway;
-          });
-
-          if (candidates.length) {
-            const matchday =
-              typeof match.matchday === "number" ? match.matchday : null;
-            if (matchday != null) {
-              fixture = candidates.find((f) => f.gameweek === matchday) || null;
-            }
-
-            if (!fixture && match.utcDate) {
-              const matchTime = Date.parse(match.utcDate);
-              if (Number.isFinite(matchTime)) {
-                fixture = candidates.reduce((best, f) => {
-                  const t = Date.parse(f.kickoff);
-                  if (!Number.isFinite(t)) return best || f;
-                  const d = Math.abs(t - matchTime);
-                  if (!best) return f;
-                  const bd = Math.abs(Date.parse(best.kickoff) - matchTime);
-                  return d < bd ? f : best;
-                }, null);
-              }
-            }
-
-            if (!fixture) fixture = candidates[0];
-          }
-        }
-
-        if (fixture) {
-          const status = String(match.status || "");
-          const halfTimeHomeGoals = Number.isFinite(ht.home) ? ht.home : null;
-          const halfTimeAwayGoals = Number.isFinite(ht.away) ? ht.away : null;
-
-          matchStateUpdates[fixture.id] = {
-            status,
-            homeGoals,
-            awayGoals,
-            halfTimeHomeGoals,
-            halfTimeAwayGoals,
-            utcDate: match.utcDate || "",
-          };
-
-          if (homeGoals !== null && awayGoals !== null) {
-            matchedCount += 1;
-            updatedResults[fixture.id] = {
-              homeGoals,
-              awayGoals,
-            };
-          };
-        }
-      });
+      if (Object.keys(fixtureOverrides).length) {
+        setFixtureOverridesByMode((prev) => ({
+          ...prev,
+          [mode]: {
+            ...(prev[mode] || {}),
+            ...fixtureOverrides,
+          },
+        }));
+      }
 
       if (matchedCount) {
         setResults((prev) => ({ ...prev, ...updatedResults }));
@@ -1933,13 +2175,14 @@ const premierLeagueInsights = useMemo(() => {
         apiSaveResultsSnapshot(updatedResults, matchStateUpdates);
       }
     }
+    if (mode === WORLD_CUP_MODE) {
+      setApiStatus(matches?.length ? "WC fixtures/results synced" : "WC sync ready");
+    }
     setResultsRefreshing(false);
   };
 
   // ---------- INIT ----------
 useEffect(() => {
-  let intervalId = null;
-
   async function init() {
       // 1) restore app cache (pred/results/odds)
       try {
@@ -1978,15 +2221,7 @@ useEffect(() => {
       }
     } catch {}
 
-    // 3) auto results
-    await refreshAutoResults();
-
-    // Keep results fresh during live gameweeks
-    intervalId = setInterval(() => {
-      refreshAutoResults();
-    }, 2 * 60 * 1000);
-
-        // 4) odds (initial load) — use shared in-app context model
+        // 3) odds (initial load) — use shared in-app context model
     setOdds((prev) => ({
   ...prev,
   ...generatedModelOddsByFixture,
@@ -1994,10 +2229,26 @@ useEffect(() => {
   }
 
   init();
+  return undefined;
+}, []);
+
+useEffect(() => {
+  let cancelled = false;
+  let intervalId = null;
+
+  const runRefresh = async () => {
+    if (cancelled) return;
+    await refreshAutoResults(gameMode, activeFixtures);
+  };
+
+  runRefresh();
+  intervalId = setInterval(runRefresh, 2 * 60 * 1000);
+
   return () => {
+    cancelled = true;
     if (intervalId) clearInterval(intervalId);
   };
-}, []);
+}, [gameMode]);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
 useEffect(() => {
@@ -2110,7 +2361,7 @@ useEffect(() => {
       }
     } catch {}
   })();
-}, [isLoggedIn, authToken]);
+}, [isLoggedIn, authToken, gameMode]);
 
 useEffect(() => {
   if (!isLoggedIn || !authToken) {
@@ -2426,7 +2677,7 @@ useEffect(() => {
     if (!isLoggedIn || !authToken) return;
 
     try {
-      const leagues = await apiFetchMyLeagues(authToken);
+      const leagues = await apiFetchMyLeagues(authToken, gameMode);
       setMyLeagues(leagues);
     } catch (err) {
       console.error("Auto load leagues failed:", err);
@@ -2486,7 +2737,9 @@ useEffect(() => {
 
             // 3) Keys = legacy PLAYERS + league members (mapped)
       const memberKeys = leagueUsers.map(toLegacyKey);
-      const keys = Array.from(new Set([...PLAYERS, ...memberKeys]));
+      const keys = isWorldCupMode
+        ? Array.from(new Set(memberKeys))
+        : Array.from(new Set([...PLAYERS, ...memberKeys]));
 
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
@@ -2514,7 +2767,7 @@ useEffect(() => {
         if (!userIdByKey[key]) userIdByKey[key] = u.userId;
       });
 
-      if (currentUserId && currentPlayer && PLAYERS.includes(currentPlayer)) {
+      if (!isWorldCupMode && currentUserId && currentPlayer && PLAYERS.includes(currentPlayer)) {
         userIdByKey[currentPlayer] = currentUserId;
       }
 
@@ -2551,12 +2804,12 @@ useEffect(() => {
 
       // 5) Compute weekly totals (spreadsheet base + recalculated points)
       const weeklyTotals = {};
-      GAMEWEEKS.forEach((gw) => {
+      activeGameweeks.forEach((gw) => {
         weeklyTotals[gw] = {};
         keys.forEach((k) => {
-          let score = SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0;
+          let score = isWorldCupMode ? 0 : (SPREADSHEET_WEEKLY_TOTALS[k]?.[gw - 1] || 0);
 
-          FIXTURES.forEach((fx) => {
+          activeFixtures.forEach((fx) => {
             if (fx.gameweek !== gw) return;
             const r = results[fx.id];
             if (!r || r.homeGoals === "" || r.awayGoals === "") return;
@@ -2570,7 +2823,7 @@ useEffect(() => {
       // 6) League totals (sum of weekly)
       const leagueTotals = {};
       keys.forEach((k) => {
-        leagueTotals[k] = GAMEWEEKS.reduce(
+        leagueTotals[k] = activeGameweeks.reduce(
           (sum, gw) => sum + (weeklyTotals[gw][k] || 0),
           0
         );
@@ -2599,7 +2852,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues]);
+}, [results, predictions, isLoggedIn, authToken, myLeagues, activeFixtures, activeGameweeks, isWorldCupMode, currentUserId, currentPlayer]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -2617,7 +2870,7 @@ useEffect(() => {
     setMiniLeagueLeaderboardError("");
 
     try {
-      const sortedRows = await apiGetMiniLeagueLeaderboard(authToken);
+      const sortedRows = await apiGetMiniLeagueLeaderboard(authToken, gameMode);
       if (cancelled) return;
       setMiniLeagueLeaderboardRows(sortedRows);
     } catch (err) {
@@ -2636,7 +2889,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [activeView, isLoggedIn, authToken, results]);
+}, [activeView, isLoggedIn, authToken, results, gameMode]);
   // ---------- AUTH ----------
   const handleAuthSubmit = async (e, mode) => {
     e.preventDefault();
@@ -2949,7 +3202,7 @@ setNewPasswordInput("");
     setLeagueError("");
     setLeagueSuccess("");
     try {
-      const league = await apiCreateLeague(authToken, name);
+      const league = await apiCreateLeague(authToken, name, gameMode);
       setLeagueSuccess(`Created "${league.name || name}".`);
       setLeagueNameInput("");
       await handleLoadLeagues();
@@ -2966,7 +3219,7 @@ setNewPasswordInput("");
     setLeagueError("");
     setLeagueSuccess("");
     try {
-      const league = await apiJoinLeague(authToken, code);
+      const league = await apiJoinLeague(authToken, code, gameMode);
       setLeagueSuccess(`Joined "${league.name || "league"}".`);
       setLeagueJoinCode("");
       await handleLoadLeagues();
@@ -3329,7 +3582,7 @@ const leaderboard = useMemo(() => {
 const currentGwPoints = useMemo(() => {
   if (!selectedGameweek) return 0;
   let total = 0;
-  FIXTURES.forEach((fixture) => {
+  activeFixtures.forEach((fixture) => {
     if (fixture.gameweek !== selectedGameweek) return;
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
@@ -3338,7 +3591,7 @@ const currentGwPoints = useMemo(() => {
     total += getTotalPoints(pred, res);
   });
   return total;
-}, [selectedGameweek, results, predictions, currentPredictionKey]);
+}, [selectedGameweek, results, predictions, currentPredictionKey, activeFixtures]);
 
 const currentGwTopScore = useMemo(() => {
   const gw = selectedGameweek;
@@ -3371,10 +3624,10 @@ const globalWeeklyScores = useMemo(() => {
   if (!gw || !dedupedGlobalUsers || dedupedGlobalUsers.length === 0) return {};
   const scores = {};
   dedupedGlobalUsers.forEach((u) => {
-    const base = SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0;
+    const base = isWorldCupMode ? 0 : (SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0);
     scores[u.userId] = base;
   });
-  FIXTURES.forEach((fixture) => {
+  activeFixtures.forEach((fixture) => {
     if (fixture.gameweek !== gw) return;
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
@@ -3389,7 +3642,7 @@ const globalWeeklyScores = useMemo(() => {
     });
   });
   return scores;
-}, [selectedGameweek, dedupedGlobalUsers, globalPredictionsByUserId, results]);
+}, [selectedGameweek, dedupedGlobalUsers, globalPredictionsByUserId, results, activeFixtures, isWorldCupMode]);
 
 const globalLeaderboard = useMemo(() => {
   if (!dedupedGlobalUsers || dedupedGlobalUsers.length === 0) return [];
@@ -3397,8 +3650,9 @@ const globalLeaderboard = useMemo(() => {
   const totalsByUserId = {};
 
   dedupedGlobalUsers.forEach((u) => {
-    const base =
-      SPREADSHEET_WEEKLY_TOTALS[u.username]?.reduce((a, b) => a + b, 0) || 0;
+    const base = isWorldCupMode
+      ? 0
+      : (SPREADSHEET_WEEKLY_TOTALS[u.username]?.reduce((a, b) => a + b, 0) || 0);
     totalsByUserId[u.userId] = {
       userId: u.userId,
       player: u.username,
@@ -3406,7 +3660,7 @@ const globalLeaderboard = useMemo(() => {
     };
   });
 
-  FIXTURES.forEach((fixture) => {
+  activeFixtures.forEach((fixture) => {
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
 
@@ -3422,7 +3676,7 @@ const globalLeaderboard = useMemo(() => {
   });
 
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
-}, [dedupedGlobalUsers, globalPredictionsByUserId, results]);
+}, [dedupedGlobalUsers, globalPredictionsByUserId, results, activeFixtures, isWorldCupMode]);
 
 // Winner popup for league tables (once per user per GW)
 useEffect(() => {
@@ -3430,7 +3684,7 @@ useEffect(() => {
   if (activeView !== "league" && activeView !== "globalLeague") return;
   if (!selectedGameweek) return;
 
-  const gwFixtures = FIXTURES.filter((f) => f.gameweek === selectedGameweek);
+  const gwFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
   if (!gwFixtures.length) return;
   const lastKickoff = Math.max(
     ...gwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
@@ -3483,10 +3737,10 @@ useEffect(() => {
 useEffect(() => {
   if (!isLoggedIn || !currentUserId) return;
   if (activeView !== "league" && activeView !== "globalLeague") return;
-  if (!GAMEWEEKS.length) return;
+  if (!activeGameweeks.length) return;
 
-  const finalGw = Math.max(...GAMEWEEKS);
-  const finalGwFixtures = FIXTURES.filter((f) => f.gameweek === finalGw);
+  const finalGw = Math.max(...activeGameweeks);
+  const finalGwFixtures = activeFixtures.filter((f) => f.gameweek === finalGw);
   if (!finalGwFixtures.length) return;
 
   const lastKickoff = Math.max(
@@ -3496,7 +3750,7 @@ useEffect(() => {
   const seasonEndTime = lastKickoff + 3 * 60 * 60 * 1000;
   if (Date.now() < seasonEndTime) return;
 
-  const allFixturesCompleted = FIXTURES.every((fixture) => {
+  const allFixturesCompleted = activeFixtures.every((fixture) => {
     const res = results[fixture.id];
     return !!res && res.homeGoals !== "" && res.awayGoals !== "";
   });
@@ -3587,9 +3841,9 @@ const winnerConfetti = useMemo(() => {
   }, [showWinnerModal]);
 
   // Coins league rows
- const historicalScores = useMemo(() => {
+const historicalScores = useMemo(() => {
   if (computedWeeklyTotals) {
-    return GAMEWEEKS.map((gw) => {
+    return activeGameweeks.map((gw) => {
       const row = { gameweek: gw };
       const gwTotals = computedWeeklyTotals[gw] || {};
       Object.keys(gwTotals).forEach((k) => {
@@ -3600,11 +3854,14 @@ const winnerConfetti = useMemo(() => {
   }
 
   // fallback to old logic if computed totals not ready yet
-  return GAMEWEEKS.map((gw) => {
+  return activeGameweeks.map((gw) => {
     const row = { gameweek: gw };
-    PLAYERS.forEach((player) => {
-      let score = SPREADSHEET_WEEKLY_TOTALS[player]?.[gw - 1] || 0;
-      FIXTURES.forEach((fixture) => {
+    const scorePlayers = isWorldCupMode
+      ? dedupedGlobalUsers.map((u) => u.username)
+      : PLAYERS;
+    scorePlayers.forEach((player) => {
+      let score = isWorldCupMode ? 0 : (SPREADSHEET_WEEKLY_TOTALS[player]?.[gw - 1] || 0);
+      activeFixtures.forEach((fixture) => {
         if (fixture.gameweek !== gw) return;
         const res = results[fixture.id];
         if (!res || res.homeGoals === "" || res.awayGoals === "") return;
@@ -3618,31 +3875,48 @@ const winnerConfetti = useMemo(() => {
     });
     return row;
   });
-}, [computedWeeklyTotals, predictions, results]);
+}, [computedWeeklyTotals, predictions, results, activeGameweeks, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
 
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
- const theme = {
-  bg: "#0f172a",
-  panel: "#111827",
-  panelHi: "#0b1220",
-  text: "#e5e7eb",
-  muted: "#9ca3af",
-  accent: "#38bdf8",
-  accent2: "#22c55e",
-  warn: "#f59e0b",
-  danger: "#ef4444",
-  line: "rgba(255,255,255,0.08)",
-
-  // aliases used by your Change Password UI
-  card: "#111827",              // same as panel
-  border: "rgba(255,255,255,0.08)", // same as line
-  background: "#0f172a",        // same as bg
-  button: "#38bdf8",            // same as accent
-};
+ const theme = isWorldCupMode
+  ? {
+      bg: "#07141f",
+      panel: "#0d2231",
+      panelHi: "#123247",
+      text: "#f8fafc",
+      muted: "#b6c6d1",
+      accent: "#f59e0b",
+      accent2: "#34d399",
+      warn: "#f97316",
+      danger: "#f87171",
+      line: "rgba(255,255,255,0.12)",
+      card: "#0d2231",
+      border: "rgba(255,255,255,0.12)",
+      background: "#07141f",
+      button: "#f59e0b",
+    }
+  : {
+      bg: "#0f172a",
+      panel: "#111827",
+      panelHi: "#0b1220",
+      text: "#e5e7eb",
+      muted: "#9ca3af",
+      accent: "#38bdf8",
+      accent2: "#22c55e",
+      warn: "#f59e0b",
+      danger: "#ef4444",
+      line: "rgba(255,255,255,0.08)",
+      card: "#111827",
+      border: "rgba(255,255,255,0.08)",
+      background: "#0f172a",
+      button: "#38bdf8",
+    };
 
     const pageStyle = {
     minHeight: "100vh",
-    background: theme.bg,
+    background: isWorldCupMode
+      ? "radial-gradient(circle at top, rgba(245,158,11,0.16), transparent 28%), linear-gradient(180deg, #07141f 0%, #081722 40%, #0d2231 100%)"
+      : theme.bg,
     color: theme.text,
     fontFamily:
       "system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
@@ -4494,6 +4768,9 @@ if (!isLoggedIn) {
 <p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
   {randomTagline}
 </p>
+<div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
+  {getModeLabel(gameMode)} Mode
+</div>
             <div
               style={{
                 marginTop: 6,
@@ -4519,7 +4796,7 @@ if (!isLoggedIn) {
                   : ""}
               </span>
               <button
-                onClick={refreshAutoResults}
+                onClick={() => refreshAutoResults(gameMode, activeFixtures)}
                 disabled={resultsRefreshing}
                 style={{
                   border: "none",
@@ -4573,7 +4850,7 @@ if (!isLoggedIn) {
           whiteSpace: "nowrap",
         }}
       >
-        Leagues ▾
+        {isWorldCupMode ? "World Cup ▾" : "Leagues ▾"}
       </button>
       {showLeaguesMenu && (
         <div
@@ -4594,18 +4871,33 @@ if (!isLoggedIn) {
             zIndex: 1000,
           }}
         >
-          {[
-            { id: "league", label: "Mini League Table" },
-            { id: "globalLeague", label: "Global League Table" },
-            { id: "premierLeagueTable", label: "Premier League Table" },
-            { id: "coinsLeague", label: "Coins League" },
-            { id: "leagues", label: "Mini‑Leagues" },
-          ].map((item) => (
+          {(
+            isWorldCupMode
+              ? [
+                  { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
+                  { action: "view", id: "globalLeague", label: "WC Global League" },
+                  { action: "view", id: "league", label: "WC Mini League" },
+                  { action: "view", id: "leagues", label: "WC Mini-Leagues" },
+                ]
+              : [
+                  { action: "mode", mode: WORLD_CUP_MODE, label: "World Cup Mode" },
+                  { action: "view", id: "league", label: "Mini League Table" },
+                  { action: "view", id: "globalLeague", label: "Global League Table" },
+                  { action: "view", id: "premierLeagueTable", label: "Premier League Table" },
+                  { action: "view", id: "coinsLeague", label: "Coins League" },
+                  { action: "view", id: "leagues", label: "Mini‑Leagues" },
+                ]
+          ).map((item) => (
             <button
-              key={item.id}
+              key={item.id || item.label}
               type="button"
               onClick={() => {
-                setActiveView(item.id);
+                if (item.action === "mode") {
+                  setGameMode(item.mode);
+                  setActiveView("predictions");
+                } else {
+                  setActiveView(item.id);
+                }
                 setShowLeaguesMenu(false);
                 setShowMobileMenu(false);
               }}
@@ -4897,12 +5189,12 @@ if (!isLoggedIn) {
  {/* Tabs */}
 {(() => {
   const TABS = [
-  { id: "predictions", label: "Predictions" },
-  { id: "results", label: "Results" },
-  { id: "summary", label: "Summary" },
-  { id: "history", label: "History" },
-  { id: "winprob", label: "Win Probabilities" },
-  { id: "settings", label: "Settings" },
+  { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
+  { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
+  { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
+  { id: "history", label: isWorldCupMode ? "WC History" : "History" },
+  ...(!isWorldCupMode ? [{ id: "winprob", label: "Win Probabilities" }] : []),
+  { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
   { id: "rules", label: "Rules" },
 ];
 
@@ -5000,7 +5292,7 @@ if (!isLoggedIn) {
             }}
           >
             <div style={{ fontSize: 13, color: theme.muted }}>Player</div>
-            {gwLocked ? (
+            {gwLocked && !isWorldCupMode ? (
               <select
                 value={currentPlayer}
                 onChange={(e) => setCurrentPlayer(e.target.value)}
@@ -5044,9 +5336,9 @@ if (!isLoggedIn) {
     textAlignLast: "center",
   }}
             >
-              {GAMEWEEKS.map((gw) => (
+              {activeGameweeks.map((gw) => (
                 <option key={gw} value={gw}>
-                  GW{gw}
+                  {getModeGameweekLabel(gameMode, gw)}
                 </option>
               ))}
             </select>
@@ -5073,7 +5365,7 @@ if (!isLoggedIn) {
       }}
     >
       <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>
-        GW{selectedGameweek} Predictions
+        {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Predictions" : "Predictions"}
       </h2>
 
       {/* Countdown and Coins Summary Row */}
@@ -5087,7 +5379,7 @@ if (!isLoggedIn) {
       }}>
         
         {/* COINS USED - Left */}
-        {authToken && (
+        {!isWorldCupMode && authToken && (
           <div
             style={{
               display: "flex",
@@ -5110,7 +5402,7 @@ if (!isLoggedIn) {
         )}
         
         {/* Countdown to next deadline - Center */}
-        {countdown.timeStr && (
+        {!isWorldCupMode && countdown.timeStr && (
           <div
             style={{
               display: "flex",
@@ -5203,9 +5495,28 @@ if (!isLoggedIn) {
             </div>
           </div>
         )}
+        {isWorldCupMode && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 4,
+              flex: "1 1 auto",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{ fontSize: 12, color: theme.muted }}>Official fixtures loaded</div>
+            <div style={{ fontSize: isMobile ? 12 : 13, color: theme.text, fontWeight: 700 }}>
+              {worldCupKickoffTimesSynced
+                ? "Exact kick-off times synced live"
+                : "Date-based lock active until kick-off sync completes"}
+            </div>
+          </div>
+        )}
 
         {/* COINS REMAINING - Right */}
-        {authToken && (
+        {!isWorldCupMode && authToken && (
           <div
             style={{
               display: "flex",
@@ -5383,7 +5694,7 @@ if (!isLoggedIn) {
                   marginBottom: 6,
                 }}
               >
-                {formatKickoffShort(fixture.kickoff)}
+                {formatFixtureKickoff(fixture, gameMode)}
               </div>
 
               {/* Main score row */}
@@ -5416,7 +5727,11 @@ if (!isLoggedIn) {
                       flex: "0 1 auto",
                     }}
                   >
-                    {resolveTeamBadge(fixture.homeTeam) && (
+                    {isWorldCupMode ? (
+                      <span style={{ marginRight: isMobile ? 3 : 4, fontSize: isMobile ? 16 : 18 }}>
+                        {getWorldCupFlag(fixture.homeTeam)}
+                      </span>
+                    ) : resolveTeamBadge(fixture.homeTeam) ? (
                       <img
                         src={resolveTeamBadge(fixture.homeTeam)}
                         alt={fixture.homeTeam}
@@ -5427,11 +5742,11 @@ if (!isLoggedIn) {
                           marginRight: isMobile ? 3 : 4,
                         }}
                       />
-                    )}
+                    ) : null}
                     <span
                       style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
                     >
-                      {getTeamCode(fixture.homeTeam)}
+                      {getTeamCode(fixture.homeTeam, gameMode)}
                     </span>
                   </div>
 
@@ -5613,10 +5928,14 @@ if (!isLoggedIn) {
                     <span
                       style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
                     >
-                      {getTeamCode(fixture.awayTeam)}
+                      {getTeamCode(fixture.awayTeam, gameMode)}
                     </span>
 
-                    {resolveTeamBadge(fixture.awayTeam) && (
+                    {isWorldCupMode ? (
+                      <span style={{ marginLeft: isMobile ? 3 : 4, fontSize: isMobile ? 16 : 18, flexShrink: 0 }}>
+                        {getWorldCupFlag(fixture.awayTeam)}
+                      </span>
+                    ) : resolveTeamBadge(fixture.awayTeam) ? (
                       <img
                         src={resolveTeamBadge(fixture.awayTeam)}
                         alt={fixture.awayTeam}
@@ -5628,7 +5947,7 @@ if (!isLoggedIn) {
                           flexShrink: 0,
                         }}
                       />
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -5719,6 +6038,7 @@ if (!isLoggedIn) {
                     {locked ? "🔒" : "🔑"}
                   </div>
 
+                  {!isWorldCupMode && (
                   <button
                     type="button"
                     onClick={() => toggleFixturePush(fixture.id)}
@@ -5751,6 +6071,7 @@ if (!isLoggedIn) {
                   >
                     🔔
                   </button>
+                  )}
                 </div>
               </div>
 
@@ -5858,6 +6179,7 @@ if (!isLoggedIn) {
                 </div>
 
                 {/* Coins */}
+                {!isWorldCupMode && (
                 <div
                   style={{
                     display: "flex",
@@ -6008,6 +6330,7 @@ if (!isLoggedIn) {
                     <CoinIcon />
                   </div>
                 </div>
+                )}
               </div>
             </div>
           </div>
@@ -6021,11 +6344,11 @@ if (!isLoggedIn) {
 {activeView === "results" && (
   <section style={cardStyle}>
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
-      GW{selectedGameweek} Results
+      {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Results" : "Results"}
     </h2>
 
     {/* Coins outcome summary for this gameweek */}
-    {authToken && coinsOutcome && (
+    {!isWorldCupMode && authToken && coinsOutcome && (
       <div
         style={{
           marginTop: 8,
@@ -6083,8 +6406,8 @@ if (!isLoggedIn) {
       {visibleFixtures.map((fixture) => {
         const res = results[fixture.id] || {};
 
-        const homeCode = getTeamCode(fixture.homeTeam);
-        const awayCode = getTeamCode(fixture.awayTeam);
+        const homeCode = getTeamCode(fixture.homeTeam, gameMode);
+        const awayCode = getTeamCode(fixture.awayTeam, gameMode);
 
         // Badge sources (normalized)
         const homeBadgeSrc = resolveTeamBadge(fixture.homeTeam);
@@ -6125,7 +6448,9 @@ if (!isLoggedIn) {
                 }}
               >
                 <span style={{ fontWeight: 700 }}>{homeCode}</span>
-                {homeBadgeSrc && (
+                {isWorldCupMode ? (
+                  <span style={{ fontSize: 18 }}>{getWorldCupFlag(fixture.homeTeam)}</span>
+                ) : homeBadgeSrc ? (
                   <img
                     src={homeBadgeSrc}
                     alt={fixture.homeTeam}
@@ -6135,7 +6460,7 @@ if (!isLoggedIn) {
                       objectFit: "contain",
                     }}
                   />
-                )}
+                ) : null}
               </div>
 
               {/* Score inputs */}
@@ -6167,7 +6492,9 @@ if (!isLoggedIn) {
                   justifyContent: "flex-start",
                 }}
               >
-                {awayBadgeSrc && (
+                {isWorldCupMode ? (
+                  <span style={{ fontSize: 18 }}>{getWorldCupFlag(fixture.awayTeam)}</span>
+                ) : awayBadgeSrc ? (
                   <img
                     src={awayBadgeSrc}
                     alt={fixture.awayTeam}
@@ -6177,7 +6504,7 @@ if (!isLoggedIn) {
                       objectFit: "contain",
                     }}
                   />
-                )}
+                ) : null}
                 <span style={{ fontWeight: 700 }}>{awayCode}</span>
               </div>
             </div>
@@ -6190,7 +6517,7 @@ if (!isLoggedIn) {
         {/* Mini League Table */}
         {activeView === "league" && (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🏆 Mini League Table</h2>
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🏆 WC Mini League" : "🏆 Mini League Table"}</h2>
             <div style={{ display: "grid", gap: 8 }}>
               {leaderboard.map((row, i) => {
                 // Color scheme based on position
@@ -6290,7 +6617,7 @@ if (!isLoggedIn) {
         {/* Global League Table */}
         {activeView === "globalLeague" && (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>🌍 Global League Table</h2>
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🌍 WC Global League" : "🌍 Global League Table"}</h2>
             <div style={{ display: "grid", gap: 8 }}>
               {globalLeaderboard.map((row, i) => {
                 let borderColor = theme.line;
@@ -6897,6 +7224,9 @@ if (!isLoggedIn) {
         )}
         {/* Summary */}
         {activeView === "summary" && (() => {
+          const summaryPlayers = isWorldCupMode
+            ? leaderboard.map((row) => row.player)
+            : PLAYERS;
           // Use existing leaderboard data for top scorer
           const topScorer = leaderboard && leaderboard.length > 0 
             ? leaderboard[0] 
@@ -6918,15 +7248,14 @@ if (!isLoggedIn) {
             topScorer: { name: topScorer.player, points: topScorer.points },
             mostBingpots: { name: "", count: 0 },
             mostForgetful: { name: "", missed: 0 },
-            bestGambler: { name: "", coins: 0 },
             bestGameweek: { name: "", points: 0, gameweek: 0 }
           };
 
           // Get all completed fixtures
-          const completedFixtures = FIXTURES.filter(f => results[f.id]);
+          const completedFixtures = activeFixtures.filter(f => results[f.id]);
 
           // Calculate bingpots and missed weeks for each player
-          PLAYERS.forEach(player => {
+          summaryPlayers.forEach(player => {
             let bingpots = 0;
             let missedWeeks = 0;
 
@@ -6969,7 +7298,7 @@ if (!isLoggedIn) {
           });
 
           // Get best gambler from coins league
-          if (coinsLeagueRows && coinsLeagueRows.length > 0) {
+          if (!isWorldCupMode && coinsLeagueRows && coinsLeagueRows.length > 0) {
             const topGambler = coinsLeagueRows[0];
             const coins = topGambler.profit !== undefined ? topGambler.profit : (topGambler.points || 0);
             stats.bestGambler = { name: topGambler.player, coins: coins };
@@ -6977,7 +7306,7 @@ if (!isLoggedIn) {
 
           // Find best gameweek score
           historicalScores.forEach(row => {
-            PLAYERS.forEach(player => {
+            summaryPlayers.forEach(player => {
               const score = row[player] || 0;
               if (score > stats.bestGameweek.points) {
                 stats.bestGameweek = { name: player, points: score, gameweek: row.gameweek };
@@ -7005,23 +7334,25 @@ if (!isLoggedIn) {
               color: "#9CA3AF"
             },
             {
-              title: "💰 Best Gambler",
-              player: stats.bestGambler.name || "—",
-              value: stats.bestGambler.name ? `${stats.bestGambler.coins >= 0 ? '+' : ''}${typeof stats.bestGambler.coins === 'number' ? stats.bestGambler.coins.toFixed(2) : stats.bestGambler.coins} coins` : "—",
-              color: "#22C55E"
-            },
-            {
               title: "⚡ Best Gameweek",
               player: stats.bestGameweek.name || "—",
-              value: stats.bestGameweek.name ? `${stats.bestGameweek.points} pts (GW${stats.bestGameweek.gameweek})` : "—",
+              value: stats.bestGameweek.name ? `${stats.bestGameweek.points} pts (${getModeGameweekLabel(gameMode, stats.bestGameweek.gameweek)})` : "—",
               color: "#F59E0B"
             }
           ];
+          if (!isWorldCupMode) {
+            categories.splice(3, 0, {
+              title: "💰 Best Gambler",
+              player: stats.bestGambler?.name || "—",
+              value: stats.bestGambler?.name ? `${stats.bestGambler.coins >= 0 ? '+' : ''}${typeof stats.bestGambler.coins === 'number' ? stats.bestGambler.coins.toFixed(2) : stats.bestGambler.coins} coins` : "—",
+              color: "#22C55E"
+            });
+          }
 
           return (
             <section style={cardStyle}>
               <h2 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, textAlign: "center" }}>
-                Season Summary
+                {isWorldCupMode ? "World Cup Summary" : "Season Summary"}
               </h2>
 
               <div style={{ display: "grid", gap: 12 }}>
@@ -7092,7 +7423,7 @@ if (!isLoggedIn) {
                 }}
               >
                 <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>
-                  Weekly Scores
+                  {isWorldCupMode ? "World Cup History" : "Weekly Scores"}
                 </h2>
 
                 <div
@@ -7138,9 +7469,9 @@ if (!isLoggedIn) {
                             minWidth: isMobile ? "54px" : "64px",
                           }}
                         >
-                          GW
+                          {isWorldCupMode ? "MD" : "GW"}
                         </th>
-                        {PLAYERS.map((p) => (
+                        {(isWorldCupMode ? leaderboard.map((row) => row.player) : PLAYERS).map((p) => (
                           <th
                             key={p}
                             style={{
@@ -7161,7 +7492,8 @@ if (!isLoggedIn) {
                     </thead>
                     <tbody>
                       {historicalScores.map((row, idx) => {
-                        const vals = PLAYERS.map((p) => Number(row[p]) || 0);
+                        const historyPlayers = isWorldCupMode ? leaderboard.map((entry) => entry.player) : PLAYERS;
+                        const vals = historyPlayers.map((p) => Number(row[p]) || 0);
                         const max = Math.max(...vals);
                         const min = Math.min(...vals);
                         const range = max - min || 1;
@@ -7186,9 +7518,9 @@ if (!isLoggedIn) {
                                     : "none",
                               }}
                             >
-                              {row.gameweek}
+                              {getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
                             </td>
-                            {PLAYERS.map((p) => {
+                            {historyPlayers.map((p) => {
                               const v = Number(row[p]) || 0;
                               const shade = (v - min) / range;
                               const isWinner = v === max && max > 0;
@@ -7374,7 +7706,7 @@ if (!isLoggedIn) {
         {/* Mini-leagues */}
         {activeView === "leagues" && (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18 }}>Mini‑leagues</h2>
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>{isWorldCupMode ? "WC Mini‑Leagues" : "Mini‑leagues"}</h2>
 
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -7412,7 +7744,7 @@ if (!isLoggedIn) {
                 <input
                   value={leagueNameInput}
                   onChange={(e) => setLeagueNameInput(e.target.value)}
-                  placeholder="New league name"
+                  placeholder={isWorldCupMode ? "New WC league name" : "New league name"}
                   style={{
                     flex: 1,
                     minWidth: 0,
@@ -7447,7 +7779,7 @@ if (!isLoggedIn) {
                 <input
                   value={leagueJoinCode}
                   onChange={(e) => setLeagueJoinCode(e.target.value)}
-                  placeholder="Join code"
+                  placeholder={isWorldCupMode ? "WC join code" : "Join code"}
                   style={{
                     flex: 1,
                     minWidth: 0,
@@ -7477,7 +7809,7 @@ if (!isLoggedIn) {
 
               <div style={{ display: "grid", gap: 6 }}>
                 <h2 style={{ margin: "4px 0 2px", fontSize: 18, fontWeight: 800 }}>
-                  My-Leagues
+                  {isWorldCupMode ? "My WC Leagues" : "My-Leagues"}
                 </h2>
                 {myLeagues.map((l) => (
                   <div
@@ -7503,7 +7835,7 @@ if (!isLoggedIn) {
                 ))}
                 {!myLeagues.length && (
                   <div style={{ fontSize: 13, color: theme.muted }}>
-                    No leagues yet — create or join one above.
+                    {isWorldCupMode ? "No WC leagues yet — create or join one above." : "No leagues yet — create or join one above."}
                   </div>
                 )}
               </div>
@@ -7527,7 +7859,7 @@ if (!isLoggedIn) {
                   }}
                 >
                   <h2 style={{ margin: 0, fontSize: 18, textAlign: "center", flex: 1 }}>
-                    Mini-League Leaderboard
+                    {isWorldCupMode ? "WC Mini-League Leaderboard" : "Mini-League Leaderboard"}
                   </h2>
                   <div style={{ fontSize: 12, color: theme.muted, textAlign: "center", width: "100%" }}>
                     Ranked by average points per member
@@ -7616,7 +7948,7 @@ if (!isLoggedIn) {
         {activeView === "rules" && (
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, marginBottom: 20, fontSize: 22, textAlign: "center", fontWeight: 800 }}>
-              📋 Rules & Scoring
+              {isWorldCupMode ? "📋 WC Rules & Scoring" : "📋 Rules & Scoring"}
             </h2>
 
             {/* Prediction Rules */}
@@ -7715,6 +8047,8 @@ if (!isLoggedIn) {
               </div>
             </div>
 
+            {!isWorldCupMode && (
+            <>
             {/* Divider */}
             <div style={{
               height: 2,
@@ -7772,6 +8106,8 @@ if (!isLoggedIn) {
                 </div>
               </div>
             </div>
+            </>
+            )}
 
             {/* Footer Note */}
             <div style={{ 
@@ -7799,7 +8135,7 @@ if (!isLoggedIn) {
               marginBottom: 20,
               textAlign: "center"
             }}>
-              ⚙️ Settings
+              {isWorldCupMode ? "⚙️ WC Settings" : "⚙️ Settings"}
             </h2>
 
             {/* Avatar Customization */}
