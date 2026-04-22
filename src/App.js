@@ -4105,21 +4105,21 @@ const historicalScores = useMemo(() => {
     boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
   };
 
-  const wcMenuTextColor = "#d4af37";
+  const wcMenuTextColor = theme.accent;
   const premierModeTextColor = "#38bdf8";
   const worldCupHeaderBackground = isWorldCupMode
     ? [
-        "linear-gradient(180deg, rgba(5,16,28,0.76) 0%, rgba(5,16,28,0.82) 100%)",
-        "radial-gradient(circle at 12px 12px, rgba(255,255,255,0.92) 0 1.4px, transparent 1.5px)",
-        "linear-gradient(180deg, #1f4fa3 0%, #1f4fa3 40%, transparent 40%, transparent 100%)",
-        "repeating-linear-gradient(180deg, #b91c1c 0 18px, #f8fafc 18px 36px)",
+        "linear-gradient(180deg, rgba(5,16,28,0.72) 0%, rgba(5,16,28,0.84) 100%)",
+        "radial-gradient(circle at 8px 8px, rgba(255,255,255,0.88) 0 1px, transparent 1.2px)",
+        "linear-gradient(180deg, rgba(31,79,163,0.95) 0%, rgba(31,79,163,0.95) 100%)",
+        "repeating-linear-gradient(180deg, rgba(185,28,28,0.88) 0 14px, rgba(248,250,252,0.88) 14px 28px)",
       ].join(", ")
     : undefined;
   const worldCupHeaderBackgroundSize = isWorldCupMode
-    ? "auto, 18px 18px, 38% 44%, auto"
+    ? "100% 100%, 12px 12px, 30% 46%, 100% 100%"
     : undefined;
   const worldCupHeaderBackgroundPosition = isWorldCupMode
-    ? "0 0, 12px 12px, 0 0, 0 0"
+    ? "0 0, 10px 10px, 0 0, 0 0"
     : undefined;
 
   const pillBtn = (active) => ({
@@ -5163,7 +5163,7 @@ if (!isLoggedIn) {
           whiteSpace: "nowrap",
         }}
       >
-        {isWorldCupMode ? "World Cup ▾" : "Leagues ▾"}
+        {"Leagues ▾"}
       </button>
       {showLeaguesMenu && (
         <div
