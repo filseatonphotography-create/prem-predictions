@@ -815,43 +815,45 @@ async function apiJoinLeague(token, code, mode = PREMIER_MODE) {
 // Results & Odds (unchanged)
 // eslint-disable-next-line no-unused-vars
 async function fetchCompetitionResults(mode = PREMIER_MODE) {
+  let timeoutId = null;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    timeoutId = setTimeout(() => controller.abort(), 30000);
     
     let res = await fetch(`${BACKEND_BASE}/api/results?mode=${encodeURIComponent(getModeKey(mode))}`, {
       signal: controller.signal
     });
-    clearTimeout(timeoutId);
     
     if (res.ok) {
       const updatedHeader = res.headers.get("x-results-updated");
       const matches = await res.json();
       const updatedAt = updatedHeader ? Number(updatedHeader) : null;
       if (Array.isArray(matches) && matches.length > 0) {
-        return { matches, error: null, updatedAt, rateLimited: false };
+        return { matches, error: null, updatedAt, rateLimited: false, timedOut: false };
       }
       // If backend returns empty in Premier League mode, fall back to Netlify source
     }
 
     if (res.status === 429) {
-      return { matches: [], error: null, updatedAt: null, rateLimited: true };
+      return { matches: [], error: null, updatedAt: null, rateLimited: true, timedOut: false };
     }
 
     if (mode === PREMIER_MODE) {
       // Fallback: hit Netlify function directly if backend can't fetch live results
       res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
-      if (!res.ok) return { matches: [], error: `HTTP ${res.status}`, rateLimited: false };
+      if (!res.ok) return { matches: [], error: `HTTP ${res.status}`, rateLimited: false, timedOut: false };
       const matches = await res.json();
-      return { matches, error: null, updatedAt: Date.now(), rateLimited: false };
+      return { matches, error: null, updatedAt: Date.now(), rateLimited: false, timedOut: false };
     }
 
-    return { matches: [], error: `HTTP ${res.status}`, updatedAt: null, rateLimited: false };
+    return { matches: [], error: `HTTP ${res.status}`, updatedAt: null, rateLimited: false, timedOut: false };
   } catch (err) {
     if (err.name === 'AbortError') {
-      return { matches: [], error: 'Request timeout', rateLimited: false };
+      return { matches: [], error: null, updatedAt: null, rateLimited: false, timedOut: true };
     }
-    return { matches: [], error: err.message, rateLimited: false };
+    return { matches: [], error: err.message, updatedAt: null, rateLimited: false, timedOut: false };
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }
 
@@ -2137,9 +2139,14 @@ const premierLeagueInsights = useMemo(() => {
 
   const refreshAutoResults = async (mode = gameMode, fixtures = activeFixtures) => {
     setResultsRefreshing(true);
-    const { matches, error, updatedAt, rateLimited } = await fetchCompetitionResults(mode);
+    const { matches, error, updatedAt, rateLimited, timedOut } = await fetchCompetitionResults(mode);
     if (rateLimited) {
       setApiStatus("Auto results: rate limited, using cached data");
+      setResultsRefreshing(false);
+      return;
+    }
+    if (timedOut) {
+      setApiStatus("Auto results: upstream slow, using existing data");
       setResultsRefreshing(false);
       return;
     }
