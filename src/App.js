@@ -3251,6 +3251,9 @@ setNewPasswordInput("");
 
     setPredictions((prev) => {
       const prevPlayerPreds = prev[playerKey] || {};
+      const fixturesForMode = activeFixtures;
+      const findModeFixture = (id) =>
+        fixturesForMode.find((f) => Number(f.id) === Number(id)) || null;
       const prevFixturePred =
         prevPlayerPreds[fixtureIdNum] || {
           homeGoals: "",
@@ -3264,7 +3267,7 @@ setNewPasswordInput("");
       // and a different locked fixture in this GW is already captain,
       // block the change.
       if ("isDouble" in newFields && !!newFields.isDouble) {
-        const metaFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+        const metaFixture = findModeFixture(fixtureIdNum);
 
         if (metaFixture) {
           const gw = metaFixture.gameweek;
@@ -3276,7 +3279,7 @@ setNewPasswordInput("");
               const idNum = Number(id);
               if (idNum === fixtureIdNum) return false; // ignore this fixture
 
-              const f = FIXTURES.find((fx) => fx.id === idNum);
+              const f = findModeFixture(idNum);
               if (!f || f.gameweek !== gw) return false;
 
               return isPredictionLocked(f);
@@ -3331,11 +3334,11 @@ setNewPasswordInput("");
             return prev;
           }
 
-          const tripleFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+          const tripleFixture = findModeFixture(fixtureIdNum);
           if (tripleFixture) {
             updatedPlayerPreds = Object.fromEntries(
               Object.entries(updatedPlayerPreds).map(([id, pred]) => {
-                const f = FIXTURES.find((fx) => fx.id === Number(id));
+                const f = findModeFixture(id);
                 const sameGW = f && f.gameweek === tripleFixture.gameweek;
                 const isThis = Number(id) === fixtureIdNum;
 
@@ -3366,7 +3369,7 @@ setNewPasswordInput("");
           // ----- DOUBLE LOGIC: one per gameweek, never with triple -----
     if ("isDouble" in newFields) {
       const wantDouble = !!newFields.isDouble;
-      const doubleFixture = FIXTURES.find((f) => f.id === fixtureIdNum);
+      const doubleFixture = findModeFixture(fixtureIdNum);
 
       if (doubleFixture) {
         const gw = doubleFixture.gameweek;
@@ -3380,7 +3383,7 @@ setNewPasswordInput("");
             ([id, pred]) => {
               if (!pred || !pred.isDouble) return false;
 
-              const f = FIXTURES.find((fx) => fx.id === Number(id));
+              const f = findModeFixture(id);
               if (!f || f.gameweek !== gw) return false;
 
               const isThis = Number(id) === fixtureIdNum;
@@ -3401,7 +3404,7 @@ setNewPasswordInput("");
           // Set this as the only captain in that gameweek
           updatedPlayerPreds = Object.fromEntries(
             Object.entries(updatedPlayerPreds).map(([id, pred]) => {
-              const f = FIXTURES.find((fx) => fx.id === Number(id));
+              const f = findModeFixture(id);
               const sameGW = f && f.gameweek === doubleFixture.gameweek;
               const isThis = Number(id) === fixtureIdNum;
 
@@ -3564,15 +3567,19 @@ const leaderboard = useMemo(() => {
 
   // fallback (old local logic)
   const totals = {};
-  PLAYERS.forEach((p) => {
-    totals[p] =
-      SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0;
+  const scorePlayers = isWorldCupMode
+    ? dedupedGlobalUsers.map((u) => u.username)
+    : PLAYERS;
+  scorePlayers.forEach((p) => {
+    totals[p] = isWorldCupMode
+      ? 0
+      : (SPREADSHEET_WEEKLY_TOTALS[p]?.reduce((a, b) => a + b, 0) || 0);
   });
 
-  FIXTURES.forEach((fixture) => {
+  activeFixtures.forEach((fixture) => {
     const res = results[fixture.id];
     if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-    PLAYERS.forEach((p) => {
+    scorePlayers.forEach((p) => {
       totals[p] += getTotalPoints(predictions[p]?.[fixture.id], res);
     });
   });
@@ -3584,7 +3591,7 @@ const leaderboard = useMemo(() => {
       userId: LEGACY_MAP[player] || null,
     }))
     .sort((a, b) => b.points - a.points);
-}, [computedLeagueTotals, predictions, results]);
+}, [computedLeagueTotals, predictions, results, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
 
 const currentGwPoints = useMemo(() => {
   if (!selectedGameweek) return 0;
