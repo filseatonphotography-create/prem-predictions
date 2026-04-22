@@ -6604,7 +6604,6 @@ if (!isLoggedIn) {
                     {locked ? "🔒" : "🔑"}
                   </div>
 
-                  {!isWorldCupMode && (
                   <button
                     type="button"
                     onClick={() => toggleFixturePush(fixture.id)}
@@ -6637,7 +6636,6 @@ if (!isLoggedIn) {
                   >
                     🔔
                   </button>
-                  )}
                 </div>
               </div>
 
