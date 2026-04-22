@@ -3377,9 +3377,12 @@ setNewPasswordInput("");
     }
   };
 
-    function playerAlreadyUsedTriple(allPredictionsForPlayer) {
-    return Object.values(allPredictionsForPlayer || {}).some(
-      (p) => p && p.isTriple
+    function playerAlreadyUsedTriple(allPredictionsForPlayer, fixturesForMode) {
+    const fixtureIdsForMode = new Set(
+      (fixturesForMode || []).map((fixture) => String(fixture.id))
+    );
+    return Object.entries(allPredictionsForPlayer || {}).some(
+      ([fixtureId, p]) => fixtureIdsForMode.has(String(fixtureId)) && p && p.isTriple
     );
   }
 
@@ -3460,9 +3463,15 @@ setNewPasswordInput("");
         const wantTriple = !!newFields.isTriple;
 
         if (wantTriple) {
-          const hasUsedTripleBefore = playerAlreadyUsedTriple(prevPlayerPreds);
+          const hasUsedTripleBefore = playerAlreadyUsedTriple(
+            prevPlayerPreds,
+            fixturesForMode
+          );
           const hasTripleElsewhere = Object.entries(prevPlayerPreds).some(
-            ([id, pred]) => pred.isTriple && Number(id) !== fixtureIdNum
+            ([id, pred]) =>
+              pred.isTriple &&
+              Number(id) !== fixtureIdNum &&
+              !!findModeFixture(id)
           );
 
           // If player already used triple ANYWHERE historically and this fixture
@@ -5165,7 +5174,12 @@ if (!isLoggedIn) {
                   { action: "view", id: "coinsLeague", label: "Coins League" },
                   { action: "view", id: "leagues", label: "Mini‑Leagues" },
                 ]
-          ).map((item) => (
+          ).map((item) => {
+            const isWorldCupModeEntry =
+              !isWorldCupMode &&
+              item.action === "mode" &&
+              item.mode === WORLD_CUP_MODE;
+            return (
             <button
               key={item.id || item.label}
               type="button"
@@ -5186,11 +5200,13 @@ if (!isLoggedIn) {
                 padding: "6px 10px",
                 fontSize: 14,
                 whiteSpace: "nowrap",
+                color: isWorldCupModeEntry ? "#d4af37" : undefined,
               }}
             >
               {item.label}
             </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -6417,10 +6433,11 @@ if (!isLoggedIn) {
                     Triple
                     {(() => {
   const playerPreds = predictions[currentPredictionKey] || {};
+  const modeFixtureIds = new Set(activeFixtures.map((f) => String(f.id)));
 
   // Find if a triple exists anywhere
   const tripleFixtureId = Object.entries(playerPreds).find(
-    ([id, p]) => p?.isTriple
+    ([id, p]) => modeFixtureIds.has(String(id)) && p?.isTriple
   )?.[0];
 
   // Is this the fixture holding the triple?
