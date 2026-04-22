@@ -5248,7 +5248,7 @@ if (!isLoggedIn) {
 )}
         </header>
 
-        {isLoggedIn && accountMeLoaded && !accountFavoriteTeam && (
+        {isLoggedIn && accountMeLoaded && !(isWorldCupMode ? accountFavoriteCountry : accountFavoriteTeam) && (
           <section
             style={{
               ...cardStyle,
@@ -5260,15 +5260,18 @@ if (!isLoggedIn) {
             }}
           >
             <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
-              Add your favourite team
+              {isWorldCupMode ? "Add your favourite country" : "Add your favourite team"}
             </div>
             <div style={{ fontSize: 12, color: theme.muted, lineHeight: 1.25 }}>
-              This helps us send optional team-result notifications.
+              This helps us send optional {isWorldCupMode ? "country" : "team"}-result notifications.
             </div>
             <div style={{ display: "flex", gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
               <select
-                value={accountFavoriteTeamInput}
-                onChange={(e) => setAccountFavoriteTeamInput(e.target.value)}
+                value={isWorldCupMode ? accountFavoriteCountryInput : accountFavoriteTeamInput}
+                onChange={(e) => {
+                  if (isWorldCupMode) setAccountFavoriteCountryInput(e.target.value);
+                  else setAccountFavoriteTeamInput(e.target.value);
+                }}
                 style={{
                   flex: "1 1 auto",
                   minWidth: 0,
@@ -5280,10 +5283,10 @@ if (!isLoggedIn) {
                   fontSize: 13,
                 }}
               >
-                <option value="">Select team...</option>
-                {PREMIER_LEAGUE_TEAMS.map((team) => (
+                <option value="">{isWorldCupMode ? "Select country..." : "Select team..."}</option>
+                {(isWorldCupMode ? WORLD_CUP_COUNTRIES : PREMIER_LEAGUE_TEAMS).map((team) => (
                   <option key={team} value={team}>
-                    {team}
+                    {isWorldCupMode ? `${getWorldCupFlag(team)} ${team}` : team}
                   </option>
                 ))}
               </select>
@@ -5302,7 +5305,7 @@ if (!isLoggedIn) {
                   whiteSpace: "nowrap",
                 }}
               >
-                Save
+                {isWorldCupMode ? "Save Country" : "Save"}
               </button>
             </div>
             {accountFavoriteTeamError && (
