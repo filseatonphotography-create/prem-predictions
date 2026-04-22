@@ -1645,11 +1645,21 @@ export default function App() {
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
   const [favoriteTeamsByUserId, setFavoriteTeamsByUserId] = useState({});
   const [favoriteCountriesByUserId, setFavoriteCountriesByUserId] = useState({});
+  const [favoriteLookupLoaded, setFavoriteLookupLoaded] = useState(false);
 
   // On login, fetch all avatars + favourite teams for leaderboard/avatar badge
   useEffect(() => {
     async function loadAllAvatarData() {
-      if (isLoggedIn && authToken) {
+      if (!isLoggedIn || !authToken) {
+        setAvatarsByUserId({});
+        setFavoriteTeamsByUserId({});
+        setFavoriteCountriesByUserId({});
+        setFavoriteLookupLoaded(false);
+        return;
+      }
+
+      setFavoriteLookupLoaded(false);
+      try {
         const [allAvatars, allFavorites] = await Promise.all([
           apiGetAllAvatars(authToken),
           apiGetAllFavoriteTeams(authToken),
@@ -1659,6 +1669,8 @@ export default function App() {
         }
         setFavoriteTeamsByUserId(allFavorites?.favoriteTeams || {});
         setFavoriteCountriesByUserId(allFavorites?.favoriteCountries || {});
+      } finally {
+        setFavoriteLookupLoaded(true);
       }
     }
     loadAllAvatarData();
@@ -4133,7 +4145,7 @@ const historicalScores = useMemo(() => {
     boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
   };
 
-  const wcMenuTextColor = theme.accent;
+  const wcMenuTextColor = "#f59e0b";
   const premierModeTextColor = "#38bdf8";
 
   const pillBtn = (active) => ({
@@ -5283,7 +5295,7 @@ if (!isLoggedIn) {
         borderRadius: 8,
         border: `1px solid ${theme.line}`,
         background: theme.panelHi,
-        color: theme.text,
+        color: isWorldCupMode ? wcMenuTextColor : theme.text,
         cursor: "pointer",
         fontSize: isMobile ? 11 : 12,
         height: isMobile ? 30 : 32,
@@ -5329,7 +5341,7 @@ if (!isLoggedIn) {
           borderRadius: 8,
           border: `1px solid ${theme.line}`,
           background: theme.panelHi,
-          color: theme.text,
+          color: isWorldCupMode ? wcMenuTextColor : theme.text,
           cursor: "pointer",
           fontSize: isMobile ? 11 : 12,
           height: isMobile ? 30 : 32,
@@ -5347,6 +5359,7 @@ if (!isLoggedIn) {
 
         {isLoggedIn &&
           accountMeLoaded &&
+          favoriteLookupLoaded &&
           !(isWorldCupMode ? resolvedAccountFavoriteCountry : resolvedAccountFavoriteTeam) && (
           <section
             style={{
