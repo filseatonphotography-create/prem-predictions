@@ -5016,16 +5016,36 @@ if (!isLoggedIn) {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 8,
-                padding: "4px 8px",
+                padding: isMobile ? "3px 6px" : "4px 7px",
                 borderRadius: 999,
                 border: `1px solid ${theme.line}`,
                 background: theme.panelHi,
-                fontSize: 11,
+                fontSize: isMobile ? 10 : 10.5,
                 color: theme.muted,
                 minHeight: 24, // reserve space to prevent layout jump
+                maxWidth: "min(100%, 320px)",
+                overflow: "hidden",
               }}
             >
-              <span style={{ whiteSpace: "nowrap" }}>
+              <span
+                style={{
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 0,
+                  maxWidth: isMobile ? 180 : 220,
+                  display: "block",
+                }}
+                title={
+                  apiStatus +
+                  (lastResultsUpdated
+                    ? ` • Updated ${new Date(lastResultsUpdated).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}`
+                    : "")
+                }
+              >
                 {apiStatus}
                 {lastResultsUpdated
                   ? ` • Updated ${new Date(lastResultsUpdated).toLocaleTimeString([], {
