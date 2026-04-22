@@ -5013,7 +5013,7 @@ if (!isLoggedIn) {
             backgroundSize: worldCupHeaderBackgroundSize,
             backgroundPosition: worldCupHeaderBackgroundPosition,
             backgroundRepeat: isWorldCupMode ? "no-repeat, repeat, no-repeat, repeat" : undefined,
-            overflow: "hidden",
+            overflow: "visible",
           }}
         >
           {/* Title + API status (centered) */}
