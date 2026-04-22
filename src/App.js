@@ -170,7 +170,7 @@ function getModeGameweekLabel(mode, gameweek) {
 }
 
 function getWorldCupFlag(teamName) {
-  return WORLD_CUP_FLAGS[(teamName || "").trim()] || "🏳️";
+  return WORLD_CUP_FLAGS[(teamName || "").trim()] || "";
 }
 
 // Simple avatar renderer using DiceBear styles
@@ -220,9 +220,10 @@ function PlayerAvatar({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: Math.round(size * 0.88),
-            opacity: 0.42,
-            transform: "scale(1.05)",
+            fontSize: Math.round(size * 0.76),
+            lineHeight: 1,
+            opacity: 0.58,
+            transform: "scale(1)",
           }}
         >
           {flagBg}
