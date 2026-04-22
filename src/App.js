@@ -2784,23 +2784,35 @@ function normalizeCaptainsByGameweek(predsForUser) {
 useEffect(() => {
   async function loadLeaguesAuto() {
     if (DEV_USE_LOCAL) return;
-    if (!isLoggedIn || !authToken) return;
+    if (!isLoggedIn || !authToken) {
+      setMyLeagues([]);
+      return;
+    }
 
     try {
       const leagues = await apiFetchMyLeagues(authToken, gameMode);
       setMyLeagues(leagues);
     } catch (err) {
       console.error("Auto load leagues failed:", err);
+      setMyLeagues([]);
     }
   }
 
   loadLeaguesAuto();
-}, [isLoggedIn, authToken]);
+}, [isLoggedIn, authToken, gameMode]);
   
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
-  if (!isLoggedIn || !authToken) return;
-  if (!myLeagues || myLeagues.length === 0) return;
+  if (!isLoggedIn || !authToken) {
+    setComputedWeeklyTotals(null);
+    setComputedLeagueTotals(null);
+    return;
+  }
+  if (!myLeagues || myLeagues.length === 0) {
+    setComputedWeeklyTotals(null);
+    setComputedLeagueTotals(null);
+    return;
+  }
 
   const leagueId = myLeagues[0].id;
   if (!leagueId) return;
@@ -3321,7 +3333,7 @@ setNewPasswordInput("");
     setLeagueError("");
     setLeagueSuccess("");
     try {
-      const leagues = await apiFetchMyLeagues(authToken);
+      const leagues = await apiFetchMyLeagues(authToken, gameMode);
       setMyLeagues(leagues);
       if (!leagues.length) setLeagueSuccess("No mini‑leagues yet.");
     } catch (err) {
@@ -3738,6 +3750,13 @@ const leaderboard = useMemo(() => {
     }))
     .sort((a, b) => b.points - a.points);
 }, [computedLeagueTotals, predictions, results, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
+
+const hasMiniLeague = Array.isArray(myLeagues) && myLeagues.length > 0;
+const showMiniLeagueEmptyState =
+  activeView === "league" &&
+  !DEV_USE_LOCAL &&
+  isLoggedIn &&
+  !hasMiniLeague;
 
 const currentGwPoints = useMemo(() => {
   if (!selectedGameweek) return 0;
@@ -6780,6 +6799,22 @@ if (!isLoggedIn) {
         {activeView === "league" && (
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🏆 WC Mini League" : "🏆 Mini League Table"}</h2>
+            {showMiniLeagueEmptyState ? (
+              <div
+                style={{
+                  padding: "18px 16px",
+                  textAlign: "center",
+                  color: theme.muted,
+                  background: theme.panelHi,
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 12,
+                }}
+              >
+                {isWorldCupMode
+                  ? "No World Cup mini-league yet. Create or join one in WC Mini-Leagues."
+                  : "No mini-league yet. Create or join one in Mini-Leagues."}
+              </div>
+            ) : (
             <div style={{ display: "grid", gap: 8 }}>
               {leaderboard.map((row, i) => {
                 // Color scheme based on position
@@ -6874,6 +6909,7 @@ if (!isLoggedIn) {
                 );
               })}
             </div>
+            )}
           </section>
         )}
 
