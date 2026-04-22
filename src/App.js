@@ -118,7 +118,7 @@ const WORLD_CUP_FLAGS = {
   "Cote d'Ivoire": "🇨🇮",
   Ecuador: "🇪🇨",
   Egypt: "🇪🇬",
-  England: "🏴",
+  England: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}",
   France: "🇫🇷",
   Germany: "🇩🇪",
   Ghana: "🇬🇭",
@@ -136,7 +136,7 @@ const WORLD_CUP_FLAGS = {
   Poland: "🇵🇱",
   Portugal: "🇵🇹",
   Qatar: "🇶🇦",
-  Scotland: "🏴",
+  Scotland: "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}",
   Senegal: "🇸🇳",
   "South Africa": "🇿🇦",
   Serbia: "🇷🇸",
@@ -1949,7 +1949,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     if (activeGameweeks.includes(selectedGameweek)) return;
     modeSwitchSyncRef.current = true;
     setSelectedGameweek(activeGameweeks[0] || 1);
-  }, [activeGameweeks, selectedGameweek, selectedGameweekByMode, gameMode]);
+  }, [activeGameweeks, selectedGameweekByMode, gameMode]);
 
   useEffect(() => {
     if (!selectedGameweek || !activeGameweeks.includes(selectedGameweek)) return;
