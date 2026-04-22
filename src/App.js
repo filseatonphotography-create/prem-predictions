@@ -7887,15 +7887,32 @@ if (!isLoggedIn) {
                     <div
                       style={{
                         padding: "10px 12px",
-                        display: "flex",
+                        display: "grid",
+                        gridTemplateColumns: isMobile ? "26px minmax(0, 1fr) 120px" : "30px minmax(0, 1fr) 156px",
+                        gap: 8,
                         alignItems: "center",
-                        justifyContent: "space-between",
                         background: "rgba(245,158,11,0.14)",
                         borderBottom: `1px solid rgba(245,158,11,0.2)`,
                       }}
                     >
+                      <div />
                       <div style={{ fontWeight: 800, color: theme.accent }}>Group {group}</div>
-                      <div style={{ fontSize: 11, color: theme.muted }}>P  W  D  L  GD  PTS</div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
+                          gap: 4,
+                          textAlign: "center",
+                          fontSize: 10,
+                          fontWeight: 800,
+                          color: theme.muted,
+                          letterSpacing: 0.3,
+                        }}
+                      >
+                        {["P", "W", "D", "L", "GD", "PTS"].map((label) => (
+                          <div key={`${group}-${label}`}>{label}</div>
+                        ))}
+                      </div>
                     </div>
                     <div style={{ display: "grid" }}>
                       {rows.map((row, index) => {
@@ -7996,8 +8013,11 @@ if (!isLoggedIn) {
             topScorer: { name: topScorer.player, points: topScorer.points },
             mostBingpots: { name: "", count: 0 },
             mostForgetful: { name: "", missed: 0 },
-            bestGameweek: { name: "", points: 0, gameweek: 0 }
+            bestGameweek: { name: "", points: 0, gameweek: 0 },
+            mostBackedCountry: { name: "", count: 0 }
           };
+
+          const backedCountryCounts = {};
 
           // Get all completed fixtures
           const completedFixtures = activeFixtures.filter(f => results[f.id]);
@@ -8028,6 +8048,23 @@ if (!isLoggedIn) {
                 }
               }
             });
+
+            if (isWorldCupMode) {
+              activeFixtures.forEach((fixture) => {
+                const pred = predictions[player]?.[fixture.id] || predictions[userId]?.[fixture.id];
+                if (!pred) return;
+
+                const homeGoals = Number(pred.homeGoals);
+                const awayGoals = Number(pred.awayGoals);
+                if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return;
+
+                if (homeGoals > awayGoals) {
+                  backedCountryCounts[fixture.homeTeam] = (backedCountryCounts[fixture.homeTeam] || 0) + 1;
+                } else if (awayGoals > homeGoals) {
+                  backedCountryCounts[fixture.awayTeam] = (backedCountryCounts[fixture.awayTeam] || 0) + 1;
+                }
+              });
+            }
 
             // Count missed weeks from history: any week with 0 points
             historicalScores.forEach(row => {
@@ -8065,6 +8102,14 @@ if (!isLoggedIn) {
             });
           });
 
+          if (isWorldCupMode) {
+            Object.entries(backedCountryCounts).forEach(([country, count]) => {
+              if (count > stats.mostBackedCountry.count) {
+                stats.mostBackedCountry = { name: country, count };
+              }
+            });
+          }
+
           if (isWorldCupMode && completedFixtures.length === 0 && !hasAnyWorldCupPoints) {
             stats.topScorer = { name: "", points: 0 };
             stats.mostBingpots = { name: "", count: 0 };
@@ -8091,12 +8136,23 @@ if (!isLoggedIn) {
               value: `${stats.mostForgetful.missed} missed`,
               color: "#9CA3AF"
             },
-            {
-              title: "⚡ Best Gameweek",
-              player: stats.bestGameweek.name || "—",
-              value: stats.bestGameweek.name ? `${stats.bestGameweek.points} pts (${getModeGameweekLabel(gameMode, stats.bestGameweek.gameweek)})` : "—",
-              color: "#F59E0B"
-            }
+            ...(isWorldCupMode
+              ? [{
+                  title: "🌍 Most Backed Country",
+                  player: stats.mostBackedCountry.name
+                    ? `${getWorldCupFlag(stats.mostBackedCountry.name)} ${stats.mostBackedCountry.name}`
+                    : "—",
+                  value: stats.mostBackedCountry.name
+                    ? `${stats.mostBackedCountry.count} winning picks`
+                    : "—",
+                  color: "#F59E0B"
+                }]
+              : [{
+                  title: "⚡ Best Gameweek",
+                  player: stats.bestGameweek.name || "—",
+                  value: stats.bestGameweek.name ? `${stats.bestGameweek.points} pts (${getModeGameweekLabel(gameMode, stats.bestGameweek.gameweek)})` : "—",
+                  color: "#F59E0B"
+                }])
           ];
           if (!isWorldCupMode) {
             categories.splice(3, 0, {
