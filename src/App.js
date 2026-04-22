@@ -62,6 +62,7 @@ const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
+const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
@@ -1794,6 +1795,24 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     } catch {}
     return GAMEWEEKS[0];
   });
+  const [selectedGameweekByMode, setSelectedGameweekByMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem(GAMEWEEK_BY_MODE_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") {
+          return {
+            [PREMIER_MODE]: Number(parsed[PREMIER_MODE]) || GAMEWEEKS[0],
+            [WORLD_CUP_MODE]: Number(parsed[WORLD_CUP_MODE]) || WORLD_CUP_GAMEWEEKS[0],
+          };
+        }
+      }
+    } catch {}
+    return {
+      [PREMIER_MODE]: GAMEWEEKS[0],
+      [WORLD_CUP_MODE]: WORLD_CUP_GAMEWEEKS[0],
+    };
+  });
   const isWorldCupMode = gameMode === WORLD_CUP_MODE;
   const activeFixtures = useMemo(() => {
     const baseFixtures = getFixturesForMode(gameMode);
@@ -1883,9 +1902,32 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   }, [gameMode]);
 
   useEffect(() => {
+    const remembered = selectedGameweekByMode[gameMode];
+    if (remembered && activeGameweeks.includes(remembered) && remembered !== selectedGameweek) {
+      setSelectedGameweek(remembered);
+      return;
+    }
     if (activeGameweeks.includes(selectedGameweek)) return;
     setSelectedGameweek(activeGameweeks[0] || 1);
-  }, [activeGameweeks, selectedGameweek]);
+  }, [activeGameweeks, selectedGameweek, selectedGameweekByMode, gameMode]);
+
+  useEffect(() => {
+    if (!selectedGameweek || !activeGameweeks.includes(selectedGameweek)) return;
+    setSelectedGameweekByMode((prev) => {
+      if (prev[gameMode] === selectedGameweek) return prev;
+      return {
+        ...prev,
+        [gameMode]: selectedGameweek,
+      };
+    });
+  }, [selectedGameweek, gameMode, activeGameweeks]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      GAMEWEEK_BY_MODE_STORAGE_KEY,
+      JSON.stringify(selectedGameweekByMode)
+    );
+  }, [selectedGameweekByMode]);
 
   useEffect(() => {
     if (!isWorldCupMode) return;
@@ -2518,7 +2560,7 @@ useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed?.selectedGameweek) return;
+      if (parsed?.selectedGameweek || parsed?.selectedGameweekByMode?.[PREMIER_MODE]) return;
     }
   } catch {}
 
@@ -2542,9 +2584,9 @@ useEffect(() => {
   useEffect(() => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ predictions, results, odds, selectedGameweek })
+      JSON.stringify({ predictions, results, odds, selectedGameweek, selectedGameweekByMode })
     );
-  }, [predictions, results, odds, selectedGameweek]);
+  }, [predictions, results, odds, selectedGameweek, selectedGameweekByMode]);
 
   // Persist auth
   useEffect(() => {
@@ -7242,7 +7284,7 @@ if (!isLoggedIn) {
             ? leaderboard.map((row) => row.player)
             : PLAYERS;
           // Use existing leaderboard data for top scorer
-          const topScorer = leaderboard && leaderboard.length > 0 
+          const topScorer = leaderboard && leaderboard.length > 0 && Number(leaderboard[0]?.points || 0) > 0
             ? leaderboard[0] 
             : { player: "", points: 0 };
 
@@ -7267,6 +7309,9 @@ if (!isLoggedIn) {
 
           // Get all completed fixtures
           const completedFixtures = activeFixtures.filter(f => results[f.id]);
+          const hasAnyWorldCupPoints = historicalScores.some((row) =>
+            summaryPlayers.some((player) => Number(row[player] || 0) > 0)
+          );
 
           // Calculate bingpots and missed weeks for each player
           summaryPlayers.forEach(player => {
@@ -7301,12 +7346,12 @@ if (!isLoggedIn) {
             });
 
             // Update most bingpots
-            if (bingpots > stats.mostBingpots.count) {
+            if (bingpots > 0 && bingpots > stats.mostBingpots.count) {
               stats.mostBingpots = { name: player, count: bingpots };
             }
 
             // Update most forgetful
-            if (missedWeeks > stats.mostForgetful.missed) {
+            if (missedWeeks > 0 && missedWeeks > stats.mostForgetful.missed) {
               stats.mostForgetful = { name: player, missed: missedWeeks };
             }
           });
@@ -7322,11 +7367,18 @@ if (!isLoggedIn) {
           historicalScores.forEach(row => {
             summaryPlayers.forEach(player => {
               const score = row[player] || 0;
-              if (score > stats.bestGameweek.points) {
+              if (score > 0 && score > stats.bestGameweek.points) {
                 stats.bestGameweek = { name: player, points: score, gameweek: row.gameweek };
               }
             });
           });
+
+          if (isWorldCupMode && completedFixtures.length === 0 && !hasAnyWorldCupPoints) {
+            stats.topScorer = { name: "", points: 0 };
+            stats.mostBingpots = { name: "", count: 0 };
+            stats.mostForgetful = { name: "", missed: 0 };
+            stats.bestGameweek = { name: "", points: 0, gameweek: 0 };
+          }
 
           const categories = [
             {
