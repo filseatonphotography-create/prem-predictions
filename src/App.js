@@ -168,7 +168,17 @@ function getModeLabel(mode) {
 }
 
 function getModeGameweekLabel(mode, gameweek) {
-  return mode === WORLD_CUP_MODE ? `MD${gameweek}` : `GW${gameweek}`;
+  return mode === WORLD_CUP_MODE ? `Matchday ${gameweek}` : `GW${gameweek}`;
+}
+
+function getWorldCupStageLabel(fixture) {
+  if (fixture?.group) return "Group Stage";
+  return "Knockout Stage";
+}
+
+function getWorldCupFixtureLabel(fixture) {
+  if (fixture?.group) return `Group ${fixture.group}`;
+  return getWorldCupStageLabel(fixture);
 }
 
 function getWorldCupFlag(teamName) {
@@ -2100,6 +2110,37 @@ const resolvedAccountFavoriteTeam =
   accountFavoriteTeam || (currentUserId ? favoriteTeamsByUserId[String(currentUserId)] || "" : "");
 const resolvedAccountFavoriteCountry =
   accountFavoriteCountry || (currentUserId ? favoriteCountriesByUserId[String(currentUserId)] || "" : "");
+const worldCupOverview = useMemo(() => {
+  if (!isWorldCupMode) return null;
+
+  const now = Date.now();
+  const upcomingFixtures = activeFixtures
+    .filter((fixture) => Date.parse(fixture.kickoff) > now)
+    .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff));
+  const nextFixture = upcomingFixtures[0] || null;
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayCount = activeFixtures.filter(
+    (fixture) => fixture.kickoff && fixture.kickoff.slice(0, 10) === todayKey
+  ).length;
+
+  const favoriteCountry = resolvedAccountFavoriteCountry;
+  const favoriteFixture =
+    favoriteCountry
+      ? upcomingFixtures.find(
+          (fixture) =>
+            fixture.homeTeam === favoriteCountry || fixture.awayTeam === favoriteCountry
+        ) || null
+      : null;
+
+  return {
+    stage: "Group Stage",
+    nextFixture,
+    todayCount,
+    favoriteCountry,
+    favoriteFixture,
+  };
+}, [isWorldCupMode, activeFixtures, resolvedAccountFavoriteCountry]);
 
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
@@ -5622,6 +5663,72 @@ if (!isLoggedIn) {
   );
 })()}
         {/* Controls */}
+        {isWorldCupMode && worldCupOverview && (
+          <section
+            style={{
+              ...cardStyle,
+              display: "grid",
+              gap: 10,
+              background:
+                "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(13,34,49,0.96) 45%, rgba(52,211,153,0.08))",
+              border: `1px solid rgba(245,158,11,0.35)`,
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: theme.accent, fontWeight: 800 }}>
+                World Cup Central
+              </div>
+              <div style={{ marginTop: 4, fontSize: isMobile ? 18 : 22, fontWeight: 800 }}>
+                {worldCupOverview.stage}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+                gap: 8,
+              }}
+            >
+              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
+                <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Next Kick-Off</div>
+                <div style={{ marginTop: 4, fontWeight: 700 }}>
+                  {worldCupOverview.nextFixture
+                    ? `${getTeamCode(worldCupOverview.nextFixture.homeTeam, gameMode)} v ${getTeamCode(worldCupOverview.nextFixture.awayTeam, gameMode)}`
+                    : "No upcoming match"}
+                </div>
+                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                  {worldCupOverview.nextFixture
+                    ? `${getWorldCupFixtureLabel(worldCupOverview.nextFixture)} • ${formatFixtureKickoff(worldCupOverview.nextFixture, gameMode)}`
+                    : "Schedule complete"}
+                </div>
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
+                <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Today At The World Cup</div>
+                <div style={{ marginTop: 4, fontWeight: 700 }}>
+                  {worldCupOverview.todayCount} {worldCupOverview.todayCount === 1 ? "match" : "matches"}
+                </div>
+                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                  {getModeGameweekLabel(gameMode, selectedGameweek)}
+                </div>
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
+                <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Favourite Country Watch</div>
+                <div style={{ marginTop: 4, fontWeight: 700 }}>
+                  {worldCupOverview.favoriteCountry
+                    ? `${getWorldCupFlag(worldCupOverview.favoriteCountry)} ${worldCupOverview.favoriteCountry}`
+                    : "No country selected"}
+                </div>
+                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                  {worldCupOverview.favoriteFixture
+                    ? `Next: ${getTeamCode(worldCupOverview.favoriteFixture.homeTeam, gameMode)} v ${getTeamCode(worldCupOverview.favoriteFixture.awayTeam, gameMode)}`
+                    : worldCupOverview.favoriteCountry
+                    ? "No upcoming fixture found"
+                    : "Pick one in WC Settings"}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
         <section
           style={{
             ...cardStyle,
@@ -5673,7 +5780,9 @@ if (!isLoggedIn) {
                     )}
 
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ fontSize: 13, color: theme.muted }}>Gameweek</div>
+            <div style={{ fontSize: 13, color: theme.muted }}>
+              {isWorldCupMode ? "Matchday" : "Gameweek"}
+            </div>
             <select
               value={selectedGameweek}
               onChange={(e) => setSelectedGameweek(Number(e.target.value))}
@@ -5719,6 +5828,11 @@ if (!isLoggedIn) {
       <h2 style={{ marginTop: 0, marginBottom: 4, fontSize: 18 }}>
         {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Predictions" : "Predictions"}
       </h2>
+      {isWorldCupMode && (
+        <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
+          Group Stage
+        </div>
+      )}
 
       {/* Countdown and Coins Summary Row */}
       <div style={{ 
@@ -5912,7 +6026,7 @@ if (!isLoggedIn) {
             color: theme.muted,
           }}
         >
-          <span>GW points so far</span>
+          <span>{isWorldCupMode ? "Matchday points so far" : "GW points so far"}</span>
           <span
             style={{
               minWidth: isMobile ? 38 : 44,
@@ -6046,6 +6160,27 @@ if (!isLoggedIn) {
                   marginBottom: 6,
                 }}
               >
+                {isWorldCupMode && (
+                  <div style={{ marginBottom: 6 }}>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "4px 10px",
+                        borderRadius: 999,
+                        background: "rgba(245,158,11,0.14)",
+                        border: "1px solid rgba(245,158,11,0.3)",
+                        color: theme.accent,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        letterSpacing: 0.3,
+                      }}
+                    >
+                      {getWorldCupFixtureLabel(fixture)}
+                    </span>
+                  </div>
+                )}
                 {formatFixtureKickoff(fixture, gameMode)}
               </div>
 
@@ -6699,6 +6834,11 @@ if (!isLoggedIn) {
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
       {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Results" : "Results"}
     </h2>
+    {isWorldCupMode && (
+      <div style={{ marginTop: -4, marginBottom: 10, fontSize: 12, fontWeight: 700, color: theme.accent }}>
+        Group Stage
+      </div>
+    )}
 
     {/* Coins outcome summary for this gameweek */}
     {!isWorldCupMode && authToken && coinsOutcome && (
@@ -6819,13 +6959,41 @@ if (!isLoggedIn) {
               {/* Score inputs */}
               <div
                 style={{
-                  display: "flex",
+                  display: "grid",
                   gap: 8,
                   alignItems: "center",
                   justifyContent: "center",
-                  minWidth: 60,
+                  minWidth: 92,
+                  justifyItems: "center",
                 }}
               >
+                {isWorldCupMode && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "3px 8px",
+                      borderRadius: 999,
+                      background: "rgba(245,158,11,0.14)",
+                      border: "1px solid rgba(245,158,11,0.3)",
+                      color: theme.accent,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: 0.3,
+                    }}
+                  >
+                    {getWorldCupFixtureLabel(fixture)}
+                  </span>
+                )}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
                 <span style={{ minWidth: 20, textAlign: "right", fontWeight: 700, fontSize: 16 }}>
                   {res.homeGoals ?? "-"}
                 </span>
@@ -6833,6 +7001,7 @@ if (!isLoggedIn) {
                 <span style={{ minWidth: 20, textAlign: "left", fontWeight: 700, fontSize: 16 }}>
                   {res.awayGoals ?? "-"}
                 </span>
+                </div>
               </div>
 
               {/* Away badge + code */}
@@ -7901,7 +8070,7 @@ if (!isLoggedIn) {
                                     : "none",
                               }}
                             >
-                              {getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
+                              {isWorldCupMode ? row.gameweek : getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
                             </td>
                             {historyPlayers.map((p) => {
                               const v = Number(row[p]) || 0;
