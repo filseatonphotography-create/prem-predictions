@@ -3520,6 +3520,22 @@ setNewPasswordInput("");
   // ---------- DERIVED ----------
   // ...existing code...
 
+const dedupedGlobalUsers = useMemo(() => {
+  if (!globalUsers || globalUsers.length === 0) return [];
+  const byName = {};
+  globalUsers.forEach((u) => {
+    const name = u.username || "";
+    if (!name) return;
+    const preds = globalPredictionsByUserId?.[u.userId] || {};
+    const count = Object.keys(preds || {}).length;
+    const existing = byName[name];
+    if (!existing || count > existing.count) {
+      byName[name] = { userId: u.userId, username: name, count };
+    }
+  });
+  return Object.values(byName).map(({ userId, username }) => ({ userId, username }));
+}, [globalUsers, globalPredictionsByUserId]);
+
 const leaderboard = useMemo(() => {
   const LEGACY_MAP = {
     Tom: "1763801801299",
@@ -3616,22 +3632,6 @@ const currentGwTopScore = useMemo(() => {
   }
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
-
-const dedupedGlobalUsers = useMemo(() => {
-  if (!globalUsers || globalUsers.length === 0) return [];
-  const byName = {};
-  globalUsers.forEach((u) => {
-    const name = u.username || "";
-    if (!name) return;
-    const preds = globalPredictionsByUserId?.[u.userId] || {};
-    const count = Object.keys(preds || {}).length;
-    const existing = byName[name];
-    if (!existing || count > existing.count) {
-      byName[name] = { userId: u.userId, username: name, count };
-    }
-  });
-  return Object.values(byName).map(({ userId, username }) => ({ userId, username }));
-}, [globalUsers, globalPredictionsByUserId]);
 
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
