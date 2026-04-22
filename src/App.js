@@ -2084,6 +2084,10 @@ const favoriteCountryByUsername = useMemo(() => {
 
 const activeFavoriteByUserId = isWorldCupMode ? favoriteCountriesByUserId : favoriteTeamsByUserId;
 const activeFavoriteByUsername = isWorldCupMode ? favoriteCountryByUsername : favoriteTeamByUsername;
+const resolvedAccountFavoriteTeam =
+  accountFavoriteTeam || (currentUserId ? favoriteTeamsByUserId[String(currentUserId)] || "" : "");
+const resolvedAccountFavoriteCountry =
+  accountFavoriteCountry || (currentUserId ? favoriteCountriesByUserId[String(currentUserId)] || "" : "");
 
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
@@ -3119,6 +3123,24 @@ useEffect(() => {
     };
   }, [isLoggedIn, authToken]);
 
+  useEffect(() => {
+    if (!currentUserId) return;
+    const savedCountry = favoriteCountriesByUserId[String(currentUserId)] || "";
+    if (savedCountry && !accountFavoriteCountry) {
+      setAccountFavoriteCountry(savedCountry);
+      setAccountFavoriteCountryInput((prev) => prev || savedCountry);
+    }
+  }, [currentUserId, favoriteCountriesByUserId, accountFavoriteCountry]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    const savedTeam = favoriteTeamsByUserId[String(currentUserId)] || "";
+    if (savedTeam && !accountFavoriteTeam) {
+      setAccountFavoriteTeam(savedTeam);
+      setAccountFavoriteTeamInput((prev) => prev || savedTeam);
+    }
+  }, [currentUserId, favoriteTeamsByUserId, accountFavoriteTeam]);
+
   const handleSaveRecoveryEmail = async () => {
     setAccountEmailError("");
     setAccountEmailStatus("");
@@ -3170,11 +3192,17 @@ useEffect(() => {
 
   useEffect(() => {
     if (!isWorldCupMode || !isLoggedIn || !currentUserId || !accountMeLoaded) return;
-    if (accountFavoriteCountry) return;
+    if (resolvedAccountFavoriteCountry) return;
     const promptKey = `wc_favorite_prompt_seen_${currentUserId}`;
     if (localStorage.getItem(promptKey) === "true") return;
     setShowWorldCupFavoritePrompt(true);
-  }, [isWorldCupMode, isLoggedIn, currentUserId, accountMeLoaded, accountFavoriteCountry]);
+  }, [isWorldCupMode, isLoggedIn, currentUserId, accountMeLoaded, resolvedAccountFavoriteCountry]);
+
+  useEffect(() => {
+    if (resolvedAccountFavoriteCountry) {
+      setShowWorldCupFavoritePrompt(false);
+    }
+  }, [resolvedAccountFavoriteCountry]);
   // ---------- CHANGE PASSWORD ----------
 const handlePasswordChange = async () => {
   setPasswordError("");
@@ -4107,20 +4135,6 @@ const historicalScores = useMemo(() => {
 
   const wcMenuTextColor = theme.accent;
   const premierModeTextColor = "#38bdf8";
-  const worldCupHeaderBackground = isWorldCupMode
-    ? [
-        "linear-gradient(180deg, rgba(5,16,28,0.72) 0%, rgba(5,16,28,0.84) 100%)",
-        "radial-gradient(circle at 8px 8px, rgba(255,255,255,0.88) 0 1px, transparent 1.2px)",
-        "linear-gradient(180deg, rgba(31,79,163,0.95) 0%, rgba(31,79,163,0.95) 100%)",
-        "repeating-linear-gradient(180deg, rgba(185,28,28,0.88) 0 14px, rgba(248,250,252,0.88) 14px 28px)",
-      ].join(", ")
-    : undefined;
-  const worldCupHeaderBackgroundSize = isWorldCupMode
-    ? "100% 100%, 12px 12px, 30% 46%, 100% 100%"
-    : undefined;
-  const worldCupHeaderBackgroundPosition = isWorldCupMode
-    ? "0 0, 10px 10px, 0 0, 0 0"
-    : undefined;
 
   const pillBtn = (active) => ({
     padding: "8px 12px",
@@ -5009,10 +5023,6 @@ if (!isLoggedIn) {
             top: 8,
             zIndex: 5,
             backdropFilter: "blur(6px)",
-            backgroundImage: worldCupHeaderBackground,
-            backgroundSize: worldCupHeaderBackgroundSize,
-            backgroundPosition: worldCupHeaderBackgroundPosition,
-            backgroundRepeat: isWorldCupMode ? "no-repeat, repeat, no-repeat, repeat" : undefined,
             overflow: "visible",
           }}
         >
@@ -5335,7 +5345,9 @@ if (!isLoggedIn) {
 )}
         </header>
 
-        {isLoggedIn && accountMeLoaded && !(isWorldCupMode ? accountFavoriteCountry : accountFavoriteTeam) && (
+        {isLoggedIn &&
+          accountMeLoaded &&
+          !(isWorldCupMode ? resolvedAccountFavoriteCountry : resolvedAccountFavoriteTeam) && (
           <section
             style={{
               ...cardStyle,
@@ -8968,7 +8980,7 @@ if (!isLoggedIn) {
                 )}
                 {(isWorldCupMode ? accountFavoriteCountry : accountFavoriteTeam) && (
                   <div style={{ marginTop: 6, fontSize: 12, color: theme.muted }}>
-                    Current: {isWorldCupMode ? accountFavoriteCountry : accountFavoriteTeam}
+                    Current: {isWorldCupMode ? resolvedAccountFavoriteCountry : resolvedAccountFavoriteTeam}
                   </div>
                 )}
               </div>
