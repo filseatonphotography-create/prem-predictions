@@ -446,12 +446,16 @@ export function normalizeTeamName(name) {
     turkiye: "turkiye",
     cotedivoire: "cotedivoire",
     coteivoire: "cotedivoire",
+    ivorycoast: "cotedivoire",
     drcongo: "congodr",
     congodr: "congodr",
     capeverde: "caboverde",
     caboverde: "caboverde",
+    capeverdeislands: "caboverde",
     iran: "iriran",
     iriran: "iriran",
+    curacao: "curacao",
+    curaao: "curacao",
   };
 
   if (aliasMap[s]) s = aliasMap[s];
@@ -2049,7 +2053,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       
       // Find the next upcoming fixture across ALL gameweeks
       const allUpcomingFixtures = activeFixtures
-        .filter(f => new Date(f.kickoff).getTime() - 60 * 60 * 1000 > now)
+        .filter((f) => {
+          const kickoff = new Date(f.kickoff).getTime();
+          const targetTime = isWorldCupMode ? kickoff : kickoff - 60 * 60 * 1000;
+          return targetTime > now;
+        })
         .sort((a, b) => new Date(a.kickoff) - new Date(b.kickoff));
       
       if (allUpcomingFixtures.length === 0) {
@@ -2059,8 +2067,10 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       
       // Get the first upcoming fixture
       const nextFixture = allUpcomingFixtures[0];
-      const deadline = new Date(nextFixture.kickoff).getTime() - 60 * 60 * 1000; // 1 hour before kickoff
-      const diff = deadline - now;
+      const targetTime = isWorldCupMode
+        ? new Date(nextFixture.kickoff).getTime()
+        : new Date(nextFixture.kickoff).getTime() - 60 * 60 * 1000;
+      const diff = targetTime - now;
       
       if (diff <= 0) {
         setCountdown({ timeStr: "", progress: 0, totalTime: 0, remaining: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
@@ -2087,7 +2097,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     updateCountdown();
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
-  }, [activeFixtures]);
+  }, [activeFixtures, isWorldCupMode]);
 
   // If we don't have any odds yet, generate free built-in odds for all fixtures
   useEffect(() => {
@@ -2174,6 +2184,13 @@ const worldCupOverview = useMemo(() => {
     favoriteFixture,
   };
 }, [isWorldCupMode, activeFixtures, resolvedAccountFavoriteCountry]);
+
+function formatCountdownFixtureMeta(fixture, mode) {
+  if (!fixture) return "";
+  return mode === WORLD_CUP_MODE
+    ? `Kick-off: ${formatFixtureKickoff(fixture, mode)}`
+    : `Deadline: ${formatFixtureKickoff(fixture, mode)}`;
+}
 
   // --- COINS: derive outcome (stake, return, profit) for current GW ---
   const coinsOutcome = useMemo(() => {
@@ -2417,12 +2434,16 @@ const premierLeagueInsights = useMemo(() => {
       return;
     }
     if (timedOut) {
-      setApiStatus("Auto results: upstream slow, using existing data");
+      setApiStatus(mode === WORLD_CUP_MODE
+        ? "WC live sync slow, using scheduled kick-off times"
+        : "Auto results: upstream slow, using existing data");
       setResultsRefreshing(false);
       return;
     }
     if (error) {
-      setApiStatus(`Auto results: failed (${error})`);
+      setApiStatus(mode === WORLD_CUP_MODE
+        ? "WC live sync unavailable, using scheduled kick-off times"
+        : `Auto results: failed (${error})`);
       setResultsRefreshing(false);
       return;
     }
@@ -5857,6 +5878,13 @@ if (!isLoggedIn) {
                     ? "No upcoming fixture found"
                     : "Pick one in WC Settings"}
                 </div>
+                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                  {worldCupOverview.favoriteFixture
+                    ? formatCountdownFixtureMeta(worldCupOverview.favoriteFixture, gameMode)
+                    : worldCupOverview.favoriteCountry
+                    ? "Waiting for next fixture"
+                    : ""}
+                </div>
               </div>
             </div>
           </section>
@@ -6104,12 +6132,57 @@ if (!isLoggedIn) {
               justifyContent: "center",
             }}
           >
-            <div style={{ fontSize: 12, color: theme.muted }}>Official fixtures loaded</div>
-            <div style={{ fontSize: isMobile ? 12 : 13, color: theme.text, fontWeight: 700 }}>
-              {worldCupKickoffTimesSynced
-                ? "Exact kick-off times synced live"
-                : "Date-based lock active until kick-off sync completes"}
-            </div>
+            {countdown.timeStr && worldCupOverview?.nextFixture ? (
+              <>
+                <div style={{ fontSize: 12, color: theme.muted }}>Next Kick-Off</div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: isMobile ? 2 : 6,
+                    alignItems: "center",
+                  }}
+                >
+                  {[
+                    [countdown.days, "days"],
+                    [countdown.hours, "hours"],
+                    [countdown.minutes, "mins"],
+                    [countdown.seconds, "secs"],
+                  ].map(([value, label], index) => (
+                    <React.Fragment key={label}>
+                      <div style={{ textAlign: "center" }}>
+                        <div
+                          style={{
+                            fontSize: isMobile ? 18 : 28,
+                            fontWeight: 700,
+                            color: countdown.remaining < 3600000 ? theme.warn : theme.text,
+                            fontVariantNumeric: "tabular-nums",
+                            minWidth: isMobile ? 30 : 50,
+                          }}
+                        >
+                          {String(value).padStart(2, "0")}
+                        </div>
+                        <div style={{ fontSize: isMobile ? 9 : 10, color: theme.muted, marginTop: 1 }}>{label}</div>
+                      </div>
+                      {index < 3 && (
+                        <div style={{ fontSize: isMobile ? 16 : 24, fontWeight: 700, color: theme.muted }}>:</div>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <div style={{ fontSize: isMobile ? 11 : 12, color: theme.muted }}>
+                  {formatCountdownFixtureMeta(worldCupOverview.nextFixture, gameMode)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: theme.muted }}>Official fixtures loaded</div>
+                <div style={{ fontSize: isMobile ? 12 : 13, color: theme.text, fontWeight: 700 }}>
+                  {worldCupKickoffTimesSynced
+                    ? "Exact kick-off times synced live"
+                    : "Scheduled kick-off times loaded"}
+                </div>
+              </>
+            )}
           </div>
         )}
 
