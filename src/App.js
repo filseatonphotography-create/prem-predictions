@@ -437,6 +437,7 @@ export function normalizeTeamName(name) {
     bosniaherzegovina: "bosniaandherzegovina",
     bosniaandherzegovina: "bosniaandherzegovina",
     bosniah: "bosniaandherzegovina",
+    bosniaherz: "bosniaandherzegovina",
     korearepublic: "southkorea",
     southkorea: "southkorea",
     usa: "unitedstates",
@@ -1119,6 +1120,126 @@ const TEAM_RATINGS = {
   Wolves: 70,
 };
 
+const WORLD_CUP_OUTRIGHT_ODDS = {
+  spain: 6.0,
+  france: 6.0,
+  england: 7.5,
+  brazil: 9.0,
+  argentina: 9.5,
+  portugal: 12.0,
+  germany: 15.0,
+  netherlands: 21.0,
+  norway: 31.0,
+  belgium: 36.0,
+  colombia: 41.0,
+  morocco: 51.0,
+  japan: 51.0,
+  unitedstates: 61.0,
+  uruguay: 66.0,
+  mexico: 76.0,
+  switzerland: 81.0,
+  croatia: 81.0,
+  ecuador: 91.0,
+  sweden: 101.0,
+  turkiye: 101.0,
+  senegal: 111.0,
+  austria: 151.0,
+  paraguay: 151.0,
+  canada: 201.0,
+  scotland: 201.0,
+  bosniaandherzegovina: 251.0,
+  czechia: 251.0,
+  cotedivoire: 251.0,
+  egypt: 301.0,
+  ghana: 301.0,
+  algeria: 351.0,
+  southkorea: 451.0,
+  australia: 501.0,
+  tunisia: 501.0,
+  iriran: 501.0,
+  congodr: 701.0,
+  southafrica: 801.0,
+  saudiarabia: 1001.0,
+  panama: 1001.0,
+  qatar: 1001.0,
+  uzbekistan: 1001.0,
+  newzealand: 1001.0,
+  iraq: 1001.0,
+  caboverde: 1001.0,
+  jordan: 2001.0,
+  curacao: 2001.0,
+  haiti: 2501.0,
+};
+
+const WORLD_CUP_HOSTS = new Set([
+  "canada",
+  "mexico",
+  "unitedstates",
+]);
+
+function getWorldCupOutrightOdds(name) {
+  return WORLD_CUP_OUTRIGHT_ODDS[normalizeTeamName(name)] || null;
+}
+
+function isWorldCupFixtureModel(fixture) {
+  return Boolean(
+    fixture
+    && getWorldCupOutrightOdds(fixture.homeTeam)
+    && getWorldCupOutrightOdds(fixture.awayTeam)
+  );
+}
+
+function buildWorldCupFixtureModel(fixture) {
+  const homeOdds = getWorldCupOutrightOdds(fixture?.homeTeam);
+  const awayOdds = getWorldCupOutrightOdds(fixture?.awayTeam);
+
+  if (!homeOdds || !awayOdds) {
+    return {
+      homeProb: 0.36,
+      drawProb: 0.28,
+      awayProb: 0.36,
+      homeDifficultyScore: 3,
+      awayDifficultyScore: 3,
+    };
+  }
+
+  const homeKey = normalizeTeamName(fixture.homeTeam);
+  const awayKey = normalizeTeamName(fixture.awayTeam);
+
+  const outrightEdge = Math.log(awayOdds / homeOdds);
+  const hostEdge =
+    (WORLD_CUP_HOSTS.has(homeKey) ? 0.16 : 0)
+    - (WORLD_CUP_HOSTS.has(awayKey) ? 0.16 : 0);
+  const cappedEdge = Math.max(-4.5, Math.min(4.5, outrightEdge + hostEdge));
+
+  const homeRaw = 1 / (1 + Math.exp(-cappedEdge / 1.35));
+  let drawProb = 0.27 - Math.min(Math.abs(cappedEdge) * 0.028, 0.11);
+  drawProb = Math.max(0.16, Math.min(0.30, drawProb));
+
+  const nonDrawProb = 1 - drawProb;
+  const homeProb = homeRaw * nonDrawProb;
+  const awayProb = (1 - homeRaw) * nonDrawProb;
+
+  const homeExpectedPoints = homeProb * 3 + drawProb;
+  const awayExpectedPoints = awayProb * 3 + drawProb;
+
+  const toDifficultyScore = (expectedPoints) => {
+    if (expectedPoints >= 2.15) return 1;
+    if (expectedPoints >= 1.7) return 2;
+    if (expectedPoints >= 1.25) return 3;
+    if (expectedPoints >= 0.9) return 4;
+    return 5;
+  };
+
+  return {
+    homeProb,
+    drawProb,
+    awayProb,
+    homeDifficultyScore: toDifficultyScore(homeExpectedPoints),
+    awayDifficultyScore: toDifficultyScore(awayExpectedPoints),
+  };
+}
+
 function getTeamRating(name) {
   const raw = (name || "").trim();
   if (typeof TEAM_RATINGS[raw] === "number") return TEAM_RATINGS[raw];
@@ -1545,6 +1666,10 @@ function buildFixtureModel(fixture, context = {}) {
       homeDifficultyScore: 3,
       awayDifficultyScore: 3,
     };
+  }
+
+  if (isWorldCupFixtureModel(fixture)) {
+    return buildWorldCupFixtureModel(fixture);
   }
 
   const performanceByTeam = context.performanceByTeam || {};
