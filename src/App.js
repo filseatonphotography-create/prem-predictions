@@ -1803,6 +1803,7 @@ export default function App() {
   // Auth state (must be first for use in effects)
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState("");
+  const [showSignupPanel, setShowSignupPanel] = useState(false);
   const [soundEffectsEnabled, setSoundEffectsEnabled] = useState(() => {
     try {
       const saved = localStorage.getItem("sound_effects_enabled_v1");
@@ -4790,264 +4791,529 @@ if (!isLoggedIn) {
     );
   }
   return (
-    <div style={{ 
-      ...pageStyle,
-      maxWidth: 1200,
-      margin: "0 auto",
-      padding: isMobile ? "8px" : "16px"
-    }}>
-      <div style={{ 
-        display: "grid",
-        gap: 12 
-      }}>
+    <div style={{ ...pageStyle, maxWidth: 1320, margin: "0 auto", padding: isMobile ? "10px" : "20px" }}>
+      <div style={{ display: "grid", gap: 18 }}>
         <header
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 10,
-            marginBottom: 10,
+            gap: 12,
+            marginBottom: 2,
           }}
         >
-  <div
-    style={{
-      width: 44,
-      height: 44,
-      borderRadius: 12,
-      overflow: "hidden",
-    }}
-  >
-    <img
-      src="/icon_64.png"
-      alt="Prediction Addiction logo"
-      style={{ width: "100%", height: "100%" }}
-    />
-  </div>
-
-  <h1
-    style={{
-      margin: 0,
-          fontSize: isMobile ? 24 : 32,
-      letterSpacing: 0.4,
-      textTransform: "uppercase",
-      color: theme.accent,
-      textAlign: "center",
-      whiteSpace: "nowrap",
-    }}
-  >
-    PREDICTION ADDICTION
-  </h1>
-</header>
-
           <div
-  style={{
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: 12,
-    maxWidth: window.innerWidth <= 600 ? 480 : 900,
-    width: "100%",
-    margin: "0 auto",
-  }}
->
-  <section style={cardStyle}>
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Log in</h2>
+            style={{
+              width: isMobile ? 42 : 52,
+              height: isMobile ? 42 : 52,
+              borderRadius: 14,
+              overflow: "hidden",
+              boxShadow: "0 14px 28px rgba(0,0,0,0.28)",
+            }}
+          >
+            <img
+              src="/icon_64.png"
+              alt="Prediction Addiction logo"
+              style={{ width: "100%", height: "100%" }}
+            />
+          </div>
+          <div style={{ textAlign: "center" }}>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: isMobile ? 24 : 34,
+                letterSpacing: 0.6,
+                textTransform: "uppercase",
+                color: theme.accent,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Prediction Addiction
+            </h1>
+            <div style={{ fontSize: 12, color: theme.muted, letterSpacing: 1.2, textTransform: "uppercase" }}>
+              Predictions, leagues, coins, bragging rights
+            </div>
+          </div>
+        </header>
 
-    <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Username
-        <input
+        <section
           style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="text"
-          value={loginName}
-          onChange={(e) => setLoginName(e.target.value)}
-          placeholder="e.g. Phil"
-          autoComplete="username"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Password
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="password"
-          value={loginPassword}
-          onChange={(e) => setLoginPassword(e.target.value)}
-          placeholder="••••"
-          autoComplete="current-password"
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={(e) => handleAuthSubmit(e, "login")}
-        disabled={authLoading}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          borderRadius: 10,
-          border: `1px solid ${theme.accent}`,
-          background: "rgba(56,189,248,0.15)",
-          color: theme.text,
-          cursor: authLoading ? "wait" : "pointer",
-          opacity: authLoading ? 0.6 : 1,
-        }}
-      >
-        {authLoading ? "Logging in..." : "Log in"}
-      </button>
-    </form>
-
-    <div style={{ height: 1, background: theme.line, margin: "16px 0" }} />
-
-    <h2 style={{ marginTop: 0, fontSize: 18 }}>Create account</h2>
-    <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Username
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="text"
-          value={signupName}
-          onChange={(e) => setSignupName(e.target.value)}
-          placeholder="Choose a username"
-          autoComplete="username"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Password
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="password"
-          value={signupPassword}
-          onChange={(e) => setSignupPassword(e.target.value)}
-          placeholder="Create a password"
-          autoComplete="new-password"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Email
-        <input
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
-          }}
-          type="email"
-          value={signupEmail}
-          onChange={(e) => setSignupEmail(e.target.value)}
-          placeholder="you@example.com"
-          autoComplete="email"
-        />
-      </label>
-
-      <label style={{ fontSize: 13, color: theme.muted }}>
-        Favourite Premier League team
-        <select
-          value={signupFavoriteTeam}
-          onChange={(e) => setSignupFavoriteTeam(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: theme.panelHi,
-            color: theme.text,
-            border: `1px solid ${theme.line}`,
-            fontSize: 15,
-            boxSizing: "border-box",
+            ...cardStyle,
+            padding: isMobile ? 14 : 20,
+            background: "linear-gradient(135deg, rgba(62,16,96,0.96), rgba(74,10,84,0.96) 42%, rgba(13,22,38,0.98))",
+            border: "1px solid rgba(196,105,255,0.2)",
+            boxShadow: "0 24px 60px rgba(0,0,0,0.34)",
           }}
         >
-          <option value="">Select team...</option>
-          {PREMIER_LEAGUE_TEAMS.map((team) => (
-            <option key={team} value={team}>
-              {team}
-            </option>
-          ))}
-        </select>
-      </label>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.08fr) minmax(340px, 0.92fr)",
+              gap: isMobile ? 18 : 20,
+              alignItems: "stretch",
+            }}
+          >
+            <div style={{ display: "grid", gap: 16, alignContent: "space-between" }}>
+              <div style={{ display: "grid", gap: 12 }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    width: "fit-content",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 12px",
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    color: "#f8fafc",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    letterSpacing: 0.8,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Live game hub
+                </div>
+                <div style={{ display: "grid", gap: 8 }}>
+                  <h2
+                    style={{
+                      margin: 0,
+                      fontSize: isMobile ? 30 : 46,
+                      lineHeight: 1.02,
+                      color: "#ffffff",
+                      letterSpacing: -1.2,
+                    }}
+                  >
+                    Predict every score.
+                    <br />
+                    Chase every point.
+                  </h2>
+                  <p
+                    style={{
+                      margin: 0,
+                      maxWidth: 560,
+                      color: "rgba(255,255,255,0.78)",
+                      fontSize: isMobile ? 15 : 18,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    Make weekly predictions, back your calls with coins, track live probabilities,
+                    build mini-leagues, and run your own tournament inside one app.
+                  </p>
+                </div>
+              </div>
 
-      <button
-        type="button"
-        onClick={(e) => handleAuthSubmit(e, "signup")}
-        disabled={authLoading}
-        style={{
-          width: "100%",
-          padding: "8px 10px",
-          borderRadius: 10,
-          border: `1px solid ${theme.accent2}`,
-          background: "rgba(34,197,94,0.15)",
-          color: theme.text,
-          cursor: authLoading ? "wait" : "pointer",
-          opacity: authLoading ? 0.6 : 1,
-        }}
-      >
-        {authLoading ? "Creating..." : "Create account"}
-      </button>
-    </form>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    document.getElementById("auth-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  style={{
+                    minWidth: isMobile ? "100%" : 180,
+                    padding: "14px 18px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.75)",
+                    background: "transparent",
+                    color: "#fff",
+                    fontSize: 17,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Log in
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSignupPanel(true);
+                    document.getElementById("auth-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }}
+                  style={{
+                    minWidth: isMobile ? "100%" : 180,
+                    padding: "14px 18px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.18)",
+                    background: "#ffffff",
+                    color: "#3d0c46",
+                    fontSize: 17,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+                  }}
+                >
+                  Register now
+                </button>
+              </div>
 
-    {authError && (
-      <div
-        style={{
-          marginTop: 10,
-          background: "rgba(239,68,68,0.12)",
-          border: `1px solid rgba(239,68,68,0.5)`,
-          color: theme.text,
-          padding: "8px 10px",
-          borderRadius: 8,
-          fontSize: 13,
-        }}
-      >
-        {authError}
-      </div>
-    )}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))",
+                  gap: 10,
+                }}
+              >
+                {[
+                  ["Predictions", "Lock in every score before deadline"],
+                  ["Mini-leagues", "Create private tables and cups"],
+                  ["Coins Game", "Back outcomes and chase returns"],
+                ].map(([label, text]) => (
+                  <div
+                    key={label}
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 16,
+                      background: "rgba(13,18,32,0.26)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      backdropFilter: "blur(8px)",
+                    }}
+                  >
+                    <div style={{ color: "#ffffff", fontWeight: 800, fontSize: 15 }}>{label}</div>
+                    <div style={{ marginTop: 4, color: "rgba(255,255,255,0.68)", fontSize: 12, lineHeight: 1.4 }}>{text}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateRows: isMobile ? "220px auto" : "1fr auto",
+                gap: 12,
+                minHeight: isMobile ? "auto" : 420,
+              }}
+            >
+              <div
+                style={{
+                  position: "relative",
+                  overflow: "hidden",
+                  borderRadius: 26,
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "linear-gradient(135deg, rgba(34,211,238,0.9), rgba(96,165,250,0.88) 45%, rgba(168,85,247,0.92))",
+                  minHeight: 0,
+                }}
+              >
+                <img
+                  src="/auth-showcase/predictions.jpg"
+                  alt="Prediction Addiction predictions preview"
+                  style={{
+                    position: "absolute",
+                    right: isMobile ? -16 : -10,
+                    bottom: isMobile ? -40 : -60,
+                    width: isMobile ? "112%" : "108%",
+                    maxWidth: "none",
+                    borderRadius: 26,
+                    boxShadow: "0 30px 60px rgba(0,0,0,0.32)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "linear-gradient(180deg, rgba(9,14,28,0.08), rgba(9,14,28,0.56) 75%, rgba(9,14,28,0.72))",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 18,
+                    right: 18,
+                    bottom: 18,
+                    display: "grid",
+                    gap: 4,
+                  }}
+                >
+                  <div style={{ color: "#ffffff", fontSize: 19, fontWeight: 800 }}>Your season, one screen at a time</div>
+                  <div style={{ color: "rgba(255,255,255,0.78)", fontSize: 13 }}>
+                    Predictions, points, bells, coins, and deadlines in one flow.
+                  </div>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 12,
+                }}
+              >
+                {[
+                  ["/auth-showcase/leagues.jpg", "Private leagues", "Create rooms and track every rival."],
+                  ["/auth-showcase/avatar.jpg", "Custom avatars", "Build your own badge for the table."],
+                ].map(([src, title, copy]) => (
+                  <div
+                    key={title}
+                    style={{
+                      overflow: "hidden",
+                      borderRadius: 20,
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      background: "rgba(13,18,32,0.28)",
+                    }}
+                  >
+                    <div style={{ height: isMobile ? 120 : 138, overflow: "hidden" }}>
+                      <img src={src} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
+                    </div>
+                    <div style={{ padding: "12px 14px 14px" }}>
+                      <div style={{ color: "#fff", fontWeight: 800, fontSize: 15 }}>{title}</div>
+                      <div style={{ marginTop: 4, color: "rgba(255,255,255,0.68)", fontSize: 12, lineHeight: 1.4 }}>{copy}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(320px, 420px) minmax(0, 1fr)",
+            gap: 18,
+            alignItems: "start",
+          }}
+        >
+          <section
+            id="auth-panel"
+            style={{
+              ...cardStyle,
+              padding: isMobile ? 16 : 18,
+              position: "sticky",
+              top: 14,
+            }}
+          >
+            <div style={{ display: "grid", gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 1, color: theme.muted }}>Account access</div>
+                <h2 style={{ margin: "6px 0 0", fontSize: 28, color: "#fff" }}>Log in</h2>
+              </div>
+
+              <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Username
+                  <input
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "12px 14px",
+                      borderRadius: 14,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 15,
+                      boxSizing: "border-box",
+                    }}
+                    type="text"
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                    placeholder="e.g. Phil"
+                    autoComplete="username"
+                  />
+                </label>
+
+                <label style={{ fontSize: 13, color: theme.muted }}>
+                  Password
+                  <input
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "12px 14px",
+                      borderRadius: 14,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                      fontSize: 15,
+                      boxSizing: "border-box",
+                    }}
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="••••"
+                    autoComplete="current-password"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={(e) => handleAuthSubmit(e, "login")}
+                  disabled={authLoading}
+                  style={{
+                    width: "100%",
+                    padding: "12px 14px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.16)",
+                    background: "linear-gradient(90deg, #0ea5e9, #38bdf8)",
+                    color: "#08111f",
+                    fontSize: 16,
+                    fontWeight: 800,
+                    cursor: authLoading ? "wait" : "pointer",
+                    opacity: authLoading ? 0.6 : 1,
+                  }}
+                >
+                  {authLoading ? "Logging in..." : "Log in"}
+                </button>
+              </form>
+
+              <div style={{ height: 1, background: theme.line }} />
+
+              <button
+                type="button"
+                onClick={() => setShowSignupPanel((v) => !v)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  padding: "14px 16px",
+                  borderRadius: 16,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <span>
+                  <span style={{ display: "block", fontSize: 18, fontWeight: 700 }}>Create account</span>
+                  <span style={{ display: "block", marginTop: 2, fontSize: 12, color: theme.muted }}>
+                    New here? Build your profile and start competing.
+                  </span>
+                </span>
+                <span style={{ fontSize: 22, color: theme.accent2, lineHeight: 1 }}>{showSignupPanel ? "−" : "+"}</span>
+              </button>
+
+              {showSignupPanel && (
+                <form onSubmit={(e) => e.preventDefault()} style={{ display: "grid", gap: 10 }}>
+                  <label style={{ fontSize: 13, color: theme.muted }}>
+                    Username
+                    <input
+                      style={{
+                        width: "100%",
+                        marginTop: 6,
+                        padding: "12px 14px",
+                        borderRadius: 14,
+                        background: theme.panelHi,
+                        color: theme.text,
+                        border: `1px solid ${theme.line}`,
+                        fontSize: 15,
+                        boxSizing: "border-box",
+                      }}
+                      type="text"
+                      value={signupName}
+                      onChange={(e) => setSignupName(e.target.value)}
+                      placeholder="Choose a username"
+                      autoComplete="username"
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 13, color: theme.muted }}>
+                    Password
+                    <input
+                      style={{
+                        width: "100%",
+                        marginTop: 6,
+                        padding: "12px 14px",
+                        borderRadius: 14,
+                        background: theme.panelHi,
+                        color: theme.text,
+                        border: `1px solid ${theme.line}`,
+                        fontSize: 15,
+                        boxSizing: "border-box",
+                      }}
+                      type="password"
+                      value={signupPassword}
+                      onChange={(e) => setSignupPassword(e.target.value)}
+                      placeholder="Create a password"
+                      autoComplete="new-password"
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 13, color: theme.muted }}>
+                    Email
+                    <input
+                      style={{
+                        width: "100%",
+                        marginTop: 6,
+                        padding: "12px 14px",
+                        borderRadius: 14,
+                        background: theme.panelHi,
+                        color: theme.text,
+                        border: `1px solid ${theme.line}`,
+                        fontSize: 15,
+                        boxSizing: "border-box",
+                      }}
+                      type="email"
+                      value={signupEmail}
+                      onChange={(e) => setSignupEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      autoComplete="email"
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 13, color: theme.muted }}>
+                    Favourite Premier League team
+                    <select
+                      value={signupFavoriteTeam}
+                      onChange={(e) => setSignupFavoriteTeam(e.target.value)}
+                      style={{
+                        width: "100%",
+                        marginTop: 6,
+                        padding: "12px 14px",
+                        borderRadius: 14,
+                        background: theme.panelHi,
+                        color: theme.text,
+                        border: `1px solid ${theme.line}`,
+                        fontSize: 15,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <option value="">Select team...</option>
+                      {PREMIER_LEAGUE_TEAMS.map((team) => (
+                        <option key={team} value={team}>
+                          {team}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={(e) => handleAuthSubmit(e, "signup")}
+                    disabled={authLoading}
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      background: "linear-gradient(90deg, #22c55e, #86efac)",
+                      color: "#06240f",
+                      fontSize: 16,
+                      fontWeight: 800,
+                      cursor: authLoading ? "wait" : "pointer",
+                      opacity: authLoading ? 0.6 : 1,
+                    }}
+                  >
+                    {authLoading ? "Creating..." : "Create account"}
+                  </button>
+                </form>
+              )}
+
+              {authError && (
+                <div
+                  style={{
+                    background: "rgba(239,68,68,0.12)",
+                    border: "1px solid rgba(239,68,68,0.5)",
+                    color: theme.text,
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    fontSize: 13,
+                  }}
+                >
+                  {authError}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -5069,7 +5335,7 @@ if (!isLoggedIn) {
               </div>
 
               {showForgotPassword && (
-                <form onSubmit={handleForgotPassword} style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                <form onSubmit={handleForgotPassword} style={{ display: "grid", gap: 8 }}>
                   <div style={{ fontSize: 13, color: theme.muted }}>
                     Enter your username and recovery email.
                   </div>
@@ -5080,8 +5346,8 @@ if (!isLoggedIn) {
                     placeholder="Username"
                     style={{
                       width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
+                      padding: "12px 14px",
+                      borderRadius: 14,
                       background: theme.panelHi,
                       color: theme.text,
                       border: `1px solid ${theme.line}`,
@@ -5096,8 +5362,8 @@ if (!isLoggedIn) {
                     placeholder="Recovery email"
                     style={{
                       width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
+                      padding: "12px 14px",
+                      borderRadius: 14,
                       background: theme.panelHi,
                       color: theme.text,
                       border: `1px solid ${theme.line}`,
@@ -5109,12 +5375,13 @@ if (!isLoggedIn) {
                     type="submit"
                     style={{
                       width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 10,
+                      padding: "12px 14px",
+                      borderRadius: 999,
                       border: `1px solid ${theme.accent}`,
                       background: "rgba(56,189,248,0.15)",
                       color: theme.text,
                       cursor: "pointer",
+                      fontWeight: 700,
                     }}
                   >
                     Send reset link
@@ -5127,11 +5394,54 @@ if (!isLoggedIn) {
                   )}
                 </form>
               )}
-            </section>
+            </div>
+          </section>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              gap: 18,
+            }}
+          >
+            {[
+              ["/auth-showcase/table.jpg", "Check table form and difficulty", "Drill into form, upcoming difficulty, and where the next edge might come from."],
+              ["/auth-showcase/results.jpg", "Track results and winnings", "See settled fixtures, coins returns, and how each match moved your score."],
+              ["/auth-showcase/winprob.jpg", "Read the market view", "Compare home, draw, and away prices before you commit your picks."],
+              ["/auth-showcase/leagues.jpg", "Create and join mini-leagues", "Spin up private leagues, invite rivals, and keep the table moving."],
+            ].map(([src, title, copy]) => (
+              <section
+                key={title}
+                style={{
+                  ...cardStyle,
+                  overflow: "hidden",
+                  padding: 0,
+                  display: "grid",
+                }}
+              >
+                <div style={{ height: isMobile ? 210 : 240, overflow: "hidden", background: "linear-gradient(135deg, rgba(34,211,238,0.92), rgba(168,85,247,0.92))" }}>
+                  <img
+                    src={src}
+                    alt={title}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      objectPosition: "center top",
+                    }}
+                  />
+                </div>
+                <div style={{ padding: "18px 18px 20px" }}>
+                  <div style={{ color: "#ffffff", fontSize: 28, fontWeight: 800, lineHeight: 1.02 }}>{title}</div>
+                  <div style={{ marginTop: 10, color: theme.muted, fontSize: 15, lineHeight: 1.55 }}>{copy}</div>
+                </div>
+              </section>
+            ))}
           </div>
         </div>
       </div>
-    );
+    </div>
+  );
   }
 
   // ---------- MAIN APP ----------
