@@ -4840,20 +4840,20 @@ if (!isLoggedIn) {
           style={{
             ...cardStyle,
             padding: isMobile ? 14 : 20,
-            background: "linear-gradient(135deg, rgba(62,16,96,0.96), rgba(74,10,84,0.96) 42%, rgba(13,22,38,0.98))",
-            border: "1px solid rgba(196,105,255,0.2)",
-            boxShadow: "0 24px 60px rgba(0,0,0,0.34)",
+            background: "linear-gradient(180deg, rgba(11,18,32,0.98), rgba(17,24,39,0.98))",
+            border: `1px solid ${theme.line}`,
+            boxShadow: "0 18px 42px rgba(0,0,0,0.28)",
           }}
         >
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.08fr) minmax(340px, 0.92fr)",
-              gap: isMobile ? 18 : 20,
-              alignItems: "stretch",
+              gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
+              gap: isMobile ? 16 : 18,
+              alignItems: "center",
             }}
           >
-            <div style={{ display: "grid", gap: 16, alignContent: "space-between" }}>
+            <div style={{ display: "grid", gap: 16 }}>
               <div style={{ display: "grid", gap: 12 }}>
                 <div
                   style={{
@@ -4863,25 +4863,25 @@ if (!isLoggedIn) {
                     gap: 8,
                     padding: "6px 12px",
                     borderRadius: 999,
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.14)",
-                    color: "#f8fafc",
+                    background: "rgba(56,189,248,0.12)",
+                    border: "1px solid rgba(56,189,248,0.24)",
+                    color: theme.accent,
                     fontSize: 12,
                     fontWeight: 700,
                     letterSpacing: 0.8,
                     textTransform: "uppercase",
                   }}
                 >
-                  Live game hub
+                  Prediction hub
                 </div>
                 <div style={{ display: "grid", gap: 8 }}>
                   <h2
                     style={{
                       margin: 0,
-                      fontSize: isMobile ? 30 : 46,
-                      lineHeight: 1.02,
+                      fontSize: isMobile ? 30 : 42,
+                      lineHeight: 1.04,
                       color: "#ffffff",
-                      letterSpacing: -1.2,
+                      letterSpacing: -0.8,
                     }}
                   >
                     Predict every score.
@@ -4891,9 +4891,9 @@ if (!isLoggedIn) {
                   <p
                     style={{
                       margin: 0,
-                      maxWidth: 560,
-                      color: "rgba(255,255,255,0.78)",
-                      fontSize: isMobile ? 15 : 18,
+                      maxWidth: 520,
+                      color: theme.muted,
+                      fontSize: isMobile ? 15 : 17,
                       lineHeight: 1.5,
                     }}
                   >
@@ -4911,12 +4911,12 @@ if (!isLoggedIn) {
                   }}
                   style={{
                     minWidth: isMobile ? "100%" : 180,
-                    padding: "14px 18px",
+                    padding: "12px 18px",
                     borderRadius: 999,
-                    border: "1px solid rgba(255,255,255,0.75)",
+                    border: `1px solid ${theme.accent}`,
                     background: "transparent",
-                    color: "#fff",
-                    fontSize: 17,
+                    color: theme.text,
+                    fontSize: 16,
                     fontWeight: 700,
                     cursor: "pointer",
                   }}
@@ -4931,12 +4931,12 @@ if (!isLoggedIn) {
                   }}
                   style={{
                     minWidth: isMobile ? "100%" : 180,
-                    padding: "14px 18px",
+                    padding: "12px 18px",
                     borderRadius: 999,
-                    border: "1px solid rgba(255,255,255,0.18)",
-                    background: "#ffffff",
-                    color: "#3d0c46",
-                    fontSize: 17,
+                    border: "1px solid rgba(56,189,248,0.18)",
+                    background: theme.accent,
+                    color: "#08111f",
+                    fontSize: 16,
                     fontWeight: 800,
                     cursor: "pointer",
                     boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
@@ -4949,7 +4949,7 @@ if (!isLoggedIn) {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(3, minmax(0, 1fr))",
+                  gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
                   gap: 10,
                 }}
               >
@@ -4963,13 +4963,12 @@ if (!isLoggedIn) {
                     style={{
                       padding: "12px 14px",
                       borderRadius: 16,
-                      background: "rgba(13,18,32,0.26)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      backdropFilter: "blur(8px)",
+                      background: theme.panelHi,
+                      border: `1px solid ${theme.line}`,
                     }}
                   >
                     <div style={{ color: "#ffffff", fontWeight: 800, fontSize: 15 }}>{label}</div>
-                    <div style={{ marginTop: 4, color: "rgba(255,255,255,0.68)", fontSize: 12, lineHeight: 1.4 }}>{text}</div>
+                    <div style={{ marginTop: 4, color: theme.muted, fontSize: 12, lineHeight: 1.4 }}>{text}</div>
                   </div>
                 ))}
               </div>
@@ -4978,19 +4977,17 @@ if (!isLoggedIn) {
             <div
               style={{
                 display: "grid",
-                gridTemplateRows: isMobile ? "220px auto" : "1fr auto",
                 gap: 12,
-                minHeight: isMobile ? "auto" : 420,
               }}
             >
               <div
                 style={{
                   position: "relative",
                   overflow: "hidden",
-                  borderRadius: 26,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "linear-gradient(135deg, rgba(34,211,238,0.9), rgba(96,165,250,0.88) 45%, rgba(168,85,247,0.92))",
-                  minHeight: 0,
+                  borderRadius: 22,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  minHeight: isMobile ? 220 : 320,
                 }}
               >
                 <img
@@ -4998,67 +4995,36 @@ if (!isLoggedIn) {
                   alt="Prediction Addiction predictions preview"
                   style={{
                     position: "absolute",
-                    right: isMobile ? -16 : -10,
-                    bottom: isMobile ? -40 : -60,
-                    width: isMobile ? "112%" : "108%",
+                    right: isMobile ? -10 : -8,
+                    bottom: isMobile ? -30 : -44,
+                    width: isMobile ? "108%" : "104%",
                     maxWidth: "none",
-                    borderRadius: 26,
-                    boxShadow: "0 30px 60px rgba(0,0,0,0.32)",
+                    borderRadius: 20,
+                    boxShadow: "0 24px 48px rgba(0,0,0,0.28)",
                   }}
                 />
                 <div
                   style={{
                     position: "absolute",
                     inset: 0,
-                    background: "linear-gradient(180deg, rgba(9,14,28,0.08), rgba(9,14,28,0.56) 75%, rgba(9,14,28,0.72))",
+                    background: "linear-gradient(180deg, rgba(9,14,28,0.04), rgba(9,14,28,0.48) 72%, rgba(9,14,28,0.78))",
                   }}
                 />
                 <div
                   style={{
                     position: "absolute",
-                    left: 18,
-                    right: 18,
-                    bottom: 18,
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
                     display: "grid",
                     gap: 4,
                   }}
                 >
-                  <div style={{ color: "#ffffff", fontSize: 19, fontWeight: 800 }}>Your season, one screen at a time</div>
-                  <div style={{ color: "rgba(255,255,255,0.78)", fontSize: 13 }}>
-                    Predictions, points, bells, coins, and deadlines in one flow.
+                  <div style={{ color: "#ffffff", fontSize: 18, fontWeight: 800 }}>Built around your weekly flow</div>
+                  <div style={{ color: "rgba(255,255,255,0.74)", fontSize: 13 }}>
+                    Predictions, points, bells, coins, and deadlines in one clean loop.
                   </div>
                 </div>
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 12,
-                }}
-              >
-                {[
-                  ["/auth-showcase/leagues.jpg", "Private leagues", "Create rooms and track every rival."],
-                  ["/auth-showcase/avatar.jpg", "Custom avatars", "Build your own badge for the table."],
-                ].map(([src, title, copy]) => (
-                  <div
-                    key={title}
-                    style={{
-                      overflow: "hidden",
-                      borderRadius: 20,
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      background: "rgba(13,18,32,0.28)",
-                    }}
-                  >
-                    <div style={{ height: isMobile ? 120 : 138, overflow: "hidden" }}>
-                      <img src={src} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }} />
-                    </div>
-                    <div style={{ padding: "12px 14px 14px" }}>
-                      <div style={{ color: "#fff", fontWeight: 800, fontSize: 15 }}>{title}</div>
-                      <div style={{ marginTop: 4, color: "rgba(255,255,255,0.68)", fontSize: 12, lineHeight: 1.4 }}>{copy}</div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
@@ -5400,15 +5366,14 @@ if (!isLoggedIn) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              gap: 18,
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              gap: 14,
             }}
           >
             {[
-              ["/auth-showcase/table.jpg", "Check table form and difficulty", "Drill into form, upcoming difficulty, and where the next edge might come from."],
-              ["/auth-showcase/results.jpg", "Track results and winnings", "See settled fixtures, coins returns, and how each match moved your score."],
-              ["/auth-showcase/winprob.jpg", "Read the market view", "Compare home, draw, and away prices before you commit your picks."],
-              ["/auth-showcase/leagues.jpg", "Create and join mini-leagues", "Spin up private leagues, invite rivals, and keep the table moving."],
+              ["/auth-showcase/table.jpg", "Table insight", "Form and difficulty in one place."],
+              ["/auth-showcase/results.jpg", "Results and returns", "Track points, coins, and settled matches."],
+              ["/auth-showcase/leagues.jpg", "Mini-leagues", "Create private rooms and compete with mates."],
             ].map(([src, title, copy]) => (
               <section
                 key={title}
@@ -5419,7 +5384,7 @@ if (!isLoggedIn) {
                   display: "grid",
                 }}
               >
-                <div style={{ height: isMobile ? 210 : 240, overflow: "hidden", background: "linear-gradient(135deg, rgba(34,211,238,0.92), rgba(168,85,247,0.92))" }}>
+                <div style={{ height: isMobile ? 180 : 190, overflow: "hidden", background: theme.panelHi }}>
                   <img
                     src={src}
                     alt={title}
@@ -5431,9 +5396,9 @@ if (!isLoggedIn) {
                     }}
                   />
                 </div>
-                <div style={{ padding: "18px 18px 20px" }}>
-                  <div style={{ color: "#ffffff", fontSize: 28, fontWeight: 800, lineHeight: 1.02 }}>{title}</div>
-                  <div style={{ marginTop: 10, color: theme.muted, fontSize: 15, lineHeight: 1.55 }}>{copy}</div>
+                <div style={{ padding: "14px 14px 16px" }}>
+                  <div style={{ color: "#ffffff", fontSize: 20, fontWeight: 800, lineHeight: 1.06 }}>{title}</div>
+                  <div style={{ marginTop: 8, color: theme.muted, fontSize: 13, lineHeight: 1.45 }}>{copy}</div>
                 </div>
               </section>
             ))}
