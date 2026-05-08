@@ -1980,7 +1980,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   const generatedModelOddsByFixture = useMemo(() => {
     const out = {};
-    FIXTURES.forEach((fixture) => {
+    [...FIXTURES, ...WORLD_CUP_FIXTURES].forEach((fixture) => {
       const model = buildFixtureModel(fixture, leaguePerformanceContext);
       const overround = 0.94;
       out[fixture.id] = {
@@ -2037,7 +2037,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   useEffect(() => {
     if (!isWorldCupMode) return;
-    if (["coinsLeague", "premierLeagueTable", "winprob"].includes(activeView)) {
+    if (["premierLeagueTable"].includes(activeView)) {
       setActiveView("predictions");
     }
   }, [isWorldCupMode, activeView]);
@@ -5734,12 +5734,12 @@ if (!isLoggedIn) {
 )}
  {/* Tabs */}
 {(() => {
-  const TABS = [
+const TABS = [
   { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   { id: "history", label: isWorldCupMode ? "WC History" : "History" },
-  ...(!isWorldCupMode ? [{ id: "winprob", label: "Win Probabilities" }] : []),
+  { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
   { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
   { id: "rules", label: "Rules" },
 ];
@@ -8496,7 +8496,7 @@ if (!isLoggedIn) {
 {activeView === "winprob" && (
   <section style={cardStyle}>
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
-      Win probabilities — GW{selectedGameweek}
+      {isWorldCupMode ? "World Cup Win Probability" : "Win probabilities"} — {getModeGameweekLabel(gameMode, selectedGameweek)}
     </h2>
 
     <div style={{ display: "grid", gap: 8 }}>
@@ -8527,7 +8527,9 @@ if (!isLoggedIn) {
               lineHeight: 1.3
             }}>
               {/* Home team badge */}
-              {resolveTeamBadge(fixture.homeTeam) && (
+              {isWorldCupMode ? (
+                <span style={{ fontSize: 22 }}>{getWorldCupFlag(fixture.homeTeam)}</span>
+              ) : resolveTeamBadge(fixture.homeTeam) && (
                 <img
                   src={resolveTeamBadge(fixture.homeTeam)}
                   alt={fixture.homeTeam}
@@ -8541,10 +8543,12 @@ if (!isLoggedIn) {
               
               <span>{getTeamCode(fixture.homeTeam)}</span>
               <span style={{ color: theme.muted }}>vs</span>
-              <span>{getTeamCode(fixture.awayTeam)}</span>
+              <span>{getTeamCode(fixture.awayTeam, gameMode)}</span>
               
               {/* Away team badge */}
-              {resolveTeamBadge(fixture.awayTeam) && (
+              {isWorldCupMode ? (
+                <span style={{ fontSize: 22 }}>{getWorldCupFlag(fixture.awayTeam)}</span>
+              ) : resolveTeamBadge(fixture.awayTeam) && (
                 <img
                   src={resolveTeamBadge(fixture.awayTeam)}
                   alt={fixture.awayTeam}
