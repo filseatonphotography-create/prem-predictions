@@ -18,12 +18,14 @@ const app = express();
 app.get("/api/coins/user/:userId", (req, res) => {
   const { userId } = req.params;
   const gw = req.query.gameweek;
+  const mode = normalizeCoinsMode(req.query.mode);
   if (!userId || !gw) {
     return res.status(400).json({ error: "Missing userId or gameweek" });
   }
   const coins = loadCoins();
-  const userCoins = coins[userId] || {};
-  const bets = userCoins[gw] || {};
+  const { record } = resolveCoinsUserEntry(coins, userId, false);
+  const modeCoins = getCoinsModeBucket(record, mode, false);
+  const bets = modeCoins[gw] || {};
   let used = 0;
   if (bets && typeof bets === "object") {
     Object.values(bets).forEach((bet) => {
@@ -31,6 +33,7 @@ app.get("/api/coins/user/:userId", (req, res) => {
     });
   }
   res.json({
+    mode,
     gameweek: gw,
     used,
     remaining: 10 - used,
@@ -568,7 +571,8 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
   let totalStake = 0;
   let totalReturn = 0;
 
-  Object.values(gwObj).forEach((fixObj) => {
+  Object.entries(gwObj).forEach(([gwKey, fixObj]) => {
+    if (gwKey === "__modes") return;
     if (!fixObj || typeof fixObj !== "object") return;
 
     Object.values(fixObj).forEach((bet) => {
@@ -614,6 +618,54 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
     totalReturn,
     profit,
   };
+}
+
+function normalizeCoinsMode(mode) {
+  return normalizeLeagueMode(mode) === "worldcup" ? "worldcup" : "premier";
+}
+
+function resolveCoinsUserEntry(allCoins, userId, create = false) {
+  const stringKey = String(userId);
+  const numericKey = Number(userId);
+  const hasStringKey = Object.prototype.hasOwnProperty.call(allCoins, stringKey);
+  const hasNumericKey =
+    Number.isFinite(numericKey) && Object.prototype.hasOwnProperty.call(allCoins, numericKey);
+
+  if (hasStringKey) {
+    return { key: stringKey, record: allCoins[stringKey] || {} };
+  }
+  if (hasNumericKey) {
+    return { key: numericKey, record: allCoins[numericKey] || {} };
+  }
+  if (!create) {
+    return { key: stringKey, record: {} };
+  }
+
+  allCoins[stringKey] = {};
+  return { key: stringKey, record: allCoins[stringKey] };
+}
+
+function getCoinsModeBucket(coinsRecord, mode, create = false) {
+  const normalizedMode = normalizeCoinsMode(mode);
+  if (normalizedMode === "premier") {
+    return coinsRecord || {};
+  }
+
+  if (!coinsRecord || typeof coinsRecord !== "object") {
+    return create ? {} : {};
+  }
+
+  if (!coinsRecord.__modes) {
+    if (!create) return {};
+    coinsRecord.__modes = {};
+  }
+
+  if (!coinsRecord.__modes.worldcup) {
+    if (!create) return {};
+    coinsRecord.__modes.worldcup = {};
+  }
+
+  return coinsRecord.__modes.worldcup;
 }
 
 function authOptional(req, res, next) {
@@ -2301,6 +2353,7 @@ app.get("/api/coins/my", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
     const rawGw = (req.query.gameweek || "").toString().trim();
+    const mode = normalizeCoinsMode(req.query.mode);
 
     if (!rawGw) {
       return res
@@ -2312,8 +2365,9 @@ app.get("/api/coins/my", authMiddleware, (req, res) => {
     const MAX_COINS_PER_GAMEWEEK = 10;
 
     const allCoins = loadCoins();
-    const userCoins = allCoins[userId] || {};
-    const betsForGw = userCoins[gameweekKey] || {};
+    const { record } = resolveCoinsUserEntry(allCoins, userId, false);
+    const modeCoins = getCoinsModeBucket(record, mode, false);
+    const betsForGw = modeCoins[gameweekKey] || {};
 
     // Sum all stakes for this gameweek
     let used = 0;
@@ -2325,6 +2379,7 @@ app.get("/api/coins/my", authMiddleware, (req, res) => {
     const remaining = Math.max(0, MAX_COINS_PER_GAMEWEEK - used);
 
     return res.json({
+      mode,
       gameweek: gameweekKey,
       used,
       remaining,
@@ -2346,7 +2401,9 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
       side, // "H" | "D" | "A"
       stake, // number of coins
       odds, // optional snapshot: { home, draw, away }
+      mode,
     } = req.body || {};
+    const normalizedMode = normalizeCoinsMode(mode);
 
     const MAX_COINS_PER_GAMEWEEK = 10;
 
@@ -2376,8 +2433,9 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
 
     // Load existing coins
     const allCoins = loadCoins();
-    const userCoins = allCoins[userId] || {};
-    const betsForGw = userCoins[gwKey] || {};
+    const { key: userCoinsKey, record: userCoins } = resolveCoinsUserEntry(allCoins, userId, true);
+    const modeCoins = getCoinsModeBucket(userCoins, normalizedMode, true);
+    const betsForGw = modeCoins[gwKey] || {};
 
     // Calculate total coins used in this GW *excluding* this fixture
     let usedOther = 0;
@@ -2431,8 +2489,8 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
     }
 
     // Attach back and save
-    userCoins[gwKey] = betsForGw;
-    allCoins[userId] = userCoins;
+    modeCoins[gwKey] = betsForGw;
+    allCoins[userCoinsKey] = userCoins;
 
     saveCoins(allCoins);
     console.log(`[COINS] Saved coins for user ${userId}, gameweek ${gwKey}, fixture ${fxId}, stake ${stakeNum}`);
@@ -2454,6 +2512,7 @@ app.post("/api/coins/place", authMiddleware, (req, res) => {
     const remaining = Math.max(0, MAX_COINS_PER_GAMEWEEK - used);
 
     return res.json({
+      mode: normalizedMode,
       gameweek: gwKey,
       used,
       remaining,
@@ -2791,6 +2850,16 @@ app.get("/api/results/snapshot", (req, res) => {
   }
 });
 
+app.get("/api/match-states/snapshot", (req, res) => {
+  try {
+    const current = loadMatchStates() || {};
+    return res.json(current);
+  } catch (err) {
+    console.error("[SNAPSHOT] get match states snapshot error", err);
+    return res.status(500).json({ error: "Failed to load match states snapshot" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
@@ -2970,6 +3039,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const users = loadUsers() || [];
     const legacyMap = loadLegacyMap() || {};
     const leagueId = (req.query.leagueId || "").trim();
+    const mode = normalizeCoinsMode(req.query.mode);
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
@@ -3000,8 +3070,11 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       allowedIds = new Set(members.map((m) => String(m)));
     }
 
-    const addRow = (userIdKey, coinsForUser) => {
-      const summary = computeSeasonCoinsForUser(coinsForUser || {}, results);
+    const addRow = (userIdKey, coinsRecord) => {
+      const summary = computeSeasonCoinsForUser(
+        getCoinsModeBucket(coinsRecord || {}, mode, false),
+        results
+      );
       const legacyNameFromId =
         legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
       const legacyNameFromKey = legacyMap[userIdKey] ? String(userIdKey) : null;
@@ -3025,7 +3098,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
     if (allowedIds) {
       allowedIds.forEach((uid) => {
-        addRow(uid, coins[uid] || coins[String(uid)] || {});
+        addRow(uid, resolveCoinsUserEntry(coins, uid, false).record || {});
       });
     } else {
       Object.entries(coins).forEach(([userIdKey, coinsForUser]) => {

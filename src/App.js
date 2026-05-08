@@ -600,6 +600,16 @@ async function apiGetResultsSnapshot() {
   }
 }
 
+async function apiGetMatchStatesSnapshot() {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/match-states/snapshot`);
+    if (!res.ok) throw new Error("Match states fetch failed");
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
 // Save latest results snapshot to backend for coins leaderboard
 async function apiSaveResultsSnapshot(resultsByFixtureId, matchStateByFixtureId = {}) {
   try {
@@ -965,9 +975,9 @@ async function fetchPremierLeagueStandings() {
 }
 
 // --- COINS GAME API HELPERS ---
-async function apiGetMyCoins(token, gameweek) {
+async function apiGetMyCoins(token, gameweek, mode = PREMIER_MODE) {
   const gw = gameweek != null ? String(gameweek) : "";
-  const url = `${BACKEND_BASE}/api/coins/my?gameweek=${encodeURIComponent(gw)}`;
+  const url = `${BACKEND_BASE}/api/coins/my?gameweek=${encodeURIComponent(gw)}&mode=${encodeURIComponent(getModeKey(mode))}`;
 
   const res = await fetch(url, {
     headers: {
@@ -995,7 +1005,10 @@ async function apiPlaceCoinsBet(token, payload) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(payload || {}),
+    body: JSON.stringify({
+      ...(payload || {}),
+      mode: getModeKey(payload?.mode || PREMIER_MODE),
+    }),
   });
 
   const data = await res.json().catch(() => ({}));
@@ -1276,14 +1289,34 @@ function formatKickoffShort(kickoff) {
 
 function formatFixtureKickoff(fixture, mode = PREMIER_MODE) {
   if (!fixture?.kickoff) return "";
+  const stadiumSuffix = fixture.stadium ? ` • ${fixture.stadium}` : "";
   if (mode === WORLD_CUP_MODE && fixture.kickoffTimeConfirmed === false) {
     const d = new Date(fixture.kickoff);
     if (Number.isNaN(d.getTime())) return "";
     const day = String(d.getDate()).padStart(2, "0");
     const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    return `${day} ${monthNames[d.getMonth()]} • ${fixture.stadium || "Venue TBC"}`;
+    return `${day} ${monthNames[d.getMonth()]}${stadiumSuffix || " • Venue TBC"}`;
+  }
+  if (mode === WORLD_CUP_MODE) {
+    return `${formatKickoffShort(fixture.kickoff)}${stadiumSuffix}`;
   }
   return formatKickoffShort(fixture.kickoff);
+}
+
+function buildFixtureOverridesFromMatchStates(matchStatesByFixtureId = {}, fixtures = []) {
+  const overrides = {};
+  const validFixtureIds = new Set((fixtures || []).map((fixture) => String(fixture.id)));
+  Object.entries(matchStatesByFixtureId || {}).forEach(([fixtureId, matchState]) => {
+    if (!validFixtureIds.has(String(fixtureId))) return;
+    if (!matchState || typeof matchState !== "object") return;
+    const utcDate = String(matchState.utcDate || "").trim();
+    if (!utcDate) return;
+    overrides[fixtureId] = {
+      kickoff: utcDate,
+      kickoffTimeConfirmed: true,
+    };
+  });
+  return overrides;
 }
 // eslint-disable-next-line no-unused-vars
 function formatOdds(value) {
@@ -2149,7 +2182,7 @@ const worldCupOverview = useMemo(() => {
     }
 
     const bets = coinsState.bets || {};
-    const fixturesThisGw = FIXTURES.filter(
+    const fixturesThisGw = activeFixtures.filter(
       (f) => f.gameweek === selectedGameweek
     );
 
@@ -2222,7 +2255,7 @@ const worldCupOverview = useMemo(() => {
       profit: totalReturn - totalStake,
       byFixture,
     };
-  }, [selectedGameweek, coinsState.bets, results]);
+  }, [selectedGameweek, coinsState.bets, results, activeFixtures]);
 
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
@@ -2458,11 +2491,26 @@ useEffect(() => {
     } catch {}
     setAuthHydrated(true);
 
-    // 2b) Load backend results snapshot (global source of truth)
+    // 2b) Load backend results snapshot + saved match-state kickoffs
     try {
-      const snapshot = await apiGetResultsSnapshot();
+      const [snapshot, matchStatesSnapshot] = await Promise.all([
+        apiGetResultsSnapshot(),
+        apiGetMatchStatesSnapshot(),
+      ]);
       if (snapshot && Object.keys(snapshot).length > 0) {
         setResults((prev) => ({ ...prev, ...snapshot }));
+      }
+      if (matchStatesSnapshot && Object.keys(matchStatesSnapshot).length > 0) {
+        setFixtureOverridesByMode((prev) => ({
+          ...prev,
+          [WORLD_CUP_MODE]: {
+            ...(prev[WORLD_CUP_MODE] || {}),
+            ...buildFixtureOverridesFromMatchStates(
+              matchStatesSnapshot,
+              getFixturesForMode(WORLD_CUP_MODE)
+            ),
+          },
+        }));
       }
     } catch {}
 
@@ -2524,7 +2572,7 @@ useEffect(() => {
   const isViewingOwn = currentPlayer === loginName || currentPlayer === currentUserId;
   // const userIdToFetch = isViewingOwn ? null : currentPlayer;
   const fetchCoins = isViewingOwn
-    ? apiGetMyCoins(authToken, selectedGameweek)
+    ? apiGetMyCoins(authToken, selectedGameweek, gameMode)
     : apiGetUserCoins(currentPlayer, selectedGameweek);
 
 
@@ -2571,7 +2619,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [authToken, selectedGameweek, currentPlayer, loginName, currentUserId]);
+}, [authToken, selectedGameweek, currentPlayer, loginName, currentUserId, gameMode]);
 
   // Check if push notifications are supported
 useEffect(() => {
@@ -2641,8 +2689,8 @@ useEffect(() => {
         ? myLeagues[0].id
         : "";
       const url = leagueId
-        ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}`
-        : `${BACKEND_BASE}/api/coins/leaderboard`;
+        ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}&mode=${encodeURIComponent(getModeKey(gameMode))}`
+        : `${BACKEND_BASE}/api/coins/leaderboard?mode=${encodeURIComponent(getModeKey(gameMode))}`;
       const res = await fetch(url, {
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -2671,7 +2719,7 @@ useEffect(() => {
   };
 
   fetchCoinsLeaderboard();
-}, [activeView, authToken, myLeagues]);
+}, [activeView, authToken, myLeagues, gameMode]);
 
 // Fetch global predictions (all users) when Global League is opened
 useEffect(() => {
@@ -3501,6 +3549,8 @@ setNewPasswordInput("");
       setLeaguesLoading(false);
     }
   };
+
+  const coinsLeagueTitle = isWorldCupMode ? "WC Coins League" : "Coins League";
 
   const handleCreateLeague = async (e) => {
     e.preventDefault();
@@ -4406,6 +4456,7 @@ const historicalScores = useMemo(() => {
         stake: finalStake,
         side: resolvedSide,
         odds,
+        mode: gameMode,
       };
     } else if (finalStake === 0) {
       if (existingBet && existingBet.stake > 0) {
@@ -4415,6 +4466,7 @@ const historicalScores = useMemo(() => {
           stake: 0,
           side: existingBet.side || null,
           odds,
+          mode: gameMode,
         };
       }
     }
@@ -5330,6 +5382,7 @@ if (!isLoggedIn) {
               ? [
                   { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
                   { action: "view", id: "worldCupGroupTables", label: "WC Group Tables" },
+                  { action: "view", id: "coinsLeague", label: "WC Coins League" },
                   { action: "view", id: "globalLeague", label: "WC Global League" },
                   { action: "view", id: "league", label: "WC Mini League" },
                   { action: "view", id: "leagues", label: "WC Mini-Leagues" },
@@ -5924,7 +5977,7 @@ if (!isLoggedIn) {
       }}>
         
         {/* COINS USED - Left */}
-        {!isWorldCupMode && authToken && (
+        {authToken && (
           <div
             style={{
               display: "flex",
@@ -6061,7 +6114,7 @@ if (!isLoggedIn) {
         )}
 
         {/* COINS REMAINING - Right */}
-        {!isWorldCupMode && authToken && (
+        {authToken && (
           <div
             style={{
               display: "flex",
@@ -6744,7 +6797,6 @@ if (!isLoggedIn) {
                 </div>
 
                 {/* Coins */}
-                {!isWorldCupMode && (
                 <div
                   style={{
                     display: "flex",
@@ -6894,8 +6946,7 @@ if (!isLoggedIn) {
                     = {Number(coinsPossibleReturn).toFixed(2)}
                     <CoinIcon />
                   </div>
-                </div>
-                )}
+                  </div>
               </div>
             </div>
           </div>
@@ -6918,7 +6969,7 @@ if (!isLoggedIn) {
     )}
 
     {/* Coins outcome summary for this gameweek */}
-    {!isWorldCupMode && authToken && coinsOutcome && (
+    {authToken && coinsOutcome && (
       <div
         style={{
           marginTop: 8,
@@ -6935,7 +6986,7 @@ if (!isLoggedIn) {
     alt="Coins"
     style={{ width: 18, height: 18 }}
   />
-  <span>GW{selectedGameweek}</span>
+  <span>{getModeGameweekLabel(gameMode, selectedGameweek)}</span>
 </strong>
         </div>
         <div
@@ -7733,7 +7784,7 @@ if (!isLoggedIn) {
                 alt="Coins"
                 style={{ width: 28, height: 28 }}
               />
-              <span>Coins League</span>
+              <span>{coinsLeagueTitle}</span>
             </h2>
 
             <div style={{ display: "grid", gap: 8 }}>
@@ -8084,7 +8135,7 @@ if (!isLoggedIn) {
           });
 
           // Get best gambler from coins league
-          if (!isWorldCupMode && coinsLeagueRows && coinsLeagueRows.length > 0) {
+          if (coinsLeagueRows && coinsLeagueRows.length > 0) {
             const topGambler = coinsLeagueRows[0];
             const coins = topGambler.profit !== undefined ? topGambler.profit : (topGambler.points || 0);
             stats.bestGambler = { name: topGambler.player, coins: coins };
@@ -8152,7 +8203,7 @@ if (!isLoggedIn) {
                   color: "#F59E0B"
                 }])
           ];
-          if (!isWorldCupMode) {
+          if (stats.bestGambler?.name) {
             categories.splice(3, 0, {
               title: "💰 Best Gambler",
               player: stats.bestGambler?.name || "—",
@@ -8838,7 +8889,7 @@ if (!isLoggedIn) {
                     <strong style={{ fontSize: 16 }}>Captain (2x)</strong>
                   </div>
                   <div style={{ color: theme.muted, fontSize: 14 }}>
-                    Pick <strong>one Captain per gameweek</strong>. Their points are <strong>doubled</strong>.
+                    Pick <strong>one Captain per {isWorldCupMode ? "matchday" : "gameweek"}</strong>. Their points are <strong>doubled</strong>.
                   </div>
                 </div>
                 
@@ -8853,13 +8904,12 @@ if (!isLoggedIn) {
                     <strong style={{ fontSize: 16 }}>Triple Captain (3x)</strong>
                   </div>
                   <div style={{ color: theme.muted, fontSize: 14 }}>
-                    Use <strong>once per season</strong>. That match's points are <strong>tripled</strong>. Choose wisely!
+                    Use <strong>once per {isWorldCupMode ? "tournament" : "season"}</strong>. That match's points are <strong>tripled</strong>. Choose wisely!
                   </div>
                 </div>
               </div>
             </div>
 
-            {!isWorldCupMode && (
             <>
             {/* Divider */}
             <div style={{
@@ -8894,7 +8944,7 @@ if (!isLoggedIn) {
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 20, minWidth: 24 }}>🪙</span>
                     <div>
-                      <strong>Starting Balance:</strong> You get <strong>10 coins per gameweek</strong>.
+                      <strong>Starting Balance:</strong> You get <strong>10 coins per {isWorldCupMode ? "matchday" : "gameweek"}</strong>.
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -8906,7 +8956,7 @@ if (!isLoggedIn) {
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 20, minWidth: 24 }}>📈</span>
                     <div>
-                      <strong>Winnings:</strong> Win = coins × odds. Lose = lose your bet. Your <strong>profit/loss rolls over</strong> across the season.
+                      <strong>Winnings:</strong> Win = coins × odds. Lose = lose your bet. Your <strong>profit/loss rolls over</strong> across the {isWorldCupMode ? "tournament" : "season"}.
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
@@ -8919,7 +8969,6 @@ if (!isLoggedIn) {
               </div>
             </div>
             </>
-            )}
 
             {/* Footer Note */}
             <div style={{ 
