@@ -66,6 +66,8 @@ const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
+const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
+const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
@@ -165,6 +167,53 @@ function getModeKey(mode) {
 
 function getModeLabel(mode) {
   return mode === WORLD_CUP_MODE ? "World Cup" : "Premier League";
+}
+
+function getSeasonLabelFromFixtures(fixtures = []) {
+  const years = fixtures
+    .map((fixture) => new Date(fixture.kickoff).getUTCFullYear())
+    .filter((year) => Number.isFinite(year));
+  if (!years.length) return "";
+
+  const startYear = Math.min(...years);
+  const endYear = Math.max(...years);
+  if (startYear === endYear) return String(startYear);
+  return `${startYear}/${String(endYear).slice(-2)}`;
+}
+
+function mergeSeasonWinnerRecords(localRecords = [], remoteRecords = []) {
+  const byId = new Map();
+  [...remoteRecords, ...localRecords].forEach((record) => {
+    if (!record?.id) return;
+    const existing = byId.get(record.id);
+    byId.set(record.id, {
+      ...(existing || {}),
+      ...record,
+      completedAt: existing?.completedAt || record.completedAt,
+    });
+  });
+  return Array.from(byId.values()).sort((a, b) => {
+    const aTime = Date.parse(a.completedAt);
+    const bTime = Date.parse(b.completedAt);
+    if (Number.isFinite(aTime) && Number.isFinite(bTime)) return bTime - aTime;
+    return String(b.seasonLabel || "").localeCompare(String(a.seasonLabel || ""));
+  });
+}
+
+export function sortFixturesByOrderOfPlay(fixtures = []) {
+  return [...fixtures]
+    .map((fixture, index) => ({ fixture, index }))
+    .sort((a, b) => {
+      const aTime = Date.parse(a.fixture?.kickoff);
+      const bTime = Date.parse(b.fixture?.kickoff);
+      const aHasTime = Number.isFinite(aTime);
+      const bHasTime = Number.isFinite(bTime);
+
+      if (aHasTime && bHasTime && aTime !== bTime) return aTime - bTime;
+      if (aHasTime !== bHasTime) return aHasTime ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map(({ fixture }) => fixture);
 }
 
 function getModeGameweekLabel(mode, gameweek) {
@@ -612,6 +661,34 @@ async function apiGetMatchStatesSnapshot() {
     return await res.json();
   } catch {
     return {};
+  }
+}
+
+async function apiGetSeasonWinners() {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/history/season-winners`);
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => []);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function apiSaveSeasonWinner(record, token = "") {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${BACKEND_BASE}/api/history/season-winners`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ record }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
   }
 }
 
@@ -2043,10 +2120,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const activeFixtures = useMemo(() => {
     const baseFixtures = getFixturesForMode(gameMode);
     const overrides = fixtureOverridesByMode[gameMode] || {};
-    return baseFixtures.map((fixture) => {
+    const mergedFixtures = baseFixtures.map((fixture) => {
       const override = overrides[fixture.id];
       return override ? { ...fixture, ...override } : fixture;
     });
+    return sortFixturesByOrderOfPlay(mergedFixtures);
   }, [gameMode, fixtureOverridesByMode]);
   const activeGameweeks = useMemo(
     () => (isWorldCupMode ? WORLD_CUP_GAMEWEEKS : GAMEWEEKS),
@@ -2084,9 +2162,30 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
   });
+  const [historySectionsOpen, setHistorySectionsOpen] = useState({
+    seasonWinners: true,
+    weeklyScores: false,
+  });
+  const [seasonWinnerHistory, setSeasonWinnerHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SEASON_WINNERS_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showLeaguesMenu, setShowLeaguesMenu] = useState(false);
+  const [worldCupCentralOpen, setWorldCupCentralOpen] = useState(() => {
+    try {
+      const saved = localStorage.getItem(WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY);
+      return saved == null ? true : saved === "true";
+    } catch {
+      return true;
+    }
+  });
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
   const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
@@ -2124,8 +2223,28 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   }, [activeView]);
 
   useEffect(() => {
+    localStorage.setItem(SEASON_WINNERS_STORAGE_KEY, JSON.stringify(seasonWinnerHistory));
+  }, [seasonWinnerHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const remoteRecords = await apiGetSeasonWinners();
+      if (cancelled || !remoteRecords.length) return;
+      setSeasonWinnerHistory((prev) => mergeSeasonWinnerRecords(prev, remoteRecords));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem(GAME_MODE_STORAGE_KEY, gameMode);
   }, [gameMode]);
+
+  useEffect(() => {
+    localStorage.setItem(WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY, String(worldCupCentralOpen));
+  }, [worldCupCentralOpen]);
 
   useEffect(() => {
     const remembered = selectedGameweekByMode[gameMode];
@@ -4405,6 +4524,91 @@ const historicalScores = useMemo(() => {
   });
 }, [computedWeeklyTotals, predictions, results, activeGameweeks, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
 
+const currentSeasonWinnerRecord = useMemo(() => {
+  if (!activeFixtures.length || !activeGameweeks.length || !leaderboard?.length) {
+    return null;
+  }
+
+  const finalGameweek = Math.max(...activeGameweeks);
+  const seasonComplete = activeFixtures.every((fixture) =>
+    isFixtureCompleted(fixture, results)
+  );
+  if (!seasonComplete) return null;
+
+  const maxPoints = Math.max(
+    ...leaderboard.map((row) => Number(row.points) || 0)
+  );
+  const winners = leaderboard
+    .filter((row) => (Number(row.points) || 0) === maxPoints)
+    .map((row) => ({
+      player: row.player,
+      userId: row.userId || null,
+      points: Number(row.points) || 0,
+    }));
+
+  if (!winners.length) return null;
+
+  const seasonLabel = getSeasonLabelFromFixtures(activeFixtures);
+  const modeKey = getModeKey(gameMode);
+
+  return {
+    id: `${modeKey}-${seasonLabel || finalGameweek}`,
+    mode: gameMode,
+    modeLabel: getModeLabel(gameMode),
+    seasonLabel,
+    finalGameweek,
+    winners,
+    points: maxPoints,
+    completedAt: new Date().toISOString(),
+  };
+}, [activeFixtures, activeGameweeks, leaderboard, results, gameMode]);
+
+useEffect(() => {
+  if (!currentSeasonWinnerRecord) return;
+
+  setSeasonWinnerHistory((prev) => {
+    const current = Array.isArray(prev) ? prev : [];
+    const existingIndex = current.findIndex(
+      (record) => record.id === currentSeasonWinnerRecord.id
+    );
+    if (existingIndex === -1) {
+      return [currentSeasonWinnerRecord, ...current];
+    }
+
+    const next = [...current];
+    next[existingIndex] = {
+      ...current[existingIndex],
+      ...currentSeasonWinnerRecord,
+      completedAt: current[existingIndex].completedAt || currentSeasonWinnerRecord.completedAt,
+    };
+    return next;
+  });
+
+  let cancelled = false;
+  (async () => {
+    const remoteRecords = await apiSaveSeasonWinner(currentSeasonWinnerRecord, authToken);
+    if (cancelled || !remoteRecords) return;
+    setSeasonWinnerHistory((prev) => mergeSeasonWinnerRecords(prev, remoteRecords));
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [currentSeasonWinnerRecord, authToken]);
+
+const visibleSeasonWinnerHistory = useMemo(
+  () =>
+    (seasonWinnerHistory || [])
+      .filter((record) => record.mode === gameMode)
+      .sort((a, b) => {
+        const aTime = Date.parse(a.completedAt);
+        const bTime = Date.parse(b.completedAt);
+        if (Number.isFinite(aTime) && Number.isFinite(bTime)) return bTime - aTime;
+        return String(b.seasonLabel || "").localeCompare(String(a.seasonLabel || ""));
+      }),
+  [seasonWinnerHistory, gameMode]
+);
+
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
  const theme = isWorldCupMode
   ? {
@@ -6221,72 +6425,107 @@ const TABS = [
             style={{
               ...cardStyle,
               display: "grid",
-              gap: 10,
+              gap: worldCupCentralOpen ? 10 : 0,
               background:
                 "linear-gradient(135deg, rgba(245,158,11,0.12), rgba(13,34,49,0.96) 45%, rgba(52,211,153,0.08))",
               border: `1px solid rgba(245,158,11,0.35)`,
             }}
           >
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: theme.accent, fontWeight: 800 }}>
-                World Cup Central
-              </div>
-              <div style={{ marginTop: 4, fontSize: isMobile ? 18 : 22, fontWeight: 800 }}>
-                {worldCupOverview.stage}
-              </div>
-            </div>
-            <div
+            <button
+              type="button"
+              onClick={() => setWorldCupCentralOpen((open) => !open)}
+              aria-expanded={worldCupCentralOpen}
               style={{
+                width: "100%",
+                border: "none",
+                background: "transparent",
+                color: theme.text,
+                padding: 0,
                 display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
-                gap: 8,
+                gridTemplateColumns: "1fr auto",
+                gap: 12,
+                alignItems: "center",
+                cursor: "pointer",
+                textAlign: "center",
+                font: "inherit",
               }}
             >
-              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
-                <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Next Kick-Off</div>
-                <div style={{ marginTop: 4, fontWeight: 700 }}>
-                  {worldCupOverview.nextFixture
-                    ? `${getTeamCode(worldCupOverview.nextFixture.homeTeam, gameMode)} v ${getTeamCode(worldCupOverview.nextFixture.awayTeam, gameMode)}`
-                    : "No upcoming match"}
+              <div>
+                <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: theme.accent, fontWeight: 800 }}>
+                  World Cup Central
                 </div>
-                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                  {worldCupOverview.nextFixture
-                    ? `${getWorldCupFixtureLabel(worldCupOverview.nextFixture)} • ${formatFixtureKickoff(worldCupOverview.nextFixture, gameMode)}`
-                    : "Schedule complete"}
+                <div style={{ marginTop: 4, fontSize: isMobile ? 18 : 22, fontWeight: 800 }}>
+                  {worldCupOverview.stage}
                 </div>
               </div>
-              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
-                <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Today At The World Cup</div>
-                <div style={{ marginTop: 4, fontWeight: 700 }}>
-                  {worldCupOverview.todayCount} {worldCupOverview.todayCount === 1 ? "match" : "matches"}
+              <span
+                aria-hidden="true"
+                style={{
+                  color: theme.accent,
+                  fontSize: 20,
+                  fontWeight: 900,
+                  transform: worldCupCentralOpen ? "rotate(90deg)" : "rotate(0deg)",
+                  transition: "transform 120ms ease",
+                }}
+              >
+                ›
+              </span>
+            </button>
+
+            {worldCupCentralOpen && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+                  gap: 8,
+                }}
+              >
+                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
+                  <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Next Kick-Off</div>
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>
+                    {worldCupOverview.nextFixture
+                      ? `${getTeamCode(worldCupOverview.nextFixture.homeTeam, gameMode)} v ${getTeamCode(worldCupOverview.nextFixture.awayTeam, gameMode)}`
+                      : "No upcoming match"}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                    {worldCupOverview.nextFixture
+                      ? `${getWorldCupFixtureLabel(worldCupOverview.nextFixture)} • ${formatFixtureKickoff(worldCupOverview.nextFixture, gameMode)}`
+                      : "Schedule complete"}
+                  </div>
                 </div>
-                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                  {getModeGameweekLabel(gameMode, selectedGameweek)}
+                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
+                  <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Today At The World Cup</div>
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>
+                    {worldCupOverview.todayCount} {worldCupOverview.todayCount === 1 ? "match" : "matches"}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                    {getModeGameweekLabel(gameMode, selectedGameweek)}
+                  </div>
+                </div>
+                <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
+                  <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Favourite Country Watch</div>
+                  <div style={{ marginTop: 4, fontWeight: 700 }}>
+                    {worldCupOverview.favoriteCountry
+                      ? `${getWorldCupFlag(worldCupOverview.favoriteCountry)} ${worldCupOverview.favoriteCountry}`
+                      : "No country selected"}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                    {worldCupOverview.favoriteFixture
+                      ? `Next: ${getTeamCode(worldCupOverview.favoriteFixture.homeTeam, gameMode)} v ${getTeamCode(worldCupOverview.favoriteFixture.awayTeam, gameMode)}`
+                      : worldCupOverview.favoriteCountry
+                      ? "No upcoming fixture found"
+                      : "Pick one in WC Settings"}
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                    {worldCupOverview.favoriteFixture
+                      ? formatCountdownFixtureMeta(worldCupOverview.favoriteFixture, gameMode)
+                      : worldCupOverview.favoriteCountry
+                      ? "Waiting for next fixture"
+                      : ""}
+                  </div>
                 </div>
               </div>
-              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 12, padding: "10px 12px", border: `1px solid ${theme.line}` }}>
-                <div style={{ fontSize: 11, color: theme.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Favourite Country Watch</div>
-                <div style={{ marginTop: 4, fontWeight: 700 }}>
-                  {worldCupOverview.favoriteCountry
-                    ? `${getWorldCupFlag(worldCupOverview.favoriteCountry)} ${worldCupOverview.favoriteCountry}`
-                    : "No country selected"}
-                </div>
-                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                  {worldCupOverview.favoriteFixture
-                    ? `Next: ${getTeamCode(worldCupOverview.favoriteFixture.homeTeam, gameMode)} v ${getTeamCode(worldCupOverview.favoriteFixture.awayTeam, gameMode)}`
-                    : worldCupOverview.favoriteCountry
-                    ? "No upcoming fixture found"
-                    : "Pick one in WC Settings"}
-                </div>
-                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                  {worldCupOverview.favoriteFixture
-                    ? formatCountdownFixtureMeta(worldCupOverview.favoriteFixture, gameMode)
-                    : worldCupOverview.favoriteCountry
-                    ? "Waiting for next fixture"
-                    : ""}
-                </div>
-              </div>
-            </div>
+            )}
           </section>
         )}
         <section
@@ -8750,6 +8989,60 @@ const TABS = [
         {/* History */}
         {activeView === "history" && (
           (() => {
+            const historyPlayers = isWorldCupMode ? leaderboard.map((entry) => entry.player) : PLAYERS;
+            const toggleHistorySection = (section) => {
+              setHistorySectionsOpen((prev) => ({
+                ...prev,
+                [section]: !prev[section],
+              }));
+            };
+            const historySectionHeader = (section, label, meta) => {
+              const open = !!historySectionsOpen[section];
+              return (
+                <button
+                  type="button"
+                  onClick={() => toggleHistorySection(section)}
+                  aria-expanded={open}
+                  style={{
+                    width: "100%",
+                    border: "none",
+                    borderBottom: open ? `1px solid ${theme.line}` : "none",
+                    background: theme.panelHi,
+                    color: theme.text,
+                    padding: isMobile ? "12px 12px" : "14px 16px",
+                    display: "grid",
+                    gridTemplateColumns: "1fr auto",
+                    gap: 12,
+                    alignItems: "center",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    font: "inherit",
+                  }}
+                >
+                  <span style={{ display: "grid", gap: 2 }}>
+                    <span style={{ fontSize: 15, fontWeight: 800 }}>{label}</span>
+                    {meta && (
+                      <span style={{ fontSize: 12, color: theme.muted, fontWeight: 600 }}>
+                        {meta}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      color: theme.accent,
+                      fontSize: 18,
+                      fontWeight: 900,
+                      transform: open ? "rotate(90deg)" : "rotate(0deg)",
+                      transition: "transform 120ms ease",
+                    }}
+                  >
+                    ›
+                  </span>
+                </button>
+              );
+            };
+
             return (
               <section
                 style={{
@@ -8759,133 +9052,235 @@ const TABS = [
                 }}
               >
                 <h2 style={{ margin: 0, fontSize: 18, padding: "16px 16px 12px" }}>
-                  {isWorldCupMode ? "World Cup History" : "Weekly Scores"}
+                  {isWorldCupMode ? "World Cup History" : "History"}
                 </h2>
 
-                <div
-                  style={{
-                    overflowX: "auto",
-                    overflowY: "auto",
-                    maxHeight: "70vh",
-                    position: "relative",
-                    padding: "0 0 10px",
-                    background: theme.panel,
-                  }}
-                >
-                  <table
+                <div style={{ display: "grid", gap: 10, padding: "0 10px 10px" }}>
+                  <div
                     style={{
-                      width: "100%",
-                      borderCollapse: "separate",
-                      borderSpacing: 0,
-                      fontSize: isMobile ? 12 : 13,
+                      border: `1px solid ${theme.line}`,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      background: theme.panel,
                     }}
                   >
-                    <thead>
-                      <tr
+                    {historySectionHeader(
+                      "seasonWinners",
+                      "Season Winners",
+                      visibleSeasonWinnerHistory.length
+                        ? `${visibleSeasonWinnerHistory.length} season${visibleSeasonWinnerHistory.length === 1 ? "" : "s"} recorded`
+                        : "Appears once the final gameweek is complete"
+                    )}
+
+                    {historySectionsOpen.seasonWinners && (
+                      <div style={{ display: "grid", gap: 8, padding: 10 }}>
+                        {visibleSeasonWinnerHistory.length === 0 ? (
+                          <div
+                            style={{
+                              color: theme.muted,
+                              fontSize: 13,
+                              padding: "8px 6px",
+                            }}
+                          >
+                            No season winners recorded yet.
+                          </div>
+                        ) : (
+                          visibleSeasonWinnerHistory.map((record) => (
+                            <div
+                              key={record.id}
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: isMobile ? "1fr" : "120px 1fr auto",
+                                gap: isMobile ? 6 : 12,
+                                alignItems: "center",
+                                padding: "10px 12px",
+                                borderRadius: 10,
+                                background: theme.panelHi,
+                                border: `1px solid ${theme.line}`,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontWeight: 800,
+                                  color: theme.accent,
+                                  fontSize: 14,
+                                }}
+                              >
+                                {record.seasonLabel || record.modeLabel}
+                              </div>
+                              <div style={{ minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontSize: 16,
+                                    fontWeight: 900,
+                                    color: theme.text,
+                                    overflowWrap: "anywhere",
+                                  }}
+                                >
+                                  {(record.winners || []).map((winner) => winner.player).join(", ")}
+                                </div>
+                                <div style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>
+                                  {record.modeLabel} • {getModeGameweekLabel(record.mode, record.finalGameweek)} complete
+                                </div>
+                              </div>
+                              <div
+                                style={{
+                                  justifySelf: isMobile ? "start" : "end",
+                                  color: theme.accent2,
+                                  fontWeight: 900,
+                                  fontSize: 16,
+                                }}
+                              >
+                                {Number(record.points) || 0} pts
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      border: `1px solid ${theme.line}`,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      background: theme.panel,
+                    }}
+                  >
+                    {historySectionHeader(
+                      "weeklyScores",
+                      "Weekly scores",
+                      `${historicalScores.length} ${isWorldCupMode ? "matchday" : "gameweek"}${historicalScores.length === 1 ? "" : "s"}`
+                    )}
+
+                    {historySectionsOpen.weeklyScores && (
+                      <div
                         style={{
-                          position: "sticky",
-                          top: 0,
-                          zIndex: 4,
+                          overflowX: "auto",
+                          overflowY: "auto",
+                          maxHeight: "70vh",
+                          position: "relative",
+                          padding: "0 0 10px",
                           background: theme.panel,
                         }}
                       >
-                        <th
+                        <table
                           style={{
-                            textAlign: "center",
-                            padding: isMobile ? "8px 10px" : "10px 12px",
-                            position: "sticky",
-                            left: 0,
-                            zIndex: 5,
-                            background: theme.panel,
-                            borderRight: `1px solid ${theme.line}`,
-                            borderBottom: `1px solid ${theme.line}`,
-                            fontWeight: 800,
-                            color: theme.accent,
-                            width: isMobile ? "54px" : "64px",
-                            minWidth: isMobile ? "54px" : "64px",
+                            width: "100%",
+                            borderCollapse: "separate",
+                            borderSpacing: 0,
+                            fontSize: isMobile ? 12 : 13,
                           }}
                         >
-                          {isWorldCupMode ? "MD" : "GW"}
-                        </th>
-                        {(isWorldCupMode ? leaderboard.map((row) => row.player) : PLAYERS).map((p) => (
-                          <th
-                            key={p}
-                            style={{
-                              textAlign: "center",
-                              padding: isMobile ? "8px 6px" : "10px 8px",
-                              borderBottom: `1px solid ${theme.line}`,
-                              fontWeight: 700,
-                              color: theme.accent,
-                              background: theme.panel,
-                              minWidth: isMobile ? "50px" : "58px",
-                            }}
-                            title={p}
-                          >
-                            {p.slice(0, 4)}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {historicalScores.map((row, idx) => {
-                        const historyPlayers = isWorldCupMode ? leaderboard.map((entry) => entry.player) : PLAYERS;
-                        const vals = historyPlayers.map((p) => Number(row[p]) || 0);
-                        const max = Math.max(...vals);
-                        const min = Math.min(...vals);
-                        const range = max - min || 1;
-                        const rowBg = theme.panelHi;
-
-                        return (
-                          <tr key={row.gameweek}>
-                            <td
+                          <thead>
+                            <tr
                               style={{
-                                padding: isMobile ? "8px 10px" : "10px 12px",
-                                color: theme.accent,
                                 position: "sticky",
-                                left: 0,
-                                zIndex: 3,
+                                top: 0,
+                                zIndex: 4,
                                 background: theme.panel,
-                                borderRight: `1px solid ${theme.line}`,
-                                fontWeight: 800,
-                                textAlign: "center",
-                                borderBottom:
-                                  idx < historicalScores.length - 1
-                                    ? `1px solid ${theme.line}`
-                                    : "none",
                               }}
                             >
-                              {isWorldCupMode ? row.gameweek : getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
-                            </td>
-                            {historyPlayers.map((p) => {
-                              const v = Number(row[p]) || 0;
-                              const shade = (v - min) / range;
-                              const isWinner = v === max && max > 0;
-                              return (
-                                <td
+                              <th
+                                style={{
+                                  textAlign: "center",
+                                  padding: isMobile ? "8px 10px" : "10px 12px",
+                                  position: "sticky",
+                                  left: 0,
+                                  zIndex: 5,
+                                  background: theme.panel,
+                                  borderRight: `1px solid ${theme.line}`,
+                                  borderBottom: `1px solid ${theme.line}`,
+                                  fontWeight: 800,
+                                  color: theme.accent,
+                                  width: isMobile ? "54px" : "64px",
+                                  minWidth: isMobile ? "54px" : "64px",
+                                }}
+                              >
+                                {isWorldCupMode ? "MD" : "GW"}
+                              </th>
+                              {historyPlayers.map((p) => (
+                                <th
                                   key={p}
                                   style={{
-                                    padding: isMobile ? "8px 6px" : "10px 8px",
                                     textAlign: "center",
-                                    background: isWinner
-                                      ? `rgba(34,197,94,${0.28 + 0.37 * shade})`
-                                      : rowBg,
-                                    fontWeight: isWinner ? 800 : 500,
-                                    color: isWinner ? "#ffffff" : theme.text,
-                                    borderBottom:
-                                      idx < historicalScores.length - 1
-                                        ? `1px solid ${theme.line}`
-                                        : "none",
+                                    padding: isMobile ? "8px 6px" : "10px 8px",
+                                    borderBottom: `1px solid ${theme.line}`,
+                                    fontWeight: 700,
+                                    color: theme.accent,
+                                    background: theme.panel,
+                                    minWidth: isMobile ? "50px" : "58px",
                                   }}
+                                  title={p}
                                 >
-                                  {v}
-                                </td>
+                                  {p.slice(0, 4)}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {historicalScores.map((row, idx) => {
+                              const vals = historyPlayers.map((p) => Number(row[p]) || 0);
+                              const max = Math.max(...vals);
+                              const min = Math.min(...vals);
+                              const range = max - min || 1;
+                              const rowBg = theme.panelHi;
+
+                              return (
+                                <tr key={row.gameweek}>
+                                  <td
+                                    style={{
+                                      padding: isMobile ? "8px 10px" : "10px 12px",
+                                      color: theme.accent,
+                                      position: "sticky",
+                                      left: 0,
+                                      zIndex: 3,
+                                      background: theme.panel,
+                                      borderRight: `1px solid ${theme.line}`,
+                                      fontWeight: 800,
+                                      textAlign: "center",
+                                      borderBottom:
+                                        idx < historicalScores.length - 1
+                                          ? `1px solid ${theme.line}`
+                                          : "none",
+                                    }}
+                                  >
+                                    {isWorldCupMode ? row.gameweek : getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
+                                  </td>
+                                  {historyPlayers.map((p) => {
+                                    const v = Number(row[p]) || 0;
+                                    const shade = (v - min) / range;
+                                    const isWinner = v === max && max > 0;
+                                    return (
+                                      <td
+                                        key={p}
+                                        style={{
+                                          padding: isMobile ? "8px 6px" : "10px 8px",
+                                          textAlign: "center",
+                                          background: isWinner
+                                            ? `rgba(34,197,94,${0.28 + 0.37 * shade})`
+                                            : rowBg,
+                                          fontWeight: isWinner ? 800 : 500,
+                                          color: isWinner ? "#ffffff" : theme.text,
+                                          borderBottom:
+                                            idx < historicalScores.length - 1
+                                              ? `1px solid ${theme.line}`
+                                              : "none",
+                                        }}
+                                      >
+                                        {v}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
                               );
                             })}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
             );

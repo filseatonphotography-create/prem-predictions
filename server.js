@@ -180,6 +180,7 @@ const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
 const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
+const SEASON_WINNERS_FILE = path.join(DATA_DIR, "seasonWinners.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
@@ -354,6 +355,9 @@ const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
 // Totals/history (leagueId -> { weeklyTotals, leagueTotals, updatedAt })
 const loadTotals = () => loadJson(TOTALS_FILE, {});
 const saveTotals = (t) => saveJson(TOTALS_FILE, t);
+const loadSeasonWinners = () => loadJson(SEASON_WINNERS_FILE, []);
+const saveSeasonWinners = (records) =>
+  saveJson(SEASON_WINNERS_FILE, Array.isArray(records) ? records : []);
 
 // Legacy map (legacyName -> userId)
 const loadLegacyMap = () => loadJson(LEGACY_MAP_FILE, {});
@@ -2272,6 +2276,66 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error("totals/league save error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/history/season-winners", (req, res) => {
+  try {
+    const records = loadSeasonWinners();
+    return res.json(Array.isArray(records) ? records : []);
+  } catch (err) {
+    console.error("season winners get error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/history/season-winners", authOptional, (req, res) => {
+  try {
+    const record = req.body?.record;
+    if (!record || typeof record !== "object" || !record.id) {
+      return res.status(400).json({ error: "Invalid season winner record" });
+    }
+
+    const safeRecord = {
+      id: String(record.id),
+      mode: String(record.mode || ""),
+      modeLabel: String(record.modeLabel || ""),
+      seasonLabel: String(record.seasonLabel || ""),
+      finalGameweek: Number(record.finalGameweek) || 0,
+      points: Number(record.points) || 0,
+      completedAt: String(record.completedAt || new Date().toISOString()),
+      winners: Array.isArray(record.winners)
+        ? record.winners.map((winner) => ({
+            player: String(winner?.player || ""),
+            userId: winner?.userId ? String(winner.userId) : null,
+            points: Number(winner?.points) || 0,
+          })).filter((winner) => winner.player)
+        : [],
+    };
+
+    if (!safeRecord.mode || safeRecord.winners.length === 0) {
+      return res.status(400).json({ error: "Invalid season winner record" });
+    }
+
+    const records = loadSeasonWinners();
+    const list = Array.isArray(records) ? records : [];
+    const existingIndex = list.findIndex((item) => item?.id === safeRecord.id);
+
+    if (existingIndex === -1) {
+      list.unshift(safeRecord);
+    } else {
+      list[existingIndex] = {
+        ...list[existingIndex],
+        ...safeRecord,
+        completedAt: list[existingIndex].completedAt || safeRecord.completedAt,
+      };
+    }
+
+    saveSeasonWinners(list);
+    return res.json(list);
+  } catch (err) {
+    console.error("season winners save error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

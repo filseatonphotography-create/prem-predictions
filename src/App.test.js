@@ -2,6 +2,7 @@ import {
   normalizeTeamName,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
+  sortFixturesByOrderOfPlay,
 } from "./App";
 
 describe("World Cup sync helpers", () => {
@@ -84,5 +85,21 @@ describe("World Cup sync helpers", () => {
         utcDate: "2026-06-13T17:00:00Z",
       },
     });
+  });
+
+  test("sorts fixtures by updated kickoff time while preserving same-time order", () => {
+    const unsortedFixtures = [
+      { id: "late", kickoff: "2026-05-17T16:30:00Z" },
+      { id: "same-1", kickoff: "2026-05-17T14:00:00Z" },
+      { id: "early", kickoff: "2026-05-16T11:30:00Z" },
+      { id: "same-2", kickoff: "2026-05-17T14:00:00Z" },
+    ];
+
+    expect(sortFixturesByOrderOfPlay(unsortedFixtures).map((f) => f.id)).toEqual([
+      "early",
+      "same-1",
+      "same-2",
+      "late",
+    ]);
   });
 });
