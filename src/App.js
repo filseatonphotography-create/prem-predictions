@@ -1174,6 +1174,27 @@ function isGameweekLocked(gameweek, fixturesSource = FIXTURES) {
   return Date.now() > earliestDeadline;
 }
 
+function getPredictionLandingGameweek(fixturesSource = FIXTURES, gameweeks = GAMEWEEKS) {
+  const now = Date.now();
+  const sortedGameweeks = [...gameweeks].sort((a, b) => a - b);
+  const currentOrUpcoming = sortedGameweeks.find((gw) => {
+    const fixtures = fixturesSource.filter((fixture) => fixture.gameweek === gw);
+    if (!fixtures.length) return false;
+    const latestKickoff = Math.max(
+      ...fixtures.map((fixture) => Date.parse(fixture.kickoff)).filter(Number.isFinite)
+    );
+    return Number.isFinite(latestKickoff) && latestKickoff >= now;
+  });
+
+  if (currentOrUpcoming) return currentOrUpcoming;
+
+  const firstUpcomingFixture = [...fixturesSource]
+    .filter((fixture) => Date.parse(fixture.kickoff) > now)
+    .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff))[0];
+
+  return firstUpcomingFixture?.gameweek || sortedGameweeks[0] || 1;
+}
+
 // --- TEAM RATINGS FOR MODELLED ODDS ---
 // Based on the 2025/26 table + current form snapshot you sent
 const TEAM_RATINGS = {
@@ -3516,11 +3537,18 @@ useEffect(() => {
         mode === "signup"
           ? await apiSignup(name, pwd, email, favoriteTeam)
           : await apiLogin(name, pwd);
+      const landingGameweek = getPredictionLandingGameweek(activeFixtures, activeGameweeks);
 
       setIsLoggedIn(true);
       setAuthToken(result.token);
       setCurrentUserId(result.userId);
       setCurrentPlayer(result.username);
+      setActiveView("predictions");
+      setSelectedGameweek(landingGameweek);
+      setSelectedGameweekByMode((prev) => ({
+        ...prev,
+        [gameMode]: landingGameweek,
+      }));
       setLoginPassword("");
       setSignupPassword("");
       setSignupEmail("");
@@ -3534,6 +3562,9 @@ useEffect(() => {
       if (mode === "signup" && result.userId) {
         setWelcomePendingUserId(String(result.userId));
       }
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      });
       setAuthLoading(false);
     } catch (err) {
       setAuthLoading(false);
