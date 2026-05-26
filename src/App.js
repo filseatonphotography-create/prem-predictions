@@ -2546,6 +2546,7 @@ function formatCountdownFixtureMeta(fixture, mode) {
   const [leagueError, setLeagueError] = useState("");
   const [leagueSuccess, setLeagueSuccess] = useState("");
   const [leaguesLoading, setLeaguesLoading] = useState(false);
+  const [copiedLeagueCodeId, setCopiedLeagueCodeId] = useState("");
   const [miniLeagueLeaderboardRows, setMiniLeagueLeaderboardRows] = useState([]);
   const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
   const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
@@ -3911,6 +3912,36 @@ setNewPasswordInput("");
       await handleLoadLeagues();
     } catch (err) {
       setLeagueError(err.message || "Failed to join league.");
+    }
+  };
+
+  const copyLeagueCode = async (league) => {
+    const code = String(league?.joinCode || "").trim();
+    if (!code) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(code);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = code;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.top = "-9999px";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setCopiedLeagueCodeId(league.id);
+      setLeagueError("");
+      setLeagueSuccess(`Copied code ${code}.`);
+      window.setTimeout(() => {
+        setCopiedLeagueCodeId((currentId) => (currentId === league.id ? "" : currentId));
+      }, 1800);
+    } catch (err) {
+      setLeagueSuccess("");
+      setLeagueError("Could not copy the code. Press and hold the code to copy it.");
     }
   };
 
@@ -9886,10 +9917,62 @@ const TABS = [
                   >
                     <div>
                       <div style={{ fontWeight: 800 }}>{l.name}</div>
-                      <div style={{ fontSize: 12, color: theme.muted }}>
-                        Code: {l.joinCode} • Members: {l.memberCount}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginTop: 4,
+                          fontSize: 12,
+                          color: theme.muted,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => copyLeagueCode(l)}
+                          title="Copy join code"
+                          style={{
+                            padding: "4px 7px",
+                            borderRadius: 7,
+                            border: `1px solid ${theme.line}`,
+                            background: theme.panel,
+                            color: theme.text,
+                            cursor: "pointer",
+                            fontSize: 12,
+                            fontWeight: 800,
+                            letterSpacing: 0.4,
+                          }}
+                        >
+                          Code: {l.joinCode}
+                        </button>
+                        <span>Members: {l.memberCount}</span>
                       </div>
                     </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <button
+                      type="button"
+                      onClick={() => copyLeagueCode(l)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${theme.line}`,
+                        background:
+                          String(copiedLeagueCodeId || "") === String(l.id)
+                            ? theme.accent2
+                            : theme.panel,
+                        color:
+                          String(copiedLeagueCodeId || "") === String(l.id)
+                            ? "#06240f"
+                            : theme.text,
+                        cursor: "pointer",
+                        fontSize: 13,
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {String(copiedLeagueCodeId || "") === String(l.id) ? "Copied" : "Copy code"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -9916,6 +9999,7 @@ const TABS = [
                     >
                       View table
                     </button>
+                    </div>
                   </div>
                 ))}
                 {!myLeagues.length && (
