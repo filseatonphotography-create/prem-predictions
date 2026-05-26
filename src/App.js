@@ -5092,18 +5092,20 @@ if (!isLoggedIn) {
       <div style={{ display: "grid", gap: 18 }}>
         <header
           style={{
-            display: "flex",
+            display: "grid",
             alignItems: "center",
             justifyContent: "center",
-            gap: 12,
-            marginBottom: 2,
+            justifyItems: "center",
+            gap: 8,
+            marginBottom: 6,
+            textAlign: "center",
           }}
         >
           <div
             style={{
-              width: isMobile ? 42 : 52,
-              height: isMobile ? 42 : 52,
-              borderRadius: 14,
+              width: isMobile ? 62 : 78,
+              height: isMobile ? 62 : 78,
+              borderRadius: 20,
               overflow: "hidden",
               boxShadow: "0 14px 28px rgba(0,0,0,0.28)",
             }}
@@ -5114,11 +5116,11 @@ if (!isLoggedIn) {
               style={{ width: "100%", height: "100%" }}
             />
           </div>
-          <div style={{ textAlign: "center" }}>
+          <div style={{ textAlign: "center", display: "grid", gap: 3 }}>
             <h1
               style={{
                 margin: 0,
-                fontSize: isMobile ? 24 : 34,
+                fontSize: isMobile ? 27 : 38,
                 letterSpacing: 0.6,
                 textTransform: "uppercase",
                 color: theme.accent,
@@ -5145,18 +5147,19 @@ if (!isLoggedIn) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
+              gridTemplateColumns: "1fr",
               gap: isMobile ? 16 : 18,
               alignItems: "center",
             }}
           >
-            <div style={{ display: "grid", gap: 16 }}>
-              <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "grid", gap: 16, justifyItems: "center", textAlign: "center" }}>
+              <div style={{ display: "grid", gap: 12, justifyItems: "center" }}>
                 <div
                   style={{
                     display: "inline-flex",
                     width: "fit-content",
                     alignItems: "center",
+                    justifyContent: "center",
                     gap: 8,
                     padding: "6px 12px",
                     borderRadius: 999,
@@ -5171,7 +5174,7 @@ if (!isLoggedIn) {
                 >
                   Prediction hub
                 </div>
-                <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "grid", gap: 8, justifyItems: "center" }}>
                   <h2
                     style={{
                       margin: 0,
@@ -5179,6 +5182,7 @@ if (!isLoggedIn) {
                       lineHeight: 1.04,
                       color: "#ffffff",
                       letterSpacing: -0.8,
+                      textAlign: "center",
                     }}
                   >
                     Predict every score.
@@ -5192,6 +5196,7 @@ if (!isLoggedIn) {
                       color: theme.muted,
                       fontSize: isMobile ? 15 : 17,
                       lineHeight: 1.5,
+                      textAlign: "center",
                     }}
                   >
                     Make weekly predictions, back your calls with coins, track live probabilities,
@@ -5200,7 +5205,7 @@ if (!isLoggedIn) {
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -5224,7 +5229,14 @@ if (!isLoggedIn) {
                   type="button"
                   onClick={() => {
                     setShowSignupPanel(true);
-                    document.getElementById("auth-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    window.requestAnimationFrame(() => {
+                      window.requestAnimationFrame(() => {
+                        document.getElementById("signup-panel")?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        });
+                      });
+                    });
                   }}
                   style={{
                     minWidth: isMobile ? "100%" : 180,
@@ -5248,6 +5260,8 @@ if (!isLoggedIn) {
                   display: "grid",
                   gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
                   gap: 10,
+                  width: "100%",
+                  maxWidth: 760,
                 }}
               >
                 {[
@@ -5268,60 +5282,6 @@ if (!isLoggedIn) {
                     <div style={{ marginTop: 4, color: theme.muted, fontSize: 12, lineHeight: 1.4 }}>{text}</div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gap: 12,
-              }}
-            >
-              <div
-                style={{
-                  position: "relative",
-                  overflow: "hidden",
-                  borderRadius: 22,
-                  border: `1px solid ${theme.line}`,
-                  background: theme.panelHi,
-                  minHeight: isMobile ? 220 : 320,
-                }}
-              >
-                <img
-                  src="/auth-showcase/predictions.jpg"
-                  alt="Prediction Addiction predictions preview"
-                  style={{
-                    position: "absolute",
-                    right: isMobile ? -10 : -8,
-                    bottom: isMobile ? -30 : -44,
-                    width: isMobile ? "108%" : "104%",
-                    maxWidth: "none",
-                    borderRadius: 20,
-                    boxShadow: "0 24px 48px rgba(0,0,0,0.28)",
-                  }}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: "linear-gradient(180deg, rgba(9,14,28,0.04), rgba(9,14,28,0.48) 72%, rgba(9,14,28,0.78))",
-                  }}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    left: 16,
-                    right: 16,
-                    bottom: 16,
-                    display: "grid",
-                    gap: 4,
-                  }}
-                >
-                  <div style={{ color: "#ffffff", fontSize: 18, fontWeight: 800 }}>Built around your weekly flow</div>
-                  <div style={{ color: "rgba(255,255,255,0.74)", fontSize: 13 }}>
-                    Predictions, points, bells, coins, and deadlines in one clean loop.
-                  </div>
-                </div>
               </div>
             </div>
           </div>
@@ -5419,6 +5379,7 @@ if (!isLoggedIn) {
               <div style={{ height: 1, background: theme.line }} />
 
               <button
+                id="signup-panel"
                 type="button"
                 onClick={() => setShowSignupPanel((v) => !v)}
                 style={{
