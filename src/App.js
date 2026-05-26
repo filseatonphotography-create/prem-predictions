@@ -4442,6 +4442,9 @@ const globalWeeklyScores = useMemo(() => {
     const base = isWorldCupMode ? 0 : (SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0);
     scores[u.userId] = base;
   });
+  if (!isWorldCupMode) {
+    return scores;
+  }
   activeFixtures.forEach((fixture) => {
     if (fixture.gameweek !== gw) return;
     const res = results[fixture.id];
@@ -4474,6 +4477,10 @@ const globalLeaderboard = useMemo(() => {
       points: base,
     };
   });
+
+  if (!isWorldCupMode) {
+    return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
+  }
 
   activeFixtures.forEach((fixture) => {
     const res = results[fixture.id];
@@ -9168,6 +9175,7 @@ const TABS = [
             mostBingpots: { name: "", count: 0 },
             mostForgetful: { name: "", missed: 0 },
             bestGameweek: { name: "", points: 0, gameweek: 0 },
+            bestGambler: { name: "", coins: 0 },
             mostBackedCountry: { name: "", count: 0 }
           };
 
@@ -9308,14 +9316,12 @@ const TABS = [
                   color: "#F59E0B"
                 }])
           ];
-          if (stats.bestGambler?.name) {
-            categories.splice(3, 0, {
-              title: "💰 Best Gambler",
-              player: stats.bestGambler?.name || "—",
-              value: stats.bestGambler?.name ? `${stats.bestGambler.coins >= 0 ? '+' : ''}${typeof stats.bestGambler.coins === 'number' ? stats.bestGambler.coins.toFixed(2) : stats.bestGambler.coins} coins` : "—",
-              color: "#22C55E"
-            });
-          }
+          categories.splice(3, 0, {
+            title: "💰 Best Gambler",
+            player: stats.bestGambler?.name || "—",
+            value: stats.bestGambler?.name ? `${stats.bestGambler.coins >= 0 ? '+' : ''}${typeof stats.bestGambler.coins === 'number' ? stats.bestGambler.coins.toFixed(2) : stats.bestGambler.coins} coins` : "0.00 coins",
+            color: "#22C55E"
+          });
 
           return (
             <section style={cardStyle}>
