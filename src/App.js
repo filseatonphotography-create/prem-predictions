@@ -65,6 +65,7 @@ const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const WELCOME_PENDING_STORAGE_KEY = "prediction_welcome_pending_user_v1";
 const WELCOME_SEEN_STORAGE_KEY = "prediction_welcome_seen_users_v1";
+const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
@@ -2186,6 +2187,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [historySectionsOpen, setHistorySectionsOpen] = useState({
     seasonWinners: true,
+    weeklyScores: false,
   });
   const [seasonWinnerHistory, setSeasonWinnerHistory] = useState(() => {
     try {
@@ -2768,13 +2770,18 @@ useEffect(() => {
       // 1) restore app cache (pred/results/odds)
       try {
       const saved = localStorage.getItem(STORAGE_KEY);
+      const premierSeasonResetApplied =
+        localStorage.getItem(PREMIER_SEASON_RESET_STORAGE_KEY) === "true";
       if (saved) {
         const parsed = JSON.parse(saved);
-        setPredictions(parsed.predictions || {});
+        setPredictions(premierSeasonResetApplied ? parsed.predictions || {} : {});
         setResults(parsed.results || {});
         setOdds(parsed.odds || {});
         if (parsed.selectedGameweek)
           setSelectedGameweek(parsed.selectedGameweek);
+      }
+      if (!premierSeasonResetApplied) {
+        localStorage.setItem(PREMIER_SEASON_RESET_STORAGE_KEY, "true");
       }
     } catch {}
 
@@ -9323,6 +9330,7 @@ const TABS = [
         {/* History */}
         {activeView === "history" && (
           (() => {
+            const historyPlayers = isWorldCupMode ? leaderboard.map((entry) => entry.player) : PLAYERS;
             const toggleHistorySection = (section) => {
               setHistorySectionsOpen((prev) => ({
                 ...prev,
@@ -9469,6 +9477,148 @@ const TABS = [
                             </div>
                           ))
                         )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      border: `1px solid ${theme.line}`,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      background: theme.panel,
+                    }}
+                  >
+                    {historySectionHeader(
+                      "weeklyScores",
+                      "Weekly scores",
+                      `${historicalScores.length} ${isWorldCupMode ? "matchday" : "gameweek"}${historicalScores.length === 1 ? "" : "s"}`
+                    )}
+
+                    {historySectionsOpen.weeklyScores && (
+                      <div
+                        style={{
+                          overflowX: "auto",
+                          overflowY: "auto",
+                          maxHeight: "70vh",
+                          position: "relative",
+                          padding: "0 0 10px",
+                          background: theme.panel,
+                        }}
+                      >
+                        <table
+                          style={{
+                            width: "100%",
+                            borderCollapse: "separate",
+                            borderSpacing: 0,
+                            fontSize: isMobile ? 12 : 13,
+                          }}
+                        >
+                          <thead>
+                            <tr
+                              style={{
+                                position: "sticky",
+                                top: 0,
+                                zIndex: 4,
+                                background: theme.panel,
+                              }}
+                            >
+                              <th
+                                style={{
+                                  textAlign: "center",
+                                  padding: isMobile ? "8px 10px" : "10px 12px",
+                                  position: "sticky",
+                                  left: 0,
+                                  zIndex: 5,
+                                  background: theme.panel,
+                                  borderRight: `1px solid ${theme.line}`,
+                                  borderBottom: `1px solid ${theme.line}`,
+                                  fontWeight: 800,
+                                  color: theme.accent,
+                                  width: isMobile ? "54px" : "64px",
+                                  minWidth: isMobile ? "54px" : "64px",
+                                }}
+                              >
+                                {isWorldCupMode ? "MD" : "GW"}
+                              </th>
+                              {historyPlayers.map((p) => (
+                                <th
+                                  key={p}
+                                  style={{
+                                    textAlign: "center",
+                                    padding: isMobile ? "8px 6px" : "10px 8px",
+                                    borderBottom: `1px solid ${theme.line}`,
+                                    fontWeight: 700,
+                                    color: theme.accent,
+                                    background: theme.panel,
+                                    minWidth: isMobile ? "50px" : "58px",
+                                  }}
+                                  title={p}
+                                >
+                                  {p.slice(0, 4)}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {historicalScores.map((row, idx) => {
+                              const vals = historyPlayers.map((p) => Number(row[p]) || 0);
+                              const max = Math.max(...vals);
+                              const min = Math.min(...vals);
+                              const range = max - min || 1;
+                              const rowBg = theme.panelHi;
+
+                              return (
+                                <tr key={row.gameweek}>
+                                  <td
+                                    style={{
+                                      padding: isMobile ? "8px 10px" : "10px 12px",
+                                      color: theme.accent,
+                                      position: "sticky",
+                                      left: 0,
+                                      zIndex: 3,
+                                      background: theme.panel,
+                                      borderRight: `1px solid ${theme.line}`,
+                                      fontWeight: 800,
+                                      textAlign: "center",
+                                      borderBottom:
+                                        idx < historicalScores.length - 1
+                                          ? `1px solid ${theme.line}`
+                                          : "none",
+                                    }}
+                                  >
+                                    {isWorldCupMode ? row.gameweek : getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
+                                  </td>
+                                  {historyPlayers.map((p) => {
+                                    const v = Number(row[p]) || 0;
+                                    const shade = (v - min) / range;
+                                    const isWinner = v === max && max > 0;
+                                    return (
+                                      <td
+                                        key={p}
+                                        style={{
+                                          padding: isMobile ? "8px 6px" : "10px 8px",
+                                          textAlign: "center",
+                                          background: isWinner
+                                            ? `rgba(34,197,94,${0.28 + 0.37 * shade})`
+                                            : rowBg,
+                                          fontWeight: isWinner ? 800 : 500,
+                                          color: isWinner ? "#ffffff" : theme.text,
+                                          borderBottom:
+                                            idx < historicalScores.length - 1
+                                              ? `1px solid ${theme.line}`
+                                              : "none",
+                                        }}
+                                      >
+                                        {v}
+                                      </td>
+                                    );
+                                  })}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
