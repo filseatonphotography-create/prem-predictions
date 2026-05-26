@@ -4508,6 +4508,10 @@ useEffect(() => {
 
   const gwFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
   if (!gwFixtures.length) return;
+  const completedGwFixtures = gwFixtures.filter((fixture) =>
+    isFixtureCompleted(fixture, results)
+  );
+  if (!completedGwFixtures.length) return;
   const lastKickoff = Math.max(
     ...gwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
   );
@@ -4523,6 +4527,7 @@ useEffect(() => {
     const gwTotals = computedWeeklyTotals?.[selectedGameweek];
     if (!gwTotals) return;
     const max = Math.max(...Object.values(gwTotals).map((v) => Number(v) || 0));
+    if (!Number.isFinite(max) || max <= 0) return;
     winners = Object.entries(gwTotals)
       .filter(([, v]) => (Number(v) || 0) === max)
       .map(([player, points]) => ({ player, points }));
@@ -4531,6 +4536,7 @@ useEffect(() => {
     const entries = Object.entries(scores);
     if (!entries.length) return;
     const max = Math.max(...entries.map(([, v]) => Number(v) || 0));
+    if (!Number.isFinite(max) || max <= 0) return;
     winners = entries
       .filter(([, v]) => (Number(v) || 0) === max)
       .map(([userId, points]) => {
@@ -4551,6 +4557,8 @@ useEffect(() => {
   computedWeeklyTotals,
   globalWeeklyScores,
   globalUsers,
+  activeFixtures,
+  results,
   isLoggedIn,
   currentUserId,
 ]);
@@ -4585,6 +4593,7 @@ useEffect(() => {
   if (activeView === "league") {
     if (!leaderboard || leaderboard.length === 0) return;
     const max = Math.max(...leaderboard.map((r) => Number(r.points) || 0));
+    if (!Number.isFinite(max) || max <= 0) return;
     winners = leaderboard
       .filter((r) => (Number(r.points) || 0) === max)
       .map((r) => ({
@@ -4595,6 +4604,7 @@ useEffect(() => {
   } else {
     if (!globalLeaderboard || globalLeaderboard.length === 0) return;
     const max = Math.max(...globalLeaderboard.map((r) => Number(r.points) || 0));
+    if (!Number.isFinite(max) || max <= 0) return;
     winners = globalLeaderboard
       .filter((r) => (Number(r.points) || 0) === max)
       .map((r) => ({
@@ -9489,8 +9499,8 @@ const TABS = [
                               key={record.id}
                               style={{
                                 display: "grid",
-                                gridTemplateColumns: isMobile ? "1fr" : "120px 1fr auto",
-                                gap: isMobile ? 6 : 12,
+                                gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                                gap: isMobile ? 10 : 12,
                                 alignItems: "center",
                                 padding: "10px 12px",
                                 borderRadius: 10,
@@ -9503,31 +9513,31 @@ const TABS = [
                                   fontWeight: 800,
                                   color: theme.accent,
                                   fontSize: 14,
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 {record.seasonLabel || record.modeLabel}
                               </div>
-                              <div style={{ minWidth: 0 }}>
-                                <div
-                                  style={{
-                                    fontSize: 16,
-                                    fontWeight: 900,
-                                    color: theme.text,
-                                    overflowWrap: "anywhere",
-                                  }}
-                                >
-                                  {(record.winners || []).map((winner) => winner.player).join(", ")}
-                                </div>
-                                <div style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>
-                                  {record.modeLabel} • {getModeGameweekLabel(record.mode, record.finalGameweek)} complete
-                                </div>
+                              <div
+                                style={{
+                                  minWidth: 0,
+                                  fontSize: 16,
+                                  fontWeight: 900,
+                                  color: theme.text,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {(record.winners || []).map((winner) => winner.player).join(", ")}
                               </div>
                               <div
                                 style={{
-                                  justifySelf: isMobile ? "start" : "end",
+                                  justifySelf: "end",
                                   color: theme.accent2,
                                   fontWeight: 900,
                                   fontSize: 16,
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 {Number(record.points) || 0} pts
