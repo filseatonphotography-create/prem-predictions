@@ -171,6 +171,11 @@ function normalizeLeagueMode(mode) {
     : "premier";
 }
 
+function leagueMatchesMode(league, mode) {
+  if (!league || !league.mode) return true;
+  return normalizeLeagueMode(league.mode) === normalizeLeagueMode(mode);
+}
+
 function getFixturesForMode(mode) {
   return normalizeLeagueMode(mode) === "worldcup"
     ? loadWorldCupFixturesFromSrc()
@@ -1901,7 +1906,7 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
         const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
         return { raw: league, members, joinCode };
       })
-      .filter((w) => normalizeLeagueMode(w.raw.mode) === mode)
+      .filter((w) => leagueMatchesMode(w.raw, mode))
       .filter((w) => w.members.includes(userId))
       .map((w) => ({
         id: w.raw.id,
@@ -1935,7 +1940,7 @@ app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
       });
 
     const leaderboard = leagues
-      .filter((league) => normalizeLeagueMode(league.mode) === mode)
+      .filter((league) => leagueMatchesMode(league, mode))
       .map((league) => {
       const members = Array.isArray(league.members)
         ? league.members
@@ -2042,7 +2047,7 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
     const leagues = loadLeagues();
     const league = leagues.find((l) => {
       const stored = (l.joinCode || l.inviteCode || "").toUpperCase();
-      return stored === code && normalizeLeagueMode(l.mode) === mode;
+      return stored === code && leagueMatchesMode(l, mode);
     });
 
     if (!league) return res.status(404).json({ error: "Mini-league not found." });
@@ -2283,7 +2288,13 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
 app.get("/api/history/season-winners", (req, res) => {
   try {
     const records = loadSeasonWinners();
-    return res.json(Array.isArray(records) ? records : []);
+    const validRecords = (Array.isArray(records) ? records : []).filter(
+      (record) =>
+        Number(record?.points) > 0 &&
+        Array.isArray(record?.winners) &&
+        record.winners.some((winner) => Number(winner?.points) > 0)
+    );
+    return res.json(validRecords);
   } catch (err) {
     console.error("season winners get error", err);
     return res.status(500).json({ error: "Internal server error" });
@@ -2314,7 +2325,7 @@ app.post("/api/history/season-winners", authOptional, (req, res) => {
         : [],
     };
 
-    if (!safeRecord.mode || safeRecord.winners.length === 0) {
+    if (!safeRecord.mode || safeRecord.winners.length === 0 || safeRecord.points <= 0) {
       return res.status(400).json({ error: "Invalid season winner record" });
     }
 

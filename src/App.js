@@ -3729,8 +3729,10 @@ useEffect(() => {
     if (!isWorldCupMode || !isLoggedIn || !currentUserId || !accountMeLoaded) return;
     if (resolvedAccountFavoriteCountry) return;
     const promptKey = `wc_favorite_prompt_seen_${currentUserId}`;
-    if (localStorage.getItem(promptKey) === "true") return;
-    setShowWorldCupFavoritePrompt(true);
+    if (localStorage.getItem(promptKey) !== "true") {
+      localStorage.setItem(promptKey, "true");
+    }
+    setShowWorldCupFavoritePrompt(false);
   }, [isWorldCupMode, isLoggedIn, currentUserId, accountMeLoaded, resolvedAccountFavoriteCountry]);
 
   useEffect(() => {
@@ -4660,6 +4662,8 @@ const currentSeasonWinnerRecord = useMemo(() => {
   const maxPoints = Math.max(
     ...leaderboard.map((row) => Number(row.points) || 0)
   );
+  if (!Number.isFinite(maxPoints) || maxPoints <= 0) return null;
+
   const winners = leaderboard
     .filter((row) => (Number(row.points) || 0) === maxPoints)
     .map((row) => ({
@@ -4722,6 +4726,10 @@ const visibleSeasonWinnerHistory = useMemo(
   () =>
     (seasonWinnerHistory || [])
       .filter((record) => record.mode === gameMode)
+      .filter((record) => Number(record.points) > 0)
+      .filter((record) =>
+        (record.winners || []).some((winner) => Number(winner?.points) > 0)
+      )
       .sort((a, b) => {
         const aTime = Date.parse(a.completedAt);
         const bTime = Date.parse(b.completedAt);
