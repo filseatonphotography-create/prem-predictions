@@ -65,7 +65,7 @@ const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const WELCOME_PENDING_STORAGE_KEY = "prediction_welcome_pending_user_v1";
 const WELCOME_SEEN_STORAGE_KEY = "prediction_welcome_seen_users_v1";
-const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v1";
+const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v2";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
@@ -73,6 +73,16 @@ const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
+const PREMIER_SEASON_WINNER_RECORD = {
+  id: "premier-2025/26",
+  mode: PREMIER_MODE,
+  modeLabel: "Premier League",
+  seasonLabel: "2025/26",
+  finalGameweek: 38,
+  winners: [{ player: "Phil", userId: "1763874000000", points: 643 }],
+  points: 643,
+  completedAt: "2026-05-24T15:00:00.000Z",
+};
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const TEAM_BADGES = {
   Arsenal: "/badges/Arsenal.png",
@@ -235,6 +245,24 @@ function getWorldCupFixtureLabel(fixture) {
 
 function getWorldCupFlag(teamName) {
   return WORLD_CUP_FLAGS[(teamName || "").trim()] || "";
+}
+
+const WORLD_CUP_FIXTURE_ID_SET = new Set(
+  WORLD_CUP_FIXTURES.map((fixture) => String(fixture.id))
+);
+
+function keepOnlyWorldCupPredictions(allPredictions = {}) {
+  const cleaned = {};
+  Object.entries(allPredictions || {}).forEach(([playerKey, playerPredictions]) => {
+    const kept = {};
+    Object.entries(playerPredictions || {}).forEach(([fixtureId, prediction]) => {
+      if (WORLD_CUP_FIXTURE_ID_SET.has(String(fixtureId))) {
+        kept[fixtureId] = prediction;
+      }
+    });
+    if (Object.keys(kept).length) cleaned[playerKey] = kept;
+  });
+  return cleaned;
 }
 
 // Simple avatar renderer using DiceBear styles
@@ -664,9 +692,12 @@ async function apiGetSeasonWinners() {
     const res = await fetch(`${BACKEND_BASE}/api/history/season-winners`);
     if (!res.ok) return [];
     const data = await res.json().catch(() => []);
-    return Array.isArray(data) ? data : [];
+    return mergeSeasonWinnerRecords(
+      [PREMIER_SEASON_WINNER_RECORD],
+      Array.isArray(data) ? data : []
+    );
   } catch {
-    return [];
+    return [PREMIER_SEASON_WINNER_RECORD];
   }
 }
 
@@ -2193,9 +2224,12 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     try {
       const saved = localStorage.getItem(SEASON_WINNERS_STORAGE_KEY);
       const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
+      return mergeSeasonWinnerRecords(
+        [PREMIER_SEASON_WINNER_RECORD],
+        Array.isArray(parsed) ? parsed : []
+      );
     } catch {
-      return [];
+      return [PREMIER_SEASON_WINNER_RECORD];
     }
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
@@ -2774,7 +2808,11 @@ useEffect(() => {
         localStorage.getItem(PREMIER_SEASON_RESET_STORAGE_KEY) === "true";
       if (saved) {
         const parsed = JSON.parse(saved);
-        setPredictions(premierSeasonResetApplied ? parsed.predictions || {} : {});
+        setPredictions(
+          premierSeasonResetApplied
+            ? keepOnlyWorldCupPredictions(parsed.predictions || {})
+            : {}
+        );
         setResults(parsed.results || {});
         setOdds(parsed.odds || {});
         if (parsed.selectedGameweek)
@@ -3129,9 +3167,10 @@ useEffect(() => {
 
   // Persist app cache
   useEffect(() => {
+    const cachePredictions = keepOnlyWorldCupPredictions(predictions);
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ predictions, results, odds, selectedGameweek, selectedGameweekByMode })
+      JSON.stringify({ predictions: cachePredictions, results, odds, selectedGameweek, selectedGameweekByMode })
     );
   }, [predictions, results, odds, selectedGameweek, selectedGameweekByMode]);
 
@@ -3208,11 +3247,13 @@ function normalizeCaptainsByGameweek(predsForUser) {
 
         // Normalize: keep only ONE captain per gameweek (latest updatedAt wins)
         const normalized = normalizeCaptainsByGameweek(remote);
+        const resetSafeRemote =
+          keepOnlyWorldCupPredictions({ [key]: normalized })[key] || {};
 
         // Replace only the logged-in user's predictions with the cloud data
         setPredictions((prev) => ({
-          ...prev,
-          [key]: { ...normalized },
+          ...keepOnlyWorldCupPredictions(prev),
+          [key]: { ...resetSafeRemote },
         }));
       } catch (err) {
         console.error("Cloud predictions failed:", err);
@@ -3397,7 +3438,10 @@ useEffect(() => {
         // Only use this user's predictions, do not fallback to any other user
         const legacyData = predictions[k] || {};
         const userId = userIdByKey[k];
-        const cloudData = userId ? (predictionsByUserId[userId] || {}) : {};
+        const cloudDataRaw = userId ? (predictionsByUserId[userId] || {}) : {};
+        const cloudData = isWorldCupMode
+          ? cloudDataRaw
+          : (keepOnlyWorldCupPredictions({ [k]: cloudDataRaw })[k] || {});
         const philMergedData = k === "Phil" ? (predictions["Phil_merged"] || {}) : {};
 
         // Normalise all fixture IDs to STRING keys
@@ -3416,9 +3460,9 @@ useEffect(() => {
         if (Object.keys(cloudDataStr).length > 0) {
           predsForCalc[k] = { ...cloudDataStr };
         } else if (k === "Phil" && Object.keys(philMergedDataStr).length > 0) {
-          predsForCalc[k] = { ...philMergedDataStr };
+          predsForCalc[k] = isWorldCupMode ? { ...philMergedDataStr } : {};
         } else {
-          predsForCalc[k] = { ...legacyDataStr };
+          predsForCalc[k] = isWorldCupMode ? { ...legacyDataStr } : {};
         }
       });
 
@@ -9131,7 +9175,7 @@ const TABS = [
 
           // Get all completed fixtures
           const completedFixtures = activeFixtures.filter(f => results[f.id]);
-          const hasAnyWorldCupPoints = historicalScores.some((row) =>
+          const hasAnyPoints = historicalScores.some((row) =>
             summaryPlayers.some((player) => Number(row[player] || 0) > 0)
           );
 
@@ -9196,7 +9240,7 @@ const TABS = [
           });
 
           // Get best gambler from coins league
-          if (coinsLeagueRows && coinsLeagueRows.length > 0) {
+          if (isWorldCupMode && coinsLeagueRows && coinsLeagueRows.length > 0) {
             const topGambler = coinsLeagueRows[0];
             const coins = topGambler.profit !== undefined ? topGambler.profit : (topGambler.points || 0);
             stats.bestGambler = { name: topGambler.player, coins: coins };
@@ -9220,7 +9264,7 @@ const TABS = [
             });
           }
 
-          if (isWorldCupMode && completedFixtures.length === 0 && !hasAnyWorldCupPoints) {
+          if (!hasAnyPoints || (isWorldCupMode && completedFixtures.length === 0)) {
             stats.topScorer = { name: "", points: 0 };
             stats.mostBingpots = { name: "", count: 0 };
             stats.mostForgetful = { name: "", missed: 0 };

@@ -192,6 +192,16 @@ const RESULTS_FILE = path.join(DATA_DIR, "results.json");
 const MATCH_STATES_FILE = path.join(DATA_DIR, "matchStates.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
 const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
+const PREMIER_SEASON_WINNER_RECORD = {
+  id: "premier-2025/26",
+  mode: "premierLeague",
+  modeLabel: "Premier League",
+  seasonLabel: "2025/26",
+  finalGameweek: 38,
+  points: 643,
+  completedAt: "2026-05-24T15:00:00.000Z",
+  winners: [{ player: "Phil", userId: "1763874000000", points: 643 }],
+};
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -2288,7 +2298,12 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
 app.get("/api/history/season-winners", (req, res) => {
   try {
     const records = loadSeasonWinners();
-    const validRecords = (Array.isArray(records) ? records : []).filter(
+    const byId = new Map();
+    (Array.isArray(records) ? records : []).forEach((record) => {
+      if (record?.id) byId.set(record.id, { ...byId.get(record.id), ...record });
+    });
+    byId.set(PREMIER_SEASON_WINNER_RECORD.id, PREMIER_SEASON_WINNER_RECORD);
+    const validRecords = Array.from(byId.values()).filter(
       (record) =>
         Number(record?.points) > 0 &&
         Array.isArray(record?.winners) &&
@@ -3115,6 +3130,9 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const legacyMap = loadLegacyMap() || {};
     const leagueId = (req.query.leagueId || "").trim();
     const mode = normalizeCoinsMode(req.query.mode);
+    if (mode === "premier") {
+      return res.json({ leaderboard: [] });
+    }
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
