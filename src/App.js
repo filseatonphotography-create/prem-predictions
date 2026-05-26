@@ -63,6 +63,8 @@ const BACKEND_BASE =
     : "https://prem-predictions-1.onrender.com");
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
+const WELCOME_PENDING_STORAGE_KEY = "prediction_welcome_pending_user_v1";
+const WELCOME_SEEN_STORAGE_KEY = "prediction_welcome_seen_users_v1";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
@@ -2059,6 +2061,13 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [authError, setAuthError] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authHydrated, setAuthHydrated] = useState(false);
+  const [welcomePendingUserId, setWelcomePendingUserId] = useState(() => {
+    try {
+      return localStorage.getItem(WELCOME_PENDING_STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
 
   // App state
   const [predictions, setPredictions] = useState({});
@@ -2245,6 +2254,16 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   useEffect(() => {
     localStorage.setItem(WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY, String(worldCupCentralOpen));
   }, [worldCupCentralOpen]);
+
+  useEffect(() => {
+    try {
+      if (welcomePendingUserId) {
+        localStorage.setItem(WELCOME_PENDING_STORAGE_KEY, welcomePendingUserId);
+      } else {
+        localStorage.removeItem(WELCOME_PENDING_STORAGE_KEY);
+      }
+    } catch {}
+  }, [welcomePendingUserId]);
 
   useEffect(() => {
     const remembered = selectedGameweekByMode[gameMode];
@@ -2521,6 +2540,7 @@ function formatCountdownFixtureMeta(fixture, mode) {
 
   // Mini-league
   const [myLeagues, setMyLeagues] = useState([]);
+  const [selectedLeagueId, setSelectedLeagueId] = useState("");
   const [leagueNameInput, setLeagueNameInput] = useState("");
   const [leagueJoinCode, setLeagueJoinCode] = useState("");
   const [leagueError, setLeagueError] = useState("");
@@ -2530,6 +2550,10 @@ function formatCountdownFixtureMeta(fixture, mode) {
   const [miniLeagueLeaderboardLoading, setMiniLeagueLeaderboardLoading] = useState(false);
   const [miniLeagueLeaderboardError, setMiniLeagueLeaderboardError] = useState("");
   const gwLocked = isGameweekLocked(selectedGameweek, activeFixtures);
+  const selectedMiniLeague = useMemo(() => {
+    if (!Array.isArray(myLeagues) || myLeagues.length === 0) return null;
+    return myLeagues.find((league) => String(league.id) === String(selectedLeagueId)) || myLeagues[0];
+  }, [myLeagues, selectedLeagueId]);
   // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
@@ -2946,14 +2970,7 @@ useEffect(() => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
-      const originals = (myLeagues || []).find(
-        (l) => (l.name || "").trim().toLowerCase() === "the originals"
-      );
-      const leagueId = originals
-        ? originals.id
-        : myLeagues && myLeagues.length
-        ? myLeagues[0].id
-        : "";
+      const leagueId = selectedMiniLeague?.id || "";
       const url = leagueId
         ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}&mode=${encodeURIComponent(getModeKey(gameMode))}`
         : `${BACKEND_BASE}/api/coins/leaderboard?mode=${encodeURIComponent(getModeKey(gameMode))}`;
@@ -2985,7 +3002,7 @@ useEffect(() => {
   };
 
   fetchCoinsLeaderboard();
-}, [activeView, authToken, myLeagues, gameMode]);
+}, [activeView, authToken, selectedMiniLeague, gameMode]);
 
 // Fetch global predictions (all users) when Global League is opened
 useEffect(() => {
@@ -3249,6 +3266,18 @@ useEffect(() => {
 
   loadLeaguesAuto();
 }, [isLoggedIn, authToken, gameMode]);
+
+useEffect(() => {
+  if (!Array.isArray(myLeagues) || myLeagues.length === 0) {
+    setSelectedLeagueId("");
+    return;
+  }
+
+  setSelectedLeagueId((currentId) => {
+    const stillExists = myLeagues.some((league) => String(league.id) === String(currentId));
+    return stillExists ? currentId : myLeagues[0].id;
+  });
+}, [myLeagues]);
   
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -3263,7 +3292,7 @@ useEffect(() => {
     return;
   }
 
-  const leagueId = myLeagues[0].id;
+  const leagueId = selectedMiniLeague?.id;
   if (!leagueId) return;
 
   let cancelled = false;
@@ -3293,7 +3322,7 @@ useEffect(() => {
       const predictionsByUserId = data.predictionsByUserId || {};
 
       // 2) Filter to ONLY actual members of this league (if list exists)
-      const leagueObj = myLeagues[0] || {};
+      const leagueObj = selectedMiniLeague || {};
       const memberIds = Array.isArray(leagueObj.members)
         ? leagueObj.members
         : Array.isArray(leagueObj.memberUserIds)
@@ -3423,7 +3452,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues, activeFixtures, activeGameweeks, isWorldCupMode, currentUserId, currentPlayer]);
+}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, currentUserId, currentPlayer]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -3501,6 +3530,9 @@ useEffect(() => {
       setForgotSuccess("");
       setResetError("");
       setResetSuccess("");
+      if (mode === "signup" && result.userId) {
+        setWelcomePendingUserId(String(result.userId));
+      }
       setAuthLoading(false);
     } catch (err) {
       setAuthLoading(false);
@@ -3544,6 +3576,26 @@ useEffect(() => {
     } catch (err) {
       setResetError(err.message || "Failed to reset password.");
     }
+  };
+
+  const shouldShowWelcome = Boolean(
+    isLoggedIn &&
+      currentUserId &&
+      welcomePendingUserId &&
+      String(welcomePendingUserId) === String(currentUserId)
+  );
+
+  const completeWelcome = (nextView = "predictions") => {
+    try {
+      const saved = localStorage.getItem(WELCOME_SEEN_STORAGE_KEY);
+      const seen = saved ? JSON.parse(saved) : {};
+      localStorage.setItem(
+        WELCOME_SEEN_STORAGE_KEY,
+        JSON.stringify({ ...(seen || {}), [String(currentUserId)]: true })
+      );
+    } catch {}
+    setWelcomePendingUserId("");
+    setActiveView(nextView);
   };
 
   useEffect(() => {
@@ -3829,6 +3881,7 @@ setNewPasswordInput("");
       const league = await apiCreateLeague(authToken, name, gameMode);
       setLeagueSuccess(`Created "${league.name || name}".`);
       setLeagueNameInput("");
+      if (league.id) setSelectedLeagueId(league.id);
       await handleLoadLeagues();
     } catch (err) {
       setLeagueError(err.message || "Failed to create league.");
@@ -3846,6 +3899,7 @@ setNewPasswordInput("");
       const league = await apiJoinLeague(authToken, code, gameMode);
       setLeagueSuccess(`Joined "${league.name || "league"}".`);
       setLeagueJoinCode("");
+      if (league.id) setSelectedLeagueId(league.id);
       await handleLoadLeagues();
     } catch (err) {
       setLeagueError(err.message || "Failed to join league.");
@@ -5611,6 +5665,218 @@ if (!isLoggedIn) {
       </div>
     </div>
   );
+  }
+
+  if (shouldShowWelcome) {
+    return (
+      <div style={{ ...pageStyle, maxWidth: 980, margin: "0 auto", padding: isMobile ? "12px" : "24px" }}>
+        <div style={{ display: "grid", gap: 16 }}>
+          <header
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 16,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div
+                style={{
+                  width: 54,
+                  height: 54,
+                  borderRadius: 16,
+                  overflow: "hidden",
+                  boxShadow: "0 14px 28px rgba(0,0,0,0.28)",
+                  flex: "0 0 auto",
+                }}
+              >
+                <img
+                  src="/icon_64.png"
+                  alt="Prediction Addiction app icon"
+                  style={{ width: "100%", height: "100%", display: "block" }}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: theme.muted, textTransform: "uppercase", letterSpacing: 1 }}>
+                  Account created
+                </div>
+                <h1 style={{ margin: "3px 0 0", fontSize: isMobile ? 26 : 34, color: "#ffffff" }}>
+                  Welcome, {currentPlayer}
+                </h1>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => completeWelcome("predictions")}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: theme.accent,
+                color: "#08111f",
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: 14,
+              }}
+            >
+              Continue
+            </button>
+          </header>
+
+          <section
+            style={{
+              ...cardStyle,
+              padding: isMobile ? 16 : 22,
+              display: "grid",
+              gap: 18,
+              background: "linear-gradient(180deg, rgba(11,18,32,0.98), rgba(17,24,39,0.98))",
+            }}
+          >
+            <div style={{ display: "grid", gap: 8 }}>
+              <h2 style={{ margin: 0, color: "#ffffff", fontSize: isMobile ? 24 : 30 }}>
+                You are ready to start predicting.
+              </h2>
+              <p style={{ margin: 0, color: theme.muted, lineHeight: 1.55, fontSize: 15 }}>
+                Prediction Addiction has two main competitions: the league table for score predictions
+                and the coins game for backing match outcomes. Make your picks before the deadline,
+                then track the tables as results come in. Use the Leagues menu to create or join
+                mini-leagues with friends.
+              </p>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                gap: 12,
+              }}
+            >
+              {[
+                ["League", "Predict exact scores each gameweek. Correct outcomes and exact scores add points to your league table."],
+                ["Coins", "Spend your weekly coins on home, draw, or away outcomes. Winning bets return coins based on the price."],
+              ].map(([title, copy]) => (
+                <div
+                  key={title}
+                  style={{
+                    padding: 14,
+                    borderRadius: 12,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                  }}
+                >
+                  <div style={{ color: "#ffffff", fontSize: 18, fontWeight: 800 }}>{title}</div>
+                  <div style={{ marginTop: 6, color: theme.muted, fontSize: 13, lineHeight: 1.45 }}>
+                    {copy}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "140px minmax(0, 1fr)",
+                gap: 16,
+                alignItems: "center",
+                padding: 14,
+                borderRadius: 12,
+                border: `1px solid ${theme.line}`,
+                background: "rgba(56,189,248,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  width: 112,
+                  height: 112,
+                  borderRadius: 24,
+                  overflow: "hidden",
+                  margin: isMobile ? "0 auto" : 0,
+                  boxShadow: "0 18px 38px rgba(0,0,0,0.32)",
+                }}
+              >
+                <img
+                  src="/icon_180.png"
+                  alt="Prediction Addiction home screen icon"
+                  style={{ width: "100%", height: "100%", display: "block" }}
+                />
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                <div style={{ color: "#ffffff", fontSize: 18, fontWeight: 800 }}>
+                  Save it to your home screen
+                </div>
+                <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.5 }}>
+                  Add this page to your phone home screen so it opens like an app. This is the
+                  icon you will see when it is saved.
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.45, maxWidth: 520 }}>
+                Settings has account, avatar, favourite team, notifications, and password options.
+                Rules has the scoring details for predictions and coins.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => completeWelcome("settings")}
+                  style={{
+                    padding: "9px 12px",
+                    borderRadius: 999,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => completeWelcome("rules")}
+                  style={{
+                    padding: "9px 12px",
+                    borderRadius: 999,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                    color: theme.text,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  Rules
+                </button>
+                <button
+                  type="button"
+                  onClick={() => completeWelcome("predictions")}
+                  style={{
+                    padding: "9px 14px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.16)",
+                    background: theme.accent2,
+                    color: "#06240f",
+                    cursor: "pointer",
+                    fontWeight: 800,
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
   }
 
   // ---------- MAIN APP ----------
@@ -7880,6 +8146,42 @@ const TABS = [
         {activeView === "league" && (
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🏆 WC Mini League" : "🏆 Mini League Table"}</h2>
+            {hasMiniLeague && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 10,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ fontSize: 13, color: theme.muted }}>
+                  Viewing: <strong style={{ color: theme.text }}>{selectedMiniLeague?.name || "Mini-league"}</strong>
+                </div>
+                {myLeagues.length > 1 && (
+                  <select
+                    value={selectedMiniLeague?.id || ""}
+                    onChange={(e) => setSelectedLeagueId(e.target.value)}
+                    style={{
+                      minWidth: isMobile ? "100%" : 220,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: theme.panelHi,
+                      color: theme.text,
+                      border: `1px solid ${theme.line}`,
+                    }}
+                  >
+                    {myLeagues.map((league) => (
+                      <option key={league.id} value={league.id}>
+                        {league.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
             {showMiniLeagueEmptyState ? (
               <div
                 style={{
@@ -9552,7 +9854,11 @@ const TABS = [
                     style={{
                       background: theme.panelHi,
                       borderRadius: 10,
-                      border: `1px solid ${theme.line}`,
+                      border: `1px solid ${
+                        String(selectedMiniLeague?.id || "") === String(l.id)
+                          ? theme.accent
+                          : theme.line
+                      }`,
                       padding: 10,
                       display: "flex",
                       justifyContent: "space-between",
@@ -9566,6 +9872,32 @@ const TABS = [
                         Code: {l.joinCode} • Members: {l.memberCount}
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLeagueId(l.id);
+                        setActiveView("league");
+                      }}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${theme.line}`,
+                        background:
+                          String(selectedMiniLeague?.id || "") === String(l.id)
+                            ? theme.accent
+                            : theme.panel,
+                        color:
+                          String(selectedMiniLeague?.id || "") === String(l.id)
+                            ? "#07120f"
+                            : theme.text,
+                        cursor: "pointer",
+                        fontSize: 13,
+                        fontWeight: 800,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      View table
+                    </button>
                   </div>
                 ))}
                 {!myLeagues.length && (
