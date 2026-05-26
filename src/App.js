@@ -383,16 +383,8 @@ const CoinIcon = () => (
 );
 
 
-// Spreadsheet weekly totals (historic seed)
-const SPREADSHEET_WEEKLY_TOTALS = {
-  Tom: [8, 14, 33, 8, 42, 11, 34, 16, 14, 8, 26],
-  Emma: [26, 15, 4, 14, 19, 11, 20, 25, 12, 32, 19],
-  Phil: [8, 15, 11, 18, 27, 6, 16, 17, 28, 29, 18],
-  Steve: [14, 16, 20, 23, 2, 11, 28, 17, 27, 30, 15],
-  Dave: [24, 11, 7, 26, 14, 23, 31, 11, 15, 28, 8],
-  Ian: [23, 10, 7, 20, 20, 24, 24, 22, 12, 4, 21],
-  Anthony: [12, 25, 15, 28, 25, 11, 23, 13, 17, 17, 0],
-};
+// Historic weekly seed scores are intentionally cleared between seasons.
+const SPREADSHEET_WEEKLY_TOTALS = {};
 
 const GAMEWEEKS = Array.from(new Set(FIXTURES.map((f) => f.gameweek))).sort(
   (a, b) => a - b
@@ -2194,7 +2186,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [historySectionsOpen, setHistorySectionsOpen] = useState({
     seasonWinners: true,
-    weeklyScores: false,
   });
   const [seasonWinnerHistory, setSeasonWinnerHistory] = useState(() => {
     try {
@@ -9332,7 +9323,6 @@ const TABS = [
         {/* History */}
         {activeView === "history" && (
           (() => {
-            const historyPlayers = isWorldCupMode ? leaderboard.map((entry) => entry.player) : PLAYERS;
             const toggleHistorySection = (section) => {
               setHistorySectionsOpen((prev) => ({
                 ...prev,
@@ -9483,147 +9473,6 @@ const TABS = [
                     )}
                   </div>
 
-                  <div
-                    style={{
-                      border: `1px solid ${theme.line}`,
-                      borderRadius: 12,
-                      overflow: "hidden",
-                      background: theme.panel,
-                    }}
-                  >
-                    {historySectionHeader(
-                      "weeklyScores",
-                      "Weekly scores",
-                      `${historicalScores.length} ${isWorldCupMode ? "matchday" : "gameweek"}${historicalScores.length === 1 ? "" : "s"}`
-                    )}
-
-                    {historySectionsOpen.weeklyScores && (
-                      <div
-                        style={{
-                          overflowX: "auto",
-                          overflowY: "auto",
-                          maxHeight: "70vh",
-                          position: "relative",
-                          padding: "0 0 10px",
-                          background: theme.panel,
-                        }}
-                      >
-                        <table
-                          style={{
-                            width: "100%",
-                            borderCollapse: "separate",
-                            borderSpacing: 0,
-                            fontSize: isMobile ? 12 : 13,
-                          }}
-                        >
-                          <thead>
-                            <tr
-                              style={{
-                                position: "sticky",
-                                top: 0,
-                                zIndex: 4,
-                                background: theme.panel,
-                              }}
-                            >
-                              <th
-                                style={{
-                                  textAlign: "center",
-                                  padding: isMobile ? "8px 10px" : "10px 12px",
-                                  position: "sticky",
-                                  left: 0,
-                                  zIndex: 5,
-                                  background: theme.panel,
-                                  borderRight: `1px solid ${theme.line}`,
-                                  borderBottom: `1px solid ${theme.line}`,
-                                  fontWeight: 800,
-                                  color: theme.accent,
-                                  width: isMobile ? "54px" : "64px",
-                                  minWidth: isMobile ? "54px" : "64px",
-                                }}
-                              >
-                                {isWorldCupMode ? "MD" : "GW"}
-                              </th>
-                              {historyPlayers.map((p) => (
-                                <th
-                                  key={p}
-                                  style={{
-                                    textAlign: "center",
-                                    padding: isMobile ? "8px 6px" : "10px 8px",
-                                    borderBottom: `1px solid ${theme.line}`,
-                                    fontWeight: 700,
-                                    color: theme.accent,
-                                    background: theme.panel,
-                                    minWidth: isMobile ? "50px" : "58px",
-                                  }}
-                                  title={p}
-                                >
-                                  {p.slice(0, 4)}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {historicalScores.map((row, idx) => {
-                              const vals = historyPlayers.map((p) => Number(row[p]) || 0);
-                              const max = Math.max(...vals);
-                              const min = Math.min(...vals);
-                              const range = max - min || 1;
-                              const rowBg = theme.panelHi;
-
-                              return (
-                                <tr key={row.gameweek}>
-                                  <td
-                                    style={{
-                                      padding: isMobile ? "8px 10px" : "10px 12px",
-                                      color: theme.accent,
-                                      position: "sticky",
-                                      left: 0,
-                                      zIndex: 3,
-                                      background: theme.panel,
-                                      borderRight: `1px solid ${theme.line}`,
-                                      fontWeight: 800,
-                                      textAlign: "center",
-                                      borderBottom:
-                                        idx < historicalScores.length - 1
-                                          ? `1px solid ${theme.line}`
-                                          : "none",
-                                    }}
-                                  >
-                                    {isWorldCupMode ? row.gameweek : getModeGameweekLabel(gameMode, row.gameweek).replace(/^[A-Z]+/, "")}
-                                  </td>
-                                  {historyPlayers.map((p) => {
-                                    const v = Number(row[p]) || 0;
-                                    const shade = (v - min) / range;
-                                    const isWinner = v === max && max > 0;
-                                    return (
-                                      <td
-                                        key={p}
-                                        style={{
-                                          padding: isMobile ? "8px 6px" : "10px 8px",
-                                          textAlign: "center",
-                                          background: isWinner
-                                            ? `rgba(34,197,94,${0.28 + 0.37 * shade})`
-                                            : rowBg,
-                                          fontWeight: isWinner ? 800 : 500,
-                                          color: isWinner ? "#ffffff" : theme.text,
-                                          borderBottom:
-                                            idx < historicalScores.length - 1
-                                              ? `1px solid ${theme.line}`
-                                              : "none",
-                                        }}
-                                      >
-                                        {v}
-                                      </td>
-                                    );
-                                  })}
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </section>
             );
