@@ -3585,6 +3585,11 @@ useEffect(() => {
       String(welcomePendingUserId) === String(currentUserId)
   );
 
+  useEffect(() => {
+    if (!shouldShowWelcome) return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [shouldShowWelcome]);
+
   const completeWelcome = (nextView = "predictions") => {
     try {
       const saved = localStorage.getItem(WELCOME_SEEN_STORAGE_KEY);
@@ -3596,6 +3601,9 @@ useEffect(() => {
     } catch {}
     setWelcomePendingUserId("");
     setActiveView(nextView);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    });
   };
 
   useEffect(() => {
@@ -5673,14 +5681,23 @@ if (!isLoggedIn) {
         <div style={{ display: "grid", gap: 16 }}>
           <header
             style={{
-              display: "flex",
+              display: "grid",
+              gridTemplateColumns: isMobile ? "1fr" : "140px minmax(0, 1fr) 140px",
               alignItems: "center",
-              justifyContent: "space-between",
               gap: 16,
-              flexWrap: "wrap",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: isMobile ? "none" : "block" }} />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 12,
+                textAlign: "center",
+                flexWrap: isMobile ? "wrap" : "nowrap",
+              }}
+            >
               <div
                 style={{
                   width: 54,
@@ -5710,6 +5727,7 @@ if (!isLoggedIn) {
               type="button"
               onClick={() => completeWelcome("predictions")}
               style={{
+                justifySelf: "center",
                 padding: "10px 16px",
                 borderRadius: 999,
                 border: "1px solid rgba(255,255,255,0.16)",
