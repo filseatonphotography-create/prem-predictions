@@ -6380,10 +6380,10 @@ if (!isLoggedIn) {
             isWorldCupMode
               ? [
                   { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
+                  { action: "view", id: "league", label: "WC Mini League Table" },
                   { action: "view", id: "worldCupGroupTables", label: "WC Group Tables" },
                   { action: "view", id: "coinsLeague", label: "WC Coins League" },
                   { action: "view", id: "globalLeague", label: "WC Global League" },
-                  { action: "view", id: "league", label: "WC Mini League" },
                   { action: "view", id: "leagues", label: "WC Mini-Leagues" },
                 ]
               : [
@@ -8253,7 +8253,7 @@ const TABS = [
         {/* Mini League Table */}
         {activeView === "league" && (
           <section style={cardStyle}>
-            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🏆 WC Mini League" : "🏆 Mini League Table"}</h2>
+            <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🏆 WC Mini League Table" : "🏆 Mini League Table"}</h2>
             {hasMiniLeague && (
               <div
                 style={{
