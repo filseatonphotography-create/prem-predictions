@@ -292,6 +292,7 @@ function PlayerAvatar({
   const src = `https://api.dicebear.com/7.x/${safeStyle}/svg?seed=${safeSeed}`;
   const badgeSrc = resolveTeamBadge(favoriteTeam);
   const flagBg = favoriteMode === WORLD_CUP_MODE ? getWorldCupFlag(favoriteTeam) : "";
+  const avatarInset = flagBg ? Math.max(2, Math.round(size * 0.05)) : 0;
   return (
     <div
       style={{
@@ -312,9 +313,9 @@ function PlayerAvatar({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: Math.round(size * 0.76),
+            fontSize: Math.round(size * 0.92),
             lineHeight: 1,
-            opacity: 0.58,
+            opacity: 0.78,
             transform: "scale(1)",
           }}
         >
@@ -343,9 +344,15 @@ function PlayerAvatar({
       <img
         src={src}
         alt={title || "avatar"}
-        width={size}
-        height={size}
-        style={{ borderRadius: 999, display: "block", position: "relative", zIndex: 1 }}
+        width={size - avatarInset * 2}
+        height={size - avatarInset * 2}
+        style={{
+          borderRadius: 999,
+          display: "block",
+          position: "absolute",
+          inset: avatarInset,
+          zIndex: 1,
+        }}
       />
     </div>
   );
