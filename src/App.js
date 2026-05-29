@@ -2252,6 +2252,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
   const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+  const [leagueUsernamesByUserId, setLeagueUsernamesByUserId] = useState({});
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
   const isResetPasswordRoute = useMemo(() => {
     try {
@@ -3352,11 +3353,13 @@ useEffect(() => {
   if (!isLoggedIn || !authToken) {
     setComputedWeeklyTotals(null);
     setComputedLeagueTotals(null);
+    setLeagueUsernamesByUserId({});
     return;
   }
   if (!myLeagues || myLeagues.length === 0) {
     setComputedWeeklyTotals(null);
     setComputedLeagueTotals(null);
+    setLeagueUsernamesByUserId({});
     return;
   }
 
@@ -3388,6 +3391,12 @@ useEffect(() => {
       const data = await apiGetLeaguePredictions(authToken, leagueId);
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
+      const usernamesByUserId = {};
+      users.forEach((u) => {
+        if (u?.userId && u?.username) {
+          usernamesByUserId[String(u.userId)] = u.username;
+        }
+      });
 
       // 2) Filter to ONLY actual members of this league (if list exists)
       const leagueObj = selectedMiniLeague || {};
@@ -3507,6 +3516,7 @@ useEffect(() => {
 
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
+      setLeagueUsernamesByUserId(usernamesByUserId);
 
       // 7) Sync totals back to backend
       // apiSaveLeagueTotals(authToken, leagueId, {
@@ -3515,6 +3525,7 @@ useEffect(() => {
 // }).catch((e) => console.error("Failed to sync totals:", e));
     } catch (err) {
       console.error("Recalc from league failed:", err);
+      if (!cancelled) setLeagueUsernamesByUserId({});
     }
   }
 
@@ -4360,7 +4371,8 @@ const leaderboard = useMemo(() => {
     const collapsed = {};
     Object.entries(computedLeagueTotals).forEach(([key, points]) => {
       const legacyName = idToLegacyName(key);
-      const finalKey = legacyName || key;
+      const modernUsername = leagueUsernamesByUserId[String(key)];
+      const finalKey = legacyName || modernUsername || key;
       const resolvedUserId = legacyName
         ? key
         : LEGACY_MAP[finalKey] || (PLAYERS.includes(finalKey) ? null : key);
@@ -4408,7 +4420,7 @@ const leaderboard = useMemo(() => {
       userId: LEGACY_MAP[player] || null,
     }))
     .sort((a, b) => b.points - a.points);
-}, [computedLeagueTotals, predictions, results, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
+}, [computedLeagueTotals, leagueUsernamesByUserId, predictions, results, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
 
 const hasMiniLeague = Array.isArray(myLeagues) && myLeagues.length > 0;
 const showMiniLeagueEmptyState =
