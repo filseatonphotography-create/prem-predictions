@@ -252,6 +252,11 @@ const WORLD_CUP_FIXTURE_ID_SET = new Set(
   WORLD_CUP_FIXTURES.map((fixture) => String(fixture.id))
 );
 
+function looksLikeUserId(value) {
+  const text = String(value || "").trim();
+  return /^\d{10,}$/.test(text) || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(text);
+}
+
 function keepOnlyWorldCupPredictions(allPredictions = {}) {
   const cleaned = {};
   Object.entries(allPredictions || {}).forEach(([playerKey, playerPredictions]) => {
@@ -3424,7 +3429,7 @@ useEffect(() => {
     }
 
     // Otherwise use their userId (modern user)
-    return u.userId;
+    return String(u.userId || "");
   };
 
   async function recalcFromLeague() {
@@ -3447,12 +3452,12 @@ useEffect(() => {
         : Array.isArray(leagueObj.memberUserIds)
         ? leagueObj.memberUserIds
         : [];
-      const memberIdSet = new Set(memberIds);
+      const memberIdSet = new Set(memberIds.map((memberId) => String(memberId)));
 
       const leagueUsers =
         memberIdSet.size === 0
           ? users
-          : users.filter((u) => memberIdSet.has(u.userId));
+          : users.filter((u) => memberIdSet.has(String(u.userId)));
 
             // 3) Keys = legacy PLAYERS + league members (mapped)
       const memberKeys = leagueUsers.map(toLegacyKey);
@@ -3483,7 +3488,7 @@ useEffect(() => {
 
       rankedLeagueUsers.forEach((u) => {
         const key = toLegacyKey(u);
-        if (!userIdByKey[key]) userIdByKey[key] = u.userId;
+        if (!userIdByKey[key]) userIdByKey[key] = String(u.userId || "");
       });
 
       if (!isWorldCupMode && currentUserId && currentPlayer && PLAYERS.includes(currentPlayer)) {
@@ -4414,24 +4419,33 @@ const leaderboard = useMemo(() => {
     Object.entries(computedLeagueTotals).forEach(([key, points]) => {
       const legacyName = idToLegacyName(key);
       const modernUsername = leagueUsernamesByUserId[String(key)];
-      const finalKey = legacyName || modernUsername || key;
+      const displayName = legacyName || modernUsername || (looksLikeUserId(key) ? "Unknown player" : key);
+      const collapsedKey = !legacyName && !modernUsername && looksLikeUserId(key)
+        ? `unknown:${key}`
+        : displayName;
       const resolvedUserId = legacyName
         ? key
-        : LEGACY_MAP[finalKey] || (PLAYERS.includes(finalKey) ? null : key);
-      if (!collapsed[finalKey]) {
-        collapsed[finalKey] = { points: 0, userId: resolvedUserId || null };
+        : looksLikeUserId(key)
+        ? key
+        : LEGACY_MAP[displayName] || (PLAYERS.includes(displayName) ? null : key);
+      if (!collapsed[collapsedKey]) {
+        collapsed[collapsedKey] = {
+          player: displayName,
+          points: 0,
+          userId: resolvedUserId || null,
+        };
       }
-      collapsed[finalKey].points += points || 0;
-      if (!collapsed[finalKey].userId && resolvedUserId) {
-        collapsed[finalKey].userId = resolvedUserId;
+      collapsed[collapsedKey].points += points || 0;
+      if (!collapsed[collapsedKey].userId && resolvedUserId) {
+        collapsed[collapsedKey].userId = resolvedUserId;
       }
     });
 
-    return Object.entries(collapsed)
-      .map(([player, meta]) => ({
-        player,
+    return Object.values(collapsed)
+      .map((meta) => ({
+        player: meta.player,
         points: meta.points || 0,
-        userId: meta.userId || LEGACY_MAP[player] || null,
+        userId: meta.userId || LEGACY_MAP[meta.player] || null,
       }))
       .sort((a, b) => b.points - a.points);
   }

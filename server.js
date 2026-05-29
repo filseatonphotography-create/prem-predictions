@@ -1901,18 +1901,23 @@ function generateJoinCode(existingLeagues) {
   }
 }
 
+function getLeagueMemberIds(league) {
+  const members = Array.isArray(league?.members)
+    ? league.members
+    : Array.isArray(league?.memberUserIds)
+    ? league.memberUserIds
+    : [];
+  return members.map((memberId) => String(memberId));
+}
+
 app.get("/api/leagues/my", authMiddleware, (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
     const mode = normalizeLeagueMode(req.query.mode);
     const leagues = loadLeagues();
     const myLeagues = leagues
       .map((league) => {
-        const members = Array.isArray(league.members)
-          ? league.members
-          : Array.isArray(league.memberUserIds)
-          ? league.memberUserIds
-          : [];
+        const members = getLeagueMemberIds(league);
         const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
         return { raw: league, members, joinCode };
       })
@@ -2048,7 +2053,7 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
 
 app.post("/api/league/join", authMiddleware, (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
     const code = (((req.body && req.body.code) || "")).trim().toUpperCase();
     const mode = normalizeLeagueMode(req.body && req.body.mode);
     if (!code)
@@ -2067,6 +2072,7 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
         ? league.memberUserIds.slice()
         : [];
     }
+    league.members = league.members.map((memberId) => String(memberId));
 
     if (!league.members.includes(userId)) {
       league.members.push(userId);
@@ -2160,7 +2166,7 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
     const leagueId = (req.params.leagueId || "").trim();
 
     const leagues = loadLeagues();
@@ -2170,11 +2176,7 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
       return res.status(404).json({ error: "Mini-league not found." });
     }
 
-    const members = Array.isArray(league.members)
-      ? league.members
-      : Array.isArray(league.memberUserIds)
-      ? league.memberUserIds
-      : [];
+    const members = getLeagueMemberIds(league);
 
     // only members can fetch league predictions
     if (!members.includes(userId)) {
@@ -2183,15 +2185,20 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
 
     const allPreds = loadPredictions();
     const users = loadUsers();
+    const usersById = {};
+    users.forEach((u) => {
+      if (!u?.id) return;
+      usersById[String(u.id)] = u;
+    });
 
     const usersInLeague = members
-      .map((id) => users.find((u) => u.id === id))
+      .map((id) => usersById[String(id)])
       .filter(Boolean)
-      .map((u) => ({ userId: u.id, username: u.username }));
+      .map((u) => ({ userId: String(u.id), username: u.username }));
 
     const predictionsByUserId = {};
     members.forEach((mid) => {
-      predictionsByUserId[mid] = allPreds[mid] || {};
+      predictionsByUserId[String(mid)] = allPreds[String(mid)] || allPreds[mid] || {};
     });
 
     return res.json({
@@ -2235,18 +2242,14 @@ app.get("/api/predictions/all", authMiddleware, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
     const leagueId = (req.params.leagueId || "").trim();
 
     const leagues = loadLeagues();
     const league = leagues.find((l) => l.id === leagueId);
     if (!league) return res.status(404).json({ error: "Mini-league not found." });
 
-    const members = Array.isArray(league.members)
-      ? league.members
-      : Array.isArray(league.memberUserIds)
-      ? league.memberUserIds
-      : [];
+    const members = getLeagueMemberIds(league);
 
     if (!members.includes(userId)) {
       return res.status(403).json({ error: "Forbidden" });
@@ -2262,7 +2265,7 @@ app.get("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
 
 app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = String(req.user.id);
     const leagueId = (req.params.leagueId || "").trim();
     const { weeklyTotals, leagueTotals } = req.body || {};
 
@@ -2270,11 +2273,7 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
     const league = leagues.find((l) => l.id === leagueId);
     if (!league) return res.status(404).json({ error: "Mini-league not found." });
 
-    const members = Array.isArray(league.members)
-      ? league.members
-      : Array.isArray(league.memberUserIds)
-      ? league.memberUserIds
-      : [];
+    const members = getLeagueMemberIds(league);
 
     if (!members.includes(userId)) {
       return res.status(403).json({ error: "Forbidden" });
@@ -3155,12 +3154,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
       if (!league) {
         return res.status(404).json({ error: "League not found" });
       }
-      const members = Array.isArray(league.members)
-        ? league.members
-        : Array.isArray(league.memberUserIds)
-        ? league.memberUserIds
-        : [];
-      allowedIds = new Set(members.map((m) => String(m)));
+      allowedIds = new Set(getLeagueMemberIds(league));
     }
 
     const addRow = (userIdKey, coinsRecord) => {
