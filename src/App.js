@@ -38,19 +38,20 @@ async function apiGetAllFavoriteTeams(token) {
 
 // Set current user's avatar
 async function apiSetAvatar(token, payload) {
-  try {
-    await fetch(
-      `${BACKEND_BASE}/api/avatar/me`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      }
-    );
-  } catch {}
+  const res = await fetch(
+    `${BACKEND_BASE}/api/avatar/me`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Avatar save failed");
+  return data;
 }
 
 // Dummy for legacy code: always returns empty (since reverted)
@@ -2074,6 +2075,7 @@ export default function App() {
   // Avatar customization
   const [avatarSeed, setAvatarSeed] = useState(localStorage.getItem('avatar_seed') || '');
   const [avatarStyle, setAvatarStyle] = useState(localStorage.getItem('avatar_style') || 'avataaars');
+  const [avatarSaveStatus, setAvatarSaveStatus] = useState("");
 
   // On login, try to load avatar from backend, fallback to localStorage
   useEffect(() => {
@@ -2094,13 +2096,28 @@ export default function App() {
   }, [isLoggedIn, authToken]);
 
   // Save avatar to localStorage and backend (if logged in)
-  function handleAvatarChange(newSeed, newStyle) {
-    setAvatarSeed(newSeed);
-    setAvatarStyle(newStyle);
-    localStorage.setItem('avatar_seed', newSeed);
-    localStorage.setItem('avatar_style', newStyle);
-    if (isLoggedIn && authToken) {
-      apiSetAvatar(authToken, { seed: newSeed, style: newStyle });
+  async function handleAvatarChange(newSeed, newStyle) {
+    const savedSeed = newSeed || currentPlayer;
+    const savedStyle = newStyle || "avataaars";
+    setAvatarSeed(savedSeed);
+    setAvatarStyle(savedStyle);
+    localStorage.setItem('avatar_seed', savedSeed);
+    localStorage.setItem('avatar_style', savedStyle);
+
+    if (!isLoggedIn || !authToken) return;
+
+    setAvatarSaveStatus("Saving avatar...");
+    try {
+      await apiSetAvatar(authToken, { seed: savedSeed, style: savedStyle });
+      if (currentUserId) {
+        setAvatarsByUserId((prev) => ({
+          ...prev,
+          [String(currentUserId)]: { seed: savedSeed, style: savedStyle },
+        }));
+      }
+      setAvatarSaveStatus("Avatar saved. Other players will see this one.");
+    } catch (err) {
+      setAvatarSaveStatus(err?.message || "Avatar save failed. Other players may still see your old avatar.");
     }
   }
   
@@ -2469,6 +2486,31 @@ const favoriteCountryByUsername = useMemo(() => {
 
 const activeFavoriteByUserId = isWorldCupMode ? favoriteCountriesByUserId : favoriteTeamsByUserId;
 const activeFavoriteByUsername = isWorldCupMode ? favoriteCountryByUsername : favoriteTeamByUsername;
+const getAvatarForRow = (row = {}) => {
+  const rowUserId = row.userId ? String(row.userId) : "";
+  const savedAvatar = rowUserId ? avatarsByUserId[rowUserId] : null;
+  if (savedAvatar?.seed || savedAvatar?.style) {
+    return {
+      seed: savedAvatar.seed || row.player || currentPlayer,
+      style: savedAvatar.style || "avataaars",
+    };
+  }
+
+  const isCurrentUser =
+    (rowUserId && currentUserId && rowUserId === String(currentUserId)) ||
+    row.player === currentPlayer;
+  if (isCurrentUser) {
+    return {
+      seed: avatarSeed || currentPlayer,
+      style: avatarStyle || "avataaars",
+    };
+  }
+
+  return {
+    seed: row.player,
+    style: "avataaars",
+  };
+};
 const resolvedAccountFavoriteTeam =
   accountFavoriteTeam || (currentUserId ? favoriteTeamsByUserId[String(currentUserId)] || "" : "");
 const resolvedAccountFavoriteCountry =
@@ -4356,7 +4398,7 @@ const leaderboard = useMemo(() => {
     Anthony: "1763802020494",
     Steve: "1763812904100",
     Emma: "1763813732635",
-    Phil: "1763873593264",
+    Phil: "1763874000000",
   };
 
   // Use backend-computed totals if available
@@ -6156,8 +6198,8 @@ if (!isLoggedIn) {
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <PlayerAvatar
               size={64}
-              seed={winnerList[winnerIndex]?.player || ""}
-              avatarStyle={"avataaars"}
+              seed={getAvatarForRow(winnerList[winnerIndex]).seed}
+              avatarStyle={getAvatarForRow(winnerList[winnerIndex]).style}
               title={winnerList[winnerIndex]?.player}
               favoriteMode={gameMode}
               favoriteTeam={(() => {
@@ -8343,6 +8385,7 @@ const TABS = [
                 } else if (i === leaderboard.length - 1) {
                   emoji = "💩"; // Poo for last place
                 }
+                const rowAvatar = getAvatarForRow(row);
 
                 return (
                   <div
@@ -8373,22 +8416,8 @@ const TABS = [
                     <PlayerAvatar 
                       name={row.player}
                       size={36}
-                      seed={(() => {
-                        // Always use backend avatar if available for any user (including current)
-                        const userId = row.userId || row.player || '';
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
-                          return avatarsByUserId[userId].seed;
-                        }
-                        // Fallback: use local avatar only if backend missing
-                        return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
-                      })()}
-                      avatarStyle={(() => {
-                        const userId = row.userId || row.player || '';
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
-                          return avatarsByUserId[userId].style;
-                        }
-                        return row.player === currentPlayer ? avatarStyle : 'avataaars';
-                      })()}
+                      seed={rowAvatar.seed}
+                      avatarStyle={rowAvatar.style}
                       favoriteMode={gameMode}
                       favoriteTeam={
                         activeFavoriteByUserId[String(row.userId || "")] ||
@@ -8444,6 +8473,7 @@ const TABS = [
                 } else if (i === globalLeaderboard.length - 1) {
                   emoji = "💩";
                 }
+                const rowAvatar = getAvatarForRow(row);
 
                 return (
                   <div
@@ -8476,20 +8506,8 @@ const TABS = [
                     <PlayerAvatar
                       name={row.player}
                       size={36}
-                      seed={(() => {
-                        const userId = row.userId || row.player || "";
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].seed) {
-                          return avatarsByUserId[userId].seed;
-                        }
-                        return row.player === currentPlayer ? avatarSeed || currentPlayer : row.player;
-                      })()}
-                      avatarStyle={(() => {
-                        const userId = row.userId || row.player || "";
-                        if (avatarsByUserId[userId] && avatarsByUserId[userId].style) {
-                          return avatarsByUserId[userId].style;
-                        }
-                        return row.player === currentPlayer ? avatarStyle : "avataaars";
-                      })()}
+                      seed={rowAvatar.seed}
+                      avatarStyle={rowAvatar.style}
                       favoriteMode={gameMode}
                       favoriteTeam={
                         activeFavoriteByUserId[String(row.userId || "")] ||
@@ -8970,6 +8988,7 @@ const TABS = [
   } else if (i === coinsLeagueRows.length - 1) {
     emoji = "💩"; // Poo for last place
   }
+  const rowAvatar = getAvatarForRow(row);
 
   return (
     <div
@@ -8999,8 +9018,8 @@ const TABS = [
       <PlayerAvatar 
         name={row.player} 
         size={36} 
-        seed={row.player === currentPlayer ? (avatarSeed || currentPlayer) : row.player}
-        avatarStyle={row.player === currentPlayer ? avatarStyle : 'avataaars'}
+        seed={rowAvatar.seed}
+        avatarStyle={rowAvatar.style}
         favoriteMode={gameMode}
         favoriteTeam={
           activeFavoriteByUserId[String(row.userId || "")] ||
@@ -9195,7 +9214,7 @@ const TABS = [
             Anthony: "1763802020494",
             Steve: "1763812904100",
             Emma: "1763813732635",
-            Phil: "1763873593264",
+            Phil: "1763874000000",
           };
 
           // Calculate summary statistics
@@ -10438,6 +10457,7 @@ const TABS = [
                   onChange={(e) => {
                     setAvatarStyle(e.target.value);
                     localStorage.setItem('avatar_style', e.target.value);
+                    setAvatarSaveStatus("Avatar preview changed. Save it so other players see it.");
                   }}
                   style={{
                     width: "100%",
@@ -10478,6 +10498,7 @@ const TABS = [
                   onChange={(e) => {
                     setAvatarSeed(e.target.value);
                     localStorage.setItem('avatar_seed', e.target.value);
+                    setAvatarSaveStatus("Avatar preview changed. Save it so other players see it.");
                   }}
                   placeholder={`Leave blank to use "${currentPlayer}"`}
                   style={{
@@ -10507,6 +10528,7 @@ const TABS = [
                   const randomSeed = Math.random().toString(36).substring(2, 10);
                   setAvatarSeed(randomSeed);
                   localStorage.setItem('avatar_seed', randomSeed);
+                  setAvatarSaveStatus("Avatar preview changed. Save it so other players see it.");
                 }}
                 style={{
                   width: "100%",
@@ -10546,8 +10568,7 @@ const TABS = [
 
               <button
                 onClick={() => {
-                  setAvatarSeed('');
-                  localStorage.setItem('avatar_seed', '');
+                  handleAvatarChange(currentPlayer, avatarStyle);
                 }}
                 style={{
                   width: "100%",
@@ -10563,6 +10584,17 @@ const TABS = [
               >
                 Reset to Default
               </button>
+              {avatarSaveStatus && (
+                <div style={{
+                  fontSize: 12,
+                  color: avatarSaveStatus.toLowerCase().includes("failed") ? "#ef4444" : theme.muted,
+                  marginTop: 8,
+                  lineHeight: 1.4,
+                  textAlign: "center"
+                }}>
+                  {avatarSaveStatus}
+                </div>
+              )}
             </div>
 
             {/* Sound Effects */}
