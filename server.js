@@ -10,6 +10,7 @@ const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
+const MAX_USERNAME_LENGTH = 11;
 
 const app = express();
 
@@ -739,6 +740,11 @@ app.post("/api/signup", (req, res) => {
       return res
         .status(400)
         .json({ error: "Password must be at least 4 characters." });
+    }
+    if (name.length > MAX_USERNAME_LENGTH) {
+      return res
+        .status(400)
+        .json({ error: `Username must be ${MAX_USERNAME_LENGTH} characters or fewer.` });
     }
 
     const users = loadUsers();

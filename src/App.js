@@ -74,6 +74,8 @@ const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
+const MAX_USERNAME_LENGTH = 11;
+const USERNAME_DISPLAY_LENGTH = 11;
 const PREMIER_SEASON_WINNER_RECORD = {
   id: "premier-2025/26",
   mode: PREMIER_MODE,
@@ -170,6 +172,12 @@ const WORLD_CUP_FLAGS = {
   "New Zealand": "🇳🇿",
 };
 const WORLD_CUP_COUNTRIES = Object.keys(WORLD_CUP_FLAGS).sort((a, b) => a.localeCompare(b));
+
+function formatUsernameForDisplay(username, maxLength = USERNAME_DISPLAY_LENGTH) {
+  const name = String(username || "").trim();
+  if (name.length <= maxLength) return name;
+  return `${name.slice(0, Math.max(1, maxLength - 3))}...`;
+}
 
 function getFixturesForMode(mode) {
   return mode === WORLD_CUP_MODE ? WORLD_CUP_FIXTURES : FIXTURES;
@@ -3634,6 +3642,10 @@ useEffect(() => {
         setAuthLoading(false);
         return setAuthError("Signup requires username, password, email, and favourite team.");
       }
+      if (name.length > MAX_USERNAME_LENGTH) {
+        setAuthLoading(false);
+        return setAuthError(`Username must be ${MAX_USERNAME_LENGTH} characters or fewer.`);
+      }
     } else if (!name || !pwd) {
       setAuthLoading(false);
       return setAuthError("Enter username + password.");
@@ -5597,8 +5609,9 @@ if (!isLoggedIn) {
                       }}
                       type="text"
                       value={signupName}
-                      onChange={(e) => setSignupName(e.target.value)}
-                      placeholder="Choose a username"
+                      onChange={(e) => setSignupName(e.target.value.slice(0, MAX_USERNAME_LENGTH))}
+                      placeholder={`Choose a username (${MAX_USERNAME_LENGTH} max)`}
+                      maxLength={MAX_USERNAME_LENGTH}
                       autoComplete="username"
                     />
                   </label>
@@ -6226,8 +6239,17 @@ if (!isLoggedIn) {
               })()}
             />
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>
-              {winnerList[winnerIndex]?.player}
+            <div
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={winnerList[winnerIndex]?.player}
+            >
+              {formatUsernameForDisplay(winnerList[winnerIndex]?.player)}
             </div>
             <div style={{ marginTop: 6, fontSize: 14, color: theme.muted }}>
               {winnerList[winnerIndex]?.points} points
@@ -8383,6 +8405,7 @@ const TABS = [
             ) : (
             <div style={{ display: "grid", gap: 8 }}>
               {leaderboard.map((row, i) => {
+                const displayPlayerName = formatUsernameForDisplay(row.player);
                 // Color scheme based on position
                 let borderColor = theme.line;
                 let emoji = "";
@@ -8406,7 +8429,7 @@ const TABS = [
                     key={row.userId || row.player}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "50px auto 1fr 90px",
+                      gridTemplateColumns: "50px auto minmax(0, 1fr) 90px",
                       gap: 10,
                       alignItems: "center",
                       background: theme.panelHi,
@@ -8442,9 +8465,13 @@ const TABS = [
                     <div style={{ 
                       fontWeight: 700,
                       fontSize: 15,
-                      color: i === 0 ? "#FFD700" : theme.text
+                      color: i === 0 ? "#FFD700" : theme.text,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                     }}>
-                      {row.player}
+                      <span title={row.player}>{displayPlayerName}</span>
                     </div>
                     <div style={{ 
                       textAlign: "right", 
@@ -8472,6 +8499,7 @@ const TABS = [
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🌍 WC Global League" : "🌍 Global League Table"}</h2>
             <div style={{ display: "grid", gap: 8 }}>
               {globalLeaderboard.map((row, i) => {
+                const displayPlayerName = formatUsernameForDisplay(row.player);
                 let borderColor = theme.line;
                 let emoji = "";
 
@@ -8494,7 +8522,7 @@ const TABS = [
                     key={row.userId || row.player}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "50px auto 1fr 90px",
+                      gridTemplateColumns: "50px auto minmax(0, 1fr) 90px",
                       gap: 10,
                       alignItems: "center",
                       background: theme.panelHi,
@@ -8534,9 +8562,13 @@ const TABS = [
                         fontWeight: 700,
                         fontSize: 15,
                         color: i === 0 ? "#FFD700" : theme.text,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      {row.player}
+                      <span title={row.player}>{displayPlayerName}</span>
                     </div>
                     <div
                       style={{
@@ -8985,6 +9017,7 @@ const TABS = [
       : typeof row.points === "number"
       ? row.points
       : 0;
+  const displayPlayerName = formatUsernameForDisplay(row.player);
 
   // Color scheme based on position
   let borderColor = theme.line;
@@ -9009,7 +9042,7 @@ const TABS = [
       key={row.userId || row.player}
       style={{
         display: "grid",
-        gridTemplateColumns: "50px auto 1fr 90px",
+        gridTemplateColumns: "50px auto minmax(0, 1fr) 90px",
         gap: 10,
         alignItems: "center",
         background: theme.panelHi,
@@ -9044,9 +9077,13 @@ const TABS = [
       <div style={{ 
         fontWeight: 700,
         fontSize: 15,
-        color: i === 0 ? "#FFD700" : theme.text
+        color: i === 0 ? "#FFD700" : theme.text,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
       }}>
-        {row.player}
+        <span title={row.player}>{displayPlayerName}</span>
       </div>
       <div style={{ 
         textAlign: "right", 
@@ -9426,9 +9463,14 @@ const TABS = [
                           fontSize: 20,
                           fontWeight: 800,
                           color: theme.text,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
                         }}
+                        title={cat.player || "—"}
                       >
-                        {cat.player || "—"}
+                        {formatUsernameForDisplay(cat.player || "—")}
                       </div>
                       <div
                         style={{
@@ -9580,8 +9622,11 @@ const TABS = [
                                   textOverflow: "ellipsis",
                                   whiteSpace: "nowrap",
                                 }}
+                                title={(record.winners || []).map((winner) => winner.player).join(", ")}
                               >
-                                {(record.winners || []).map((winner) => winner.player).join(", ")}
+                                {(record.winners || [])
+                                  .map((winner) => formatUsernameForDisplay(winner.player))
+                                  .join(", ")}
                               </div>
                               <div
                                 style={{
