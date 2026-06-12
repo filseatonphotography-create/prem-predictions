@@ -9249,9 +9249,10 @@ const TABS = [
         )}
         {/* Summary */}
         {activeView === "summary" && (() => {
-          const summaryPlayers = isWorldCupMode
-            ? leaderboard.map((row) => row.player)
-            : PLAYERS;
+          const summaryEntries = isWorldCupMode
+            ? leaderboard.map((row) => ({ player: row.player, userId: row.userId || null }))
+            : PLAYERS.map((player) => ({ player, userId: null }));
+          const summaryPlayers = summaryEntries.map((entry) => entry.player);
           // Use existing leaderboard data for top scorer
           const topScorer = leaderboard && leaderboard.length > 0 && Number(leaderboard[0]?.points || 0) > 0
             ? leaderboard[0] 
@@ -9271,9 +9272,9 @@ const TABS = [
           // Calculate summary statistics
           const stats = {
             topScorer: { name: topScorer.player, points: topScorer.points },
-            mostBingpots: { name: "", count: 0 },
-            mostForgetful: { name: "", missed: 0 },
-            bestGameweek: { name: "", points: 0, gameweek: 0 },
+            mostBingpots: { names: [], count: 0 },
+            mostForgetful: { names: [], missed: 0 },
+            bestGameweek: { names: [], points: 0, gameweek: 0 },
             bestGambler: { name: "", coins: 0 },
             mostBackedCountry: { name: "", count: 0 }
           };
@@ -9281,25 +9282,58 @@ const TABS = [
           const backedCountryCounts = {};
 
           // Get all completed fixtures
-          const completedFixtures = activeFixtures.filter(f => results[f.id]);
+          const completedFixtures = activeFixtures.filter((fixture) =>
+            isFixtureCompleted(fixture, results)
+          );
           const hasAnyPoints = historicalScores.some((row) =>
             summaryPlayers.some((player) => Number(row[player] || 0) > 0)
           );
 
+          const getPredictionForPlayer = (player, userId, fixtureId) => {
+            const legacyUserId = LEGACY_MAP[player];
+            return (
+              predictions[player]?.[fixtureId] ||
+              (userId ? predictions[userId]?.[fixtureId] : null) ||
+              (legacyUserId ? predictions[legacyUserId]?.[fixtureId] : null) ||
+              (userId ? globalPredictionsByUserId?.[userId]?.[fixtureId] : null) ||
+              (legacyUserId ? globalPredictionsByUserId?.[legacyUserId]?.[fixtureId] : null) ||
+              null
+            );
+          };
+
+          const hasValidScorePrediction = (pred) => {
+            if (!pred) return false;
+            if (pred.homeGoals === "" || pred.homeGoals == null) return false;
+            if (pred.awayGoals === "" || pred.awayGoals == null) return false;
+            const homeGoals = Number(pred.homeGoals);
+            const awayGoals = Number(pred.awayGoals);
+            return Number.isFinite(homeGoals) && Number.isFinite(awayGoals);
+          };
+
+          const updateTiedStat = (stat, name, value, valueKey) => {
+            if (value <= 0) return stat;
+            if (value > stat[valueKey]) {
+              return { ...stat, names: [name], [valueKey]: value };
+            }
+            if (value === stat[valueKey]) {
+              return { ...stat, names: [...stat.names, name] };
+            }
+            return stat;
+          };
+
+          const formatNames = (names = []) => names.length ? names.join(", ") : "";
+
           // Calculate bingpots and missed weeks for each player
-          summaryPlayers.forEach(player => {
+          summaryEntries.forEach(({ player, userId }) => {
             let bingpots = 0;
             let missedWeeks = 0;
-
-            // Try both player name and userId as keys
-            const userId = LEGACY_MAP[player];
             
             // Count bingpots from fixture predictions
             completedFixtures.forEach(fixture => {
-              const pred = predictions[player]?.[fixture.id] || predictions[userId]?.[fixture.id];
+              const pred = getPredictionForPlayer(player, userId, fixture.id);
               const result = results[fixture.id];
 
-              if (pred && pred.homeGoals !== undefined && pred.awayGoals !== undefined) {
+              if (hasValidScorePrediction(pred)) {
                 // Check for exact score (bingpot)
                 const homeCorrect = Number(pred.homeGoals) === Number(result.homeGoals);
                 const awayCorrect = Number(pred.awayGoals) === Number(result.awayGoals);
@@ -9312,12 +9346,11 @@ const TABS = [
 
             if (isWorldCupMode) {
               activeFixtures.forEach((fixture) => {
-                const pred = predictions[player]?.[fixture.id] || predictions[userId]?.[fixture.id];
-                if (!pred) return;
+                const pred = getPredictionForPlayer(player, userId, fixture.id);
+                if (!hasValidScorePrediction(pred)) return;
 
                 const homeGoals = Number(pred.homeGoals);
                 const awayGoals = Number(pred.awayGoals);
-                if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return;
 
                 if (homeGoals > awayGoals) {
                   backedCountryCounts[fixture.homeTeam] = (backedCountryCounts[fixture.homeTeam] || 0) + 1;
@@ -9327,23 +9360,26 @@ const TABS = [
               });
             }
 
-            // Count missed weeks from history: any week with 0 points
-            historicalScores.forEach(row => {
-              const score = row[player] || 0;
-              if (score === 0) {
-                missedWeeks++;
-              }
-            });
-
-            // Update most bingpots
-            if (bingpots > 0 && bingpots > stats.mostBingpots.count) {
-              stats.mostBingpots = { name: player, count: bingpots };
+            if (isWorldCupMode) {
+              // Count missed completed fixtures, not future matchday rows.
+              completedFixtures.forEach((fixture) => {
+                const pred = getPredictionForPlayer(player, userId, fixture.id);
+                if (!hasValidScorePrediction(pred)) {
+                  missedWeeks++;
+                }
+              });
+            } else {
+              // Count missed weeks from history: any week with 0 points
+              historicalScores.forEach(row => {
+                const score = row[player] || 0;
+                if (score === 0) {
+                  missedWeeks++;
+                }
+              });
             }
 
-            // Update most forgetful
-            if (missedWeeks > 0 && missedWeeks > stats.mostForgetful.missed) {
-              stats.mostForgetful = { name: player, missed: missedWeeks };
-            }
+            stats.mostBingpots = updateTiedStat(stats.mostBingpots, player, bingpots, "count");
+            stats.mostForgetful = updateTiedStat(stats.mostForgetful, player, missedWeeks, "missed");
           });
 
           // Get best gambler from coins league
@@ -9357,8 +9393,11 @@ const TABS = [
           historicalScores.forEach(row => {
             summaryPlayers.forEach(player => {
               const score = row[player] || 0;
-              if (score > 0 && score > stats.bestGameweek.points) {
-                stats.bestGameweek = { name: player, points: score, gameweek: row.gameweek };
+              if (score <= 0) return;
+              if (score > stats.bestGameweek.points) {
+                stats.bestGameweek = { names: [player], points: score, gameweek: row.gameweek };
+              } else if (score === stats.bestGameweek.points && row.gameweek === stats.bestGameweek.gameweek) {
+                stats.bestGameweek.names.push(player);
               }
             });
           });
@@ -9373,9 +9412,9 @@ const TABS = [
 
           if (!hasAnyPoints || (isWorldCupMode && completedFixtures.length === 0)) {
             stats.topScorer = { name: "", points: 0 };
-            stats.mostBingpots = { name: "", count: 0 };
-            stats.mostForgetful = { name: "", missed: 0 };
-            stats.bestGameweek = { name: "", points: 0, gameweek: 0 };
+            stats.mostBingpots = { names: [], count: 0 };
+            stats.mostForgetful = { names: [], missed: 0 };
+            stats.bestGameweek = { names: [], points: 0, gameweek: 0 };
           }
 
           const categories = [
@@ -9387,13 +9426,15 @@ const TABS = [
             },
             {
               title: "🎯 Most Bingpots",
-              player: stats.mostBingpots.name,
+              player: formatNames(stats.mostBingpots.names),
+              players: stats.mostBingpots.names,
               value: `${stats.mostBingpots.count} bingpots`,
               color: "#FF6B9D"
             },
             {
               title: "😴 Most Forgetful",
-              player: stats.mostForgetful.name,
+              player: formatNames(stats.mostForgetful.names),
+              players: stats.mostForgetful.names,
               value: `${stats.mostForgetful.missed} missed`,
               color: "#9CA3AF"
             },
@@ -9410,8 +9451,9 @@ const TABS = [
                 }]
               : [{
                   title: "⚡ Best Gameweek",
-                  player: stats.bestGameweek.name || "—",
-                  value: stats.bestGameweek.name ? `${stats.bestGameweek.points} pts (${getModeGameweekLabel(gameMode, stats.bestGameweek.gameweek)})` : "—",
+                  player: formatNames(stats.bestGameweek.names) || "—",
+                  players: stats.bestGameweek.names,
+                  value: stats.bestGameweek.names.length ? `${stats.bestGameweek.points} pts (${getModeGameweekLabel(gameMode, stats.bestGameweek.gameweek)})` : "—",
                   color: "#F59E0B"
                 }])
           ];
@@ -9429,61 +9471,68 @@ const TABS = [
               </h2>
 
               <div style={{ display: "grid", gap: 12 }}>
-                {categories.map((cat, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      background: theme.panelHi,
-                      border: `2px solid ${cat.color}`,
-                      borderRadius: 12,
-                      padding: 16,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                    }}
-                  >
+                {categories.map((cat, idx) => {
+                  const tiedPlayers = Array.isArray(cat.players) ? cat.players : [];
+                  const playerText = tiedPlayers.length
+                    ? tiedPlayers.map((name) => formatUsernameForDisplay(name)).join(", ")
+                    : formatUsernameForDisplay(cat.player || "—");
+
+                  return (
                     <div
+                      key={idx}
                       style={{
-                        fontSize: 16,
-                        fontWeight: 700,
-                        color: cat.color,
-                      }}
-                    >
-                      {cat.title}
-                    </div>
-                    <div
-                      style={{
+                        background: theme.panelHi,
+                        border: `2px solid ${cat.color}`,
+                        borderRadius: 12,
+                        padding: 16,
                         display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
+                        flexDirection: "column",
+                        gap: 8,
                       }}
                     >
                       <div
                         style={{
-                          fontSize: 20,
-                          fontWeight: 800,
-                          color: theme.text,
-                          minWidth: 0,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
+                          fontSize: 16,
+                          fontWeight: 700,
+                          color: cat.color,
                         }}
-                        title={cat.player || "—"}
                       >
-                        {formatUsernameForDisplay(cat.player || "—")}
+                        {cat.title}
                       </div>
                       <div
                         style={{
-                          fontSize: 14,
-                          fontWeight: 600,
-                          color: theme.muted,
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: 12,
                         }}
                       >
-                        {cat.value}
+                        <div
+                          style={{
+                            fontSize: 20,
+                            fontWeight: 800,
+                            color: theme.text,
+                            minWidth: 0,
+                            overflowWrap: "anywhere",
+                          }}
+                          title={cat.player || "—"}
+                        >
+                          {playerText}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: theme.muted,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {cat.value}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           );
