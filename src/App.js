@@ -4766,7 +4766,13 @@ const historicalScores = useMemo(() => {
       const row = { gameweek: gw };
       const gwTotals = computedWeeklyTotals[gw] || {};
       Object.keys(gwTotals).forEach((k) => {
-        row[k] = gwTotals[k];
+        const score = Number(gwTotals[k]) || 0;
+        row[k] = score;
+
+        const displayName = leagueUsernamesByUserId[String(k)];
+        if (displayName && displayName !== k) {
+          row[displayName] = (Number(row[displayName]) || 0) + score;
+        }
       });
       return row;
     });
@@ -4794,7 +4800,7 @@ const historicalScores = useMemo(() => {
     });
     return row;
   });
-}, [computedWeeklyTotals, predictions, results, activeGameweeks, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
+}, [computedWeeklyTotals, leagueUsernamesByUserId, predictions, results, activeGameweeks, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
 
 const currentSeasonWinnerRecord = useMemo(() => {
   if (!activeFixtures.length || !activeGameweeks.length || !leaderboard?.length) {
