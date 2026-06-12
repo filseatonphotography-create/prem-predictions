@@ -2283,6 +2283,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
   const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+  const [computedTotalsLeagueId, setComputedTotalsLeagueId] = useState("");
   const [leagueUsernamesByUserId, setLeagueUsernamesByUserId] = useState({});
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
   const isResetPasswordRoute = useMemo(() => {
@@ -3439,10 +3440,14 @@ useEffect(() => {
 
   setSelectedLeagueId((currentId) => {
     const stillExists = myLeagues.some((league) => String(league.id) === String(currentId));
-    const nextId = stillExists ? currentId : myLeagues[0].id;
+    const storageKey = currentUserId ? `${currentUserId}:${getModeKey(gameMode)}` : "";
+    const savedLeagueId = storageKey ? getSelectedMiniLeagueStorageMap()[storageKey] : "";
+    const savedStillExists =
+      savedLeagueId &&
+      myLeagues.some((league) => String(league.id) === String(savedLeagueId));
+    const nextId = stillExists ? currentId : savedStillExists ? String(savedLeagueId) : myLeagues[0].id;
     if (currentUserId && nextId) {
       try {
-        const storageKey = `${currentUserId}:${getModeKey(gameMode)}`;
         const saved = getSelectedMiniLeagueStorageMap();
         saved[storageKey] = String(nextId);
         localStorage.setItem(SELECTED_MINI_LEAGUE_STORAGE_KEY, JSON.stringify(saved));
@@ -3457,18 +3462,30 @@ useEffect(() => {
   if (!isLoggedIn || !authToken) {
     setComputedWeeklyTotals(null);
     setComputedLeagueTotals(null);
+    setComputedTotalsLeagueId("");
     setLeagueUsernamesByUserId({});
     return;
   }
   if (!myLeagues || myLeagues.length === 0) {
     setComputedWeeklyTotals(null);
     setComputedLeagueTotals(null);
+    setComputedTotalsLeagueId("");
     setLeagueUsernamesByUserId({});
     return;
   }
 
   const leagueId = selectedMiniLeague?.id;
-  if (!leagueId) return;
+  if (!leagueId) {
+    setComputedWeeklyTotals(null);
+    setComputedLeagueTotals(null);
+    setComputedTotalsLeagueId("");
+    setLeagueUsernamesByUserId({});
+    return;
+  }
+
+  setComputedWeeklyTotals(null);
+  setComputedLeagueTotals(null);
+  setComputedTotalsLeagueId("");
 
   let cancelled = false;
 
@@ -3620,6 +3637,7 @@ useEffect(() => {
 
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
+      setComputedTotalsLeagueId(String(leagueId));
       setLeagueUsernamesByUserId(usernamesByUserId);
 
       // 7) Sync totals back to backend
@@ -4663,7 +4681,13 @@ useEffect(() => {
   }
 
   const modeKey = getModeKey(gameMode);
-  const seenKey = `winner_popup_seen_${modeKey}_${activeView}_gw${selectedGameweek}_${currentUserId}`;
+  const leagueScope =
+    activeView === "league" ? `league${selectedMiniLeague?.id || ""}` : "global";
+  if (activeView === "league") {
+    if (!selectedMiniLeague?.id) return;
+    if (String(computedTotalsLeagueId || "") !== String(selectedMiniLeague.id)) return;
+  }
+  const seenKey = `winner_popup_seen_${modeKey}_${leagueScope}_gw${selectedGameweek}_${currentUserId}`;
   if (localStorage.getItem(seenKey)) return;
 
   let winners = [];
@@ -4699,8 +4723,10 @@ useEffect(() => {
   activeView,
   selectedGameweek,
   computedWeeklyTotals,
+  computedTotalsLeagueId,
   globalWeeklyScores,
   globalUsers,
+  selectedMiniLeague,
   activeFixtures,
   results,
   isLoggedIn,
