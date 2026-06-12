@@ -7790,16 +7790,19 @@ const TABS = [
                     >
                       POINTS
                     </div>
-                    <input
-                      type="number"
-                      readOnly
-                      value={
+                    <div
+                      aria-label={
                         pointsForThisFixture == null
-                          ? ""
-                          : pointsForThisFixture
+                          ? "Points not available yet"
+                          : `${pointsForThisFixture} points`
                       }
                       style={{
                         ...smallInput,
+                        minHeight: isMobile ? 32 : 34,
+                        boxSizing: "border-box",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
                         fontWeight: 800,
                         background:
                           pointsForThisFixture == null
@@ -7818,7 +7821,9 @@ const TABS = [
                             ? "#000"
                             : "#fff",
                       }}
-                    />
+                    >
+                      {pointsForThisFixture == null ? "—" : pointsForThisFixture}
+                    </div>
                   </div>
 
                   <div
