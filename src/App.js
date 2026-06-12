@@ -4587,7 +4587,7 @@ const globalLeaderboard = useMemo(() => {
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
 }, [dedupedGlobalUsers, globalPredictionsByUserId, results, activeFixtures, isWorldCupMode]);
 
-// Winner popup for league tables (once per user per GW)
+// Winner popup for league tables (once per user per gameweek/matchday)
 useEffect(() => {
   if (!isLoggedIn || !currentUserId) return;
   if (activeView !== "league" && activeView !== "globalLeague") return;
@@ -4598,7 +4598,7 @@ useEffect(() => {
   const completedGwFixtures = gwFixtures.filter((fixture) =>
     isFixtureCompleted(fixture, results)
   );
-  if (!completedGwFixtures.length) return;
+  if (completedGwFixtures.length !== gwFixtures.length) return;
   const lastKickoff = Math.max(
     ...gwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
   );
@@ -4606,7 +4606,8 @@ useEffect(() => {
   const gwEndTime = lastKickoff + 3 * 60 * 60 * 1000;
   if (Date.now() < gwEndTime) return;
 
-  const seenKey = `winner_popup_seen_${activeView}_gw${selectedGameweek}_${currentUserId}`;
+  const modeKey = getModeKey(gameMode);
+  const seenKey = `winner_popup_seen_${modeKey}_${activeView}_gw${selectedGameweek}_${currentUserId}`;
   if (localStorage.getItem(seenKey)) return;
 
   let winners = [];
@@ -4648,6 +4649,7 @@ useEffect(() => {
   results,
   isLoggedIn,
   currentUserId,
+  gameMode,
 ]);
 
 // Season winner popup (once per user/view, only after season fully completes)
@@ -4673,7 +4675,8 @@ useEffect(() => {
   });
   if (!allFixturesCompleted) return;
 
-  const seenKey = `season_winner_popup_seen_${activeView}_s${finalGw}_${currentUserId}`;
+  const modeKey = getModeKey(gameMode);
+  const seenKey = `season_winner_popup_seen_${modeKey}_${activeView}_s${finalGw}_${currentUserId}`;
   if (localStorage.getItem(seenKey)) return;
 
   let winners = [];
@@ -4714,6 +4717,9 @@ useEffect(() => {
   results,
   isLoggedIn,
   currentUserId,
+  activeFixtures,
+  activeGameweeks,
+  gameMode,
 ]);
 
 useEffect(() => {
@@ -6223,10 +6229,14 @@ if (!isLoggedIn) {
           >
             <div style={{ fontSize: 28, marginBottom: 6 }}>🏆🎉</div>
             <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>
-              {winnerModalType === "season" ? "Season Winner" : "Gameweek Winner"}
+              {winnerModalType === "season"
+                ? (isWorldCupMode ? "World Cup Winner" : "Season Winner")
+                : (isWorldCupMode ? "Matchday Winner" : "Gameweek Winner")}
             </div>
             <div style={{ fontSize: 12, color: theme.muted, marginBottom: 12 }}>
-              {winnerModalType === "season" ? "End of Season" : `GW${selectedGameweek}`}
+              {winnerModalType === "season"
+                ? (isWorldCupMode ? "End of World Cup" : "End of Season")
+                : getModeGameweekLabel(gameMode, selectedGameweek)}
             </div>
             <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
             <PlayerAvatar
