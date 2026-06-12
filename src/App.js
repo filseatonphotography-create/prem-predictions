@@ -3632,8 +3632,19 @@ useEffect(() => {
 
       if (cancelled) return;
 
-      // Store all players' predictions so they can be viewed
-      setPredictions((prev) => ({ ...prev, ...predsForCalc }));
+      // Store all players' predictions so they can be viewed, but avoid
+      // retriggering this recalculation when the fetched data is unchanged.
+      setPredictions((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        Object.entries(predsForCalc).forEach(([key, value]) => {
+          if (JSON.stringify(prev[key] || {}) !== JSON.stringify(value || {})) {
+            next[key] = value;
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
 
       setComputedWeeklyTotals(weeklyTotals);
       setComputedLeagueTotals(leagueTotals);
@@ -4696,9 +4707,18 @@ useEffect(() => {
     if (!gwTotals) return;
     const max = Math.max(...Object.values(gwTotals).map((v) => Number(v) || 0));
     if (!Number.isFinite(max) || max <= 0) return;
+    const getLeagueWinnerName = (playerKey) => {
+      const key = String(playerKey || "");
+      if (!key) return "Unknown player";
+      return leagueUsernamesByUserId[key] || (looksLikeUserId(key) ? "Unknown player" : key);
+    };
     winners = Object.entries(gwTotals)
       .filter(([, v]) => (Number(v) || 0) === max)
-      .map(([player, points]) => ({ player, points }));
+      .map(([player, points]) => ({
+        player: getLeagueWinnerName(player),
+        userId: looksLikeUserId(player) ? String(player) : null,
+        points,
+      }));
   } else {
     const scores = globalWeeklyScores;
     const entries = Object.entries(scores);
@@ -4724,6 +4744,7 @@ useEffect(() => {
   selectedGameweek,
   computedWeeklyTotals,
   computedTotalsLeagueId,
+  leagueUsernamesByUserId,
   globalWeeklyScores,
   globalUsers,
   selectedMiniLeague,
