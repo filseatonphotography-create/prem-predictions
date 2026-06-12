@@ -70,6 +70,7 @@ const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v2";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
+const SELECTED_MINI_LEAGUE_STORAGE_KEY = "prediction_selected_mini_league_v1";
 const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const PREMIER_MODE = "premierLeague";
@@ -2463,6 +2464,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerList, setWinnerList] = useState([]);
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
+  const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -2666,6 +2668,33 @@ function formatCountdownFixtureMeta(fixture, mode) {
     if (!Array.isArray(myLeagues) || myLeagues.length === 0) return null;
     return myLeagues.find((league) => String(league.id) === String(selectedLeagueId)) || myLeagues[0];
   }, [myLeagues, selectedLeagueId]);
+
+  function getSelectedMiniLeagueStorageMap() {
+    try {
+      const saved = localStorage.getItem(SELECTED_MINI_LEAGUE_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : {};
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function rememberSelectedLeagueId(leagueId) {
+    const nextLeagueId = String(leagueId || "");
+    setSelectedLeagueId(nextLeagueId);
+    if (!currentUserId) return;
+
+    try {
+      const storageKey = `${currentUserId}:${getModeKey(gameMode)}`;
+      const saved = getSelectedMiniLeagueStorageMap();
+      if (nextLeagueId) {
+        saved[storageKey] = nextLeagueId;
+      } else {
+        delete saved[storageKey];
+      }
+      localStorage.setItem(SELECTED_MINI_LEAGUE_STORAGE_KEY, JSON.stringify(saved));
+    } catch {}
+  }
   // const isOriginalPlayer = PLAYERS.includes(currentPlayer);
 
   // Prediction key for storage
@@ -3392,6 +3421,17 @@ useEffect(() => {
 }, [isLoggedIn, authToken, gameMode]);
 
 useEffect(() => {
+  if (!isLoggedIn || !currentUserId) {
+    setSelectedLeagueId("");
+    return;
+  }
+
+  const storageKey = `${currentUserId}:${getModeKey(gameMode)}`;
+  const savedLeagueId = getSelectedMiniLeagueStorageMap()[storageKey];
+  setSelectedLeagueId(savedLeagueId ? String(savedLeagueId) : "");
+}, [isLoggedIn, currentUserId, gameMode]);
+
+useEffect(() => {
   if (!Array.isArray(myLeagues) || myLeagues.length === 0) {
     setSelectedLeagueId("");
     return;
@@ -3399,9 +3439,18 @@ useEffect(() => {
 
   setSelectedLeagueId((currentId) => {
     const stillExists = myLeagues.some((league) => String(league.id) === String(currentId));
-    return stillExists ? currentId : myLeagues[0].id;
+    const nextId = stillExists ? currentId : myLeagues[0].id;
+    if (currentUserId && nextId) {
+      try {
+        const storageKey = `${currentUserId}:${getModeKey(gameMode)}`;
+        const saved = getSelectedMiniLeagueStorageMap();
+        saved[storageKey] = String(nextId);
+        localStorage.setItem(SELECTED_MINI_LEAGUE_STORAGE_KEY, JSON.stringify(saved));
+      } catch {}
+    }
+    return nextId;
   });
-}, [myLeagues]);
+}, [myLeagues, currentUserId, gameMode]);
   
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -4042,7 +4091,7 @@ setNewPasswordInput("");
       const league = await apiCreateLeague(authToken, name, gameMode);
       setLeagueSuccess(`Created "${league.name || name}".`);
       setLeagueNameInput("");
-      if (league.id) setSelectedLeagueId(league.id);
+      if (league.id) rememberSelectedLeagueId(league.id);
       await handleLoadLeagues();
     } catch (err) {
       setLeagueError(err.message || "Failed to create league.");
@@ -4060,7 +4109,7 @@ setNewPasswordInput("");
       const league = await apiJoinLeague(authToken, code, gameMode);
       setLeagueSuccess(`Joined "${league.name || "league"}".`);
       setLeagueJoinCode("");
-      if (league.id) setSelectedLeagueId(league.id);
+      if (league.id) rememberSelectedLeagueId(league.id);
       await handleLoadLeagues();
     } catch (err) {
       setLeagueError(err.message || "Failed to join league.");
@@ -4603,8 +4652,15 @@ useEffect(() => {
     ...gwFixtures.map((f) => Date.parse(f.kickoff)).filter((t) => Number.isFinite(t))
   );
   if (!Number.isFinite(lastKickoff)) return;
-  const gwEndTime = lastKickoff + 3 * 60 * 60 * 1000;
-  if (Date.now() < gwEndTime) return;
+  const winnerPopupDelayMs = isWorldCupMode ? 2 * 60 * 60 * 1000 : 3 * 60 * 60 * 1000;
+  const gwEndTime = lastKickoff + winnerPopupDelayMs;
+  const msUntilPopup = gwEndTime - Date.now();
+  if (msUntilPopup > 0) {
+    const timeout = setTimeout(() => {
+      setWinnerPopupCheckCount((count) => count + 1);
+    }, Math.min(msUntilPopup + 1000, 60 * 60 * 1000));
+    return () => clearTimeout(timeout);
+  }
 
   const modeKey = getModeKey(gameMode);
   const seenKey = `winner_popup_seen_${modeKey}_${activeView}_gw${selectedGameweek}_${currentUserId}`;
@@ -4650,6 +4706,8 @@ useEffect(() => {
   isLoggedIn,
   currentUserId,
   gameMode,
+  isWorldCupMode,
+  winnerPopupCheckCount,
 ]);
 
 // Season winner popup (once per user/view, only after season fully completes)
@@ -8389,7 +8447,7 @@ const TABS = [
                 {myLeagues.length > 1 && (
                   <select
                     value={selectedMiniLeague?.id || ""}
-                    onChange={(e) => setSelectedLeagueId(e.target.value)}
+                    onChange={(e) => rememberSelectedLeagueId(e.target.value)}
                     style={{
                       minWidth: isMobile ? "100%" : 220,
                       padding: "8px 10px",
@@ -10202,7 +10260,7 @@ const TABS = [
                     <button
                       type="button"
                       onClick={() => {
-                        setSelectedLeagueId(l.id);
+                        rememberSelectedLeagueId(l.id);
                         setActiveView("league");
                       }}
                       style={{
