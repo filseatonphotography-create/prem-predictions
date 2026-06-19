@@ -7954,6 +7954,123 @@ const TABS = [
                 </div>
               </div>
 
+              {!isWorldCupMode && hasResult && (
+                <div
+                  aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} score ${r.homeGoals}-${r.awayGoals}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: isMobile ? 6 : 8,
+                    maxWidth: "100%",
+                    color: theme.muted,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    lineHeight: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      minWidth: isMobile ? 42 : 48,
+                      textAlign: "right",
+                      color: theme.muted,
+                      fontSize: 11,
+                      fontWeight: 800,
+                    }}
+                  >
+                    SCORE
+                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      minWidth: 0,
+                    }}
+                  >
+                    {resolveTeamBadge(fixture.homeTeam) ? (
+                      <img
+                        src={resolveTeamBadge(fixture.homeTeam)}
+                        alt={fixture.homeTeam}
+                        style={{
+                          width: isMobile ? 14 : 16,
+                          height: isMobile ? 14 : 16,
+                          objectFit: "contain",
+                        }}
+                      />
+                    ) : null}
+                    <span style={{ color: theme.text, fontSize: 11, fontWeight: 700 }}>
+                      {getTeamCode(fixture.homeTeam, gameMode)}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      flex: "0 0 auto",
+                    }}
+                  >
+                    <span
+                      style={{
+                        ...smallInput,
+                        width: isMobile ? 28 : 30,
+                        minHeight: isMobile ? 28 : 30,
+                        padding: "4px 6px",
+                        boxSizing: "border-box",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 800,
+                        background: theme.panel,
+                      }}
+                    >
+                      {r.homeGoals}
+                    </span>
+                    <span style={{ color: theme.muted, fontWeight: 800 }}>-</span>
+                    <span
+                      style={{
+                        ...smallInput,
+                        width: isMobile ? 28 : 30,
+                        minHeight: isMobile ? 28 : 30,
+                        padding: "4px 6px",
+                        boxSizing: "border-box",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontWeight: 800,
+                        background: theme.panel,
+                      }}
+                    >
+                      {r.awayGoals}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      minWidth: 0,
+                    }}
+                  >
+                    <span style={{ color: theme.text, fontSize: 11, fontWeight: 700 }}>
+                      {getTeamCode(fixture.awayTeam, gameMode)}
+                    </span>
+                    {resolveTeamBadge(fixture.awayTeam) ? (
+                      <img
+                        src={resolveTeamBadge(fixture.awayTeam)}
+                        alt={fixture.awayTeam}
+                        style={{
+                          width: isMobile ? 14 : 16,
+                          height: isMobile ? 14 : 16,
+                          objectFit: "contain",
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
               {/* POINTS + LOCK row */}
               <div
                 style={{
