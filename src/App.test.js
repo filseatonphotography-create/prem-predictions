@@ -3,6 +3,7 @@ import {
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
+  normalizeCaptainsByGameweek,
 } from "./App";
 
 describe("World Cup sync helpers", () => {
@@ -101,5 +102,35 @@ describe("World Cup sync helpers", () => {
       "same-2",
       "late",
     ]);
+  });
+
+  test("keeps captains on different World Cup matchdays", () => {
+    const preds = {
+      920033: { isDouble: true, updatedAt: 1 },
+      920037: { isDouble: true, updatedAt: 2 },
+    };
+    const fixtures = [
+      { id: 920033, gameweek: 10 },
+      { id: 920037, gameweek: 11 },
+    ];
+
+    expect(normalizeCaptainsByGameweek(preds, fixtures)).toEqual(preds);
+  });
+
+  test("does not collapse Premier League and World Cup rounds with the same number", () => {
+    const preds = {
+      101: { isDouble: true, updatedAt: 1 },
+      920033: { isDouble: true, updatedAt: 2 },
+    };
+    const premierFixtures = [{ id: 101, gameweek: 10 }];
+    const worldCupFixtures = [{ id: 920033, gameweek: 10 }];
+
+    const normalized = normalizeCaptainsByGameweek(
+      normalizeCaptainsByGameweek(preds, premierFixtures),
+      worldCupFixtures
+    );
+
+    expect(normalized[101].isDouble).toBe(true);
+    expect(normalized[920033].isDouble).toBe(true);
   });
 });

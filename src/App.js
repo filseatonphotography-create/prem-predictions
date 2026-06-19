@@ -280,6 +280,49 @@ function keepOnlyWorldCupPredictions(allPredictions = {}) {
   return cleaned;
 }
 
+// Ensure at most one captain (isDouble) per round within one fixture set.
+// Call separately per mode so Premier League GW10 and World Cup Matchday 10
+// are never treated as the same round.
+export function normalizeCaptainsByGameweek(predsForUser, fixturesSource = FIXTURES) {
+  if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
+
+  const fixtureById = new Map(
+    (fixturesSource || []).map((fixture) => [String(fixture.id), fixture])
+  );
+  const byGw = {};
+
+  Object.entries(predsForUser).forEach(([fixtureId, pred]) => {
+    if (!pred || !pred.isDouble) return;
+
+    const fx = fixtureById.get(String(fixtureId));
+    if (!fx) return;
+
+    const gw = fx.gameweek;
+    const ts = typeof pred.updatedAt === "number" ? pred.updatedAt : 0;
+
+    if (!byGw[gw]) byGw[gw] = [];
+    byGw[gw].push({ fixtureId, ts });
+  });
+
+  const cloned = { ...predsForUser };
+
+  Object.values(byGw).forEach((arr) => {
+    if (arr.length <= 1) return;
+
+    arr.sort((a, b) => a.ts - b.ts);
+    const keepId = arr[arr.length - 1].fixtureId;
+
+    arr.forEach(({ fixtureId }) => {
+      if (fixtureId === keepId) return;
+      const prev = cloned[fixtureId];
+      if (!prev) return;
+      cloned[fixtureId] = { ...prev, isDouble: false };
+    });
+  });
+
+  return cloned;
+}
+
 // Simple avatar renderer using DiceBear styles
 function resolveTeamBadge(teamName) {
   const raw = (teamName || "").trim();
@@ -3284,47 +3327,6 @@ useEffect(() => {
     }
   }, [authHydrated, isLoggedIn, authToken, currentUserId, currentPlayer]);
 
-  // Ensure at most one captain (isDouble) per gameweek for a single user
-function normalizeCaptainsByGameweek(predsForUser) {
-  if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
-
-  // Group captain fixtures by gameweek, including their updatedAt timestamp
-  const byGw = {};
-  for (const [fixtureId, pred] of Object.entries(predsForUser)) {
-    if (!pred || !pred.isDouble) continue;
-
-    const fx = FIXTURES.find((f) => f.id === Number(fixtureId));
-    if (!fx) continue;
-
-    const gw = fx.gameweek;
-    const ts =
-      pred && typeof pred.updatedAt === "number" ? pred.updatedAt : 0;
-
-    if (!byGw[gw]) byGw[gw] = [];
-    byGw[gw].push({ fixtureId, ts });
-  }
-
-  const cloned = { ...predsForUser };
-
-  // For any gameweek with multiple captains, keep the latest one
-  Object.values(byGw).forEach((arr) => {
-    if (arr.length <= 1) return;
-
-    // Sort by timestamp and keep the one with the highest updatedAt
-    arr.sort((a, b) => a.ts - b.ts);
-    const keepId = arr[arr.length - 1].fixtureId;
-
-    arr.forEach(({ fixtureId }) => {
-      if (fixtureId === keepId) return;
-      const prev = cloned[fixtureId];
-      if (!prev) return;
-      cloned[fixtureId] = { ...prev, isDouble: false };
-    });
-  });
-
-  return cloned;
-}
-
   // Load cloud predictions after login/restore (ONLY for logged-in user)
   useEffect(() => {
     async function loadCloud() {
@@ -3338,8 +3340,12 @@ function normalizeCaptainsByGameweek(predsForUser) {
         // Always use the logged-in user's key
         const key = currentUserId;
 
-        // Normalize: keep only ONE captain per gameweek (latest updatedAt wins)
-        const normalized = normalizeCaptainsByGameweek(remote);
+        // Normalize per mode so existing Premier League scores and World Cup
+        // matchday captains cannot clear each other.
+        const normalized = normalizeCaptainsByGameweek(
+          normalizeCaptainsByGameweek(remote, FIXTURES),
+          WORLD_CUP_FIXTURES
+        );
         const resetSafeRemote =
           keepOnlyWorldCupPredictions({ [key]: normalized })[key] || {};
 
@@ -3603,6 +3609,10 @@ useEffect(() => {
         }
       });
 
+      if (currentPredictionKey && predsForCalc[currentPredictionKey] && predictions[currentPredictionKey]) {
+        predsForCalc[currentPredictionKey] = { ...predictions[currentPredictionKey] };
+      }
+
       // 5) Compute weekly totals (spreadsheet base + recalculated points)
       const weeklyTotals = {};
       activeGameweeks.forEach((gw) => {
@@ -3638,6 +3648,7 @@ useEffect(() => {
         const next = { ...prev };
         let changed = false;
         Object.entries(predsForCalc).forEach(([key, value]) => {
+          if (String(key) === String(currentPredictionKey || "")) return;
           if (JSON.stringify(prev[key] || {}) !== JSON.stringify(value || {})) {
             next[key] = value;
             changed = true;
@@ -3667,7 +3678,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, currentUserId, currentPlayer]);
+}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, currentUserId, currentPlayer, currentPredictionKey]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
