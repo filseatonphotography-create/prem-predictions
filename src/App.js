@@ -357,6 +357,33 @@ export function mergeCloudPredictionsPreservingLocalBoosts(
   return merged;
 }
 
+export function setOnlyCaptainForFixtureRound(predsForUser, fixtureId, fixturesSource = FIXTURES) {
+  if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
+
+  const fixtureById = new Map(
+    (fixturesSource || []).map((fixture) => [String(fixture.id), fixture])
+  );
+  const targetFixture = fixtureById.get(String(fixtureId));
+  if (!targetFixture) return predsForUser;
+
+  return Object.fromEntries(
+    Object.entries(predsForUser).map(([id, pred]) => {
+      const fixture = fixtureById.get(String(id));
+      const sameRound = fixture && fixture.gameweek === targetFixture.gameweek;
+      const isTarget = String(id) === String(fixtureId);
+
+      return [
+        id,
+        {
+          ...pred,
+          isDouble: sameRound ? isTarget : pred.isDouble,
+          isTriple: sameRound ? false : pred.isTriple,
+        },
+      ];
+    })
+  );
+}
+
 // Simple avatar renderer using DiceBear styles
 function resolveTeamBadge(teamName) {
   const raw = (teamName || "").trim();
@@ -4415,22 +4442,10 @@ setNewPasswordInput("");
           }
 
           // Set this as the only captain in that gameweek
-          updatedPlayerPreds = Object.fromEntries(
-            Object.entries(updatedPlayerPreds).map(([id, pred]) => {
-              const f = findModeFixture(id);
-              const sameGW = f && f.gameweek === doubleFixture.gameweek;
-              const isThis = Number(id) === fixtureIdNum;
-
-              return [
-                id,
-                {
-                  ...pred,
-                  isDouble: sameGW && isThis,
-                  // can't be triple in same GW as captain
-                  isTriple: sameGW ? false : pred.isTriple,
-                },
-              ];
-            })
+          updatedPlayerPreds = setOnlyCaptainForFixtureRound(
+            updatedPlayerPreds,
+            fixtureIdNum,
+            fixturesForMode
           );
         } else {
           // Unticking captain on this fixture only

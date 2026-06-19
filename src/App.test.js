@@ -5,6 +5,7 @@ import {
   sortFixturesByOrderOfPlay,
   normalizeCaptainsByGameweek,
   mergeCloudPredictionsPreservingLocalBoosts,
+  setOnlyCaptainForFixtureRound,
 } from "./App";
 
 describe("World Cup sync helpers", () => {
@@ -179,5 +180,41 @@ describe("World Cup sync helpers", () => {
     );
 
     expect(merged[920040].isDouble).toBe(true);
+  });
+
+  test("selecting a captain in one World Cup matchday keeps captains in other matchdays", () => {
+    const fixtures = [
+      { id: 920033, gameweek: 10 },
+      { id: 920035, gameweek: 10 },
+      { id: 920038, gameweek: 11 },
+    ];
+    const preds = {
+      920035: { isDouble: true, isTriple: false },
+      920038: { isDouble: true, isTriple: false },
+    };
+
+    const updated = setOnlyCaptainForFixtureRound(preds, 920038, fixtures);
+
+    expect(updated[920035].isDouble).toBe(true);
+    expect(updated[920038].isDouble).toBe(true);
+  });
+
+  test("selecting a captain clears only the previous captain in the same World Cup matchday", () => {
+    const fixtures = [
+      { id: 920033, gameweek: 10 },
+      { id: 920035, gameweek: 10 },
+      { id: 920038, gameweek: 11 },
+    ];
+    const preds = {
+      920033: { isDouble: false, isTriple: false },
+      920035: { isDouble: true, isTriple: false },
+      920038: { isDouble: true, isTriple: false },
+    };
+
+    const updated = setOnlyCaptainForFixtureRound(preds, 920033, fixtures);
+
+    expect(updated[920033].isDouble).toBe(true);
+    expect(updated[920035].isDouble).toBe(false);
+    expect(updated[920038].isDouble).toBe(true);
   });
 });
