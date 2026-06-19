@@ -323,6 +323,40 @@ export function normalizeCaptainsByGameweek(predsForUser, fixturesSource = FIXTU
   return cloned;
 }
 
+export function mergeCloudPredictionsPreservingLocalBoosts(
+  cloudPreds = {},
+  localPreds = {},
+  fixturesSource = FIXTURES
+) {
+  const merged = { ...(cloudPreds || {}) };
+
+  (fixturesSource || []).forEach((fixture) => {
+    if (!fixture?.id) return;
+
+    const fixtureId = String(fixture.id);
+    const localPred = localPreds?.[fixtureId] || localPreds?.[fixture.id];
+    if (!localPred) return;
+
+    const cloudPred = merged[fixtureId] || merged[fixture.id];
+    if (!cloudPred) {
+      merged[fixtureId] = { ...localPred };
+      return;
+    }
+
+    const shouldPreserveDouble = !!localPred.isDouble && !cloudPred.isDouble;
+    const shouldPreserveTriple = !!localPred.isTriple && !cloudPred.isTriple;
+    if (!shouldPreserveDouble && !shouldPreserveTriple) return;
+
+    merged[fixtureId] = {
+      ...cloudPred,
+      isDouble: !!cloudPred.isDouble || !!localPred.isDouble,
+      isTriple: !!cloudPred.isTriple || !!localPred.isTriple,
+    };
+  });
+
+  return merged;
+}
+
 // Simple avatar renderer using DiceBear styles
 function resolveTeamBadge(teamName) {
   const raw = (teamName || "").trim();
@@ -3350,10 +3384,19 @@ useEffect(() => {
           keepOnlyWorldCupPredictions({ [key]: normalized })[key] || {};
 
         // Replace only the logged-in user's predictions with the cloud data
-        setPredictions((prev) => ({
-          ...keepOnlyWorldCupPredictions(prev),
-          [key]: { ...resetSafeRemote },
-        }));
+        setPredictions((prev) => {
+          const resetSafePrev = keepOnlyWorldCupPredictions(prev);
+          const merged = mergeCloudPredictionsPreservingLocalBoosts(
+            resetSafeRemote,
+            resetSafePrev[key] || {},
+            WORLD_CUP_FIXTURES
+          );
+
+          return {
+            ...resetSafePrev,
+            [key]: { ...merged },
+          };
+        });
       } catch (err) {
         console.error("Cloud predictions failed:", err);
       }

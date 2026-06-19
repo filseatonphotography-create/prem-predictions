@@ -4,6 +4,7 @@ import {
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
   normalizeCaptainsByGameweek,
+  mergeCloudPredictionsPreservingLocalBoosts,
 } from "./App";
 
 describe("World Cup sync helpers", () => {
@@ -132,5 +133,51 @@ describe("World Cup sync helpers", () => {
 
     expect(normalized[101].isDouble).toBe(true);
     expect(normalized[920033].isDouble).toBe(true);
+  });
+
+  test("preserves local captain flags when cloud data is stale", () => {
+    const fixture = {
+      id: 920028,
+      gameweek: 8,
+      kickoff: "2026-06-19T01:00:00Z",
+      kickoffTimeConfirmed: true,
+    };
+    const cloudPreds = {
+      920028: { homeGoals: "2", awayGoals: "1", isDouble: false, isTriple: false },
+    };
+    const localPreds = {
+      920028: { homeGoals: "2", awayGoals: "1", isDouble: true, isTriple: false },
+    };
+
+    const merged = mergeCloudPredictionsPreservingLocalBoosts(
+      cloudPreds,
+      localPreds,
+      [fixture]
+    );
+
+    expect(merged[920028].isDouble).toBe(true);
+  });
+
+  test("preserves local captain flags for unlocked future fixtures too", () => {
+    const fixture = {
+      id: 920040,
+      gameweek: 11,
+      kickoff: "2999-06-22T01:00:00Z",
+      kickoffTimeConfirmed: true,
+    };
+    const cloudPreds = {
+      920040: { homeGoals: "1", awayGoals: "1", isDouble: false, isTriple: false },
+    };
+    const localPreds = {
+      920040: { homeGoals: "1", awayGoals: "1", isDouble: true, isTriple: false },
+    };
+
+    const merged = mergeCloudPredictionsPreservingLocalBoosts(
+      cloudPreds,
+      localPreds,
+      [fixture]
+    );
+
+    expect(merged[920040].isDouble).toBe(true);
   });
 });
