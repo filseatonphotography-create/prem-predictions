@@ -2779,15 +2779,18 @@ function formatCountdownFixtureMeta(fixture, mode) {
   // Always use the logged-in user's real userId for their own predictions.
   // Only fall back to the synthetic Phil merge when viewing legacy Phil data.
   const currentPredictionKey = useMemo(() => {
-    if (currentPlayer === loginName && currentUserId) return currentUserId;
-    if (currentPlayer === currentUserId) {
+    if (
+      isLoggedIn &&
+      currentUserId &&
+      (currentPlayer === loginName || currentPlayer === currentUserId)
+    ) {
       return currentUserId;
     }
     if (currentPlayer === "Phil") {
       return "Phil_merged";
     }
     return currentPlayer;
-  }, [currentPlayer, currentUserId, loginName]);
+  }, [currentPlayer, currentUserId, isLoggedIn, loginName]);
 
 // Merge Phil's predictions from both IDs into a synthetic key
 useEffect(() => {
@@ -3386,9 +3389,16 @@ useEffect(() => {
         // Replace only the logged-in user's predictions with the cloud data
         setPredictions((prev) => {
           const resetSafePrev = keepOnlyWorldCupPredictions(prev);
+          const localPredsForUser =
+            currentPlayer === "Phil"
+              ? {
+                  ...(resetSafePrev[key] || {}),
+                  ...(resetSafePrev.Phil_merged || {}),
+                }
+              : resetSafePrev[key] || {};
           const merged = mergeCloudPredictionsPreservingLocalBoosts(
             resetSafeRemote,
-            resetSafePrev[key] || {},
+            localPredsForUser,
             WORLD_CUP_FIXTURES
           );
 
@@ -3403,7 +3413,7 @@ useEffect(() => {
     }
 
     loadCloud();
-  }, [isLoggedIn, authToken, currentUserId]);
+  }, [isLoggedIn, authToken, currentUserId, currentPlayer]);
   
  
     //  // One-time migration: move Phil_legacy local preds into Phil cloud account
