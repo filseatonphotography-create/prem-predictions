@@ -7967,7 +7967,7 @@ const TABS = [
                 </div>
               </div>
 
-              {!isWorldCupMode && hasResult && (
+              {hasResult && (
                 <div
                   aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} score ${r.homeGoals}-${r.awayGoals}`}
                   style={{
@@ -8000,7 +8000,7 @@ const TABS = [
                       justifyItems: "center",
                       gap: isMobile ? 8 : 10,
                       width: "100%",
-                      maxWidth: isMobile ? 260 : 300,
+                      maxWidth: isMobile ? 276 : 320,
                     }}
                   >
                     <div
@@ -8013,7 +8013,11 @@ const TABS = [
                         minWidth: 0,
                       }}
                     >
-                      {resolveTeamBadge(fixture.homeTeam) ? (
+                      {isWorldCupMode ? (
+                        <span style={{ fontSize: isMobile ? 14 : 16, flexShrink: 0 }}>
+                          {getWorldCupFlag(fixture.homeTeam)}
+                        </span>
+                      ) : resolveTeamBadge(fixture.homeTeam) ? (
                         <img
                           src={resolveTeamBadge(fixture.homeTeam)}
                           alt={fixture.homeTeam}
@@ -8085,7 +8089,11 @@ const TABS = [
                       <span style={{ color: theme.text, fontSize: 11, fontWeight: 700 }}>
                         {getTeamCode(fixture.awayTeam, gameMode)}
                       </span>
-                      {resolveTeamBadge(fixture.awayTeam) ? (
+                      {isWorldCupMode ? (
+                        <span style={{ fontSize: isMobile ? 14 : 16, flexShrink: 0 }}>
+                          {getWorldCupFlag(fixture.awayTeam)}
+                        </span>
+                      ) : resolveTeamBadge(fixture.awayTeam) ? (
                         <img
                           src={resolveTeamBadge(fixture.awayTeam)}
                           alt={fixture.awayTeam}
