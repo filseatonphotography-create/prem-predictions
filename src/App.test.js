@@ -2,6 +2,7 @@ import {
   normalizeTeamName,
   getTeamCode,
   isValidSeasonWinnerRecord,
+  isFixtureLive,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
@@ -304,5 +305,15 @@ describe("World Cup sync helpers", () => {
     expect(updated[920033].isDouble).toBe(true);
     expect(updated[920035].isDouble).toBe(false);
     expect(updated[920038].isDouble).toBe(true);
+  });
+});
+
+describe("live fixture styling", () => {
+  test("treats in-play and half-time matches as live", () => {
+    expect(isFixtureLive({ status: "IN_PLAY" })).toBe(true);
+    expect(isFixtureLive({ status: "LIVE" })).toBe(true);
+    expect(isFixtureLive({ status: "PAUSED" })).toBe(true);
+    expect(isFixtureLive({ status: "FINISHED" })).toBe(false);
+    expect(isFixtureLive({ status: "TIMED" })).toBe(false);
   });
 });

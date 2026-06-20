@@ -1900,6 +1900,12 @@ function getScoreLabel(matchState) {
   return "SCORE";
 }
 
+export function isFixtureLive(matchState) {
+  return ["IN_PLAY", "PAUSED", "LIVE"].includes(
+    String(matchState?.status || "").toUpperCase()
+  );
+}
+
 function getDifficultyMeta(score) {
   if (score <= 1) return { label: "Easy", color: "#22c55e" };
   if (score <= 2) return { label: "Favourable", color: "#84cc16" };
@@ -2437,8 +2443,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     };
   });
   
-  // eslint-disable-next-line no-unused-vars
-  const [apiStatus, setApiStatus] = useState("Auto results: loading…");
+  const [, setApiStatus] = useState("Auto results: loading…");
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
   const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
@@ -6703,15 +6708,7 @@ if (!isLoggedIn) {
 <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
   {getModeLabel(gameMode)} Mode
 </div>
-            <div style={{ marginTop: 10, display: "grid", justifyItems: "center", gap: 6 }}>
-              {resultsRefreshing && (
-                <div
-                  role="status"
-                  style={{ fontSize: 12, fontWeight: 700, color: theme.muted }}
-                >
-                  {apiStatus}
-                </div>
-              )}
+            <div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
               <button
                 type="button"
                 onClick={() => {
@@ -6728,9 +6725,9 @@ if (!isLoggedIn) {
                 }}
                 disabled={activeView === "predictions" && resultsRefreshing}
                 style={{
-                  minWidth: isMobile ? 190 : 230,
-                  padding: isMobile ? "10px 18px" : "12px 24px",
-                  borderRadius: 12,
+                  minWidth: isMobile ? 150 : 180,
+                  padding: isMobile ? "7px 14px" : "8px 16px",
+                  borderRadius: 999,
                   border: `1px solid ${theme.accent}`,
                   background: theme.accent,
                   color: "#08111f",
@@ -7727,6 +7724,7 @@ const TABS = [
         const hasResult =
           r && r.homeGoals !== "" && r.awayGoals !== "";
         const scoreLabel = getScoreLabel(matchStatesByFixtureId[fixture.id]);
+        const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
         const pointsForThisFixture = hasResult
           ? getTotalPoints(pred, r)
           : null;
@@ -7783,7 +7781,9 @@ const TABS = [
             style={{
               background: theme.panelHi,
               borderRadius: 12,
-              border: `1px solid rgba(255, 255, 255, 0.3)`,
+              border: fixtureLive
+                ? "2px solid #22c55e"
+                : "1px solid rgba(255, 255, 255, 0.3)",
               padding: 8,
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr)",
@@ -8102,7 +8102,7 @@ const TABS = [
                 >
                   <span
                     style={{
-                      color: theme.muted,
+                      color: fixtureLive ? "#22c55e" : theme.muted,
                       fontSize: 11,
                       fontWeight: 800,
                       textAlign: "center",
@@ -8688,6 +8688,7 @@ const TABS = [
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
         const res = results[fixture.id] || {};
+        const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
 
         const homeCode = getTeamCode(fixture.homeTeam, gameMode);
         const awayCode = getTeamCode(fixture.awayTeam, gameMode);
@@ -8702,7 +8703,9 @@ const TABS = [
             style={{
               background: theme.panelHi,
               borderRadius: 12,
-              border: `1px solid rgba(255, 255, 255, 0.3)`,
+              border: fixtureLive
+                ? "2px solid #22c55e"
+                : "1px solid rgba(255, 255, 255, 0.3)",
               padding: 10,
               display: "flex",
               justifyContent: "center",
@@ -8757,6 +8760,18 @@ const TABS = [
                   justifyItems: "center",
                 }}
               >
+                {fixtureLive && (
+                  <span
+                    style={{
+                      color: "#22c55e",
+                      fontSize: 10,
+                      fontWeight: 900,
+                      letterSpacing: 0.4,
+                    }}
+                  >
+                    LIVE SCORE
+                  </span>
+                )}
                 {isWorldCupMode && (
                   <span
                     style={{
