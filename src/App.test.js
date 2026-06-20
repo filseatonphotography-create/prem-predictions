@@ -1,5 +1,6 @@
 import {
   normalizeTeamName,
+  getTeamCode,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
@@ -7,6 +8,35 @@ import {
   mergeCloudPredictionsPreservingLocalBoosts,
   setOnlyCaptainForFixtureRound,
 } from "./App";
+import FIXTURES from "./fixtures";
+
+describe("2026/27 Premier League data", () => {
+  test("contains 38 complete gameweeks and 20 clubs", () => {
+    expect(FIXTURES).toHaveLength(380);
+    expect(new Set(FIXTURES.map((fixture) => fixture.id)).size).toBe(380);
+    expect(new Set(FIXTURES.map((fixture) => fixture.gameweek)).size).toBe(38);
+    expect(
+      new Set(FIXTURES.flatMap((fixture) => [fixture.homeTeam, fixture.awayTeam])).size
+    ).toBe(20);
+
+    for (let gameweek = 1; gameweek <= 38; gameweek += 1) {
+      expect(FIXTURES.filter((fixture) => fixture.gameweek === gameweek)).toHaveLength(10);
+    }
+  });
+
+  test("supports the promoted clubs and their three-letter codes", () => {
+    expect(normalizeTeamName("Coventry")).toBe(
+      normalizeTeamName("Coventry City FC")
+    );
+    expect(normalizeTeamName("Hull")).toBe(normalizeTeamName("Hull City AFC"));
+    expect(normalizeTeamName("Ipswich")).toBe(
+      normalizeTeamName("Ipswich Town FC")
+    );
+    expect(getTeamCode("Coventry City FC")).toBe("COV");
+    expect(getTeamCode("Hull City AFC")).toBe("HUL");
+    expect(getTeamCode("Ipswich Town FC")).toBe("IPS");
+  });
+});
 
 describe("World Cup sync helpers", () => {
   const fixtures = [

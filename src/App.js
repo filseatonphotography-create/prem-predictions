@@ -66,7 +66,7 @@ const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const WELCOME_PENDING_STORAGE_KEY = "prediction_welcome_pending_user_v1";
 const WELCOME_SEEN_STORAGE_KEY = "prediction_welcome_seen_users_v1";
-const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v2";
+const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v3";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
@@ -96,9 +96,15 @@ const TEAM_BADGES = {
   Brighton: "/badges/brighton.png",
   Burnley: "/badges/burnley.png",
   Chelsea: "/badges/chelsea.png",
+  Coventry: "/badges/coventry.png",
+  "Coventry City": "/badges/coventry.png",
   "Crystal Palace": "/badges/crystal_palace.png",
   Everton: "/badges/everton.png",
   Fulham: "/badges/fulham.png",
+  Hull: "/badges/hull.png",
+  "Hull City": "/badges/hull.png",
+  Ipswich: "/badges/ipswich.png",
+  "Ipswich Town": "/badges/ipswich.png",
   Leicester: "/badges/leicester.png",
   Liverpool: "/badges/liverpool.png",
   "Manchester City": "/badges/man_city.png",
@@ -573,6 +579,9 @@ export function normalizeTeamName(name) {
   )
     s = "manchester united";
   if (s === "leeds") s = "leeds united";
+  if (s === "coventry") s = "coventry city";
+  if (s === "hull") s = "hull city";
+  if (s === "ipswich") s = "ipswich town";
   if (s === "west ham" || s === "whu" || s === "hammers")
     s = "west ham united";
   if (s === "aston villa" || s === "villa") s = "aston villa";
@@ -609,6 +618,12 @@ export function normalizeTeamName(name) {
     manchesterunited: "manchesterunited",
     leeds: "leedsunited",
     leedsunited: "leedsunited",
+    coventry: "coventrycity",
+    coventrycity: "coventrycity",
+    hull: "hullcity",
+    hullcity: "hullcity",
+    ipswich: "ipswichtown",
+    ipswichtown: "ipswichtown",
     westham: "westhamunited",
     whu: "westhamunited",
     hammers: "westhamunited",
@@ -1346,7 +1361,7 @@ function getPredictionLandingGameweek(fixturesSource = FIXTURES, gameweeks = GAM
 }
 
 // --- TEAM RATINGS FOR MODELLED ODDS ---
-// Based on the 2025/26 table + current form snapshot you sent
+// Seed ratings for the 2026/27 Premier League clubs.
 const TEAM_RATINGS = {
   Arsenal: 98,
   "Man City": 96,
@@ -1365,9 +1380,9 @@ const TEAM_RATINGS = {
   Fulham: 79,
   "Nott'm Forest": 78,
   Leeds: 77,
-  "West Ham": 75,
-  Burnley: 73,
-  Wolves: 70,
+  Coventry: 75,
+  Ipswich: 74,
+  Hull: 72,
 };
 
 const WORLD_CUP_OUTRIGHT_ODDS = {
@@ -1586,30 +1601,26 @@ function computeProbabilities(odds) {
 }
 
 const TEAM_STRENGTH = {
-  "Man City": 96,
-
-  Arsenal: 92,
-  Liverpool: 90,
-  Spurs: 88,
-
-  "Aston Villa": 85,
-  Chelsea: 84,
-  Newcastle: 83,
-  "Man Utd": 82,
-
-  Brighton: 80,
-  "West Ham": 78,
-  Brentford: 76,
-  Wolves: 75,
-  "Crystal Palace": 74,
-  Fulham: 73,
-  Bournemouth: 72,
-  Everton: 71,
-
-  "Nott'm Forest": 69,
-  Leeds: 68,
-  Burnley: 67,
-  Sunderland: 65,
+  "Manchester City FC": 96,
+  "Arsenal FC": 92,
+  "Liverpool FC": 90,
+  "Tottenham Hotspur FC": 88,
+  "Aston Villa FC": 85,
+  "Chelsea FC": 84,
+  "Newcastle United FC": 83,
+  "Manchester United FC": 82,
+  "Brighton & Hove Albion FC": 80,
+  "Brentford FC": 76,
+  "Crystal Palace FC": 74,
+  "Fulham FC": 73,
+  "AFC Bournemouth": 72,
+  "Everton FC": 71,
+  "Nottingham Forest FC": 69,
+  "Leeds United FC": 68,
+  "Sunderland AFC": 67,
+  "Coventry City FC": 66,
+  "Ipswich Town FC": 65,
+  "Hull City AFC": 64,
 };
 
 // Generate free built-in odds so we don't depend on external APIs
@@ -1702,7 +1713,7 @@ function formatOdds(value) {
 }
 
 
-function getTeamCode(name, mode = PREMIER_MODE) {
+export function getTeamCode(name, mode = PREMIER_MODE) {
   if (!name) return "";
 
   if (mode === WORLD_CUP_MODE) {
@@ -1775,9 +1786,11 @@ function getTeamCode(name, mode = PREMIER_MODE) {
     { match: ["brentford"], code: "BRE" },
     { match: ["brighton", "brighton and hove", "brighton hove albion", "brighton hove"], code: "BHA" },
     { match: ["chelsea"], code: "CHE" },
+    { match: ["coventry", "coventry city"], code: "COV" },
     { match: ["crystal palace", "palace"], code: "CRY" },
     { match: ["everton"], code: "EVE" },
     { match: ["fulham"], code: "FUL" },
+    { match: ["hull", "hull city"], code: "HUL" },
     { match: ["ipswich", "ipswich town"], code: "IPS" },
     { match: ["leicester", "leicester city"], code: "LEI" },
     { match: ["liverpool"], code: "LIV" },
