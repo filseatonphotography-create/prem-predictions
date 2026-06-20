@@ -7116,7 +7116,6 @@ if (!isLoggedIn) {
  {/* Tabs */}
 {(() => {
 const TABS = [
-  { id: "welcome", label: "Welcome Page" },
   { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
@@ -7124,6 +7123,7 @@ const TABS = [
   { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
   { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
   { id: "rules", label: "Rules" },
+  { id: "welcome", label: "Welcome Page" },
 ];
 
   // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
