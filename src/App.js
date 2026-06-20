@@ -4002,11 +4002,12 @@ useEffect(() => {
       welcomePendingUserId &&
       String(welcomePendingUserId) === String(currentUserId)
   );
+  const showWelcomePage = shouldShowWelcome || activeView === "welcome";
 
   useEffect(() => {
-    if (!shouldShowWelcome) return;
+    if (!showWelcomePage) return;
     window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-  }, [shouldShowWelcome]);
+  }, [showWelcomePage]);
 
   const completeWelcome = (nextView = "predictions") => {
     try {
@@ -6154,7 +6155,7 @@ if (!isLoggedIn) {
   );
   }
 
-  if (shouldShowWelcome) {
+  if (showWelcomePage) {
     return (
       <div style={{ ...pageStyle, maxWidth: 980, margin: "0 auto", padding: isMobile ? "12px" : "24px" }}>
         <div style={{ display: "grid", gap: 16 }}>
@@ -6195,7 +6196,7 @@ if (!isLoggedIn) {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: theme.muted, textTransform: "uppercase", letterSpacing: 1 }}>
-                  Account created
+                  {shouldShowWelcome ? "Account created" : "Welcome Page"}
                 </div>
                 <h1 style={{ margin: "3px 0 0", fontSize: isMobile ? 26 : 34, color: "#ffffff" }}>
                   Welcome, {currentPlayer}
@@ -7115,6 +7116,7 @@ if (!isLoggedIn) {
  {/* Tabs */}
 {(() => {
 const TABS = [
+  { id: "welcome", label: "Welcome Page" },
   { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
