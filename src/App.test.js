@@ -2,6 +2,7 @@ import {
   normalizeTeamName,
   getTeamCode,
   isValidSeasonWinnerRecord,
+  buildWorldCupBracketMatches,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
@@ -10,6 +11,7 @@ import {
   setOnlyCaptainForFixtureRound,
 } from "./App";
 import FIXTURES from "./fixtures";
+import WORLD_CUP_KNOCKOUT_MATCHES from "./worldCupKnockout";
 
 describe("2026/27 Premier League data", () => {
   test("contains 38 complete gameweeks and 20 clubs", () => {
@@ -261,5 +263,41 @@ describe("World Cup sync helpers", () => {
     expect(updated[920033].isDouble).toBe(true);
     expect(updated[920035].isDouble).toBe(false);
     expect(updated[920038].isDouble).toBe(true);
+  });
+});
+
+describe("World Cup knockout bracket", () => {
+  test("projects group qualifiers and advances confirmed knockout winners", () => {
+    const groupTables = [
+      { group: "E", rows: [{ team: "Germany", played: 3 }, { team: "Ecuador", played: 3 }] },
+    ];
+    const feed = [
+      {
+        id: 537423,
+        status: "FINISHED",
+        homeTeam: { name: "Germany" },
+        awayTeam: { name: "Scotland" },
+        score: { winner: "HOME_TEAM", fullTime: { home: 2, away: 0 } },
+      },
+      {
+        id: 537424,
+        status: "FINISHED",
+        homeTeam: { name: "France" },
+        awayTeam: { name: "Senegal" },
+        score: { winner: "AWAY_TEAM", fullTime: { home: 1, away: 2 } },
+      },
+    ];
+
+    const bracket = buildWorldCupBracketMatches(
+      WORLD_CUP_KNOCKOUT_MATCHES,
+      feed,
+      groupTables
+    );
+
+    expect(bracket.find((match) => match.match === 74).teams[0].name).toBe("Germany");
+    expect(bracket.find((match) => match.match === 89).teams.map((team) => team.name)).toEqual([
+      "Germany",
+      "Senegal",
+    ]);
   });
 });
