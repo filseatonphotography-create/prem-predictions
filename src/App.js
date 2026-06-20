@@ -2398,7 +2398,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   
   // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
-  const [lastResultsUpdated, setLastResultsUpdated] = useState(null);
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
   const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
@@ -2996,7 +2995,12 @@ const premierLeagueInsights = useMemo(() => {
 
   const refreshAutoResults = async (mode = gameMode, fixtures = activeFixtures) => {
     setResultsRefreshing(true);
-    const { matches, error, updatedAt, rateLimited, timedOut } = await fetchCompetitionResults(mode);
+    setApiStatus(
+      mode === WORLD_CUP_MODE
+        ? "Refreshing World Cup results…"
+        : "Refreshing Premier League results…"
+    );
+    const { matches, error, rateLimited, timedOut } = await fetchCompetitionResults(mode);
     if (rateLimited) {
       setApiStatus("Auto results: rate limited, using cached data");
       setResultsRefreshing(false);
@@ -3017,7 +3021,6 @@ const premierLeagueInsights = useMemo(() => {
       return;
     }
     setApiStatus("Auto results: loaded");
-    if (updatedAt) setLastResultsUpdated(updatedAt);
     if (matches?.length) {
       const {
         updatedResults,
@@ -6659,66 +6662,45 @@ if (!isLoggedIn) {
 <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
   {getModeLabel(gameMode)} Mode
 </div>
-            <div
-              style={{
-                marginTop: 6,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                padding: isMobile ? "3px 6px" : "4px 7px",
-                borderRadius: 999,
-                border: `1px solid ${theme.line}`,
-                background: theme.panelHi,
-                fontSize: isMobile ? 10 : 10.5,
-                color: theme.muted,
-                minHeight: 24, // reserve space to prevent layout jump
-                maxWidth: "min(100%, 320px)",
-                overflow: "hidden",
-              }}
-            >
-              <span
-                style={{
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  minWidth: 0,
-                  maxWidth: isMobile ? 180 : 220,
-                  display: "block",
-                }}
-                title={
-                  apiStatus +
-                  (lastResultsUpdated
-                    ? ` • Updated ${new Date(lastResultsUpdated).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}`
-                    : "")
-                }
-              >
-                {apiStatus}
-                {lastResultsUpdated
-                  ? ` • Updated ${new Date(lastResultsUpdated).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}`
-                  : ""}
-              </span>
+            <div style={{ marginTop: 10, display: "grid", justifyItems: "center", gap: 6 }}>
+              {resultsRefreshing && (
+                <div
+                  role="status"
+                  style={{ fontSize: 12, fontWeight: 700, color: theme.muted }}
+                >
+                  {apiStatus}
+                </div>
+              )}
               <button
-                onClick={() => refreshAutoResults(gameMode, activeFixtures)}
-                disabled={resultsRefreshing}
+                type="button"
+                onClick={() => {
+                  if (activeView === "predictions") {
+                    refreshAutoResults(gameMode, activeFixtures);
+                    return;
+                  }
+                  setActiveView("predictions");
+                  setShowMobileMenu(false);
+                  setShowLeaguesMenu(false);
+                  window.requestAnimationFrame(() => {
+                    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+                  });
+                }}
+                disabled={activeView === "predictions" && resultsRefreshing}
                 style={{
-                  border: "none",
-                  background: "transparent",
-                  color: theme.accent,
-                  fontWeight: 700,
-                  cursor: resultsRefreshing ? "wait" : "pointer",
-                  padding: "2px 8px",
-                  borderRadius: 999,
+                  minWidth: isMobile ? 190 : 230,
+                  padding: isMobile ? "10px 18px" : "12px 24px",
+                  borderRadius: 12,
                   border: `1px solid ${theme.accent}`,
-                  lineHeight: "16px",
+                  background: theme.accent,
+                  color: "#08111f",
+                  fontSize: isMobile ? 15 : 17,
+                  fontWeight: 900,
+                  cursor:
+                    activeView === "predictions" && resultsRefreshing ? "wait" : "pointer",
+                  boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
                 }}
               >
-                {resultsRefreshing ? "Refreshing…" : "Refresh"}
+                {activeView === "predictions" ? "Refresh Page" : "Make Predictions"}
               </button>
             </div>
           </div>
