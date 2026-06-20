@@ -2661,7 +2661,9 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
         }
       });
 
-      if (newlyCompleted.length) {
+      // Live bell alerts must be evaluated for every state update, not only when
+      // the same snapshot also contains a newly completed fixture.
+      {
         const predictions = loadPredictions() || {};
         const coins = loadCoins() || {};
         const users = loadUsers() || [];
@@ -3369,7 +3371,16 @@ app.post("/api/push/fixtures", authMiddleware, (req, res) => {
 // DEADLINE NOTIFICATIONS (1h + 24h before kickoff)
 // ---------------------------------------------------------------------------
 function runDeadlineNotifier() {
-  const fixtures = loadFixturesFromSrc();
+  const fixtures = [
+    ...(loadFixturesFromSrc() || []).map((fixture) => ({
+      fixture,
+      mode: "premier",
+    })),
+    ...(loadWorldCupFixturesFromSrc() || []).map((fixture) => ({
+      fixture,
+      mode: "worldcup",
+    })),
+  ];
   if (!fixtures || fixtures.length === 0) return;
 
   const now = Date.now();
@@ -3379,19 +3390,20 @@ function runDeadlineNotifier() {
   let changed = false;
 
   const earliestFixtureByGameweek = {};
-  fixtures.forEach((fx) => {
+  fixtures.forEach(({ fixture: fx, mode }) => {
     const kickoff = Date.parse(fx.kickoff);
     const gw = fx?.gameweek;
     if (!Number.isFinite(kickoff) || !Number.isFinite(Number(gw))) return;
-    const current = earliestFixtureByGameweek[gw];
+    const gameweekKey = `${mode}-${gw}`;
+    const current = earliestFixtureByGameweek[gameweekKey];
     if (!current || kickoff < current.kickoff) {
-      earliestFixtureByGameweek[gw] = { fixture: fx, kickoff };
+      earliestFixtureByGameweek[gameweekKey] = { fixture: fx, kickoff, mode };
     }
   });
 
   const notifyGameweekDeadline = (type, msBeforeDeadline, title) => {
-    Object.values(earliestFixtureByGameweek).forEach(({ fixture, kickoff }) => {
-      const gameweekDeadline = kickoff - 60 * 60 * 1000;
+    Object.values(earliestFixtureByGameweek).forEach(({ fixture, kickoff, mode }) => {
+      const gameweekDeadline = mode === "worldcup" ? kickoff : kickoff - 60 * 60 * 1000;
       const notifyAt = gameweekDeadline - msBeforeDeadline;
       if (now < notifyAt || now > notifyAt + windowMs) return;
 
@@ -3402,12 +3414,14 @@ function runDeadlineNotifier() {
 
         const log = sub.notifLog || {};
         const typeLog = log[type] || {};
-        const logKey = `gw-${fixture.gameweek}`;
+        const logKey = `${mode}-gw-${fixture.gameweek}`;
         if (typeLog[logKey]) return;
 
         const sent = sendPushNotification(userId, type, {
           title,
-          body: `GW${fixture.gameweek} deadline: ${fixture.homeTeam} vs ${fixture.awayTeam}`,
+          body: `${mode === "worldcup" ? "Matchday" : "GW"}${
+            fixture.gameweek
+          } deadline: ${fixture.homeTeam} vs ${fixture.awayTeam}`,
           url: "/",
         });
 
@@ -3436,7 +3450,7 @@ function runDeadlineNotifier() {
   if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }
 
-async function fetchLivePremierLeagueMatches() {
+async function fetchLiveMatches(mode) {
   const fetchMatches = async (url, headers) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000);
@@ -3460,11 +3474,18 @@ async function fetchLivePremierLeagueMatches() {
     }
   };
 
+  const normalizedMode = normalizeLeagueMode(mode);
   const direct = await fetchMatches(
-    "https://api.football-data.org/v4/competitions/PL/matches",
+    normalizedMode === "worldcup"
+      ? `${FOOTBALL_DATA_API_BASE}/competitions/WC/matches?season=${WORLD_CUP_SEASON}`
+      : `${FOOTBALL_DATA_API_BASE}/competitions/PL/matches`,
     { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
   );
   if (direct.ok) return direct.matches;
+
+  if (normalizedMode === "worldcup") {
+    throw new Error(direct.errorText || "Failed to fetch live World Cup matches");
+  }
 
   const proxy = await fetchMatches(
     RESULTS_PROXY_URL,
@@ -3517,10 +3538,21 @@ function findLocalFixtureForApiMatch(match, fixtures) {
 
 async function runLiveFixtureNotifier() {
   try {
-    const matches = await fetchLivePremierLeagueMatches();
-    if (!Array.isArray(matches) || matches.length === 0) return;
+    const competitionResults = await Promise.allSettled([
+      fetchLiveMatches("premier"),
+      fetchLiveMatches("worldcup"),
+    ]);
+    const competitions = [
+      { fixtures: loadFixturesFromSrc() || [], result: competitionResults[0] },
+      { fixtures: loadWorldCupFixturesFromSrc() || [], result: competitionResults[1] },
+    ];
+    const liveMatches = competitions.flatMap(({ fixtures, result }) =>
+      result.status === "fulfilled"
+        ? result.value.map((match) => ({ match, fixtures }))
+        : []
+    );
+    if (!liveMatches.length) return;
 
-    const fixtures = loadFixturesFromSrc() || [];
     const currentResults = loadResults() || {};
     const currentMatchStates = loadMatchStates() || {};
     const nextResults = { ...currentResults };
@@ -3528,7 +3560,7 @@ async function runLiveFixtureNotifier() {
     let resultsChanged = false;
     let statesChanged = false;
 
-    matches.forEach((match) => {
+    liveMatches.forEach(({ match, fixtures }) => {
       if (!match?.homeTeam || !match?.awayTeam) return;
       const fixture = findLocalFixtureForApiMatch(match, fixtures);
       if (!fixture) return;
