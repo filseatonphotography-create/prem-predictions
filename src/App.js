@@ -6725,8 +6725,9 @@ if (!isLoggedIn) {
                 }}
                 disabled={activeView === "predictions" && resultsRefreshing}
                 style={{
-                  minWidth: isMobile ? 150 : 180,
-                  padding: isMobile ? "7px 14px" : "8px 16px",
+                  width: "auto",
+                  minWidth: 0,
+                  padding: isMobile ? "6px 12px" : "7px 14px",
                   borderRadius: 999,
                   border: `1px solid ${theme.accent}`,
                   background: theme.accent,
