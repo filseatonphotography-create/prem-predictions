@@ -73,6 +73,7 @@ const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
 const SELECTED_MINI_LEAGUE_STORAGE_KEY = "prediction_selected_mini_league_v1";
 const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
+const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
 const MAX_USERNAME_LENGTH = 11;
@@ -989,6 +990,16 @@ async function apiSetFixturePushPref(token, fixtureId, enabled) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to save fixture notification preference.");
   return data.fixturePrefs || {};
+}
+
+async function apiSendTestPush(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/test`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Test notification failed.");
+  return data;
 }
 
 function urlBase64ToUint8Array(base64String) {
@@ -2351,7 +2362,13 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
-  const [fixturePushPrefs, setFixturePushPrefs] = useState({});
+  const [fixturePushPrefs, setFixturePushPrefs] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(FIXTURE_PUSH_STORAGE_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  });
   const [pushPrefs, setPushPrefs] = useState(() => {
     try {
       const saved = localStorage.getItem("push_prefs_v1");
@@ -3202,9 +3219,7 @@ useEffect(() => {
       .then((registration) => (
         registration ? registration.pushManager.getSubscription() : null
       ))
-      .then((subscription) => {
-        setPushEnabled(!!subscription);
-      })
+      .then(() => setPushEnabled(false))
       .catch((err) => {
         console.error("Push support check failed:", err);
         setPushEnabled(false);
@@ -3237,11 +3252,56 @@ useEffect(() => {
 
   (async () => {
     try {
-      const fixturePrefs = await apiGetFixturePushPrefs(authToken);
-      setFixturePushPrefs(fixturePrefs || {});
+      const remotePrefs = await apiGetFixturePushPrefs(authToken);
+      setFixturePushPrefs((localPrefs) => {
+        const fixturePrefs = { ...localPrefs, ...(remotePrefs || {}) };
+        localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(fixturePrefs));
+        return fixturePrefs;
+      });
     } catch {}
   })();
 }, [isLoggedIn, authToken]);
+
+// Render's filesystem can be replaced during a deploy. Re-register an existing
+// browser subscription after login and restore locally cached bell choices.
+useEffect(() => {
+  if (!isLoggedIn || !authToken || !pushSupported) return;
+
+  (async () => {
+    try {
+      const registration = await navigator.serviceWorker.getRegistration();
+      const subscription = registration
+        ? await registration.pushManager.getSubscription()
+        : null;
+      if (!subscription) {
+        setPushEnabled(false);
+        return;
+      }
+
+      const localPushPrefs = JSON.parse(localStorage.getItem("push_prefs_v1") || "{}");
+      const localFixturePrefs = JSON.parse(
+        localStorage.getItem(FIXTURE_PUSH_STORAGE_KEY) || "{}"
+      );
+      const res = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          subscription,
+          prefs: localPushPrefs,
+          fixturePrefs: localFixturePrefs,
+        }),
+      });
+      if (!res.ok) throw new Error("Backend subscription sync failed");
+      setPushEnabled(true);
+    } catch (err) {
+      console.error("Push subscription sync failed:", err);
+      setPushEnabled(false);
+    }
+  })();
+}, [isLoggedIn, authToken, pushSupported]);
 
 // Fetch multi-player coins leaderboard from backend
 useEffect(() => {
@@ -4141,7 +4201,7 @@ setNewPasswordInput("");
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ subscription, prefs: pushPrefs }),
+      body: JSON.stringify({ subscription, prefs: pushPrefs, fixturePrefs: fixturePushPrefs }),
     });
 
     if (!subRes.ok) {
@@ -4200,6 +4260,7 @@ setNewPasswordInput("");
 
       const savedPrefs = await apiSetFixturePushPref(authToken, fixtureKey, nextEnabled);
       setFixturePushPrefs(savedPrefs || {});
+      localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(savedPrefs || {}));
     } catch (err) {
       setFixturePushPrefs((prev) => ({ ...prev, [fixtureKey]: previousEnabled }));
       alert(`Failed to update fixture notifications: ${err.message}`);
@@ -11229,6 +11290,33 @@ const TABS = [
                   >
                     {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
                   </button>
+                  {pushEnabled && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await apiSendTestPush(authToken);
+                          alert("Test notification sent. Check your device notifications.");
+                        } catch (err) {
+                          alert(`Test notification failed: ${err.message}`);
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        marginTop: 10,
+                        padding: "10px 16px",
+                        borderRadius: 8,
+                        border: `1px solid ${theme.line}`,
+                        background: theme.panel,
+                        color: theme.text,
+                        fontSize: 14,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Send test notification
+                    </button>
+                  )}
                 </>
               )}
             </div>

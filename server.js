@@ -3220,17 +3220,24 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 // ---------------------------------------------------------------------------
 // PUSH NOTIFICATIONS
 // Helper: Send push notification to a user, respecting their preferences
-function sendPushNotification(userId, type, payload) {
+async function sendPushNotification(userId, type, payload) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const sub = subscriptions[userId];
   if (!sub || !sub.subscription) return false;
   const prefs = sub.notifPrefs || null;
   if (prefs && prefs[type] === false) return false;
   try {
-    webpush.sendNotification(sub.subscription, JSON.stringify(payload));
+    await webpush.sendNotification(sub.subscription, JSON.stringify(payload));
     return true;
   } catch (err) {
     console.error(`Push notification error for user ${userId}:`, err);
+    if (err?.statusCode === 404 || err?.statusCode === 410) {
+      const latestSubscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+      if (latestSubscriptions[userId]) {
+        latestSubscriptions[userId].subscription = null;
+        saveJson(PUSH_SUBSCRIPTIONS_FILE, latestSubscriptions);
+      }
+    }
     return false;
   }
 }
@@ -3250,13 +3257,17 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
     const body = req.body || {};
     const subscription = body.subscription || body;
     const notifPrefs = body.prefs || body.notifPrefs || null;
+    const fixturePrefs = body.fixturePrefs || null;
     const userId = req.user.id;
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
     subscriptions[userId] = {
       subscription,
       notifPrefs: notifPrefs || (subscriptions[userId] && subscriptions[userId].notifPrefs) || null,
-      fixturePrefs: (subscriptions[userId] && subscriptions[userId].fixturePrefs) || {},
+      fixturePrefs: {
+        ...((subscriptions[userId] && subscriptions[userId].fixturePrefs) || {}),
+        ...(fixturePrefs || {}),
+      },
     };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
@@ -3266,6 +3277,20 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
     console.error("Push subscribe error:", err);
     return res.status(500).json({ error: "Failed to subscribe" });
   }
+});
+
+app.post("/api/push/test", authMiddleware, async (req, res) => {
+  const sent = await sendPushNotification(req.user.id, "test", {
+    title: "Test notification",
+    body: "Prediction Addiction push notifications are working.",
+    url: "/",
+  });
+  if (!sent) {
+    return res.status(410).json({
+      error: "No working push subscription. Disable and enable notifications, then try again.",
+    });
+  }
+  return res.json({ ok: true });
 });
 
 // Unsubscribe from push notifications
@@ -3387,7 +3412,6 @@ function runDeadlineNotifier() {
   const windowMs = 2 * 60 * 1000; // 2-minute window to avoid repeats
 
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
-  let changed = false;
 
   const earliestFixtureByGameweek = {};
   fixtures.forEach(({ fixture: fx, mode }) => {
@@ -3417,21 +3441,20 @@ function runDeadlineNotifier() {
         const logKey = `${mode}-gw-${fixture.gameweek}`;
         if (typeLog[logKey]) return;
 
-        const sent = sendPushNotification(userId, type, {
+        sendPushNotification(userId, type, {
           title,
           body: `${mode === "worldcup" ? "Matchday" : "GW"}${
             fixture.gameweek
           } deadline: ${fixture.homeTeam} vs ${fixture.awayTeam}`,
           url: "/",
-        });
-
-        if (sent) {
+        }).then((sent) => {
+          if (!sent) return;
           typeLog[logKey] = Date.now();
           log[type] = typeLog;
           sub.notifLog = log;
           subscriptions[userId] = sub;
-          changed = true;
-        }
+          saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+        });
       });
     });
   };
@@ -3447,7 +3470,6 @@ function runDeadlineNotifier() {
     "1 hour to deadline ⏰"
   );
 
-  if (changed) saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }
 
 async function fetchLiveMatches(mode) {
