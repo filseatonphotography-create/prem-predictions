@@ -211,10 +211,23 @@ function getSeasonLabelFromFixtures(fixtures = []) {
   return `${startYear}/${String(endYear).slice(-2)}`;
 }
 
+export function isValidSeasonWinnerRecord(record) {
+  if (!record || typeof record !== "object") return false;
+  if (getModeKey(record.mode) !== "premier") return true;
+
+  const match = String(record.seasonLabel || "").match(/^(\d{4})\/(\d{2}|\d{4})$/);
+  if (!match) return false;
+  const startYear = Number(match[1]);
+  const endYear = match[2].length === 2
+    ? Math.floor(startYear / 100) * 100 + Number(match[2])
+    : Number(match[2]);
+  return endYear === startYear + 1;
+}
+
 function mergeSeasonWinnerRecords(localRecords = [], remoteRecords = []) {
   const byId = new Map();
   [...remoteRecords, ...localRecords].forEach((record) => {
-    if (!record?.id) return;
+    if (!record?.id || !isValidSeasonWinnerRecord(record)) return;
     const existing = byId.get(record.id);
     byId.set(record.id, {
       ...(existing || {}),
@@ -5089,6 +5102,11 @@ const currentSeasonWinnerRecord = useMemo(() => {
   );
   if (!seasonComplete) return null;
 
+  const seasonEndTime = Math.max(
+    ...activeFixtures.map((fixture) => Date.parse(fixture.kickoff)).filter(Number.isFinite)
+  );
+  if (!Number.isFinite(seasonEndTime) || seasonEndTime > Date.now()) return null;
+
   const maxPoints = Math.max(
     ...leaderboard.map((row) => Number(row.points) || 0)
   );
@@ -5155,6 +5173,7 @@ useEffect(() => {
 const visibleSeasonWinnerHistory = useMemo(
   () =>
     (seasonWinnerHistory || [])
+      .filter(isValidSeasonWinnerRecord)
       .filter((record) => record.mode === gameMode)
       .filter((record) => Number(record.points) > 0)
       .filter((record) =>

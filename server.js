@@ -375,6 +375,19 @@ const loadSeasonWinners = () => loadJson(SEASON_WINNERS_FILE, []);
 const saveSeasonWinners = (records) =>
   saveJson(SEASON_WINNERS_FILE, Array.isArray(records) ? records : []);
 
+function isValidSeasonWinnerRecord(record) {
+  if (!record || typeof record !== "object") return false;
+  if (normalizeLeagueMode(record.mode) !== "premier") return true;
+
+  const match = String(record.seasonLabel || "").match(/^(\d{4})\/(\d{2}|\d{4})$/);
+  if (!match) return false;
+  const startYear = Number(match[1]);
+  const endYear = match[2].length === 2
+    ? Math.floor(startYear / 100) * 100 + Number(match[2])
+    : Number(match[2]);
+  return endYear === startYear + 1;
+}
+
 // Legacy map (legacyName -> userId)
 const loadLegacyMap = () => loadJson(LEGACY_MAP_FILE, {});
 const saveLegacyMap = (m) => saveJson(LEGACY_MAP_FILE, m);
@@ -2303,8 +2316,13 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
 app.get("/api/history/season-winners", (req, res) => {
   try {
     const records = loadSeasonWinners();
+    const storedRecords = Array.isArray(records) ? records : [];
+    const cleanStoredRecords = storedRecords.filter(isValidSeasonWinnerRecord);
+    if (cleanStoredRecords.length !== storedRecords.length) {
+      saveSeasonWinners(cleanStoredRecords);
+    }
     const byId = new Map();
-    (Array.isArray(records) ? records : []).forEach((record) => {
+    cleanStoredRecords.forEach((record) => {
       if (record?.id) byId.set(record.id, { ...byId.get(record.id), ...record });
     });
     byId.set(PREMIER_SEASON_WINNER_RECORD.id, PREMIER_SEASON_WINNER_RECORD);
@@ -2345,7 +2363,12 @@ app.post("/api/history/season-winners", authOptional, (req, res) => {
         : [],
     };
 
-    if (!safeRecord.mode || safeRecord.winners.length === 0 || safeRecord.points <= 0) {
+    if (
+      !safeRecord.mode ||
+      safeRecord.winners.length === 0 ||
+      safeRecord.points <= 0 ||
+      !isValidSeasonWinnerRecord(safeRecord)
+    ) {
       return res.status(400).json({ error: "Invalid season winner record" });
     }
 

@@ -1,6 +1,7 @@
 import {
   normalizeTeamName,
   getTeamCode,
+  isValidSeasonWinnerRecord,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
@@ -35,6 +36,20 @@ describe("2026/27 Premier League data", () => {
     expect(getTeamCode("Coventry City FC")).toBe("COV");
     expect(getTeamCode("Hull City AFC")).toBe("HUL");
     expect(getTeamCode("Ipswich Town FC")).toBe("IPS");
+  });
+});
+
+describe("season winner history", () => {
+  test("rejects malformed Premier League season spans", () => {
+    expect(
+      isValidSeasonWinnerRecord({ mode: "premierLeague", seasonLabel: "2025/26" })
+    ).toBe(true);
+    expect(
+      isValidSeasonWinnerRecord({ mode: "premierLeague", seasonLabel: "2025/27" })
+    ).toBe(false);
+    expect(
+      isValidSeasonWinnerRecord({ mode: "premierLeague", seasonLabel: "2025/2027" })
+    ).toBe(false);
   });
 });
 
