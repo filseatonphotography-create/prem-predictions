@@ -2,7 +2,6 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
-import WORLD_CUP_KNOCKOUT_MATCHES from "./worldCupKnockout";
 
 // ---- CONFIG ----
 // Fetch all users' avatars from backend
@@ -75,7 +74,6 @@ const SELECTED_MINI_LEAGUE_STORAGE_KEY = "prediction_selected_mini_league_v1";
 const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
-const WORLD_CUP_KNOCKOUT_STORAGE_KEY = "world_cup_knockout_feed_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
 const MAX_USERNAME_LENGTH = 11;
@@ -267,7 +265,7 @@ function getModeGameweekLabel(mode, gameweek) {
 
 function getWorldCupStageLabel(fixture) {
   if (fixture?.group) return "Group Stage";
-  return "Knockout Stage";
+  return fixture?.knockoutStage || "Knockout Stage";
 }
 
 function getWorldCupFixtureLabel(fixture) {
@@ -279,79 +277,16 @@ function getWorldCupFlag(teamName) {
   return WORLD_CUP_FLAGS[(teamName || "").trim()] || "";
 }
 
+function isPlaceholderTeamName(teamName) {
+  return !teamName || String(teamName).trim().toUpperCase() === "TBA";
+}
+
 function resolveWorldCupCountryName(teamName) {
   const normalized = normalizeTeamName(teamName);
   if (!normalized) return "";
   return WORLD_CUP_COUNTRIES.find(
     (country) => normalizeTeamName(country) === normalized
   ) || teamName || "";
-}
-
-function getKnockoutScore(match) {
-  const score = match?.score || {};
-  const fullTime = score.fullTime || score.regularTime || {};
-  return {
-    home: Number.isFinite(fullTime.home) ? fullTime.home : null,
-    away: Number.isFinite(fullTime.away) ? fullTime.away : null,
-    homePenalties: Number.isFinite(score.penalties?.home) ? score.penalties.home : null,
-    awayPenalties: Number.isFinite(score.penalties?.away) ? score.penalties.away : null,
-  };
-}
-
-export function buildWorldCupBracketMatches(definitions, feedMatches, groupTables) {
-  const feedById = new Map((feedMatches || []).map((match) => [Number(match.id), match]));
-  const groups = new Map((groupTables || []).map((table) => [table.group, table.rows]));
-  const resolved = new Map();
-
-  const outcomeTeam = (match, wantedWinner) => {
-    if (!match) return "";
-    const winner = String(match.feed?.score?.winner || "");
-    const winnerIndex = winner === "HOME_TEAM" ? 0 : winner === "AWAY_TEAM" ? 1 : -1;
-    if (winnerIndex < 0) return "";
-    return match.teams[wantedWinner ? winnerIndex : 1 - winnerIndex]?.name || "";
-  };
-
-  const resolveSource = (source) => {
-    if (source.kind === "group") {
-      const rows = groups.get(source.group) || [];
-      if (!rows.some((row) => Number(row.played) > 0)) {
-        return { name: `${source.position === 1 ? "Winner" : "Runner-up"} Group ${source.group}`, placeholder: true };
-      }
-      return { name: rows[source.position - 1]?.team || `Group ${source.group}`, placeholder: false };
-    }
-    if (source.kind === "third") {
-      return { name: `Best 3rd (${source.groups.split("").join("/")})`, placeholder: true };
-    }
-    const previous = resolved.get(source.match);
-    const team = outcomeTeam(previous, source.kind === "winner");
-    return {
-      name: team || `${source.kind === "winner" ? "Winner" : "Runner-up"} Match ${source.match}`,
-      placeholder: !team,
-    };
-  };
-
-  (definitions || []).forEach((definition) => {
-    const feed = feedById.get(Number(definition.id)) || null;
-    const feedTeams = [feed?.homeTeam?.name, feed?.awayTeam?.name];
-    const teams = definition.sources.map((source, index) =>
-      feedTeams[index]
-        ? { name: feedTeams[index], placeholder: false }
-        : resolveSource(source)
-    );
-    const winner = String(feed?.score?.winner || "");
-    const winnerIndex = winner === "HOME_TEAM" ? 0 : winner === "AWAY_TEAM" ? 1 : -1;
-    const match = {
-      ...definition,
-      feed,
-      teams,
-      score: getKnockoutScore(feed),
-      winnerIndex,
-      status: String(feed?.status || "TIMED"),
-    };
-    resolved.set(definition.match, match);
-  });
-
-  return Array.from(resolved.values());
 }
 
 const WORLD_CUP_FIXTURE_ID_SET = new Set(
@@ -843,11 +778,29 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     const fixture = findFixtureForApiMatch(match, fixtures);
     if (!fixture) return;
 
-    if (match.utcDate) {
+    const confirmedHomeTeam = match.homeTeam?.name
+      ? resolveWorldCupCountryName(match.homeTeam.name)
+      : "";
+    const confirmedAwayTeam = match.awayTeam?.name
+      ? resolveWorldCupCountryName(match.awayTeam.name)
+      : "";
+
+    if (
+      match.utcDate ||
+      (isPlaceholderTeamName(fixture.homeTeam) && confirmedHomeTeam) ||
+      (isPlaceholderTeamName(fixture.awayTeam) && confirmedAwayTeam)
+    ) {
       fixtureOverrides[fixture.id] = {
         ...(fixtureOverrides[fixture.id] || {}),
-        kickoff: match.utcDate,
-        kickoffTimeConfirmed: true,
+        ...(match.utcDate
+          ? { kickoff: match.utcDate, kickoffTimeConfirmed: true }
+          : {}),
+        ...(isPlaceholderTeamName(fixture.homeTeam) && confirmedHomeTeam
+          ? { homeTeam: confirmedHomeTeam }
+          : {}),
+        ...(isPlaceholderTeamName(fixture.awayTeam) && confirmedAwayTeam
+          ? { awayTeam: confirmedAwayTeam }
+          : {}),
       };
     }
 
@@ -858,6 +811,8 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
       halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
       utcDate: match.utcDate || "",
+      homeTeam: confirmedHomeTeam,
+      awayTeam: confirmedAwayTeam,
     };
 
     if (homeGoals !== null && awayGoals !== null) {
@@ -1792,15 +1747,24 @@ function formatFixtureKickoff(fixture, mode = PREMIER_MODE) {
 
 function buildFixtureOverridesFromMatchStates(matchStatesByFixtureId = {}, fixtures = []) {
   const overrides = {};
-  const validFixtureIds = new Set((fixtures || []).map((fixture) => String(fixture.id)));
+  const fixtureById = new Map(
+    (fixtures || []).map((fixture) => [String(fixture.id), fixture])
+  );
   Object.entries(matchStatesByFixtureId || {}).forEach(([fixtureId, matchState]) => {
-    if (!validFixtureIds.has(String(fixtureId))) return;
+    const fixture = fixtureById.get(String(fixtureId));
+    if (!fixture) return;
     if (!matchState || typeof matchState !== "object") return;
     const utcDate = String(matchState.utcDate || "").trim();
-    if (!utcDate) return;
+    const homeTeam = resolveWorldCupCountryName(
+      String(matchState.homeTeam || "").trim()
+    );
+    const awayTeam = resolveWorldCupCountryName(
+      String(matchState.awayTeam || "").trim()
+    );
     overrides[fixtureId] = {
-      kickoff: utcDate,
-      kickoffTimeConfirmed: true,
+      ...(utcDate ? { kickoff: utcDate, kickoffTimeConfirmed: true } : {}),
+      ...(isPlaceholderTeamName(fixture.homeTeam) && homeTeam ? { homeTeam } : {}),
+      ...(isPlaceholderTeamName(fixture.awayTeam) && awayTeam ? { awayTeam } : {}),
     };
   });
   return overrides;
@@ -2476,15 +2440,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // eslint-disable-next-line no-unused-vars
   const [apiStatus, setApiStatus] = useState("Auto results: loading…");
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
-  const [worldCupKnockoutFeed, setWorldCupKnockoutFeed] = useState(() => {
-    try {
-      const saved = localStorage.getItem(WORLD_CUP_KNOCKOUT_STORAGE_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [worldCupBracketStage, setWorldCupBracketStage] = useState("all");
   const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
   const [premierLeagueTableError, setPremierLeagueTableError] = useState("");
@@ -2989,8 +2944,8 @@ const worldCupGroupTables = useMemo(() => {
 
   const groups = new Map();
 
-  activeFixtures.forEach((fixture) => {
-    const group = fixture.group || "?";
+  activeFixtures.filter((fixture) => fixture.group).forEach((fixture) => {
+    const group = fixture.group;
     if (!groups.has(group)) {
       groups.set(group, new Map());
     }
@@ -3062,14 +3017,6 @@ const worldCupGroupTables = useMemo(() => {
       return { group, rows };
     });
 }, [isWorldCupMode, activeFixtures, results]);
-const worldCupBracketMatches = useMemo(
-  () => buildWorldCupBracketMatches(
-    WORLD_CUP_KNOCKOUT_MATCHES,
-    worldCupKnockoutFeed,
-    worldCupGroupTables
-  ),
-  [worldCupKnockoutFeed, worldCupGroupTables]
-);
 
 const premierLeagueInsights = useMemo(() => {
   const out = {};
@@ -3116,16 +3063,6 @@ const premierLeagueInsights = useMemo(() => {
     }
     setApiStatus("Auto results: loaded");
     if (matches?.length) {
-      if (mode === WORLD_CUP_MODE) {
-        const knockoutMatches = matches.filter(
-          (match) => String(match?.stage || "") !== "GROUP_STAGE"
-        );
-        setWorldCupKnockoutFeed(knockoutMatches);
-        localStorage.setItem(
-          WORLD_CUP_KNOCKOUT_STORAGE_KEY,
-          JSON.stringify(knockoutMatches)
-        );
-      }
       const {
         updatedResults,
         matchStateUpdates,
@@ -6869,7 +6806,6 @@ if (!isLoggedIn) {
             isWorldCupMode
               ? [
                   { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
-                  { action: "view", id: "worldCupBracket", label: "WC Tournament Bracket" },
                   { action: "view", id: "league", label: "WC Mini League Table" },
                   { action: "view", id: "worldCupGroupTables", label: "WC Group Tables" },
                   { action: "view", id: "coinsLeague", label: "WC Coins League" },
@@ -9790,209 +9726,6 @@ const TABS = [
             )}
           </section>
         )}
-
-        {activeView === "worldCupBracket" && isWorldCupMode && (() => {
-          const stageColumns = [
-            { id: "round32", label: "Round of 32", stages: ["round32"] },
-            { id: "round16", label: "Round of 16", stages: ["round16"] },
-            { id: "quarter", label: "Quarter-finals", stages: ["quarter"] },
-            { id: "semi", label: "Semi-finals", stages: ["semi"] },
-            { id: "finals", label: "Finals", stages: ["third", "final"] },
-          ];
-          const visibleColumns = worldCupBracketStage === "all"
-            ? stageColumns
-            : stageColumns.filter((stage) => stage.id === worldCupBracketStage);
-          const finalMatch = worldCupBracketMatches.find((match) => match.match === 104);
-          const champion = finalMatch?.winnerIndex >= 0
-            ? resolveWorldCupCountryName(finalMatch.teams[finalMatch.winnerIndex]?.name)
-            : "";
-
-          return (
-            <section style={{ ...cardStyle, padding: isMobile ? 12 : 18 }}>
-              <div style={{ textAlign: "center", marginBottom: 14 }}>
-                <h2 style={{ margin: 0, fontSize: 20 }}>World Cup Tournament Bracket</h2>
-                <div style={{ marginTop: 5, fontSize: 12, color: theme.muted }}>
-                  Group positions are projected live. Confirmed teams and winners update from the match feed.
-                </div>
-              </div>
-
-              {champion && (
-                <div
-                  style={{
-                    margin: "0 auto 14px",
-                    maxWidth: 420,
-                    padding: "14px 18px",
-                    borderRadius: 14,
-                    textAlign: "center",
-                    background: "linear-gradient(135deg, rgba(245,158,11,0.25), rgba(250,204,21,0.1))",
-                    border: "1px solid rgba(250,204,21,0.5)",
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: theme.muted, fontWeight: 800 }}>WORLD CHAMPION</div>
-                  <div style={{ marginTop: 4, fontSize: 24, fontWeight: 900, color: "#facc15" }}>
-                    {getWorldCupFlag(champion)} {champion}
-                  </div>
-                </div>
-              )}
-
-              <div
-                style={{
-                  display: "flex",
-                  gap: 7,
-                  overflowX: "auto",
-                  paddingBottom: 8,
-                  marginBottom: 8,
-                }}
-              >
-                {[{ id: "all", label: "Full Bracket" }, ...stageColumns].map((stage) => (
-                  <button
-                    key={stage.id}
-                    type="button"
-                    onClick={() => setWorldCupBracketStage(stage.id)}
-                    style={{
-                      flex: "0 0 auto",
-                      padding: "8px 11px",
-                      borderRadius: 999,
-                      border: `1px solid ${worldCupBracketStage === stage.id ? theme.accent : theme.line}`,
-                      background: worldCupBracketStage === stage.id ? theme.accent : theme.panelHi,
-                      color: worldCupBracketStage === stage.id ? "#08111f" : theme.text,
-                      fontWeight: 800,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {stage.label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(250px, 1fr))`,
-                  gap: 12,
-                  overflowX: "auto",
-                  alignItems: "start",
-                  padding: "4px 2px 12px",
-                }}
-              >
-                {visibleColumns.map((column) => {
-                  const matches = worldCupBracketMatches.filter((match) =>
-                    column.stages.includes(match.stage)
-                  );
-                  return (
-                    <div key={column.id} style={{ minWidth: 250, display: "grid", gap: 9 }}>
-                      <div
-                        style={{
-                          position: "sticky",
-                          top: 0,
-                          zIndex: 1,
-                          padding: "9px 10px",
-                          borderRadius: 10,
-                          textAlign: "center",
-                          background: "rgba(245,158,11,0.16)",
-                          border: "1px solid rgba(245,158,11,0.28)",
-                          color: theme.accent,
-                          fontWeight: 900,
-                        }}
-                      >
-                        {column.label}
-                      </div>
-                      {matches.map((match) => (
-                        <details
-                          key={match.match}
-                          style={{
-                            borderRadius: 12,
-                            border: `1px solid ${theme.line}`,
-                            background: match.match === 104
-                              ? "rgba(245,158,11,0.1)"
-                              : theme.panelHi,
-                            overflow: "hidden",
-                          }}
-                        >
-                          <summary
-                            style={{
-                              listStyle: "none",
-                              cursor: "pointer",
-                              padding: "9px 10px 10px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                marginBottom: 7,
-                                color: theme.muted,
-                                fontSize: 10,
-                                fontWeight: 800,
-                              }}
-                            >
-                              <span>Match {match.match}</span>
-                              <span>{match.status === "FINISHED" ? "FT" : formatKickoffShort(match.kickoff)}</span>
-                            </div>
-                            {match.teams.map((team, teamIndex) => {
-                              const country = resolveWorldCupCountryName(team.name);
-                              const winner = match.winnerIndex === teamIndex;
-                              const score = teamIndex === 0 ? match.score.home : match.score.away;
-                              const penalties = teamIndex === 0
-                                ? match.score.homePenalties
-                                : match.score.awayPenalties;
-                              return (
-                                <div
-                                  key={`${match.match}-${teamIndex}`}
-                                  style={{
-                                    display: "grid",
-                                    gridTemplateColumns: "24px minmax(0, 1fr) auto",
-                                    gap: 7,
-                                    alignItems: "center",
-                                    padding: "7px 8px",
-                                    marginTop: teamIndex ? 4 : 0,
-                                    borderRadius: 8,
-                                    background: winner ? "rgba(34,197,94,0.14)" : "rgba(255,255,255,0.025)",
-                                    borderLeft: winner ? "3px solid #22c55e" : "3px solid transparent",
-                                  }}
-                                >
-                                  <span style={{ fontSize: 18 }}>{team.placeholder ? "" : getWorldCupFlag(country)}</span>
-                                  <span
-                                    title={country}
-                                    style={{
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                      color: team.placeholder ? theme.muted : theme.text,
-                                      fontSize: team.placeholder ? 11 : 13,
-                                      fontWeight: winner ? 900 : 700,
-                                    }}
-                                  >
-                                    {country}
-                                  </span>
-                                  <span style={{ fontWeight: 900, color: winner ? "#22c55e" : theme.text }}>
-                                    {score == null ? "–" : score}{penalties == null ? "" : ` (${penalties})`}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </summary>
-                          <div
-                            style={{
-                              borderTop: `1px solid ${theme.line}`,
-                              padding: "8px 10px 10px",
-                              color: theme.muted,
-                              fontSize: 11,
-                              lineHeight: 1.5,
-                            }}
-                          >
-                            <div>{formatKickoffShort(match.kickoff)}</div>
-                            <div>{match.stadium}</div>
-                          </div>
-                        </details>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })()}
         {/* Summary */}
         {activeView === "summary" && (() => {
           const summaryEntries = isWorldCupMode

@@ -2,7 +2,6 @@ import {
   normalizeTeamName,
   getTeamCode,
   isValidSeasonWinnerRecord,
-  buildWorldCupBracketMatches,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   sortFixturesByOrderOfPlay,
@@ -11,7 +10,7 @@ import {
   setOnlyCaptainForFixtureRound,
 } from "./App";
 import FIXTURES from "./fixtures";
-import WORLD_CUP_KNOCKOUT_MATCHES from "./worldCupKnockout";
+import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 
 describe("2026/27 Premier League data", () => {
   test("contains 38 complete gameweeks and 20 clubs", () => {
@@ -130,10 +129,52 @@ describe("World Cup sync helpers", () => {
         status: "FINISHED",
         homeGoals: 2,
         awayGoals: 1,
+        homeTeam: "United States",
+        awayTeam: "Türkiye",
         halfTimeHomeGoals: 1,
         halfTimeAwayGoals: 1,
         utcDate: "2026-06-13T17:00:00Z",
       },
+    });
+  });
+
+  test("includes knockout prediction matchdays with TBA teams", () => {
+    const knockoutFixtures = WORLD_CUP_FIXTURES.filter((fixture) => fixture.knockoutStage);
+
+    expect(WORLD_CUP_FIXTURES).toHaveLength(104);
+    expect(knockoutFixtures).toHaveLength(32);
+    expect(new Set(knockoutFixtures.map((fixture) => fixture.id)).size).toBe(32);
+    expect(Math.max(...knockoutFixtures.map((fixture) => fixture.gameweek))).toBe(34);
+    expect(
+      knockoutFixtures.every(
+        (fixture) => fixture.homeTeam === "TBA" && fixture.awayTeam === "TBA"
+      )
+    ).toBe(true);
+  });
+
+  test("replaces knockout TBA teams when the live feed confirms participants", () => {
+    const knockoutFixture = WORLD_CUP_FIXTURES.find((fixture) => fixture.matchNumber === 73);
+    const payload = buildFixtureSyncPayload(
+      [
+        {
+          id: knockoutFixture.id,
+          homeTeam: { name: "Korea Republic" },
+          awayTeam: { name: "USA" },
+          utcDate: knockoutFixture.kickoff,
+          status: "TIMED",
+          score: { fullTime: { home: null, away: null } },
+        },
+      ],
+      WORLD_CUP_FIXTURES
+    );
+
+    expect(payload.fixtureOverrides[knockoutFixture.id]).toMatchObject({
+      homeTeam: "South Korea",
+      awayTeam: "United States",
+    });
+    expect(payload.matchStateUpdates[knockoutFixture.id]).toMatchObject({
+      homeTeam: "South Korea",
+      awayTeam: "United States",
     });
   });
 
@@ -263,41 +304,5 @@ describe("World Cup sync helpers", () => {
     expect(updated[920033].isDouble).toBe(true);
     expect(updated[920035].isDouble).toBe(false);
     expect(updated[920038].isDouble).toBe(true);
-  });
-});
-
-describe("World Cup knockout bracket", () => {
-  test("projects group qualifiers and advances confirmed knockout winners", () => {
-    const groupTables = [
-      { group: "E", rows: [{ team: "Germany", played: 3 }, { team: "Ecuador", played: 3 }] },
-    ];
-    const feed = [
-      {
-        id: 537423,
-        status: "FINISHED",
-        homeTeam: { name: "Germany" },
-        awayTeam: { name: "Scotland" },
-        score: { winner: "HOME_TEAM", fullTime: { home: 2, away: 0 } },
-      },
-      {
-        id: 537424,
-        status: "FINISHED",
-        homeTeam: { name: "France" },
-        awayTeam: { name: "Senegal" },
-        score: { winner: "AWAY_TEAM", fullTime: { home: 1, away: 2 } },
-      },
-    ];
-
-    const bracket = buildWorldCupBracketMatches(
-      WORLD_CUP_KNOCKOUT_MATCHES,
-      feed,
-      groupTables
-    );
-
-    expect(bracket.find((match) => match.match === 74).teams[0].name).toBe("Germany");
-    expect(bracket.find((match) => match.match === 89).teams.map((team) => team.name)).toEqual([
-      "Germany",
-      "Senegal",
-    ]);
   });
 });

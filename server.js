@@ -3633,6 +3633,8 @@ async function runLiveFixtureNotifier() {
         status,
         homeGoals,
         awayGoals,
+        homeTeam: match.homeTeam?.name || "",
+        awayTeam: match.awayTeam?.name || "",
         halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
         halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
         utcDate: match.utcDate || "",
