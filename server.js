@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const webpush = require("web-push");
+const { didGoalCountIncrease } = require("./notificationUtils");
 
 const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
@@ -553,19 +554,6 @@ function getResult(home, away) {
   if (home > away) return "H";
   if (home < away) return "A";
   return "D";
-}
-
-function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
-  if (
-    !Number.isFinite(prevHome) ||
-    !Number.isFinite(prevAway) ||
-    !Number.isFinite(nextHome) ||
-    !Number.isFinite(nextAway)
-  ) {
-    return false;
-  }
-
-  return nextHome + nextAway > prevHome + prevAway;
 }
 
 function getPredictionPoints(prediction, result) {

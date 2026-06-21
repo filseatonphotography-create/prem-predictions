@@ -12,6 +12,7 @@ import {
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
+const { didGoalCountIncrease } = require("../notificationUtils");
 
 describe("2026/27 Premier League data", () => {
   test("contains 38 complete gameweeks and 20 clubs", () => {
@@ -315,5 +316,18 @@ describe("live fixture styling", () => {
     expect(isFixtureLive({ status: "PAUSED" })).toBe(true);
     expect(isFixtureLive({ status: "FINISHED" })).toBe(false);
     expect(isFixtureLive({ status: "TIMED" })).toBe(false);
+  });
+});
+
+describe("goal notification detection", () => {
+  test("sends a catch-up alert when the first live score already contains a goal", () => {
+    expect(didGoalCountIncrease(null, null, 0, 1)).toBe(true);
+    expect(didGoalCountIncrease(null, null, 0, 0)).toBe(false);
+  });
+
+  test("alerts only when the observed goal total increases", () => {
+    expect(didGoalCountIncrease(1, 0, 1, 1)).toBe(true);
+    expect(didGoalCountIncrease(1, 1, 1, 1)).toBe(false);
+    expect(didGoalCountIncrease(2, 1, 1, 1)).toBe(false);
   });
 });
