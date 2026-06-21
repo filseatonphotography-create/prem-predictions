@@ -5,7 +5,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const webpush = require("web-push");
-const { didGoalCountIncrease } = require("./notificationUtils");
+const {
+  didGoalCountIncrease,
+  normalizeInternationalTeamName,
+} = require("./notificationUtils");
 
 const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
@@ -506,7 +509,11 @@ function authMiddleware(req, res, next) {
 // --- TEAM NAME NORMALISATION (match frontend logic) ---
 function normalizeTeamName(name) {
   if (!name) return "";
-  let s = name.toLowerCase().trim();
+  let s = name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
 
   // Normalize punctuation + common suffixes
   s = s.replace(/&/g, "and");
@@ -546,7 +553,7 @@ function normalizeTeamName(name) {
   if (s === "brighton hove albion" || s === "brighton") return "brighton";
   if (s === "bournemouth" || s === "afc bournemouth") return "bournemouth";
 
-  return s;
+  return normalizeInternationalTeamName(s);
 }
 
 // --- BASIC RESULT HELPER (match frontend logic) ---

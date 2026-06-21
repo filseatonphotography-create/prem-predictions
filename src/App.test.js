@@ -12,7 +12,10 @@ import {
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
-const { didGoalCountIncrease } = require("../notificationUtils");
+const {
+  didGoalCountIncrease,
+  normalizeInternationalTeamName,
+} = require("../notificationUtils");
 
 describe("2026/27 Premier League data", () => {
   test("contains 38 complete gameweeks and 20 clubs", () => {
@@ -329,5 +332,12 @@ describe("goal notification detection", () => {
     expect(didGoalCountIncrease(1, 0, 1, 1)).toBe(true);
     expect(didGoalCountIncrease(1, 1, 1, 1)).toBe(false);
     expect(didGoalCountIncrease(2, 1, 1, 1)).toBe(false);
+  });
+
+  test("matches World Cup country aliases used by the upstream feed", () => {
+    expect(normalizeInternationalTeamName("turkey")).toBe("turkiye");
+    expect(normalizeInternationalTeamName("ivory coast")).toBe("cote divoire");
+    expect(normalizeInternationalTeamName("korea republic")).toBe("south korea");
+    expect(normalizeInternationalTeamName("iran")).toBe("ir iran");
   });
 });
