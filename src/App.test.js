@@ -15,7 +15,29 @@ import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 const {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
+  getDeviceSubscriptions,
 } = require("../notificationUtils");
+
+describe("push notification subscriptions", () => {
+  test("supports legacy single-device records", () => {
+    const subscription = { endpoint: "https://push.example/device-1" };
+    expect(getDeviceSubscriptions({ subscription })).toEqual([subscription]);
+  });
+
+  test("deduplicates multi-device records by endpoint", () => {
+    const latest = { endpoint: "https://push.example/device-1", keys: { auth: "new" } };
+    const second = { endpoint: "https://push.example/device-2" };
+    expect(
+      getDeviceSubscriptions({
+        subscriptions: [
+          { endpoint: "https://push.example/device-1", keys: { auth: "old" } },
+          latest,
+          second,
+        ],
+      })
+    ).toEqual([latest, second]);
+  });
+});
 
 describe("2026/27 Premier League data", () => {
   test("contains 38 complete gameweeks and 20 clubs", () => {

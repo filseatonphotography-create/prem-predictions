@@ -8,6 +8,7 @@ const webpush = require("web-push");
 const {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
+  getDeviceSubscriptions,
 } = require("./notificationUtils");
 
 const BUILD_ID = "2025-11-22-a";
@@ -3237,27 +3238,58 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
 
 // ---------------------------------------------------------------------------
 // PUSH NOTIFICATIONS
+function hasDeviceSubscription(record) {
+  return getDeviceSubscriptions(record).length > 0;
+}
+
 // Helper: Send push notification to a user, respecting their preferences
 async function sendPushNotification(userId, type, payload) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const sub = subscriptions[userId];
-  if (!sub || !sub.subscription) return false;
+  const devices = getDeviceSubscriptions(sub);
+  if (!devices.length) return false;
   const prefs = sub.notifPrefs || null;
   if (prefs && prefs[type] === false) return false;
-  try {
-    await webpush.sendNotification(sub.subscription, JSON.stringify(payload));
-    return true;
-  } catch (err) {
-    console.error(`Push notification error for user ${userId}:`, err);
-    if (err?.statusCode === 404 || err?.statusCode === 410) {
-      const latestSubscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
-      if (latestSubscriptions[userId]) {
-        latestSubscriptions[userId].subscription = null;
-        saveJson(PUSH_SUBSCRIPTIONS_FILE, latestSubscriptions);
+
+  const deliveryResults = await Promise.all(
+    devices.map(async (device) => {
+      try {
+        await webpush.sendNotification(device, JSON.stringify(payload));
+        return { endpoint: device.endpoint, accepted: true, expired: false };
+      } catch (err) {
+        console.error(`Push notification error for user ${userId}:`, err);
+        return {
+          endpoint: device.endpoint,
+          accepted: false,
+          expired: err?.statusCode === 404 || err?.statusCode === 410,
+          statusCode: err?.statusCode || null,
+        };
       }
-    }
-    return false;
-  }
+    })
+  );
+
+  const acceptedCount = deliveryResults.filter((result) => result.accepted).length;
+  const expiredEndpoints = new Set(
+    deliveryResults.filter((result) => result.expired).map((result) => result.endpoint)
+  );
+  const latestSubscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const latestRecord = latestSubscriptions[userId] || {};
+  const activeDevices = getDeviceSubscriptions(latestRecord).filter(
+    (device) => !expiredEndpoints.has(device.endpoint)
+  );
+  latestSubscriptions[userId] = {
+    ...latestRecord,
+    subscription: activeDevices[activeDevices.length - 1] || null,
+    subscriptions: activeDevices,
+    lastDelivery: {
+      type,
+      attemptedAt: new Date().toISOString(),
+      acceptedCount,
+      failedCount: deliveryResults.length - acceptedCount,
+    },
+  };
+  saveJson(PUSH_SUBSCRIPTIONS_FILE, latestSubscriptions);
+  return acceptedCount > 0;
 }
 // ---------------------------------------------------------------------------
 
@@ -3265,7 +3297,7 @@ function getFixtureNotificationUserIds(fixtureId) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const targetFixtureId = String(fixtureId);
   return Object.entries(subscriptions)
-    .filter(([, sub]) => !!sub?.subscription && sub?.fixturePrefs?.[targetFixtureId] === true)
+    .filter(([, sub]) => hasDeviceSubscription(sub) && sub?.fixturePrefs?.[targetFixtureId] === true)
     .map(([userId]) => userId);
 }
 
@@ -3279,18 +3311,25 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
     const userId = req.user.id;
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const existing = subscriptions[userId] || {};
+    const devices = getDeviceSubscriptions(existing).filter(
+      (device) => device.endpoint !== subscription?.endpoint
+    );
+    if (subscription?.endpoint) devices.push(subscription);
     subscriptions[userId] = {
+      ...existing,
       subscription,
-      notifPrefs: notifPrefs || (subscriptions[userId] && subscriptions[userId].notifPrefs) || null,
+      subscriptions: devices,
+      notifPrefs: notifPrefs || existing.notifPrefs || null,
       fixturePrefs: {
-        ...((subscriptions[userId] && subscriptions[userId].fixturePrefs) || {}),
+        ...(existing.fixturePrefs || {}),
         ...(fixturePrefs || {}),
       },
     };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
     console.log(`Push subscription saved for user ${userId}`);
-    return res.json({ success: true });
+    return res.json({ success: true, deviceCount: devices.length });
   } catch (err) {
     console.error("Push subscribe error:", err);
     return res.status(500).json({ error: "Failed to subscribe" });
@@ -3308,18 +3347,42 @@ app.post("/api/push/test", authMiddleware, async (req, res) => {
       error: "No working push subscription. Disable and enable notifications, then try again.",
     });
   }
-  return res.json({ ok: true });
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  return res.json({
+    ok: true,
+    deviceCount: getDeviceSubscriptions(subscriptions[req.user.id]).length,
+  });
+});
+
+app.post("/api/push/status", authMiddleware, (req, res) => {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const record = subscriptions[req.user.id] || {};
+  const devices = getDeviceSubscriptions(record);
+  const endpoint = String(req.body?.endpoint || "");
+  return res.json({
+    deviceCount: devices.length,
+    currentDeviceRegistered: endpoint
+      ? devices.some((device) => device.endpoint === endpoint)
+      : null,
+    lastDelivery: record.lastDelivery || null,
+  });
 });
 
 // Unsubscribe from push notifications
 app.post("/api/push/unsubscribe", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
+    const endpoint = String(req.body?.endpoint || "");
 
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
     const existing = subscriptions[userId] || {};
+    const devices = endpoint
+      ? getDeviceSubscriptions(existing).filter((device) => device.endpoint !== endpoint)
+      : [];
     subscriptions[userId] = {
-      subscription: null,
+      ...existing,
+      subscription: devices[devices.length - 1] || null,
+      subscriptions: devices,
       notifPrefs: existing.notifPrefs || null,
       fixturePrefs: existing.fixturePrefs || {},
     };
@@ -3342,7 +3405,9 @@ app.post("/api/push/prefs", authMiddleware, (req, res) => {
     let subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
     const existing = subscriptions[userId] || {};
     subscriptions[userId] = {
+      ...existing,
       subscription: existing.subscription || null,
+      subscriptions: getDeviceSubscriptions(existing),
       notifPrefs: prefs,
       fixturePrefs: existing.fixturePrefs || {},
     };
@@ -3397,7 +3462,9 @@ app.post("/api/push/fixtures", authMiddleware, (req, res) => {
     else delete fixturePrefs[fixtureId];
 
     subscriptions[userId] = {
+      ...existing,
       subscription: existing.subscription || null,
+      subscriptions: getDeviceSubscriptions(existing),
       notifPrefs: existing.notifPrefs || null,
       fixturePrefs,
     };
@@ -3450,7 +3517,7 @@ function runDeadlineNotifier() {
       if (now < notifyAt || now > notifyAt + windowMs) return;
 
       Object.entries(subscriptions).forEach(([userId, sub]) => {
-        if (!sub || !sub.subscription) return;
+        if (!hasDeviceSubscription(sub)) return;
         const prefs = sub.notifPrefs || {};
         if (prefs && prefs[type] === false) return;
 

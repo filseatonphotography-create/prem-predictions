@@ -23,4 +23,21 @@ function normalizeInternationalTeamName(name) {
   return aliases[normalized] || normalized;
 }
 
-module.exports = { didGoalCountIncrease, normalizeInternationalTeamName };
+function getDeviceSubscriptions(record) {
+  const candidates = Array.isArray(record?.subscriptions)
+    ? record.subscriptions
+    : record?.subscription
+    ? [record.subscription]
+    : [];
+  const byEndpoint = new Map();
+  candidates.forEach((subscription) => {
+    if (subscription?.endpoint) byEndpoint.set(subscription.endpoint, subscription);
+  });
+  return Array.from(byEndpoint.values());
+}
+
+module.exports = {
+  didGoalCountIncrease,
+  normalizeInternationalTeamName,
+  getDeviceSubscriptions,
+};

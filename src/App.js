@@ -4281,6 +4281,7 @@ setNewPasswordInput("");
     const subscription = registration
       ? await registration.pushManager.getSubscription()
       : null;
+    const endpoint = subscription?.endpoint || null;
     if (subscription) {
       await subscription.unsubscribe();
     }
@@ -4291,6 +4292,7 @@ setNewPasswordInput("");
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
+      body: JSON.stringify({ endpoint }),
     });
 
     setPushEnabled(false);
@@ -11355,8 +11357,12 @@ const TABS = [
                       type="button"
                       onClick={async () => {
                         try {
-                          await apiSendTestPush(authToken);
-                          alert("Test notification sent. Check your device notifications.");
+                          await enablePushNotifications();
+                          const result = await apiSendTestPush(authToken);
+                          const deviceLabel = result.deviceCount === 1 ? "device" : "devices";
+                          alert(
+                            `Test notification sent to ${result.deviceCount} registered ${deviceLabel}.`
+                          );
                         } catch (err) {
                           alert(`Test notification failed: ${err.message}`);
                         }
