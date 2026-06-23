@@ -3273,7 +3273,7 @@ useEffect(() => {
   };
 }, [authToken, selectedGameweek, currentPlayer, loginName, currentUserId, gameMode]);
 
-  // Check if push notifications are supported
+// Check if push notifications are supported
 useEffect(() => {
   if ('Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window) {
     setPushSupported(true);
@@ -3281,7 +3281,7 @@ useEffect(() => {
       .then((registration) => (
         registration ? registration.pushManager.getSubscription() : null
       ))
-      .then(() => setPushEnabled(false))
+      .then((subscription) => setPushEnabled(!!subscription))
       .catch((err) => {
         console.error("Push support check failed:", err);
         setPushEnabled(false);
@@ -4233,7 +4233,24 @@ setNewPasswordInput("");
     return { registration, subscription };
   };
 
-  const enablePushNotifications = async () => {
+  const removePushSubscription = async (subscription) => {
+    const endpoint = subscription?.endpoint || null;
+    if (!subscription) return;
+
+    await subscription.unsubscribe().catch(() => {});
+    if (authToken) {
+      await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ endpoint }),
+      }).catch(() => {});
+    }
+  };
+
+  const enablePushNotifications = async ({ refreshExisting = true } = {}) => {
     let permission = Notification.permission;
     if (permission === "default") {
       permission = await Notification.requestPermission();
@@ -4251,8 +4268,11 @@ setNewPasswordInput("");
     const { publicKey } = await vapidRes.json();
     const { registration, subscription: existingSubscription } =
       await getExistingPushSubscription();
+    if (refreshExisting && existingSubscription) {
+      await removePushSubscription(existingSubscription);
+    }
     const subscription =
-      existingSubscription ||
+      (!refreshExisting && existingSubscription) ||
       (await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
@@ -4281,19 +4301,7 @@ setNewPasswordInput("");
     const subscription = registration
       ? await registration.pushManager.getSubscription()
       : null;
-    const endpoint = subscription?.endpoint || null;
-    if (subscription) {
-      await subscription.unsubscribe();
-    }
-
-    await fetch(`${BACKEND_BASE}/api/push/unsubscribe`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      },
-      body: JSON.stringify({ endpoint }),
-    });
+    await removePushSubscription(subscription);
 
     setPushEnabled(false);
     return true;

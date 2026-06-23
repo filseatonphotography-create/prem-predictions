@@ -228,7 +228,11 @@ if (fs.existsSync(BUILD_DIR)) {
     express.static(BUILD_DIR, {
       maxAge: 0,
       setHeaders: (res, filePath) => {
-        if (filePath.endsWith(".html")) {
+        if (
+          filePath.endsWith(".html") ||
+          filePath.endsWith("service-worker.js") ||
+          filePath.endsWith("manifest.json")
+        ) {
           res.setHeader("Cache-Control", "no-store");
         }
       },
