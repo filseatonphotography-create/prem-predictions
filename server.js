@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const webpush = require("web-push");
 const {
   didGoalCountIncrease,
-  normalizeInternationalTeamName,
+  normalizeFootballTeamName,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
@@ -545,52 +545,7 @@ function authMiddleware(req, res, next) {
 
 // --- TEAM NAME NORMALISATION (match frontend logic) ---
 function normalizeTeamName(name) {
-  if (!name) return "";
-  let s = name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim();
-
-  // Normalize punctuation + common suffixes
-  s = s.replace(/&/g, "and");
-  s = s.replace(/[^a-z0-9\\s]/g, "");
-  s = s.replace(/\\b(fc|afc|cfc|cf)\\b/g, "");
-  s = s.replace(/\\s+/g, " ").trim();
-
-  // Common aliases -> canonical forms
-  if (s === "spurs" || s === "tottenham" || s === "tottenham hotspur") return "tottenham";
-  if (
-    s === "wolves" ||
-    s === "wolverhampton" ||
-    s === "wolverhampton wanderers"
-  )
-    return "wolverhampton";
-  if (
-    s === "nottm forest" ||
-    s === "nottingham forest" ||
-    s === "nottm" ||
-    s === "nottingham"
-  )
-    return "nottingham forest";
-  if (
-    s === "man utd" ||
-    s === "man u" ||
-    s === "manchester utd" ||
-    s === "manchester u" ||
-    s === "mufc" ||
-    s === "manchester united"
-  )
-    return "manchester united";
-  if (s === "man city" || s === "manchester city") return "manchester city";
-  if (s === "leeds") return "leeds united";
-  if (s === "newcastle") return "newcastle united";
-  if (s === "west ham" || s === "whu" || s === "hammers") return "west ham";
-  if (s === "aston villa" || s === "villa") return "aston villa";
-  if (s === "brighton hove albion" || s === "brighton") return "brighton";
-  if (s === "bournemouth" || s === "afc bournemouth") return "bournemouth";
-
-  return normalizeInternationalTeamName(s);
+  return normalizeFootballTeamName(name);
 }
 
 // --- BASIC RESULT HELPER (match frontend logic) ---

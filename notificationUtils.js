@@ -23,6 +23,80 @@ function normalizeInternationalTeamName(name) {
   return aliases[normalized] || normalized;
 }
 
+function normalizeFootballTeamName(name) {
+  if (!name) return "";
+  let s = String(name)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+
+  s = s.replace(/&/g, "and");
+  s = s.replace(/football club/g, "");
+  s = s.replace(/\b(fc|afc|cfc|cf)\b/g, "");
+  s = s.replace(/\butd\b/g, "united");
+  s = s.replace(/[^a-z0-9]+/g, "");
+
+  const aliasMap = {
+    spurs: "tottenhamhotspur",
+    tottenham: "tottenhamhotspur",
+    tottenhamhotspur: "tottenhamhotspur",
+    wolves: "wolverhamptonwanderers",
+    wolverhampton: "wolverhamptonwanderers",
+    wolverhamptonwanderers: "wolverhamptonwanderers",
+    nottmforest: "nottinghamforest",
+    nottinghamforest: "nottinghamforest",
+    manunited: "manchesterunited",
+    manutd: "manchesterunited",
+    manchesterunited: "manchesterunited",
+    mancity: "manchestercity",
+    manchestercity: "manchestercity",
+    leeds: "leedsunited",
+    leedsunited: "leedsunited",
+    coventry: "coventrycity",
+    coventrycity: "coventrycity",
+    hull: "hullcity",
+    hullcity: "hullcity",
+    ipswich: "ipswichtown",
+    ipswichtown: "ipswichtown",
+    westham: "westhamunited",
+    westhamunited: "westhamunited",
+    astonvilla: "astonvilla",
+    villa: "astonvilla",
+    brighton: "brightonandhovealbion",
+    brightonhovealbion: "brightonandhovealbion",
+    brightonandhovealbion: "brightonandhovealbion",
+    bournemouth: "bournemouth",
+    crystalpalace: "crystalpalace",
+    newcastle: "newcastleunited",
+    newcastleunited: "newcastleunited",
+    leicester: "leicestercity",
+    leicestercity: "leicestercity",
+    bosniaherzegovina: "bosniaandherzegovina",
+    bosniaandherzegovina: "bosniaandherzegovina",
+    korearepublic: "southkorea",
+    southkorea: "southkorea",
+    usa: "unitedstates",
+    unitedstates: "unitedstates",
+    turkey: "turkiye",
+    trkiye: "turkiye",
+    turkiye: "turkiye",
+    cotedivoire: "cotedivoire",
+    coteivoire: "cotedivoire",
+    ivorycoast: "cotedivoire",
+    drcongo: "congodr",
+    congodr: "congodr",
+    capeverde: "caboverde",
+    caboverde: "caboverde",
+    iran: "iriran",
+    iriran: "iriran",
+    curacao: "curacao",
+    curaao: "curacao",
+  };
+
+  return aliasMap[s] || s;
+}
+
 function getDeviceSubscriptions(record) {
   const candidates = Array.isArray(record?.subscriptions)
     ? record.subscriptions
@@ -59,6 +133,7 @@ function isPushTypeEnabled(type, prefs) {
 module.exports = {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
+  normalizeFootballTeamName,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,

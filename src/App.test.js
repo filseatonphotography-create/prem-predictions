@@ -15,6 +15,7 @@ import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 const {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
+  normalizeFootballTeamName,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
@@ -347,6 +348,21 @@ describe("live fixture styling", () => {
 });
 
 describe("goal notification detection", () => {
+  test("normalizes World Cup API and local team names for server matching", () => {
+    expect(normalizeFootballTeamName("Mexico")).toBe(
+      normalizeFootballTeamName("Mexico")
+    );
+    expect(normalizeFootballTeamName("South Korea")).toBe(
+      normalizeFootballTeamName("Korea Republic")
+    );
+    expect(normalizeFootballTeamName("Cote d'Ivoire")).toBe(
+      normalizeFootballTeamName("Ivory Coast")
+    );
+    expect(normalizeFootballTeamName("IR Iran")).toBe(
+      normalizeFootballTeamName("Iran")
+    );
+  });
+
   test("fixture bell alerts are not blocked by invisible global prefs", () => {
     expect(isPushTypeEnabled("fixtureUpdates", { fixtureUpdates: false })).toBe(true);
     expect(isPushTypeEnabled("bingpot", { bingpot: false })).toBe(false);
