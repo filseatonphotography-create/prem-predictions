@@ -16,6 +16,7 @@ const {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
   getDeviceSubscriptions,
+  getPreviousLiveScore,
 } = require("../notificationUtils");
 
 describe("push notification subscriptions", () => {
@@ -345,6 +346,23 @@ describe("live fixture styling", () => {
 });
 
 describe("goal notification detection", () => {
+  test("uses previous live match state before persisted results", () => {
+    expect(
+      getPreviousLiveScore(
+        { homeGoals: 0, awayGoals: 0 },
+        { homeGoals: 1, awayGoals: 0 }
+      )
+    ).toEqual({ hadScoreBefore: true, prevHome: 0, prevAway: 0 });
+  });
+
+  test("falls back to persisted results when no live state exists", () => {
+    expect(getPreviousLiveScore({}, { homeGoals: 2, awayGoals: 1 })).toEqual({
+      hadScoreBefore: true,
+      prevHome: 2,
+      prevAway: 1,
+    });
+  });
+
   test("sends a catch-up alert when the first live score already contains a goal", () => {
     expect(didGoalCountIncrease(null, null, 0, 1)).toBe(true);
     expect(didGoalCountIncrease(null, null, 0, 0)).toBe(false);

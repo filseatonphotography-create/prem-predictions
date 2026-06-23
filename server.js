@@ -9,6 +9,7 @@ const {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
   getDeviceSubscriptions,
+  getPreviousLiveScore,
 } = require("./notificationUtils");
 
 const BUILD_ID = "2025-11-22-a";
@@ -2712,16 +2713,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           const prevScore = current[String(fixtureId)] || {};
           const nextScore = merged[String(fixtureId)] || {};
 
-          const prevHome = Number.isFinite(Number(prevScore?.homeGoals))
-            ? Number(prevScore.homeGoals)
-            : Number.isFinite(Number(prevState?.homeGoals))
-            ? Number(prevState.homeGoals)
-            : null;
-          const prevAway = Number.isFinite(Number(prevScore?.awayGoals))
-            ? Number(prevScore.awayGoals)
-            : Number.isFinite(Number(prevState?.awayGoals))
-            ? Number(prevState.awayGoals)
-            : null;
+          const { prevHome, prevAway } = getPreviousLiveScore(prevState, prevScore);
           const nextHome = Number.isFinite(Number(nextScore?.homeGoals))
             ? Number(nextScore.homeGoals)
             : Number.isFinite(Number(nextState?.homeGoals))
@@ -3711,15 +3703,14 @@ async function runLiveFixtureNotifier() {
         statesChanged = true;
       }
 
-      const hadScoreBefore =
-        Number.isFinite(Number(prevResult.homeGoals)) &&
-        Number.isFinite(Number(prevResult.awayGoals));
       const hasScoreNow =
         Number.isFinite(homeGoals) &&
         Number.isFinite(awayGoals);
 
-      const prevHome = hadScoreBefore ? Number(prevResult.homeGoals) : null;
-      const prevAway = hadScoreBefore ? Number(prevResult.awayGoals) : null;
+      const { hadScoreBefore, prevHome, prevAway } = getPreviousLiveScore(
+        prevState,
+        prevResult
+      );
       const scoreChanged =
         hasScoreNow && (!hadScoreBefore || prevHome !== homeGoals || prevAway !== awayGoals);
 

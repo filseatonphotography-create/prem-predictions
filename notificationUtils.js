@@ -36,8 +36,25 @@ function getDeviceSubscriptions(record) {
   return Array.from(byEndpoint.values());
 }
 
+function getPreviousLiveScore(prevState, prevResult) {
+  const stateHome = Number(prevState?.homeGoals);
+  const stateAway = Number(prevState?.awayGoals);
+  if (Number.isFinite(stateHome) && Number.isFinite(stateAway)) {
+    return { hadScoreBefore: true, prevHome: stateHome, prevAway: stateAway };
+  }
+
+  const resultHome = Number(prevResult?.homeGoals);
+  const resultAway = Number(prevResult?.awayGoals);
+  if (Number.isFinite(resultHome) && Number.isFinite(resultAway)) {
+    return { hadScoreBefore: true, prevHome: resultHome, prevAway: resultAway };
+  }
+
+  return { hadScoreBefore: false, prevHome: null, prevAway: null };
+}
+
 module.exports = {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
   getDeviceSubscriptions,
+  getPreviousLiveScore,
 };
