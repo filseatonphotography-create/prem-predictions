@@ -416,6 +416,33 @@ const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let standingsCache = null;
 let standingsCacheAt = 0;
 const STANDINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+let liveNotifierRunning = false;
+let liveNotifierLastStartedAt = 0;
+let liveNotifierStatus = {
+  lastStartedAt: null,
+  lastFinishedAt: null,
+  lastReason: null,
+  lastError: null,
+  fetchedMatches: 0,
+  matchedFixtures: 0,
+  subscribedFixtures: 0,
+  attemptedNotifications: 0,
+  acceptedNotifications: 0,
+};
+
+function maybeRunLiveFixtureNotifier(reason, minIntervalMs = 30 * 1000) {
+  const now = Date.now();
+  if (liveNotifierRunning || now - liveNotifierLastStartedAt < minIntervalMs) return;
+  liveNotifierRunning = true;
+  liveNotifierLastStartedAt = now;
+  runLiveFixtureNotifier(reason)
+    .catch((err) => {
+      console.error("live fixture notifier error", err);
+    })
+    .finally(() => {
+      liveNotifierRunning = false;
+    });
+}
 
 function getResultsFetchConfig(mode) {
   const normalizedMode = normalizeLeagueMode(mode);
@@ -2978,6 +3005,7 @@ app.get("/api/match-states/snapshot", (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
   try {
+    maybeRunLiveFixtureNotifier("api-results");
     const mode = normalizeLeagueMode(req.query && req.query.mode);
     const { cacheKey, url, headers } = getResultsFetchConfig(mode);
     const now = Date.now();
@@ -3022,6 +3050,13 @@ app.get("/api/results", async (req, res) => {
     const isTimeout = err?.name === "AbortError" || err?.code === "UND_ERR_CONNECT_TIMEOUT";
     res.status(503).json({ error: isTimeout ? "Results upstream timeout" : "Internal server error" });
   }
+});
+
+app.get("/api/push/live-status", authMiddleware, (req, res) => {
+  return res.json({
+    running: liveNotifierRunning,
+    ...liveNotifierStatus,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -3688,7 +3723,20 @@ function findLocalFixtureForApiMatch(match, fixtures) {
   return candidates[0];
 }
 
-async function runLiveFixtureNotifier() {
+async function runLiveFixtureNotifier(reason = "timer") {
+  const summary = {
+    lastStartedAt: new Date().toISOString(),
+    lastFinishedAt: null,
+    lastReason: reason,
+    lastError: null,
+    fetchedMatches: 0,
+    matchedFixtures: 0,
+    subscribedFixtures: 0,
+    attemptedNotifications: 0,
+    acceptedNotifications: 0,
+  };
+  liveNotifierStatus = { ...liveNotifierStatus, ...summary };
+
   try {
     const competitionResults = await Promise.allSettled([
       fetchLiveMatches("premier"),
@@ -3703,12 +3751,18 @@ async function runLiveFixtureNotifier() {
         ? result.value.map((match) => ({ match, fixtures }))
         : []
     );
-    if (!liveMatches.length) return;
+    summary.fetchedMatches = liveMatches.length;
+    if (!liveMatches.length) {
+      summary.lastFinishedAt = new Date().toISOString();
+      liveNotifierStatus = summary;
+      return summary;
+    }
 
     const currentResults = loadResults() || {};
     const currentMatchStates = loadMatchStates() || {};
     const nextResults = { ...currentResults };
     const nextMatchStates = { ...currentMatchStates };
+    const notificationTasks = [];
     let resultsChanged = false;
     let statesChanged = false;
 
@@ -3716,6 +3770,7 @@ async function runLiveFixtureNotifier() {
       if (!match?.homeTeam || !match?.awayTeam) return;
       const fixture = findLocalFixtureForApiMatch(match, fixtures);
       if (!fixture) return;
+      summary.matchedFixtures += 1;
 
       const score = match.score || {};
       const ft = score.fullTime || {};
@@ -3773,6 +3828,7 @@ async function runLiveFixtureNotifier() {
 
       const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);
       if (!subscribedUserIds.length) return;
+      summary.subscribedFixtures += 1;
 
       const prevStatus = String(prevState.status || "");
 
@@ -3782,49 +3838,65 @@ async function runLiveFixtureNotifier() {
           didGoalCountIncrease(prevHome, prevAway, homeGoals, awayGoals);
         if (shouldSendGoal) {
           subscribedUserIds.forEach((userId) => {
-            sendPushNotification(userId, "fixtureUpdates", {
+            summary.attemptedNotifications += 1;
+            notificationTasks.push(sendPushNotification(userId, "fixtureUpdates", {
               title: "Goal alert",
               body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
               url: "/",
-            });
+            }));
           });
         }
       }
 
       if (status === "PAUSED" && prevStatus !== "PAUSED" && hasScoreNow) {
         subscribedUserIds.forEach((userId) => {
-          sendPushNotification(userId, "fixtureUpdates", {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendPushNotification(userId, "fixtureUpdates", {
             title: "Half-time",
             body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
             url: "/",
-          });
+          }));
         });
       }
 
       if (status === "FINISHED" && prevStatus !== "FINISHED" && hasScoreNow) {
         subscribedUserIds.forEach((userId) => {
-          sendPushNotification(userId, "fixtureUpdates", {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendPushNotification(userId, "fixtureUpdates", {
             title: "Full-time",
             body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
             url: "/",
-          });
+          }));
         });
       }
     });
 
+    if (notificationTasks.length) {
+      const deliveryResults = await Promise.allSettled(notificationTasks);
+      summary.acceptedNotifications = deliveryResults.filter(
+        (result) => result.status === "fulfilled" && result.value
+      ).length;
+    }
     if (statesChanged) saveMatchStates(nextMatchStates);
     if (resultsChanged) {
       saveResults(nextResults);
     }
+    summary.lastFinishedAt = new Date().toISOString();
+    liveNotifierStatus = summary;
+    return summary;
   } catch (err) {
+    summary.lastError = String(err?.message || err);
+    summary.lastFinishedAt = new Date().toISOString();
+    liveNotifierStatus = summary;
     console.error("live fixture notifier error", err);
+    return summary;
   }
 }
 
 setInterval(runDeadlineNotifier, 60 * 1000);
 setTimeout(runDeadlineNotifier, 5 * 1000);
-setInterval(runLiveFixtureNotifier, 60 * 1000);
-setTimeout(runLiveFixtureNotifier, 10 * 1000);
+setInterval(() => maybeRunLiveFixtureNotifier("timer", 55 * 1000), 60 * 1000);
+setTimeout(() => maybeRunLiveFixtureNotifier("startup", 0), 10 * 1000);
 
 // Get VAPID public key
 app.get("/api/push/vapid-public-key", (req, res) => {

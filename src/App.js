@@ -1061,6 +1061,15 @@ async function apiSendFixtureTestPush(token, fixtureId) {
   return data;
 }
 
+async function apiGetLivePushStatus(token) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/live-status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Failed to load live notification status.");
+  return data;
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding)
@@ -11443,6 +11452,45 @@ const TABS = [
                         }}
                       >
                         Send fixture alert test
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const status = await apiGetLivePushStatus(authToken);
+                            alert(
+                              [
+                                `Live worker: ${status.running ? "running" : "idle"}`,
+                                `Last run: ${status.lastFinishedAt || status.lastStartedAt || "never"}`,
+                                `Reason: ${status.lastReason || "n/a"}`,
+                                `Fetched matches: ${status.fetchedMatches || 0}`,
+                                `Matched fixtures: ${status.matchedFixtures || 0}`,
+                                `Subscribed fixtures: ${status.subscribedFixtures || 0}`,
+                                `Attempted sends: ${status.attemptedNotifications || 0}`,
+                                `Accepted sends: ${status.acceptedNotifications || 0}`,
+                                status.lastError ? `Error: ${status.lastError}` : "",
+                              ]
+                                .filter(Boolean)
+                                .join("\n")
+                            );
+                          } catch (err) {
+                            alert(`Live notification status failed: ${err.message}`);
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          marginTop: 10,
+                          padding: "10px 16px",
+                          borderRadius: 8,
+                          border: `1px solid ${theme.line}`,
+                          background: theme.panel,
+                          color: theme.text,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Check live notification status
                       </button>
                     </>
                   )}
