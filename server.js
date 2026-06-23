@@ -422,20 +422,23 @@ let liveNotifierStatus = {
   lastStartedAt: null,
   lastFinishedAt: null,
   lastReason: null,
+  mode: "all",
   lastError: null,
   fetchedMatches: 0,
   matchedFixtures: 0,
   subscribedFixtures: 0,
   attemptedNotifications: 0,
   acceptedNotifications: 0,
+  byMode: {},
+  competitionErrors: {},
 };
 
-function maybeRunLiveFixtureNotifier(reason, minIntervalMs = 30 * 1000) {
+function maybeRunLiveFixtureNotifier(reason, minIntervalMs = 30 * 1000, mode = "all") {
   const now = Date.now();
   if (liveNotifierRunning || now - liveNotifierLastStartedAt < minIntervalMs) return;
   liveNotifierRunning = true;
   liveNotifierLastStartedAt = now;
-  runLiveFixtureNotifier(reason)
+  runLiveFixtureNotifier(reason, mode)
     .catch((err) => {
       console.error("live fixture notifier error", err);
     })
@@ -3005,8 +3008,8 @@ app.get("/api/match-states/snapshot", (req, res) => {
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
   try {
-    maybeRunLiveFixtureNotifier("api-results");
     const mode = normalizeLeagueMode(req.query && req.query.mode);
+    maybeRunLiveFixtureNotifier(`api-results:${mode}`, 30 * 1000, mode);
     const { cacheKey, url, headers } = getResultsFetchConfig(mode);
     const now = Date.now();
     if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < RESULTS_CACHE_TTL_MS) {
@@ -3723,34 +3726,67 @@ function findLocalFixtureForApiMatch(match, fixtures) {
   return candidates[0];
 }
 
-async function runLiveFixtureNotifier(reason = "timer") {
+async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
+  const normalizedModeFilter =
+    modeFilter === "all" ? "all" : normalizeLeagueMode(modeFilter);
   const summary = {
     lastStartedAt: new Date().toISOString(),
     lastFinishedAt: null,
     lastReason: reason,
+    mode: normalizedModeFilter,
     lastError: null,
     fetchedMatches: 0,
     matchedFixtures: 0,
     subscribedFixtures: 0,
     attemptedNotifications: 0,
     acceptedNotifications: 0,
+    byMode: {},
+    competitionErrors: {},
   };
   liveNotifierStatus = { ...liveNotifierStatus, ...summary };
 
   try {
-    const competitionResults = await Promise.allSettled([
-      fetchLiveMatches("premier"),
-      fetchLiveMatches("worldcup"),
-    ]);
-    const competitions = [
-      { fixtures: loadFixturesFromSrc() || [], result: competitionResults[0] },
-      { fixtures: loadWorldCupFixturesFromSrc() || [], result: competitionResults[1] },
-    ];
-    const liveMatches = competitions.flatMap(({ fixtures, result }) =>
-      result.status === "fulfilled"
-        ? result.value.map((match) => ({ match, fixtures }))
-        : []
+    const competitionInputs = [
+      {
+        mode: "premier",
+        fixtures: loadFixturesFromSrc() || [],
+      },
+      {
+        mode: "worldcup",
+        fixtures: loadWorldCupFixturesFromSrc() || [],
+      },
+    ].filter(
+      (competition) =>
+        normalizedModeFilter === "all" || competition.mode === normalizedModeFilter
     );
+    competitionInputs.forEach((competition) => {
+      summary.byMode[competition.mode] = {
+        fetchedMatches: 0,
+        matchedFixtures: 0,
+        subscribedFixtures: 0,
+      };
+    });
+
+    const competitionResults = await Promise.allSettled(
+      competitionInputs.map((competition) => fetchLiveMatches(competition.mode))
+    );
+    const liveMatches = [];
+    competitionInputs.forEach((competition, index) => {
+      const result = competitionResults[index];
+      if (result.status !== "fulfilled") {
+        summary.competitionErrors[competition.mode] = String(
+          result.reason?.message || result.reason || "Unknown fetch error"
+        );
+        return;
+      }
+
+      const matches = Array.isArray(result.value) ? result.value : [];
+      summary.byMode[competition.mode].fetchedMatches = matches.length;
+      matches.forEach((match) => {
+        liveMatches.push({ match, fixtures: competition.fixtures, mode: competition.mode });
+      });
+    });
+
     summary.fetchedMatches = liveMatches.length;
     if (!liveMatches.length) {
       summary.lastFinishedAt = new Date().toISOString();
@@ -3766,11 +3802,12 @@ async function runLiveFixtureNotifier(reason = "timer") {
     let resultsChanged = false;
     let statesChanged = false;
 
-    liveMatches.forEach(({ match, fixtures }) => {
+    liveMatches.forEach(({ match, fixtures, mode }) => {
       if (!match?.homeTeam || !match?.awayTeam) return;
       const fixture = findLocalFixtureForApiMatch(match, fixtures);
       if (!fixture) return;
       summary.matchedFixtures += 1;
+      summary.byMode[mode].matchedFixtures += 1;
 
       const score = match.score || {};
       const ft = score.fullTime || {};
@@ -3829,6 +3866,7 @@ async function runLiveFixtureNotifier(reason = "timer") {
       const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);
       if (!subscribedUserIds.length) return;
       summary.subscribedFixtures += 1;
+      summary.byMode[mode].subscribedFixtures += 1;
 
       const prevStatus = String(prevState.status || "");
 
@@ -3895,8 +3933,8 @@ async function runLiveFixtureNotifier(reason = "timer") {
 
 setInterval(runDeadlineNotifier, 60 * 1000);
 setTimeout(runDeadlineNotifier, 5 * 1000);
-setInterval(() => maybeRunLiveFixtureNotifier("timer", 55 * 1000), 60 * 1000);
-setTimeout(() => maybeRunLiveFixtureNotifier("startup", 0), 10 * 1000);
+setInterval(() => maybeRunLiveFixtureNotifier("timer", 55 * 1000, "all"), 60 * 1000);
+setTimeout(() => maybeRunLiveFixtureNotifier("startup", 0, "all"), 10 * 1000);
 
 // Get VAPID public key
 app.get("/api/push/vapid-public-key", (req, res) => {

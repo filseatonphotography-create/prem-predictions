@@ -11463,11 +11463,19 @@ const TABS = [
                                 `Live worker: ${status.running ? "running" : "idle"}`,
                                 `Last run: ${status.lastFinishedAt || status.lastStartedAt || "never"}`,
                                 `Reason: ${status.lastReason || "n/a"}`,
+                                `Mode: ${status.mode || "all"}`,
                                 `Fetched matches: ${status.fetchedMatches || 0}`,
                                 `Matched fixtures: ${status.matchedFixtures || 0}`,
                                 `Subscribed fixtures: ${status.subscribedFixtures || 0}`,
                                 `Attempted sends: ${status.attemptedNotifications || 0}`,
                                 `Accepted sends: ${status.acceptedNotifications || 0}`,
+                                ...Object.entries(status.byMode || {}).map(
+                                  ([mode, modeStatus]) =>
+                                    `${mode}: fetched ${modeStatus.fetchedMatches || 0}, matched ${modeStatus.matchedFixtures || 0}, subscribed ${modeStatus.subscribedFixtures || 0}`
+                                ),
+                                ...Object.entries(status.competitionErrors || {}).map(
+                                  ([mode, error]) => `${mode} error: ${error}`
+                                ),
                                 status.lastError ? `Error: ${status.lastError}` : "",
                               ]
                                 .filter(Boolean)
