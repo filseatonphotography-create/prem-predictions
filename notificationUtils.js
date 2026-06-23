@@ -97,6 +97,32 @@ function normalizeFootballTeamName(name) {
   return aliasMap[s] || s;
 }
 
+function parseFixtureArraySource(raw, variableName) {
+  const source = String(raw || "");
+  const start = source.indexOf("[");
+  const end = source.lastIndexOf("]");
+  if (start === -1 || end === -1 || end <= start) return [];
+
+  const arraySource = source.slice(start, end + 1);
+  try {
+    return JSON.parse(arraySource);
+  } catch {}
+
+  try {
+    const vm = require("vm");
+    const moduleSource = source.replace(/export\s+default\s+\w+;?/g, "");
+    const sandbox = {};
+    vm.runInNewContext(
+      `${moduleSource}; this.__fixtures = ${variableName};`,
+      sandbox,
+      { timeout: 1000 }
+    );
+    return Array.isArray(sandbox.__fixtures) ? sandbox.__fixtures : [];
+  } catch {
+    return [];
+  }
+}
+
 function getDeviceSubscriptions(record) {
   const candidates = Array.isArray(record?.subscriptions)
     ? record.subscriptions
@@ -134,6 +160,7 @@ module.exports = {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
   normalizeFootballTeamName,
+  parseFixtureArraySource,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,

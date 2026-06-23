@@ -12,10 +12,12 @@ import {
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
+const fs = require("fs");
 const {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
   normalizeFootballTeamName,
+  parseFixtureArraySource,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
@@ -334,6 +336,26 @@ describe("World Cup sync helpers", () => {
     expect(updated[920033].isDouble).toBe(true);
     expect(updated[920035].isDouble).toBe(false);
     expect(updated[920038].isDouble).toBe(true);
+  });
+});
+
+describe("server fixture source parsing", () => {
+  test("loads JavaScript World Cup fixture source", () => {
+    const raw = fs.readFileSync("src/worldCupFixtures.js", "utf8");
+    const parsed = parseFixtureArraySource(raw, "WORLD_CUP_FIXTURES");
+    expect(parsed).toHaveLength(WORLD_CUP_FIXTURES.length);
+    expect(parsed[0]).toMatchObject({
+      id: 920001,
+      homeTeam: "Mexico",
+      awayTeam: "South Africa",
+    });
+  });
+
+  test("loads JSON-style Premier League fixture source", () => {
+    const raw = fs.readFileSync("src/fixtures.js", "utf8");
+    const parsed = parseFixtureArraySource(raw, "FIXTURES");
+    expect(parsed).toHaveLength(FIXTURES.length);
+    expect(parsed[0].id).toBe(FIXTURES[0].id);
   });
 });
 

@@ -8,6 +8,7 @@ const webpush = require("web-push");
 const {
   didGoalCountIncrease,
   normalizeFootballTeamName,
+  parseFixtureArraySource,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
@@ -151,11 +152,7 @@ const saveAvatars = (avatars) => saveJson(AVATARS_FILE, avatars);
 function loadFixturesFromSrc() {
   try {
     const raw = fs.readFileSync(FIXTURES_SRC_FILE, "utf8");
-    const start = raw.indexOf("[");
-    const end = raw.lastIndexOf("]");
-    if (start === -1 || end === -1) return [];
-    const json = raw.slice(start, end + 1);
-    return JSON.parse(json);
+    return parseFixtureArraySource(raw, "FIXTURES");
   } catch {
     return [];
   }
@@ -164,10 +161,7 @@ function loadFixturesFromSrc() {
 function loadWorldCupFixturesFromSrc() {
   try {
     const raw = fs.readFileSync(WORLD_CUP_FIXTURES_SRC_FILE, "utf8");
-    const start = raw.indexOf("[");
-    const end = raw.lastIndexOf("]");
-    if (start === -1 || end === -1) return [];
-    return JSON.parse(raw.slice(start, end + 1));
+    return parseFixtureArraySource(raw, "WORLD_CUP_FIXTURES");
   } catch {
     return [];
   }
