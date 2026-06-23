@@ -52,9 +52,14 @@ function getPreviousLiveScore(prevState, prevResult) {
   return { hadScoreBefore: false, prevHome: null, prevAway: null };
 }
 
+function isPushTypeEnabled(type, prefs) {
+  return type === "fixtureUpdates" || !prefs || prefs[type] !== false;
+}
+
 module.exports = {
   didGoalCountIncrease,
   normalizeInternationalTeamName,
   getDeviceSubscriptions,
   getPreviousLiveScore,
+  isPushTypeEnabled,
 };

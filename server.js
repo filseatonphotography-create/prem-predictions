@@ -10,6 +10,7 @@ const {
   normalizeInternationalTeamName,
   getDeviceSubscriptions,
   getPreviousLiveScore,
+  isPushTypeEnabled,
 } = require("./notificationUtils");
 
 const BUILD_ID = "2025-11-22-a";
@@ -3245,7 +3246,7 @@ async function sendPushNotification(userId, type, payload) {
   const devices = getDeviceSubscriptions(sub);
   if (!devices.length) return false;
   const prefs = sub.notifPrefs || null;
-  if (prefs && prefs[type] === false) return false;
+  if (!isPushTypeEnabled(type, prefs)) return false;
 
   const deliveryResults = await Promise.all(
     devices.map(async (device) => {
@@ -3295,6 +3296,13 @@ function getFixtureNotificationUserIds(fixtureId) {
   return Object.entries(subscriptions)
     .filter(([, sub]) => hasDeviceSubscription(sub) && sub?.fixturePrefs?.[targetFixtureId] === true)
     .map(([userId]) => userId);
+}
+
+function findFixtureById(fixtureId) {
+  const targetFixtureId = String(fixtureId);
+  return [...(loadFixturesFromSrc() || []), ...(loadWorldCupFixturesFromSrc() || [])].find(
+    (fixture) => String(fixture?.id) === targetFixtureId
+  ) || null;
 }
 
 // Subscribe to push notifications
@@ -3350,16 +3358,57 @@ app.post("/api/push/test", authMiddleware, async (req, res) => {
   });
 });
 
+app.post("/api/push/fixture-test", authMiddleware, async (req, res) => {
+  const fixtureId = String(req.body?.fixtureId || "").trim();
+  if (!fixtureId) {
+    return res.status(400).json({ error: "fixtureId is required" });
+  }
+
+  const fixture = findFixtureById(fixtureId);
+  if (!fixture) {
+    return res.status(404).json({ error: "Fixture not found" });
+  }
+
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const record = subscriptions[req.user.id] || {};
+  const fixtureEnabled = record?.fixturePrefs?.[fixtureId] === true;
+  if (!fixtureEnabled) {
+    return res.status(409).json({
+      error: "Fixture notifications are not enabled for this fixture on the backend.",
+    });
+  }
+
+  const sent = await sendPushNotification(req.user.id, "fixtureUpdates", {
+    title: "Fixture alert test",
+    body: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+    url: "/",
+  });
+  if (!sent) {
+    return res.status(410).json({
+      error: "No working push subscription for fixture alerts.",
+    });
+  }
+
+  const latestSubscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  return res.json({
+    ok: true,
+    fixtureId,
+    deviceCount: getDeviceSubscriptions(latestSubscriptions[req.user.id]).length,
+  });
+});
+
 app.post("/api/push/status", authMiddleware, (req, res) => {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const record = subscriptions[req.user.id] || {};
   const devices = getDeviceSubscriptions(record);
   const endpoint = String(req.body?.endpoint || "");
+  const fixturePrefs = record.fixturePrefs || {};
   return res.json({
     deviceCount: devices.length,
     currentDeviceRegistered: endpoint
       ? devices.some((device) => device.endpoint === endpoint)
       : null,
+    enabledFixtureIds: Object.keys(fixturePrefs).filter((fixtureId) => fixturePrefs[fixtureId] === true),
     lastDelivery: record.lastDelivery || null,
   });
 });

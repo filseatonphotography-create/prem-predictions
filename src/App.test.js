@@ -17,6 +17,7 @@ const {
   normalizeInternationalTeamName,
   getDeviceSubscriptions,
   getPreviousLiveScore,
+  isPushTypeEnabled,
 } = require("../notificationUtils");
 
 describe("push notification subscriptions", () => {
@@ -346,6 +347,11 @@ describe("live fixture styling", () => {
 });
 
 describe("goal notification detection", () => {
+  test("fixture bell alerts are not blocked by invisible global prefs", () => {
+    expect(isPushTypeEnabled("fixtureUpdates", { fixtureUpdates: false })).toBe(true);
+    expect(isPushTypeEnabled("bingpot", { bingpot: false })).toBe(false);
+  });
+
   test("uses previous live match state before persisted results", () => {
     expect(
       getPreviousLiveScore(

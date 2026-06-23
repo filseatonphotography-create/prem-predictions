@@ -1047,6 +1047,20 @@ async function apiSendTestPush(token) {
   return data;
 }
 
+async function apiSendFixtureTestPush(token, fixtureId) {
+  const res = await fetch(`${BACKEND_BASE}/api/push/fixture-test`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ fixtureId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Fixture notification test failed.");
+  return data;
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding)
@@ -11361,35 +11375,76 @@ const TABS = [
                     {pushEnabled ? "🔕 Disable Notifications" : "🔔 Enable Notifications"}
                   </button>
                   {pushEnabled && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await enablePushNotifications();
-                          const result = await apiSendTestPush(authToken);
-                          const deviceLabel = result.deviceCount === 1 ? "device" : "devices";
-                          alert(
-                            `Test notification sent to ${result.deviceCount} registered ${deviceLabel}.`
-                          );
-                        } catch (err) {
-                          alert(`Test notification failed: ${err.message}`);
-                        }
-                      }}
-                      style={{
-                        width: "100%",
-                        marginTop: 10,
-                        padding: "10px 16px",
-                        borderRadius: 8,
-                        border: `1px solid ${theme.line}`,
-                        background: theme.panel,
-                        color: theme.text,
-                        fontSize: 14,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                      }}
-                    >
-                      Send test notification
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await enablePushNotifications();
+                            const result = await apiSendTestPush(authToken);
+                            const deviceLabel = result.deviceCount === 1 ? "device" : "devices";
+                            alert(
+                              `Test notification sent to ${result.deviceCount} registered ${deviceLabel}.`
+                            );
+                          } catch (err) {
+                            alert(`Test notification failed: ${err.message}`);
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          marginTop: 10,
+                          padding: "10px 16px",
+                          borderRadius: 8,
+                          border: `1px solid ${theme.line}`,
+                          background: theme.panel,
+                          color: theme.text,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Send test notification
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const enabledFixture = activeFixtures.find(
+                              (fixture) => fixturePushPrefs[String(fixture.id)] === true
+                            );
+                            if (!enabledFixture) {
+                              alert("Turn on a fixture bell first.");
+                              return;
+                            }
+                            await enablePushNotifications({ refreshExisting: false });
+                            const result = await apiSendFixtureTestPush(
+                              authToken,
+                              enabledFixture.id
+                            );
+                            const deviceLabel = result.deviceCount === 1 ? "device" : "devices";
+                            alert(
+                              `Fixture alert test sent to ${result.deviceCount} registered ${deviceLabel}.`
+                            );
+                          } catch (err) {
+                            alert(`Fixture alert test failed: ${err.message}`);
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          marginTop: 10,
+                          padding: "10px 16px",
+                          borderRadius: 8,
+                          border: `1px solid ${theme.line}`,
+                          background: theme.panel,
+                          color: theme.text,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Send fixture alert test
+                      </button>
+                    </>
                   )}
                 </>
               )}
