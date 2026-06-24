@@ -576,12 +576,34 @@ function getPredictionPoints(prediction, result) {
   return points;
 }
 
+function hasSettledCoinsResult(result) {
+  if (!result) return false;
+  if (result.homeGoals === "" || result.awayGoals === "") return false;
+  const homeGoals = Number(result.homeGoals);
+  const awayGoals = Number(result.awayGoals);
+  return Number.isFinite(homeGoals) && Number.isFinite(awayGoals);
+}
+
+function buildSettledCoinsFixtureIdSet(mode, resultsByFixtureId) {
+  const fixtures =
+    normalizeCoinsMode(mode) === "worldcup"
+      ? loadWorldCupFixturesFromSrc()
+      : loadPremierFixturesFromSrc();
+  const results = resultsByFixtureId || {};
+  return new Set(
+    fixtures
+      .filter((fixture) => hasSettledCoinsResult(results[fixture.id] || results[String(fixture.id)]))
+      .map((fixture) => String(fixture.id))
+  );
+}
+
 // --- COINS: compute season totals for ONE user ---
 // coinsForUser: { [gameweekKey]: { [fixtureId]: bet } }
 // resultsByFixtureId: { [fixtureId]: { homeGoals, awayGoals } }
-function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
+function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId, options = {}) {
   const gwObj = coinsForUser || {};
   const results = resultsByFixtureId || {};
+  const settledFixtureIds = options.settledFixtureIds || null;
 
   let totalStake = 0;
   let totalReturn = 0;
@@ -597,16 +619,17 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId) {
       const stakeNum = Number(stake);
       if (!Number.isFinite(stakeNum) || stakeNum <= 0) return;
 
-      // Always count stake as "coins used"
-      totalStake += stakeNum;
+      const fixtureIdKey = String(fixtureId);
+      if (settledFixtureIds && !settledFixtureIds.has(fixtureIdKey)) return;
 
-      // Only try to compute winnings if we have a result
-      const res = results[fixtureId];
-      if (!res) return;
+      const res = results[fixtureId] || results[fixtureIdKey];
+      if (!hasSettledCoinsResult(res)) return;
+
+      // Only settled fixtures count towards the coins leaderboard.
+      totalStake += stakeNum;
 
       const hg = Number(res.homeGoals);
       const ag = Number(res.awayGoals);
-      if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
 
       const resultSide = getResult(hg, ag); // "H", "D", or "A"
 
@@ -3144,6 +3167,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     if (mode === "premier") {
       return res.json({ leaderboard: [] });
     }
+    const settledFixtureIds = buildSettledCoinsFixtureIdSet(mode, results);
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
@@ -3172,7 +3196,8 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const addRow = (userIdKey, coinsRecord) => {
       const summary = computeSeasonCoinsForUser(
         getCoinsModeBucket(coinsRecord || {}, mode, false),
-        results
+        results,
+        { settledFixtureIds }
       );
       const legacyNameFromId =
         legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
