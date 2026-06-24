@@ -171,6 +171,48 @@ describe("World Cup sync helpers", () => {
     });
   });
 
+  test("does not create results for fixtures that have not started", () => {
+    const payload = buildFixtureSyncPayload(
+      [
+        {
+          homeTeam: { name: "USA" },
+          awayTeam: { name: "Turkey" },
+          matchday: 1,
+          utcDate: "2026-06-13T17:00:00Z",
+          status: "TIMED",
+          score: {
+            fullTime: { home: 0, away: 0 },
+            halfTime: { home: null, away: null },
+          },
+        },
+        {
+          homeTeam: { name: "Bosnia-Herzegovina" },
+          awayTeam: { name: "Korea Republic" },
+          matchday: 1,
+          utcDate: "2026-06-12T19:00:00Z",
+          status: "SCHEDULED",
+          score: {
+            fullTime: { home: null, away: null },
+          },
+        },
+      ],
+      fixtures
+    );
+
+    expect(payload.matchedCount).toBe(0);
+    expect(payload.updatedResults).toEqual({});
+    expect(payload.matchStateUpdates[102]).toMatchObject({
+      status: "TIMED",
+      homeGoals: null,
+      awayGoals: null,
+    });
+    expect(payload.matchStateUpdates[101]).toMatchObject({
+      status: "SCHEDULED",
+      homeGoals: null,
+      awayGoals: null,
+    });
+  });
+
   test("includes knockout prediction matchdays with TBA teams", () => {
     const knockoutFixtures = WORLD_CUP_FIXTURES.filter((fixture) => fixture.knockoutStage);
 

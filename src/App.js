@@ -2,7 +2,11 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
-const { getMatchScoreForPrediction } = require("./matchScoreUtils");
+const {
+  getMatchScoreForPrediction,
+  hasStartedMatchStatus,
+  hasNumericScoreValue,
+} = require("./matchScoreUtils");
 
 // ---- CONFIG ----
 // Fetch all users' avatars from backend
@@ -821,6 +825,21 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     fixtureOverrides,
     matchedCount,
   };
+}
+
+function hasValidResultScore(result) {
+  return hasNumericScoreValue(result?.homeGoals) && hasNumericScoreValue(result?.awayGoals);
+}
+
+function stripUnstartedResults(resultsByFixtureId = {}, matchStatesByFixtureId = {}) {
+  const cleaned = {};
+  Object.entries(resultsByFixtureId || {}).forEach(([fixtureId, result]) => {
+    if (!hasValidResultScore(result)) return;
+    const matchState = matchStatesByFixtureId?.[fixtureId] || matchStatesByFixtureId?.[Number(fixtureId)];
+    if (matchState?.status && !hasStartedMatchStatus(matchState)) return;
+    cleaned[fixtureId] = result;
+  });
+  return cleaned;
 }
 
 // --- API HELPERS ---
@@ -1907,7 +1926,7 @@ function resolveCanonicalPremierLeagueTeam(name) {
 
 function isFixtureCompleted(fixture, results) {
   const res = results?.[fixture?.id];
-  return !!res && res.homeGoals !== "" && res.awayGoals !== "";
+  return hasValidResultScore(res);
 }
 
 function getScoreLabel(matchState) {
@@ -2825,7 +2844,7 @@ function formatCountdownFixtureMeta(fixture, mode) {
       let payout = 0;
 
       // Do we have a final score?
-      if (res && res.homeGoals !== "" && res.awayGoals !== "") {
+      if (hasValidResultScore(res)) {
         const rh = Number(res.homeGoals);
         const ra = Number(res.awayGoals);
 
@@ -3104,11 +3123,16 @@ const premierLeagueInsights = useMemo(() => {
         }));
       }
 
-      if (matchedCount) {
-        setResults((prev) => ({ ...prev, ...updatedResults }));
-      }
       if (Object.keys(matchStateUpdates).length) {
         setMatchStatesByFixtureId((prev) => ({ ...prev, ...matchStateUpdates }));
+      }
+      if (matchedCount || Object.keys(matchStateUpdates).length) {
+        setResults((prev) =>
+          stripUnstartedResults(
+            { ...prev, ...updatedResults },
+            { ...matchStatesByFixtureId, ...matchStateUpdates }
+          )
+        );
       }
       if (matchedCount || Object.keys(matchStateUpdates).length) {
         apiSaveResultsSnapshot(updatedResults, matchStateUpdates);
@@ -3168,10 +3192,13 @@ useEffect(() => {
         apiGetMatchStatesSnapshot(),
       ]);
       if (snapshot && Object.keys(snapshot).length > 0) {
-        setResults((prev) => ({ ...prev, ...snapshot }));
+        setResults((prev) =>
+          stripUnstartedResults({ ...prev, ...snapshot }, matchStatesSnapshot || {})
+        );
       }
       if (matchStatesSnapshot && Object.keys(matchStatesSnapshot).length > 0) {
         setMatchStatesByFixtureId((prev) => ({ ...prev, ...matchStatesSnapshot }));
+        setResults((prev) => stripUnstartedResults(prev, matchStatesSnapshot));
         setFixtureOverridesByMode((prev) => ({
           ...prev,
           [WORLD_CUP_MODE]: {
@@ -3887,7 +3914,7 @@ useEffect(() => {
           activeFixtures.forEach((fx) => {
             if (fx.gameweek !== gw) return;
             const r = results[fx.id];
-            if (!r || r.homeGoals === "" || r.awayGoals === "") return;
+            if (!hasValidResultScore(r)) return;
             score += getTotalPoints(predsForCalc[k]?.[fx.id], r);
           });
 
@@ -4856,7 +4883,7 @@ const leaderboard = useMemo(() => {
 
   activeFixtures.forEach((fixture) => {
     const res = results[fixture.id];
-    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    if (!hasValidResultScore(res)) return;
     scorePlayers.forEach((p) => {
       totals[p] += getTotalPoints(predictions[p]?.[fixture.id], res);
     });
@@ -4884,7 +4911,7 @@ const currentGwPoints = useMemo(() => {
   activeFixtures.forEach((fixture) => {
     if (fixture.gameweek !== selectedGameweek) return;
     const res = results[fixture.id];
-    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    if (!hasValidResultScore(res)) return;
     const pred = predictions[currentPredictionKey]?.[fixture.id];
     if (!pred) return;
     total += getTotalPoints(pred, res);
@@ -4916,7 +4943,7 @@ const globalWeeklyScores = useMemo(() => {
   activeFixtures.forEach((fixture) => {
     if (fixture.gameweek !== gw) return;
     const res = results[fixture.id];
-    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    if (!hasValidResultScore(res)) return;
     dedupedGlobalUsers.forEach((u) => {
       const preds = globalPredictionsByUserId[u.userId] || {};
       const pred =
@@ -4952,7 +4979,7 @@ const globalLeaderboard = useMemo(() => {
 
   activeFixtures.forEach((fixture) => {
     const res = results[fixture.id];
-    if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+    if (!hasValidResultScore(res)) return;
 
     dedupedGlobalUsers.forEach((u) => {
       const preds = globalPredictionsByUserId[u.userId] || {};
@@ -5079,7 +5106,7 @@ useEffect(() => {
 
   const allFixturesCompleted = activeFixtures.every((fixture) => {
     const res = results[fixture.id];
-    return !!res && res.homeGoals !== "" && res.awayGoals !== "";
+    return !!hasValidResultScore(res);
   });
   if (!allFixturesCompleted) return;
 
@@ -5205,7 +5232,7 @@ const historicalScores = useMemo(() => {
         activeFixtures.forEach((fixture) => {
           if (fixture.gameweek !== gw) return;
           const res = results[fixture.id];
-          if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+          if (!hasValidResultScore(res)) return;
           const preds = worldCupHistoryPredictionsByUserId[user.userId] || {};
           const pred =
             preds[String(fixture.id)] !== undefined
@@ -5248,7 +5275,7 @@ const historicalScores = useMemo(() => {
       activeFixtures.forEach((fixture) => {
         if (fixture.gameweek !== gw) return;
         const res = results[fixture.id];
-        if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+        if (!hasValidResultScore(res)) return;
         // Only add points if this player has a prediction for this fixture
         if (predictions[player] && predictions[player][fixture.id]) {
           score += getTotalPoints(predictions[player][fixture.id], res);
@@ -7856,7 +7883,7 @@ const TABS = [
 
         const r = results[fixture.id];
         const hasResult =
-          r && r.homeGoals !== "" && r.awayGoals !== "";
+          hasValidResultScore(r);
         const scoreLabel = getScoreLabel(matchStatesByFixtureId[fixture.id]);
         const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
         const pointsForThisFixture = hasResult

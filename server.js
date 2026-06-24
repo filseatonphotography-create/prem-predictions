@@ -5,7 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const webpush = require("web-push");
-const { getMatchScoreForPrediction } = require("./src/matchScoreUtils");
+const {
+  getMatchScoreForPrediction,
+  hasStartedMatchStatus,
+  hasNumericScoreValue,
+} = require("./src/matchScoreUtils");
 const {
   didGoalCountIncrease,
   normalizeFootballTeamName,
@@ -578,10 +582,19 @@ function getPredictionPoints(prediction, result) {
 
 function hasSettledCoinsResult(result) {
   if (!result) return false;
-  if (result.homeGoals === "" || result.awayGoals === "") return false;
-  const homeGoals = Number(result.homeGoals);
-  const awayGoals = Number(result.awayGoals);
-  return Number.isFinite(homeGoals) && Number.isFinite(awayGoals);
+  return hasNumericScoreValue(result.homeGoals) && hasNumericScoreValue(result.awayGoals);
+}
+
+function filterSnapshotResultsByMatchState(resultsByFixtureId = {}, matchStateByFixtureId = {}) {
+  const safeResults = {};
+  Object.entries(resultsByFixtureId || {}).forEach(([fixtureId, result]) => {
+    if (!hasSettledCoinsResult(result)) return;
+    const matchState =
+      matchStateByFixtureId?.[fixtureId] || matchStateByFixtureId?.[Number(fixtureId)];
+    if (matchState?.status && !hasStartedMatchStatus(matchState)) return;
+    safeResults[fixtureId] = result;
+  });
+  return safeResults;
 }
 
 function isPastCoinsSettlementWindow(fixture, nowMs = Date.now()) {
@@ -2680,8 +2693,17 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
     const currentMatchStates = loadMatchStates() || {};
     console.log("[SNAPSHOT] Merging keys:", Object.keys(resultsByFixtureId || {}));
 
+    const safeResults = filterSnapshotResultsByMatchState(
+      resultsByFixtureId || {},
+      matchStateByFixtureId || {}
+    );
     // Merge new snapshot into existing results (new data overwrites old)
-    const merged = { ...current, ...(resultsByFixtureId || {}) };
+    const merged = { ...current, ...safeResults };
+    Object.entries(matchStateByFixtureId || {}).forEach(([fixtureId, matchState]) => {
+      if (matchState?.status && !hasStartedMatchStatus(matchState)) {
+        delete merged[fixtureId];
+      }
+    });
     const mergedMatchStates = { ...currentMatchStates, ...(matchStateByFixtureId || {}) };
 
     saveResults(merged);
@@ -2691,7 +2713,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
     // --- Push notifications for newly completed fixtures + fixture bells ---
     try {
       const newlyCompleted = [];
-      Object.entries(resultsByFixtureId || {}).forEach(([fixtureId, r]) => {
+      Object.entries(safeResults).forEach(([fixtureId, r]) => {
         const nh = Number(r?.homeGoals);
         const na = Number(r?.awayGoals);
         if (!Number.isFinite(nh) || !Number.isFinite(na)) return;
@@ -2900,7 +2922,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
     return res.json({
       ok: true,
-      updatedCount: Object.keys(resultsByFixtureId || {}).length,
+      updatedCount: Object.keys(safeResults).length,
       matchStateCount: Object.keys(matchStateByFixtureId || {}).length,
     });
   } catch (err) {
@@ -2943,7 +2965,10 @@ app.post("/api/admin/worldcup/results", (req, res) => {
       return out;
     };
 
-    const safeResults = sanitizeFixtureMap(resultsByFixtureId);
+    const safeResults = filterSnapshotResultsByMatchState(
+      sanitizeFixtureMap(resultsByFixtureId),
+      sanitizeFixtureMap(matchStateByFixtureId)
+    );
     const safeMatchStates = sanitizeFixtureMap(matchStateByFixtureId);
     if (!Object.keys(safeResults).length && !Object.keys(safeMatchStates).length) {
       return res.status(400).json({ error: "No valid World Cup fixture IDs provided" });
@@ -2951,7 +2976,13 @@ app.post("/api/admin/worldcup/results", (req, res) => {
 
     const currentResults = loadResults() || {};
     const currentMatchStates = loadMatchStates() || {};
-    saveResults({ ...currentResults, ...safeResults });
+    const mergedResults = { ...currentResults, ...safeResults };
+    Object.entries(safeMatchStates).forEach(([fixtureId, matchState]) => {
+      if (matchState?.status && !hasStartedMatchStatus(matchState)) {
+        delete mergedResults[fixtureId];
+      }
+    });
+    saveResults(mergedResults);
     saveMatchStates({ ...currentMatchStates, ...safeMatchStates });
 
     const worldCupCacheKey = `worldcup:${WORLD_CUP_SEASON}`;
@@ -3869,6 +3900,9 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
           nextResults[fixtureId] = nextResult;
           resultsChanged = true;
         }
+      } else if (status && !hasStartedMatchStatus(status) && currentResults[fixtureId]) {
+        delete nextResults[fixtureId];
+        resultsChanged = true;
       }
 
       const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);

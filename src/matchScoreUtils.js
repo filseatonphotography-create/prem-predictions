@@ -6,8 +6,12 @@ function getMatchScoreForPrediction(match) {
   const regularTime = score.regularTime || {};
   const halfTime = score.halfTime || {};
 
+  if (!hasStartedMatchStatus(status)) {
+    return { homeGoals: null, awayGoals: null, source: null };
+  }
+
   const hasScore = (value) =>
-    Number.isFinite(Number(value?.home)) && Number.isFinite(Number(value?.away));
+    hasNumericScoreValue(value?.home) && hasNumericScoreValue(value?.away);
 
   if (status === "FINISHED" && duration === "EXTRA_TIME" && hasScore(fullTime)) {
     return {
@@ -40,6 +44,17 @@ function getMatchScoreForPrediction(match) {
   return { homeGoals: null, awayGoals: null, source: null };
 }
 
+function hasNumericScoreValue(value) {
+  return value !== null && value !== "" && Number.isFinite(Number(value));
+}
+
+function hasStartedMatchStatus(matchOrStatus) {
+  const status = String(matchOrStatus?.status || matchOrStatus || "").toUpperCase();
+  return ["IN_PLAY", "PAUSED", "LIVE", "FINISHED", "AWARDED"].includes(status);
+}
+
 module.exports = {
   getMatchScoreForPrediction,
+  hasStartedMatchStatus,
+  hasNumericScoreValue,
 };
