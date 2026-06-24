@@ -10096,7 +10096,9 @@ const TABS = [
         {/* History */}
         {activeView === "history" && (
           (() => {
-            const historyPlayers = isWorldCupMode ? leaderboard.map((entry) => entry.player) : PLAYERS;
+            const historyPlayers = isWorldCupMode
+              ? dedupedGlobalUsers.map((user) => user.username)
+              : PLAYERS;
             const toggleHistorySection = (section) => {
               setHistorySectionsOpen((prev) => ({
                 ...prev,
