@@ -2826,7 +2826,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
             if (shouldSendGoal) {
               subscribedUserIds.forEach((userId) => {
-                sendPushNotification(userId, "fixtureUpdates", {
+                sendFixtureUpdateNotification(userId, fixtureId, "goal", `${update.nextHome}-${update.nextAway}`, {
                   title: "Goal alert",
                   body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
                   url: "/",
@@ -2837,7 +2837,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
           if (statusNow === "PAUSED" && statusBefore !== "PAUSED" && hasScoreNow) {
             subscribedUserIds.forEach((userId) => {
-              sendPushNotification(userId, "fixtureUpdates", {
+              sendFixtureUpdateNotification(userId, fixtureId, "half-time", `${update.nextHome}-${update.nextAway}`, {
                 title: "Half-time",
                 body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
                 url: "/",
@@ -2847,7 +2847,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
           if (statusNow === "FINISHED" && statusBefore !== "FINISHED" && hasScoreNow) {
             subscribedUserIds.forEach((userId) => {
-              sendPushNotification(userId, "fixtureUpdates", {
+              sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${update.nextHome}-${update.nextAway}`, {
                 title: "Full-time",
                 body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
                 url: "/",
@@ -3283,6 +3283,34 @@ function getFixtureNotificationUserIds(fixtureId) {
   return Object.entries(subscriptions)
     .filter(([, sub]) => hasDeviceSubscription(sub) && sub?.fixturePrefs?.[targetFixtureId] === true)
     .map(([userId]) => userId);
+}
+
+function reserveFixtureNotificationEvent(userId, eventKey) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const existing = subscriptions[userId] || {};
+  const notifLog = existing.notifLog || {};
+  const fixtureUpdates = notifLog.fixtureUpdates || {};
+  if (fixtureUpdates[eventKey]) return false;
+
+  fixtureUpdates[eventKey] = Date.now();
+  subscriptions[userId] = {
+    ...existing,
+    notifLog: {
+      ...notifLog,
+      fixtureUpdates,
+    },
+  };
+  saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+  return true;
+}
+
+async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, scoreLabel, payload) {
+  const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
+  if (!reserveFixtureNotificationEvent(userId, eventKey)) return false;
+  return sendPushNotification(userId, "fixtureUpdates", {
+    ...payload,
+    tag: eventKey,
+  });
 }
 
 function findFixtureById(fixtureId) {
@@ -3826,7 +3854,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         if (shouldSendGoal) {
           subscribedUserIds.forEach((userId) => {
             summary.attemptedNotifications += 1;
-            notificationTasks.push(sendPushNotification(userId, "fixtureUpdates", {
+            notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "goal", `${homeGoals}-${awayGoals}`, {
               title: "Goal alert",
               body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
               url: "/",
@@ -3838,7 +3866,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       if (status === "PAUSED" && prevStatus !== "PAUSED" && hasScoreNow) {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
-          notificationTasks.push(sendPushNotification(userId, "fixtureUpdates", {
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "half-time", `${homeGoals}-${awayGoals}`, {
             title: "Half-time",
             body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
             url: "/",
@@ -3849,7 +3877,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       if (status === "FINISHED" && prevStatus !== "FINISHED" && hasScoreNow) {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
-          notificationTasks.push(sendPushNotification(userId, "fixtureUpdates", {
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${homeGoals}-${awayGoals}`, {
             title: "Full-time",
             body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
             url: "/",
