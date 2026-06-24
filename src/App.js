@@ -2502,6 +2502,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
   const [computedTotalsLeagueId, setComputedTotalsLeagueId] = useState("");
   const [leagueUsernamesByUserId, setLeagueUsernamesByUserId] = useState({});
+  const [leagueHistoryUsers, setLeagueHistoryUsers] = useState([]);
+  const [leaguePredictionsByUserId, setLeaguePredictionsByUserId] = useState({});
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
   const isResetPasswordRoute = useMemo(() => {
     try {
@@ -3730,12 +3732,16 @@ useEffect(() => {
     setComputedLeagueTotals(null);
     setComputedTotalsLeagueId("");
     setLeagueUsernamesByUserId({});
+    setLeagueHistoryUsers([]);
+    setLeaguePredictionsByUserId({});
     return;
   }
 
   setComputedWeeklyTotals(null);
   setComputedLeagueTotals(null);
   setComputedTotalsLeagueId("");
+  setLeagueHistoryUsers([]);
+  setLeaguePredictionsByUserId({});
 
   let cancelled = false;
 
@@ -3782,6 +3788,20 @@ useEffect(() => {
         memberIdSet.size === 0
           ? users
           : users.filter((u) => memberIdSet.has(String(u.userId)));
+      const historyUsersByName = {};
+      leagueUsers.forEach((u) => {
+        const name = (u?.username || "").trim();
+        const userId = String(u?.userId || "");
+        if (!name || !userId) return;
+        const predictionCount = Object.keys(predictionsByUserId[userId] || {}).length;
+        const existing = historyUsersByName[name];
+        if (!existing || predictionCount > existing.predictionCount) {
+          historyUsersByName[name] = { userId, username: name, predictionCount };
+        }
+      });
+      const nextLeagueHistoryUsers = Object.values(historyUsersByName).map(
+        ({ userId, username }) => ({ userId, username })
+      );
 
             // 3) Keys = legacy PLAYERS + league members (mapped)
       const memberKeys = leagueUsers.map(toLegacyKey);
@@ -3905,6 +3925,8 @@ useEffect(() => {
       setComputedLeagueTotals(leagueTotals);
       setComputedTotalsLeagueId(String(leagueId));
       setLeagueUsernamesByUserId(usernamesByUserId);
+      setLeagueHistoryUsers(nextLeagueHistoryUsers);
+      setLeaguePredictionsByUserId(predictionsByUserId);
 
       // 7) Sync totals back to backend
       // apiSaveLeagueTotals(authToken, leagueId, {
@@ -3913,7 +3935,11 @@ useEffect(() => {
 // }).catch((e) => console.error("Failed to sync totals:", e));
     } catch (err) {
       console.error("Recalc from league failed:", err);
-      if (!cancelled) setLeagueUsernamesByUserId({});
+      if (!cancelled) {
+        setLeagueUsernamesByUserId({});
+        setLeagueHistoryUsers([]);
+        setLeaguePredictionsByUserId({});
+      }
     }
   }
 
@@ -4740,6 +4766,28 @@ const dedupedGlobalUsers = useMemo(() => {
   return Object.values(byName).map(({ userId, username }) => ({ userId, username }));
 }, [globalUsers, globalPredictionsByUserId]);
 
+const hasSelectedLeagueHistory =
+  isWorldCupMode &&
+  !!selectedMiniLeague?.id &&
+  String(computedTotalsLeagueId || "") === String(selectedMiniLeague.id);
+const worldCupHistoryUsers = useMemo(() => {
+  if (!isWorldCupMode) return [];
+  if (selectedMiniLeague?.id) {
+    return hasSelectedLeagueHistory ? leagueHistoryUsers : [];
+  }
+  return dedupedGlobalUsers;
+}, [
+  isWorldCupMode,
+  selectedMiniLeague,
+  hasSelectedLeagueHistory,
+  leagueHistoryUsers,
+  dedupedGlobalUsers,
+]);
+const worldCupHistoryPredictionsByUserId =
+  isWorldCupMode && selectedMiniLeague?.id
+    ? leaguePredictionsByUserId
+    : globalPredictionsByUserId;
+
 const leaderboard = useMemo(() => {
   const LEGACY_MAP = {
     Tom: "1763801801299",
@@ -5127,16 +5175,17 @@ const winnerConfetti = useMemo(() => {
 
   // Coins league rows
 const historicalScores = useMemo(() => {
-  if (isWorldCupMode && dedupedGlobalUsers.length) {
+  if (isWorldCupMode) {
+    if (!worldCupHistoryUsers.length) return [];
     return activeGameweeks.map((gw) => {
       const row = { gameweek: gw };
-      dedupedGlobalUsers.forEach((user) => {
+      worldCupHistoryUsers.forEach((user) => {
         let score = 0;
         activeFixtures.forEach((fixture) => {
           if (fixture.gameweek !== gw) return;
           const res = results[fixture.id];
           if (!res || res.homeGoals === "" || res.awayGoals === "") return;
-          const preds = globalPredictionsByUserId[user.userId] || {};
+          const preds = worldCupHistoryPredictionsByUserId[user.userId] || {};
           const pred =
             preds[String(fixture.id)] !== undefined
               ? preds[String(fixture.id)]
@@ -5199,6 +5248,8 @@ const historicalScores = useMemo(() => {
   isWorldCupMode,
   dedupedGlobalUsers,
   globalPredictionsByUserId,
+  worldCupHistoryUsers,
+  worldCupHistoryPredictionsByUserId,
 ]);
 
 const currentSeasonWinnerRecord = useMemo(() => {
@@ -10097,7 +10148,7 @@ const TABS = [
         {activeView === "history" && (
           (() => {
             const historyPlayers = isWorldCupMode
-              ? dedupedGlobalUsers.map((user) => user.username)
+              ? worldCupHistoryUsers.map((user) => user.username)
               : PLAYERS;
             const toggleHistorySection = (section) => {
               setHistorySectionsOpen((prev) => ({
