@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
+const { getMatchScoreForPrediction } = require("./matchScoreUtils");
 
 // ---- CONFIG ----
 // Fetch all users' avatars from backend
@@ -763,17 +764,10 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     if (!match?.homeTeam || !match?.awayTeam) return;
 
     const score = match.score || {};
-    const ft = score.fullTime || {};
-    const rt = score.regularTime || {};
+    const selectedScore = getMatchScoreForPrediction(match);
     const ht = score.halfTime || {};
-    const homeGoals =
-      Number.isFinite(ft.home) ? ft.home :
-      Number.isFinite(rt.home) ? rt.home :
-      Number.isFinite(ht.home) ? ht.home : null;
-    const awayGoals =
-      Number.isFinite(ft.away) ? ft.away :
-      Number.isFinite(rt.away) ? rt.away :
-      Number.isFinite(ht.away) ? ht.away : null;
+    const homeGoals = selectedScore.homeGoals;
+    const awayGoals = selectedScore.awayGoals;
 
     const fixture = findFixtureForApiMatch(match, fixtures);
     if (!fixture) return;

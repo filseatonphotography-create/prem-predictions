@@ -12,6 +12,7 @@ import {
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
+const { getMatchScoreForPrediction } = require("./matchScoreUtils");
 const fs = require("fs");
 const {
   didGoalCountIncrease,
@@ -370,6 +371,32 @@ describe("live fixture styling", () => {
 });
 
 describe("goal notification detection", () => {
+  test("scores knockout matches after extra time and excludes penalties", () => {
+    expect(
+      getMatchScoreForPrediction({
+        status: "FINISHED",
+        score: {
+          duration: "EXTRA_TIME",
+          regularTime: { home: 1, away: 1 },
+          fullTime: { home: 2, away: 1 },
+          penalties: { home: 0, away: 0 },
+        },
+      })
+    ).toMatchObject({ homeGoals: 2, awayGoals: 1, source: "fullTime" });
+
+    expect(
+      getMatchScoreForPrediction({
+        status: "FINISHED",
+        score: {
+          duration: "PENALTY_SHOOTOUT",
+          regularTime: { home: 1, away: 1 },
+          fullTime: { home: 1, away: 1 },
+          penalties: { home: 5, away: 4 },
+        },
+      })
+    ).toMatchObject({ homeGoals: 1, awayGoals: 1, source: "regularTime" });
+  });
+
   test("normalizes World Cup API and local team names for server matching", () => {
     expect(normalizeFootballTeamName("Mexico")).toBe(
       normalizeFootballTeamName("Mexico")

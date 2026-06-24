@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const webpush = require("web-push");
+const { getMatchScoreForPrediction } = require("./src/matchScoreUtils");
 const {
   didGoalCountIncrease,
   normalizeFootballTeamName,
@@ -3787,19 +3788,10 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       summary.byMode[mode].matchedFixtures += 1;
 
       const score = match.score || {};
-      const ft = score.fullTime || {};
-      const rt = score.regularTime || {};
+      const selectedScore = getMatchScoreForPrediction(match);
       const ht = score.halfTime || {};
-      const homeGoals =
-        Number.isFinite(ft.home) ? ft.home :
-        Number.isFinite(rt.home) ? rt.home :
-        Number.isFinite(ht.home) ? ht.home :
-        null;
-      const awayGoals =
-        Number.isFinite(ft.away) ? ft.away :
-        Number.isFinite(rt.away) ? rt.away :
-        Number.isFinite(ht.away) ? ht.away :
-        null;
+      const homeGoals = selectedScore.homeGoals;
+      const awayGoals = selectedScore.awayGoals;
 
       const fixtureId = String(fixture.id);
       const prevState = currentMatchStates[fixtureId] || {};
