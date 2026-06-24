@@ -3426,9 +3426,9 @@ useEffect(() => {
   fetchCoinsLeaderboard();
 }, [activeView, authToken, selectedMiniLeague, gameMode]);
 
-// Fetch global predictions (all users) when Global League is opened
+// Fetch global predictions (all users) when Global League or World Cup History is opened
 useEffect(() => {
-  if (activeView !== "globalLeague") return;
+  if (activeView !== "globalLeague" && !(activeView === "history" && isWorldCupMode)) return;
   if (!isLoggedIn || !authToken) return;
 
   let cancelled = false;
@@ -3448,7 +3448,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [activeView, isLoggedIn, authToken]);
+}, [activeView, isLoggedIn, authToken, isWorldCupMode]);
 
 useEffect(() => {
   if (activeView !== "premierLeagueTable") return;
@@ -5127,6 +5127,29 @@ const winnerConfetti = useMemo(() => {
 
   // Coins league rows
 const historicalScores = useMemo(() => {
+  if (isWorldCupMode && dedupedGlobalUsers.length) {
+    return activeGameweeks.map((gw) => {
+      const row = { gameweek: gw };
+      dedupedGlobalUsers.forEach((user) => {
+        let score = 0;
+        activeFixtures.forEach((fixture) => {
+          if (fixture.gameweek !== gw) return;
+          const res = results[fixture.id];
+          if (!res || res.homeGoals === "" || res.awayGoals === "") return;
+          const preds = globalPredictionsByUserId[user.userId] || {};
+          const pred =
+            preds[String(fixture.id)] !== undefined
+              ? preds[String(fixture.id)]
+              : preds[fixture.id];
+          if (!pred) return;
+          score += getTotalPoints(pred, res);
+        });
+        row[user.username] = score;
+      });
+      return row;
+    });
+  }
+
   if (computedWeeklyTotals) {
     return activeGameweeks.map((gw) => {
       const row = { gameweek: gw };
@@ -5166,7 +5189,17 @@ const historicalScores = useMemo(() => {
     });
     return row;
   });
-}, [computedWeeklyTotals, leagueUsernamesByUserId, predictions, results, activeGameweeks, activeFixtures, isWorldCupMode, dedupedGlobalUsers]);
+}, [
+  computedWeeklyTotals,
+  leagueUsernamesByUserId,
+  predictions,
+  results,
+  activeGameweeks,
+  activeFixtures,
+  isWorldCupMode,
+  dedupedGlobalUsers,
+  globalPredictionsByUserId,
+]);
 
 const currentSeasonWinnerRecord = useMemo(() => {
   if (!activeFixtures.length || !activeGameweeks.length || !leaderboard?.length) {
