@@ -584,15 +584,29 @@ function hasSettledCoinsResult(result) {
   return Number.isFinite(homeGoals) && Number.isFinite(awayGoals);
 }
 
+function isPastCoinsSettlementWindow(fixture, nowMs = Date.now()) {
+  const kickoffMs = Date.parse(fixture?.kickoff);
+  if (!Number.isFinite(kickoffMs)) return false;
+  const knockoutBufferMs = 3 * 60 * 60 * 1000;
+  const regularBufferMs = 2 * 60 * 60 * 1000;
+  const bufferMs = fixture?.knockoutStage ? knockoutBufferMs : regularBufferMs;
+  return nowMs >= kickoffMs + bufferMs;
+}
+
 function buildSettledCoinsFixtureIdSet(mode, resultsByFixtureId) {
   const fixtures =
     normalizeCoinsMode(mode) === "worldcup"
       ? loadWorldCupFixturesFromSrc()
       : loadPremierFixturesFromSrc();
   const results = resultsByFixtureId || {};
+  const nowMs = Date.now();
   return new Set(
     fixtures
-      .filter((fixture) => hasSettledCoinsResult(results[fixture.id] || results[String(fixture.id)]))
+      .filter(
+        (fixture) =>
+          isPastCoinsSettlementWindow(fixture, nowMs) &&
+          hasSettledCoinsResult(results[fixture.id] || results[String(fixture.id)])
+      )
       .map((fixture) => String(fixture.id))
   );
 }
