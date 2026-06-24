@@ -5177,6 +5177,22 @@ const winnerConfetti = useMemo(() => {
 const historicalScores = useMemo(() => {
   if (isWorldCupMode) {
     if (!worldCupHistoryUsers.length) return [];
+    if (selectedMiniLeague?.id && computedWeeklyTotals) {
+      return activeGameweeks.map((gw) => {
+        const row = { gameweek: gw };
+        const gwTotals = computedWeeklyTotals[gw] || {};
+        worldCupHistoryUsers.forEach((user) => {
+          const userId = String(user.userId || "");
+          const username = user.username || "";
+          const score =
+            Number(gwTotals[userId]) ||
+            Number(gwTotals[username]) ||
+            0;
+          row[username] = score;
+        });
+        return row;
+      });
+    }
     return activeGameweeks.map((gw) => {
       const row = { gameweek: gw };
       worldCupHistoryUsers.forEach((user) => {
@@ -5250,6 +5266,7 @@ const historicalScores = useMemo(() => {
   globalPredictionsByUserId,
   worldCupHistoryUsers,
   worldCupHistoryPredictionsByUserId,
+  selectedMiniLeague,
 ]);
 
 const currentSeasonWinnerRecord = useMemo(() => {
