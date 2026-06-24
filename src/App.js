@@ -5177,8 +5177,13 @@ const winnerConfetti = useMemo(() => {
 const historicalScores = useMemo(() => {
   if (isWorldCupMode) {
     if (!worldCupHistoryUsers.length) return [];
+    const completedWorldCupGameweeks = activeGameweeks.filter((gw) =>
+      activeFixtures.some(
+        (fixture) => fixture.gameweek === gw && isFixtureCompleted(fixture, results)
+      )
+    );
     if (selectedMiniLeague?.id && computedWeeklyTotals) {
-      return activeGameweeks.map((gw) => {
+      return completedWorldCupGameweeks.map((gw) => {
         const row = { gameweek: gw };
         const gwTotals = computedWeeklyTotals[gw] || {};
         worldCupHistoryUsers.forEach((user) => {
@@ -5193,7 +5198,7 @@ const historicalScores = useMemo(() => {
         return row;
       });
     }
-    return activeGameweeks.map((gw) => {
+    return completedWorldCupGameweeks.map((gw) => {
       const row = { gameweek: gw };
       worldCupHistoryUsers.forEach((user) => {
         let score = 0;
