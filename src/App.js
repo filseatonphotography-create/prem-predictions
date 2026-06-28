@@ -268,7 +268,7 @@ function getModeGameweekLabel(mode, gameweek) {
   return mode === WORLD_CUP_MODE ? `Matchday ${gameweek}` : `GW${gameweek}`;
 }
 
-function getWorldCupStageLabel(fixture) {
+export function getWorldCupStageLabel(fixture) {
   if (fixture?.group) return "Group Stage";
   return fixture?.knockoutStage || "Knockout Stage";
 }
@@ -2808,7 +2808,7 @@ const worldCupOverview = useMemo(() => {
       : null;
 
   return {
-    stage: "Group Stage",
+    stage: nextFixture ? getWorldCupStageLabel(nextFixture) : "Tournament Complete",
     nextFixture,
     todayCount,
     favoriteCountry,
@@ -2995,6 +2995,9 @@ useEffect(() => {
 
 // ---------- DERIVED ----------
 const visibleFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
+const selectedWorldCupStage = isWorldCupMode
+  ? getWorldCupStageLabel(visibleFixtures[0])
+  : "";
 const worldCupKickoffTimesSynced = !isWorldCupMode
   || visibleFixtures.every((fixture) => fixture.kickoffTimeConfirmed !== false);
 const worldCupGroupTables = useMemo(() => {
@@ -7620,7 +7623,7 @@ const TABS = [
       </h2>
       {isWorldCupMode && (
         <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
-          Group Stage
+          {selectedWorldCupStage}
         </div>
       )}
 
@@ -8819,7 +8822,7 @@ const TABS = [
     </h2>
     {isWorldCupMode && (
       <div style={{ marginTop: -4, marginBottom: 10, fontSize: 12, fontWeight: 700, color: theme.accent }}>
-        Group Stage
+        {selectedWorldCupStage}
       </div>
     )}
 

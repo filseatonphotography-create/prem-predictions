@@ -6,6 +6,7 @@ import {
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   mergeFixtureOverrides,
+  getWorldCupStageLabel,
   sortFixturesByOrderOfPlay,
   normalizeCaptainsByGameweek,
   mergeCloudPredictionsPreservingLocalBoosts,
@@ -107,6 +108,12 @@ describe("World Cup sync helpers", () => {
       kickoffTimeConfirmed: false,
     },
   ];
+
+  test("labels group and knockout prediction stages from their fixtures", () => {
+    expect(getWorldCupStageLabel({ group: "A" })).toBe("Group Stage");
+    expect(getWorldCupStageLabel({ knockoutStage: "Round of 32" })).toBe("Round of 32");
+    expect(getWorldCupStageLabel({ knockoutStage: "Quarter-final" })).toBe("Quarter-final");
+  });
 
   test("normalizes World Cup aliases used by the live feed", () => {
     expect(normalizeTeamName("Bosnia-Herzegovina")).toBe(
