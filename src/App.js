@@ -782,21 +782,25 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     const confirmedAwayTeam = match.awayTeam?.name
       ? resolveWorldCupCountryName(match.awayTeam.name)
       : "";
+    const shouldOverrideHomeTeam = Boolean(
+      confirmedHomeTeam &&
+        (fixture.knockoutStage || isPlaceholderTeamName(fixture.homeTeam))
+    );
+    const shouldOverrideAwayTeam = Boolean(
+      confirmedAwayTeam &&
+        (fixture.knockoutStage || isPlaceholderTeamName(fixture.awayTeam))
+    );
 
-    if (
-      match.utcDate ||
-      (isPlaceholderTeamName(fixture.homeTeam) && confirmedHomeTeam) ||
-      (isPlaceholderTeamName(fixture.awayTeam) && confirmedAwayTeam)
-    ) {
+    if (match.utcDate || shouldOverrideHomeTeam || shouldOverrideAwayTeam) {
       fixtureOverrides[fixture.id] = {
         ...(fixtureOverrides[fixture.id] || {}),
         ...(match.utcDate
           ? { kickoff: match.utcDate, kickoffTimeConfirmed: true }
           : {}),
-        ...(isPlaceholderTeamName(fixture.homeTeam) && confirmedHomeTeam
+        ...(shouldOverrideHomeTeam
           ? { homeTeam: confirmedHomeTeam }
           : {}),
-        ...(isPlaceholderTeamName(fixture.awayTeam) && confirmedAwayTeam
+        ...(shouldOverrideAwayTeam
           ? { awayTeam: confirmedAwayTeam }
           : {}),
       };
@@ -825,6 +829,17 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     fixtureOverrides,
     matchedCount,
   };
+}
+
+export function mergeFixtureOverrides(currentOverrides = {}, incomingOverrides = {}) {
+  const merged = { ...(currentOverrides || {}) };
+  Object.entries(incomingOverrides || {}).forEach(([fixtureId, incoming]) => {
+    merged[fixtureId] = {
+      ...(merged[fixtureId] || {}),
+      ...(incoming || {}),
+    };
+  });
+  return merged;
 }
 
 function hasValidResultScore(result) {
@@ -3116,10 +3131,7 @@ const premierLeagueInsights = useMemo(() => {
       if (Object.keys(fixtureOverrides).length) {
         setFixtureOverridesByMode((prev) => ({
           ...prev,
-          [mode]: {
-            ...(prev[mode] || {}),
-            ...fixtureOverrides,
-          },
+          [mode]: mergeFixtureOverrides(prev[mode], fixtureOverrides),
         }));
       }
 

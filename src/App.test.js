@@ -5,6 +5,7 @@ import {
   isFixtureLive,
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
+  mergeFixtureOverrides,
   sortFixturesByOrderOfPlay,
   normalizeCaptainsByGameweek,
   mergeCloudPredictionsPreservingLocalBoosts,
@@ -250,6 +251,54 @@ describe("World Cup sync helpers", () => {
     expect(payload.matchStateUpdates[knockoutFixture.id]).toMatchObject({
       homeTeam: "South Korea",
       awayTeam: "United States",
+    });
+  });
+
+  test("retains confirmed knockout teams on later fixture refreshes", () => {
+    const knockoutFixture = WORLD_CUP_FIXTURES.find((fixture) => fixture.matchNumber === 73);
+    const populatedFixture = {
+      ...knockoutFixture,
+      homeTeam: "South Korea",
+      awayTeam: "United States",
+    };
+    const payload = buildFixtureSyncPayload(
+      [
+        {
+          id: knockoutFixture.id,
+          homeTeam: { name: "Korea Republic" },
+          awayTeam: { name: "USA" },
+          utcDate: knockoutFixture.kickoff,
+          status: "TIMED",
+          score: { fullTime: { home: null, away: null } },
+        },
+      ],
+      [populatedFixture]
+    );
+
+    expect(payload.fixtureOverrides[knockoutFixture.id]).toMatchObject({
+      homeTeam: "South Korea",
+      awayTeam: "United States",
+    });
+  });
+
+  test("merges partial fixture refreshes without deleting qualified teams", () => {
+    expect(
+      mergeFixtureOverrides(
+        {
+          537417: {
+            homeTeam: "South Africa",
+            awayTeam: "Canada",
+            kickoff: "old",
+          },
+        },
+        { 537417: { kickoff: "new" } }
+      )
+    ).toEqual({
+      537417: {
+        homeTeam: "South Africa",
+        awayTeam: "Canada",
+        kickoff: "new",
+      },
     });
   });
 
