@@ -3416,9 +3416,14 @@ useEffect(() => {
   if (activeView !== "coinsLeague" && activeView !== "summary") return;
   if (!authToken) return; // Don't fetch if not authenticated yet
 
+  let cancelled = false;
+  let activeController = null;
+
   const fetchCoinsLeaderboard = async () => {
     try {
+      if (activeController) activeController.abort();
       const controller = new AbortController();
+      activeController = controller;
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
       const leagueId = selectedMiniLeague?.id || "";
@@ -3434,6 +3439,8 @@ useEffect(() => {
       
       clearTimeout(timeoutId);
 
+      if (cancelled) return;
+
       if (!res.ok) {
         console.error("coins leaderboard failed", res.status);
         return;
@@ -3444,6 +3451,7 @@ useEffect(() => {
         setCoinsLeagueRows(data.leaderboard);
       }
     } catch (err) {
+      if (cancelled) return;
       if (err.name === 'AbortError') {
         console.error("coins leaderboard timeout");
       } else {
@@ -3453,6 +3461,18 @@ useEffect(() => {
   };
 
   fetchCoinsLeaderboard();
+  const intervalId = setInterval(fetchCoinsLeaderboard, 60 * 1000);
+  const refreshWhenVisible = () => {
+    if (document.visibilityState === "visible") fetchCoinsLeaderboard();
+  };
+  document.addEventListener("visibilitychange", refreshWhenVisible);
+
+  return () => {
+    cancelled = true;
+    clearInterval(intervalId);
+    document.removeEventListener("visibilitychange", refreshWhenVisible);
+    if (activeController) activeController.abort();
+  };
 }, [activeView, authToken, selectedMiniLeague, gameMode]);
 
 // Fetch global predictions (all users) when Global League or World Cup History is opened

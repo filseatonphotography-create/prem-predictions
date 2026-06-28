@@ -11,6 +11,11 @@ const {
   hasNumericScoreValue,
 } = require("./src/matchScoreUtils");
 const {
+  buildSettledFixtureIdSet,
+  isFinalMatchStatus,
+  recoverFinishedResults,
+} = require("./src/coinsSettlementUtils");
+const {
   didGoalCountIncrease,
   normalizeFootballTeamName,
   parseFixtureArraySource,
@@ -597,30 +602,19 @@ function filterSnapshotResultsByMatchState(resultsByFixtureId = {}, matchStateBy
   return safeResults;
 }
 
-function isPastCoinsSettlementWindow(fixture, nowMs = Date.now()) {
-  const kickoffMs = Date.parse(fixture?.kickoff);
-  if (!Number.isFinite(kickoffMs)) return false;
-  const knockoutBufferMs = 3 * 60 * 60 * 1000;
-  const regularBufferMs = 2 * 60 * 60 * 1000;
-  const bufferMs = fixture?.knockoutStage ? knockoutBufferMs : regularBufferMs;
-  return nowMs >= kickoffMs + bufferMs;
-}
-
-function buildSettledCoinsFixtureIdSet(mode, resultsByFixtureId) {
+function buildSettledCoinsFixtureIdSet(
+  mode,
+  resultsByFixtureId,
+  matchStateByFixtureId = {}
+) {
   const fixtures =
     normalizeCoinsMode(mode) === "worldcup"
       ? loadWorldCupFixturesFromSrc()
-      : loadPremierFixturesFromSrc();
-  const results = resultsByFixtureId || {};
-  const nowMs = Date.now();
-  return new Set(
-    fixtures
-      .filter(
-        (fixture) =>
-          isPastCoinsSettlementWindow(fixture, nowMs) &&
-          hasSettledCoinsResult(results[fixture.id] || results[String(fixture.id)])
-      )
-      .map((fixture) => String(fixture.id))
+      : loadFixturesFromSrc();
+  return buildSettledFixtureIdSet(
+    fixtures,
+    resultsByFixtureId || {},
+    matchStateByFixtureId || {}
   );
 }
 
@@ -1456,8 +1450,10 @@ app.get("/api/admin/coins-audit", (req, res) => {
     }
 
     const leagueId = (req.query.leagueId || "").trim();
+    const mode = normalizeCoinsMode(req.query.mode);
     const coins = loadCoins() || {};
     const results = loadResults() || {};
+    const matchStates = loadMatchStates() || {};
     const users = loadUsers() || [];
     const leagues = loadLeagues() || [];
 
@@ -1481,10 +1477,12 @@ app.get("/api/admin/coins-audit", (req, res) => {
     const audit = [];
     const ids = allowedIds ? Array.from(allowedIds) : Object.keys(coins);
     ids.forEach((uid) => {
-      const gwObj = coins[uid] || {};
+      const coinsRecord = resolveCoinsUserEntry(coins, uid, false).record || {};
+      const gwObj = getCoinsModeBucket(coinsRecord, mode, false);
       let totalStake = 0;
       let totalReturn = 0;
       let bets = 0;
+      const missingResultFixtureIds = new Set();
       Object.values(gwObj).forEach((fixObj) => {
         if (!fixObj || typeof fixObj !== "object") return;
         Object.values(fixObj).forEach((bet) => {
@@ -1494,7 +1492,13 @@ app.get("/api/admin/coins-audit", (req, res) => {
           bets += 1;
           totalStake += stake;
           const resObj = results[String(bet.fixtureId)];
-          if (!resObj) return;
+          if (!hasSettledCoinsResult(resObj)) {
+            const matchState = matchStates[String(bet.fixtureId)];
+            if (isFinalMatchStatus(matchState)) {
+              missingResultFixtureIds.add(String(bet.fixtureId));
+            }
+            return;
+          }
           const hg = Number(resObj.homeGoals);
           const ag = Number(resObj.awayGoals);
           if (!Number.isFinite(hg) || !Number.isFinite(ag)) return;
@@ -1519,10 +1523,11 @@ app.get("/api/admin/coins-audit", (req, res) => {
         totalStake,
         totalReturn,
         profit: totalReturn - totalStake,
+        missingResultFixtureIds: Array.from(missingResultFixtureIds),
       });
     });
 
-    return res.json({ leagueId: leagueId || null, audit });
+    return res.json({ leagueId: leagueId || null, mode, audit });
   } catch (err) {
     console.error("admin coins-audit error", err);
     return res.status(500).json({ error: "Coins audit failed" });
@@ -1542,12 +1547,14 @@ app.get("/api/admin/coins-bets", (req, res) => {
     }
 
     const userId = String(req.query.userId || "").trim();
+    const mode = normalizeCoinsMode(req.query.mode);
     if (!userId) return res.status(400).json({ error: "userId required" });
 
     const coins = loadCoins() || {};
     const results = loadResults() || {};
 
-    const gwObj = coins[userId] || {};
+    const coinsRecord = resolveCoinsUserEntry(coins, userId, false).record || {};
+    const gwObj = getCoinsModeBucket(coinsRecord, mode, false);
     const details = [];
 
     Object.entries(gwObj).forEach(([gw, fixObj]) => {
@@ -1587,7 +1594,7 @@ app.get("/api/admin/coins-bets", (req, res) => {
       });
     });
 
-    return res.json({ userId, bets: details });
+    return res.json({ userId, mode, bets: details });
   } catch (err) {
     console.error("admin coins-bets error", err);
     return res.status(500).json({ error: "Coins bets detail failed" });
@@ -3204,7 +3211,16 @@ app.get("/api/odds", async (req, res) => {
 app.get("/api/coins/leaderboard", authOptional, (req, res) => {
   try {
     const coins = loadCoins() || {};
-    const results = loadResults() || {};
+    const storedResults = loadResults() || {};
+    const matchStates = loadMatchStates() || {};
+    const recovered = recoverFinishedResults(storedResults, matchStates);
+    const results = recovered.results;
+    if (recovered.recoveredFixtureIds.length > 0) {
+      saveResults(results);
+      console.log(
+        `[COINS] Recovered missing finished results: ${recovered.recoveredFixtureIds.join(", ")}`
+      );
+    }
     const users = loadUsers() || [];
     const legacyMap = loadLegacyMap() || {};
     const leagueId = (req.query.leagueId || "").trim();
@@ -3212,7 +3228,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     if (mode === "premier") {
       return res.json({ leaderboard: [] });
     }
-    const settledFixtureIds = buildSettledCoinsFixtureIdSet(mode, results);
+    const settledFixtureIds = buildSettledCoinsFixtureIdSet(mode, results, matchStates);
 
     // Map userId -> username (handle numeric/string)
     const userMap = {};
