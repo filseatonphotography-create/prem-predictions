@@ -273,6 +273,13 @@ export function getWorldCupStageLabel(fixture) {
   return fixture?.knockoutStage || "Knockout Stage";
 }
 
+export function getWorldCupStageForGameweek(fixtures = [], gameweek) {
+  const fixture = (fixtures || []).find(
+    (candidate) => Number(candidate?.gameweek) === Number(gameweek)
+  );
+  return fixture ? getWorldCupStageLabel(fixture) : "";
+}
+
 function getWorldCupFixtureLabel(fixture) {
   if (fixture?.group) return `Group ${fixture.group}`;
   return getWorldCupStageLabel(fixture);
@@ -2808,13 +2815,15 @@ const worldCupOverview = useMemo(() => {
       : null;
 
   return {
-    stage: nextFixture ? getWorldCupStageLabel(nextFixture) : "Tournament Complete",
+    stage:
+      getWorldCupStageForGameweek(activeFixtures, selectedGameweek) ||
+      "Tournament Complete",
     nextFixture,
     todayCount,
     favoriteCountry,
     favoriteFixture,
   };
-}, [isWorldCupMode, activeFixtures, resolvedAccountFavoriteCountry]);
+}, [isWorldCupMode, activeFixtures, selectedGameweek, resolvedAccountFavoriteCountry]);
 
 function formatCountdownFixtureMeta(fixture, mode) {
   if (!fixture) return "";
@@ -2996,7 +3005,7 @@ useEffect(() => {
 // ---------- DERIVED ----------
 const visibleFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
 const selectedWorldCupStage = isWorldCupMode
-  ? getWorldCupStageLabel(visibleFixtures[0])
+  ? getWorldCupStageForGameweek(activeFixtures, selectedGameweek)
   : "";
 const worldCupKickoffTimesSynced = !isWorldCupMode
   || visibleFixtures.every((fixture) => fixture.kickoffTimeConfirmed !== false);

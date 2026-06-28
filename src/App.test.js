@@ -7,6 +7,7 @@ import {
   buildFixtureSyncPayload,
   mergeFixtureOverrides,
   getWorldCupStageLabel,
+  getWorldCupStageForGameweek,
   sortFixturesByOrderOfPlay,
   normalizeCaptainsByGameweek,
   mergeCloudPredictionsPreservingLocalBoosts,
@@ -113,6 +114,16 @@ describe("World Cup sync helpers", () => {
     expect(getWorldCupStageLabel({ group: "A" })).toBe("Group Stage");
     expect(getWorldCupStageLabel({ knockoutStage: "Round of 32" })).toBe("Round of 32");
     expect(getWorldCupStageLabel({ knockoutStage: "Quarter-final" })).toBe("Quarter-final");
+  });
+
+  test("uses the selected World Cup matchday stage instead of the next kickoff", () => {
+    const stageFixtures = [
+      { id: 1, gameweek: 17, group: "J" },
+      { id: 2, gameweek: 18, knockoutStage: "Round of 32" },
+    ];
+
+    expect(getWorldCupStageForGameweek(stageFixtures, 17)).toBe("Group Stage");
+    expect(getWorldCupStageForGameweek(stageFixtures, 18)).toBe("Round of 32");
   });
 
   test("normalizes World Cup aliases used by the live feed", () => {
