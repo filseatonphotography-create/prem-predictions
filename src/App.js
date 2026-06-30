@@ -2127,6 +2127,22 @@ function buildFixtureModel(fixture, context = {}) {
   };
 }
 
+export function buildGeneratedModelOdds(fixtures = [], context = {}) {
+  const out = {};
+
+  (fixtures || []).forEach((fixture) => {
+    const model = buildFixtureModel(fixture, context);
+    const overround = 0.94;
+    out[fixture.id] = {
+      home: Number((overround / model.homeProb).toFixed(2)),
+      draw: Number((overround / model.drawProb).toFixed(2)),
+      away: Number((overround / model.awayProb).toFixed(2)),
+    };
+  });
+
+  return out;
+}
+
 function buildPremierTeamInsights(teamName, results, context = {}) {
   const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
   const normalizedTeam = normalizeTeamName(canonicalTeamName);
@@ -2561,18 +2577,19 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   );
 
   const generatedModelOddsByFixture = useMemo(() => {
-    const out = {};
-    [...FIXTURES, ...WORLD_CUP_FIXTURES].forEach((fixture) => {
-      const model = buildFixtureModel(fixture, leaguePerformanceContext);
-      const overround = 0.94;
-      out[fixture.id] = {
-        home: Number((overround / model.homeProb).toFixed(2)),
-        draw: Number((overround / model.drawProb).toFixed(2)),
-        away: Number((overround / model.awayProb).toFixed(2)),
-      };
-    });
-    return out;
-  }, [leaguePerformanceContext]);
+    const fixturesWithResolvedTeams = [
+      ...FIXTURES.map((fixture) => ({
+        ...fixture,
+        ...(fixtureOverridesByMode[PREMIER_MODE]?.[fixture.id] || {}),
+      })),
+      ...WORLD_CUP_FIXTURES.map((fixture) => ({
+        ...fixture,
+        ...(fixtureOverridesByMode[WORLD_CUP_MODE]?.[fixture.id] || {}),
+      })),
+    ];
+
+    return buildGeneratedModelOdds(fixturesWithResolvedTeams, leaguePerformanceContext);
+  }, [fixtureOverridesByMode, leaguePerformanceContext]);
 
   // Save activeView to localStorage whenever it changes
   useEffect(() => {

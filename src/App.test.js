@@ -12,6 +12,7 @@ import {
   normalizeCaptainsByGameweek,
   mergeCloudPredictionsPreservingLocalBoosts,
   setOnlyCaptainForFixtureRound,
+  buildGeneratedModelOdds,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -124,6 +125,19 @@ describe("World Cup sync helpers", () => {
 
     expect(getWorldCupStageForGameweek(stageFixtures, 17)).toBe("Group Stage");
     expect(getWorldCupStageForGameweek(stageFixtures, 18)).toBe("Round of 32");
+  });
+
+  test("generates knockout probabilities from resolved teams instead of TBA placeholders", () => {
+    const knockoutFixtures = [
+      { id: 201, homeTeam: "France", awayTeam: "Senegal" },
+      { id: 202, homeTeam: "Jordan", awayTeam: "Argentina" },
+    ];
+
+    const odds = buildGeneratedModelOdds(knockoutFixtures);
+
+    expect(odds[201]).not.toEqual(odds[202]);
+    expect(odds[201].home).toBeLessThan(odds[202].home);
+    expect(odds[202].away).toBeLessThan(odds[201].away);
   });
 
   test("normalizes World Cup aliases used by the live feed", () => {
