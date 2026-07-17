@@ -2666,7 +2666,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   useEffect(() => {
     if (!isWorldCupMode) return;
-    if (["premierLeagueTable"].includes(activeView)) {
+    if (["premierLeagueTable", "predictionIq"].includes(activeView)) {
       setActiveView("predictions");
     }
   }, [isWorldCupMode, activeView]);
@@ -2743,6 +2743,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
+  const [showPredictionIqModal, setShowPredictionIqModal] = useState(false);
+  const [predictionIqPendingAfterWinner, setPredictionIqPendingAfterWinner] = useState(false);
+  const [predictionIqPreview, setPredictionIqPreview] = useState(false);
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -5056,6 +5059,191 @@ const globalLeaderboard = useMemo(() => {
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
 }, [dedupedGlobalUsers, globalPredictionsByUserId, results, activeFixtures, isWorldCupMode]);
 
+const predictionIqReport = useMemo(() => {
+  const emptyReport = {
+    rating: 0,
+    exactScores: 0,
+    correctResults: 0,
+    rankChange: 0,
+    strongestTeam: "Not enough data",
+    weakestTeam: "Not enough data",
+    bestLeague: getModeLabel(gameMode),
+    missedOpportunity: "Not enough data",
+    suggestion: "Make a few more predictions to unlock a sharper suggestion.",
+    completedPredictions: 0,
+    gameweek: selectedGameweek,
+  };
+
+  if (isWorldCupMode || !selectedGameweek) return emptyReport;
+
+  const currentPredictions = predictions[currentPredictionKey] || {};
+  const completedFixtures = activeFixtures.filter(
+    (fixture) => fixture.gameweek === selectedGameweek && hasValidResultScore(results[fixture.id])
+  );
+  if (!completedFixtures.length) return emptyReport;
+
+  const getPred = (fixtureId) =>
+    currentPredictions[String(fixtureId)] !== undefined
+      ? currentPredictions[String(fixtureId)]
+      : currentPredictions[fixtureId];
+  const hasPredictionScore = (pred) => {
+    if (!pred) return false;
+    const home = Number(pred.homeGoals);
+    const away = Number(pred.awayGoals);
+    return Number.isFinite(home) && Number.isFinite(away);
+  };
+
+  let exactScores = 0;
+  let correctResults = 0;
+  let possiblePredictions = 0;
+  let totalPoints = 0;
+  let awayGoalUnderestimates = 0;
+  let awayResultUnderestimates = 0;
+  let missedOpportunity = null;
+  const teamStats = {};
+
+  completedFixtures.forEach((fixture) => {
+    const pred = getPred(fixture.id);
+    if (!hasPredictionScore(pred)) return;
+
+    possiblePredictions += 1;
+    const result = results[fixture.id];
+    const predHome = Number(pred.homeGoals);
+    const predAway = Number(pred.awayGoals);
+    const realHome = Number(result.homeGoals);
+    const realAway = Number(result.awayGoals);
+    const points = getTotalPoints(pred, result);
+    totalPoints += points;
+
+    if (predHome === realHome && predAway === realAway) exactScores += 1;
+    if (getResult(predHome, predAway) === getResult(realHome, realAway)) correctResults += 1;
+    if (predAway < realAway) awayGoalUnderestimates += 1;
+    if (getResult(predHome, predAway) !== "A" && getResult(realHome, realAway) === "A") {
+      awayResultUnderestimates += 1;
+    }
+
+    [fixture.homeTeam, fixture.awayTeam].forEach((team) => {
+      if (!teamStats[team]) teamStats[team] = { points: 0, played: 0 };
+      teamStats[team].points += points;
+      teamStats[team].played += 1;
+    });
+
+    const multiplier = pred.isTriple ? 3 : pred.isDouble ? 2 : 1;
+    const missedScore = (7 * multiplier) - points;
+    if (points === 0 && (!missedOpportunity || missedScore > missedOpportunity.missedScore)) {
+      missedOpportunity = {
+        label: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        missedScore,
+      };
+    }
+  });
+
+  const teamRows = Object.entries(teamStats)
+    .filter(([, stat]) => stat.played > 0)
+    .map(([team, stat]) => ({
+      team,
+      average: stat.points / stat.played,
+      played: stat.played,
+    }))
+    .sort((a, b) => b.average - a.average || b.played - a.played);
+
+  const gwTotals = computedWeeklyTotals?.[selectedGameweek] || {};
+  const currentScore =
+    Number(gwTotals[currentPredictionKey]) ||
+    Number(gwTotals[currentUserId]) ||
+    currentGwPoints;
+  const previousTotals = {};
+  if (computedWeeklyTotals) {
+    activeGameweeks
+      .filter((gw) => gw < selectedGameweek)
+      .forEach((gw) => {
+        Object.entries(computedWeeklyTotals[gw] || {}).forEach(([key, value]) => {
+          previousTotals[key] = (previousTotals[key] || 0) + (Number(value) || 0);
+        });
+      });
+  }
+  const rankEntries = Object.entries(gwTotals).filter(([, score]) => Number(score) > 0);
+  const previousRankEntries = rankEntries.map(([key]) => [key, previousTotals[key] || 0]);
+  const rankOf = (entries, key, fallbackScore = 0) => {
+    const sorted = [...entries];
+    if (!sorted.some(([entryKey]) => String(entryKey) === String(key))) {
+      sorted.push([key, fallbackScore]);
+    }
+    sorted.sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
+    const index = sorted.findIndex(([entryKey]) => String(entryKey) === String(key));
+    return index === -1 ? 0 : index + 1;
+  };
+  const userRankKey = gwTotals[currentPredictionKey] !== undefined ? currentPredictionKey : currentUserId;
+  const previousRank = rankOf(previousRankEntries, userRankKey, 0);
+  const currentRank = rankOf(
+    rankEntries.map(([key, score]) => [key, (previousTotals[key] || 0) + (Number(score) || 0)]),
+    userRankKey,
+    currentScore
+  );
+  const rankChange = previousRank && currentRank ? previousRank - currentRank : 0;
+
+  const accuracy = possiblePredictions ? correctResults / possiblePredictions : 0;
+  const exactBonus = possiblePredictions ? exactScores / possiblePredictions : 0;
+  const averagePoints = possiblePredictions ? totalPoints / possiblePredictions : 0;
+  const rating = Math.max(
+    0,
+    Math.min(100, Math.round(accuracy * 58 + exactBonus * 27 + Math.min(15, averagePoints * 2)))
+  );
+
+  let suggestion = "Your result reads are balanced this week. Keep watching team news and fixture context.";
+  if (awayResultUnderestimates >= 2 || awayGoalUnderestimates >= Math.ceil(possiblePredictions / 2)) {
+    suggestion = "You consistently underestimate away teams.";
+  } else if (exactScores === 0 && correctResults > 0) {
+    suggestion = "Your outcomes are working; tighten the scorelines by one goal either way.";
+  } else if (correctResults < Math.max(1, Math.floor(possiblePredictions / 3))) {
+    suggestion = "Lean less on favourites this week and give draws more room in tight fixtures.";
+  }
+
+  return {
+    rating,
+    exactScores,
+    correctResults,
+    rankChange,
+    strongestTeam: teamRows[0]?.team || "Not enough data",
+    weakestTeam: teamRows[teamRows.length - 1]?.team || "Not enough data",
+    bestLeague: "Premier League",
+    missedOpportunity: missedOpportunity?.label || "No major miss",
+    suggestion,
+    completedPredictions: possiblePredictions,
+    gameweek: selectedGameweek,
+  };
+}, [
+  activeFixtures,
+  activeGameweeks,
+  computedWeeklyTotals,
+  currentGwPoints,
+  currentPredictionKey,
+  currentUserId,
+  gameMode,
+  isWorldCupMode,
+  predictions,
+  results,
+  selectedGameweek,
+]);
+
+const predictionIqSampleReport = useMemo(
+  () => ({
+    rating: 82,
+    exactScores: 7,
+    correctResults: 18,
+    rankChange: 42,
+    strongestTeam: "Liverpool",
+    weakestTeam: "Chelsea",
+    bestLeague: "Premier League",
+    missedOpportunity: "Villa vs Spurs",
+    suggestion: "You consistently underestimate away teams.",
+    completedPredictions: 10,
+    gameweek: selectedGameweek || 1,
+    isPreview: true,
+  }),
+  [selectedGameweek]
+);
+
 // Winner popup for league tables (once per user per gameweek/matchday)
 useEffect(() => {
   if (!isLoggedIn || !currentUserId) return;
@@ -5129,6 +5317,10 @@ useEffect(() => {
   setWinnerIndex(0);
   setWinnerModalType("gw");
   setShowWinnerModal(true);
+  if (!isWorldCupMode) {
+    setPredictionIqPreview(false);
+    setPredictionIqPendingAfterWinner(true);
+  }
   localStorage.setItem(seenKey, "true");
 }, [
   activeView,
@@ -5231,6 +5423,12 @@ useEffect(() => {
   const timeout = setTimeout(() => setShowWinnerModal(false), 6500);
   return () => clearTimeout(timeout);
 }, [showWinnerModal]);
+
+useEffect(() => {
+  if (showWinnerModal || !predictionIqPendingAfterWinner) return;
+  setPredictionIqPendingAfterWinner(false);
+  setShowPredictionIqModal(true);
+}, [showWinnerModal, predictionIqPendingAfterWinner]);
 
 useEffect(() => {
   if (!showWinnerModal || !soundEffectsEnabled) return;
@@ -5532,6 +5730,177 @@ const visibleSeasonWinnerHistory = useMemo(
     fontSize: 13,
     whiteSpace: "nowrap",
   });
+
+  const renderPredictionIqReport = (options = {}) => {
+    const compact = !!options.compact;
+    const report = options.report || predictionIqReport;
+    const isPreview = !!options.preview || !!report.isPreview;
+    const rankText =
+      report.rankChange > 0
+        ? `+${report.rankChange} ranking places`
+        : report.rankChange < 0
+        ? `${report.rankChange} ranking places`
+        : "No ranking change";
+    const ratingColor =
+      report.rating >= 80 ? theme.accent2 : report.rating >= 55 ? theme.accent : theme.danger;
+    const statItems = [
+      { icon: "✅", label: `${report.exactScores} exact scores` },
+      { icon: "🏆", label: `${report.correctResults} correct results` },
+      { icon: "📈", label: rankText },
+    ];
+    const detailItems = [
+      { label: "Your strongest team", value: report.strongestTeam },
+      { label: "Your weakest", value: report.weakestTeam },
+      { label: "Best League", value: report.bestLeague },
+      { label: "Biggest missed opportunity", value: report.missedOpportunity },
+    ];
+
+    return (
+      <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
+        {isPreview && (
+          <div
+            style={{
+              background: "rgba(245,158,11,0.12)",
+              border: `1px solid ${theme.warn}`,
+              borderRadius: 10,
+              padding: "8px 10px",
+              color: theme.text,
+              fontSize: 12,
+              fontWeight: 750,
+              textAlign: "center",
+            }}
+          >
+            Preview sample - not real player data
+          </div>
+        )}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile || compact ? "1fr" : "150px minmax(0, 1fr)",
+            gap: 12,
+            alignItems: "stretch",
+          }}
+        >
+          <div
+            style={{
+              background: theme.panelHi,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 14,
+              textAlign: "center",
+              display: "grid",
+              alignContent: "center",
+              gap: 4,
+            }}
+          >
+            <div style={{ fontSize: 12, color: theme.muted, fontWeight: 800 }}>
+              Overall Rating
+            </div>
+            <div style={{ fontSize: 38, lineHeight: 1, fontWeight: 900, color: ratingColor }}>
+              {report.rating}
+              <span style={{ fontSize: 18, color: theme.muted }}>/100</span>
+            </div>
+            <div style={{ fontSize: 11, color: theme.muted }}>
+              {getModeGameweekLabel(gameMode, report.gameweek)}
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: theme.panelHi,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 14,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+              You predicted
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {statItems.map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    fontSize: 15,
+                    fontWeight: 750,
+                  }}
+                >
+                  <span aria-hidden="true">{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
+            gap: 8,
+          }}
+        >
+          {detailItems.map((item) => (
+            <div
+              key={item.label}
+              style={{
+                background: theme.panelHi,
+                border: `1px solid ${theme.line}`,
+                borderRadius: 10,
+                padding: "10px 12px",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ fontSize: 11, color: theme.muted, fontWeight: 800 }}>
+                {item.label}
+              </div>
+              <div
+                style={{
+                  marginTop: 3,
+                  fontSize: 15,
+                  fontWeight: 800,
+                  color: theme.text,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={item.value}
+              >
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            background: "rgba(56,189,248,0.1)",
+            border: `1px solid ${theme.accent}`,
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <div style={{ fontSize: 11, color: theme.muted, fontWeight: 800 }}>
+            AI Suggestion
+          </div>
+          <div style={{ marginTop: 4, fontSize: 14, lineHeight: 1.35, fontWeight: 700 }}>
+            {report.suggestion}
+          </div>
+        </div>
+
+        {!report.completedPredictions && (
+          <div style={{ fontSize: 12, color: theme.muted, textAlign: "center" }}>
+            This report updates once your completed gameweek predictions have results.
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const smallInput = {
     width: isMobile ? 34 : 36,
@@ -6856,6 +7225,111 @@ if (!isLoggedIn) {
           </div>
         </div>
       )}
+      {showPredictionIqModal && !showWinnerModal && !isWorldCupMode && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.62)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9998,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 520,
+              background: "linear-gradient(135deg, #0f172a, #111827)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              borderRadius: 16,
+              padding: isMobile ? 14 : 18,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.45)",
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 18 }}>
+                  Prediction IQ Report
+                </div>
+                <div style={{ fontSize: 12, color: theme.muted, marginTop: 2 }}>
+                  {currentPlayer || "Your"} weekly readout
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPredictionIqModal(false)}
+                aria-label="Close Prediction IQ report"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+            {renderPredictionIqReport({
+              compact: true,
+              report: predictionIqPreview ? predictionIqSampleReport : predictionIqReport,
+              preview: predictionIqPreview,
+            })}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPredictionIqModal(false);
+                  setActiveView("predictionIq");
+                }}
+                style={{
+                  flex: 1,
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: theme.accent,
+                  color: "#0b1220",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Open report
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPredictionIqModal(false)}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ 
         maxWidth: "100%", 
         margin: "0 auto", 
@@ -7361,6 +7835,7 @@ const TABS = [
   { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
+  ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
   { id: "history", label: isWorldCupMode ? "WC History" : "History" },
   { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
   { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
@@ -9311,6 +9786,69 @@ const TABS = [
                 );
               })}
             </div>
+          </section>
+        )}
+
+        {activeView === "predictionIq" && !isWorldCupMode && (
+          <section style={cardStyle}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 12,
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18 }}>
+                  Prediction IQ Report
+                </h2>
+                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                  Weekly insight for {currentPlayer || "your account"}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setPredictionIqPreview((value) => !value)}
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${predictionIqPreview ? theme.warn : theme.line}`,
+                    background: predictionIqPreview ? "rgba(245,158,11,0.14)" : theme.panelHi,
+                    color: predictionIqPreview ? theme.warn : theme.accent,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {predictionIqPreview ? "Real data" : "Preview sample"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPredictionIqModal(true)}
+                  style={{
+                    padding: "7px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.line}`,
+                    background: theme.panelHi,
+                    color: theme.accent,
+                    fontSize: 12,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  Pop out
+                </button>
+              </div>
+            </div>
+            {renderPredictionIqReport({
+              report: predictionIqPreview ? predictionIqSampleReport : predictionIqReport,
+              preview: predictionIqPreview,
+            })}
           </section>
         )}
 
