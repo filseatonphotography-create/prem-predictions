@@ -5064,10 +5064,14 @@ const predictionIqReport = useMemo(() => {
     rating: 0,
     exactScores: 0,
     correctResults: 0,
+    currentWinningStreak: 0,
+    longestWinningStreak: 0,
+    closeMisses: 0,
     rankChange: 0,
     strongestTeam: "Not enough data",
     weakestTeam: "Not enough data",
-    bestLeague: getModeLabel(gameMode),
+    drawAccuracy: "No draws yet",
+    boostEfficiency: "No boosts used",
     missedOpportunity: "Not enough data",
     suggestion: "Make a few more predictions to unlock a sharper suggestion.",
     completedPredictions: 0,
@@ -5095,8 +5099,14 @@ const predictionIqReport = useMemo(() => {
 
   let exactScores = 0;
   let correctResults = 0;
+  let closeMisses = 0;
   let possiblePredictions = 0;
   let totalPoints = 0;
+  let actualDraws = 0;
+  let correctDraws = 0;
+  let boostedPicks = 0;
+  let successfulBoosts = 0;
+  let boostPointsDelta = 0;
   let awayGoalUnderestimates = 0;
   let awayResultUnderestimates = 0;
   let missedOpportunity = null;
@@ -5112,13 +5122,30 @@ const predictionIqReport = useMemo(() => {
     const predAway = Number(pred.awayGoals);
     const realHome = Number(result.homeGoals);
     const realAway = Number(result.awayGoals);
+    const basePoints = getBasePoints(predHome, predAway, realHome, realAway);
     const points = getTotalPoints(pred, result);
     totalPoints += points;
 
+    const predictedResult = getResult(predHome, predAway);
+    const actualResult = getResult(realHome, realAway);
+    const isCorrectResult = predictedResult === actualResult;
+
     if (predHome === realHome && predAway === realAway) exactScores += 1;
-    if (getResult(predHome, predAway) === getResult(realHome, realAway)) correctResults += 1;
+    else if (Math.abs(predHome - realHome) + Math.abs(predAway - realAway) === 1) closeMisses += 1;
+    if (isCorrectResult) {
+      correctResults += 1;
+    }
+    if (actualResult === "D") {
+      actualDraws += 1;
+      if (predictedResult === "D") correctDraws += 1;
+    }
+    if (pred.isDouble || pred.isTriple) {
+      boostedPicks += 1;
+      if (basePoints > 0) successfulBoosts += 1;
+      boostPointsDelta += points - basePoints;
+    }
     if (predAway < realAway) awayGoalUnderestimates += 1;
-    if (getResult(predHome, predAway) !== "A" && getResult(realHome, realAway) === "A") {
+    if (predictedResult !== "A" && actualResult === "A") {
       awayResultUnderestimates += 1;
     }
 
@@ -5148,9 +5175,17 @@ const predictionIqReport = useMemo(() => {
     .sort((a, b) => b.average - a.average || b.played - a.played);
 
   const gwTotals = computedWeeklyTotals?.[selectedGameweek] || {};
+  const getUserScoreFromTotals = (totals = {}, gw = selectedGameweek) => {
+    const candidates = [currentPredictionKey, currentUserId, currentPlayer].filter(Boolean);
+    for (const key of candidates) {
+      if (totals[key] !== undefined) return Number(totals[key]) || 0;
+    }
+    return gw === selectedGameweek ? currentGwPoints : 0;
+  };
   const currentScore =
     Number(gwTotals[currentPredictionKey]) ||
     Number(gwTotals[currentUserId]) ||
+    Number(gwTotals[currentPlayer]) ||
     currentGwPoints;
   const previousTotals = {};
   if (computedWeeklyTotals) {
@@ -5181,6 +5216,34 @@ const predictionIqReport = useMemo(() => {
     currentScore
   );
   const rankChange = previousRank && currentRank ? previousRank - currentRank : 0;
+  const completedGameweeks = activeGameweeks
+    .filter((gw) => gw <= selectedGameweek)
+    .filter((gw) => {
+      const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
+      return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+    });
+  const weeklyWinnerFlags = completedGameweeks.map((gw) => {
+    const totals = computedWeeklyTotals?.[gw] || {};
+    const scores = Object.values(totals).map((score) => Number(score) || 0);
+    const topScore = scores.length ? Math.max(...scores) : 0;
+    const userScore = getUserScoreFromTotals(totals, gw);
+    return topScore > 0 && userScore === topScore;
+  });
+  let currentWinningStreak = 0;
+  for (let i = weeklyWinnerFlags.length - 1; i >= 0; i -= 1) {
+    if (!weeklyWinnerFlags[i]) break;
+    currentWinningStreak += 1;
+  }
+  let longestWinningStreak = 0;
+  let streakRun = 0;
+  weeklyWinnerFlags.forEach((wonWeek) => {
+    if (wonWeek) {
+      streakRun += 1;
+      longestWinningStreak = Math.max(longestWinningStreak, streakRun);
+    } else {
+      streakRun = 0;
+    }
+  });
 
   const accuracy = possiblePredictions ? correctResults / possiblePredictions : 0;
   const exactBonus = possiblePredictions ? exactScores / possiblePredictions : 0;
@@ -5203,10 +5266,16 @@ const predictionIqReport = useMemo(() => {
     rating,
     exactScores,
     correctResults,
+    currentWinningStreak,
+    longestWinningStreak,
+    closeMisses,
     rankChange,
     strongestTeam: teamRows[0]?.team || "Not enough data",
     weakestTeam: teamRows[teamRows.length - 1]?.team || "Not enough data",
-    bestLeague: "Premier League",
+    drawAccuracy: actualDraws ? `${correctDraws}/${actualDraws} draws` : "No draws yet",
+    boostEfficiency: boostedPicks
+      ? `${successfulBoosts}/${boostedPicks} boosts scored (${boostPointsDelta >= 0 ? "+" : ""}${boostPointsDelta} pts)`
+      : "No boosts used",
     missedOpportunity: missedOpportunity?.label || "No major miss",
     suggestion,
     completedPredictions: possiblePredictions,
@@ -5218,6 +5287,7 @@ const predictionIqReport = useMemo(() => {
   computedWeeklyTotals,
   currentGwPoints,
   currentPredictionKey,
+  currentPlayer,
   currentUserId,
   gameMode,
   isWorldCupMode,
@@ -5231,10 +5301,14 @@ const predictionIqSampleReport = useMemo(
     rating: 82,
     exactScores: 7,
     correctResults: 18,
+    currentWinningStreak: 4,
+    longestWinningStreak: 6,
+    closeMisses: 5,
     rankChange: 42,
     strongestTeam: "Liverpool",
     weakestTeam: "Chelsea",
-    bestLeague: "Premier League",
+    drawAccuracy: "3/5 draws",
+    boostEfficiency: "2/3 boosts scored (+11 pts)",
     missedOpportunity: "Villa vs Spurs",
     suggestion: "You consistently underestimate away teams.",
     completedPredictions: 10,
@@ -5746,12 +5820,16 @@ const visibleSeasonWinnerHistory = useMemo(
     const statItems = [
       { icon: "✅", label: `${report.exactScores} exact scores` },
       { icon: "🏆", label: `${report.correctResults} correct results` },
+      { icon: "🔥", label: `Current weekly-win streak: ${report.currentWinningStreak || 0}` },
+      { icon: "⭐", label: `Longest weekly-win streak: ${report.longestWinningStreak || 0}` },
       { icon: "📈", label: rankText },
     ];
     const detailItems = [
       { label: "Your strongest team", value: report.strongestTeam },
       { label: "Your weakest", value: report.weakestTeam },
-      { label: "Best League", value: report.bestLeague },
+      { label: "Draw accuracy", value: report.drawAccuracy },
+      { label: "Boost efficiency", value: report.boostEfficiency },
+      { label: "Near misses", value: `${report.closeMisses || 0} one-goal misses` },
       { label: "Biggest missed opportunity", value: report.missedOpportunity },
     ];
 
