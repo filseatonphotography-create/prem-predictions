@@ -5818,11 +5818,11 @@ const visibleSeasonWinnerHistory = useMemo(
     const ratingColor =
       report.rating >= 80 ? theme.accent2 : report.rating >= 55 ? theme.accent : theme.danger;
     const statItems = [
-      { icon: "✅", label: `${report.exactScores} exact scores` },
-      { icon: "🏆", label: `${report.correctResults} correct results` },
-      { icon: "🔥", label: `Current weekly-win streak: ${report.currentWinningStreak || 0}` },
-      { icon: "⭐", label: `Longest weekly-win streak: ${report.longestWinningStreak || 0}` },
-      { icon: "📈", label: rankText },
+      { icon: "✅", label: "Exact scores", value: report.exactScores },
+      { icon: "🏆", label: "Correct results", value: report.correctResults },
+      { icon: "🔥", label: "Win Streak", value: report.currentWinningStreak || 0 },
+      { icon: "⭐", label: "Longest Win Streak", value: report.longestWinningStreak || 0 },
+      { icon: "📈", label: "Ranking movement", value: rankText },
     ];
     const detailItems = [
       { label: "Your strongest team", value: report.strongestTeam },
@@ -5896,20 +5896,58 @@ const visibleSeasonWinnerHistory = useMemo(
             <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
               You predicted
             </div>
-            <div style={{ display: "grid", gap: 8 }}>
+            <div
+              style={{
+                display: "grid",
+                border: `1px solid ${theme.line}`,
+                borderRadius: 10,
+                overflow: "hidden",
+              }}
+            >
               {statItems.map((item) => (
                 <div
                   key={item.label}
                   style={{
-                    display: "flex",
-                    gap: 8,
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: 10,
                     alignItems: "center",
-                    fontSize: 15,
-                    fontWeight: 750,
+                    padding: "8px 10px",
+                    borderTop: item === statItems[0] ? "none" : `1px solid ${theme.line}`,
+                    fontSize: 13,
                   }}
                 >
-                  <span aria-hidden="true">{item.icon}</span>
-                  <span>{item.label}</span>
+                  <div
+                    style={{
+                      minWidth: 0,
+                      display: "flex",
+                      gap: 7,
+                      alignItems: "center",
+                      color: theme.muted,
+                      fontWeight: 750,
+                    }}
+                  >
+                    <span aria-hidden="true">{item.icon}</span>
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      color: theme.text,
+                      fontWeight: 900,
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {item.value}
+                  </div>
                 </div>
               ))}
             </div>
