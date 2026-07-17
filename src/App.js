@@ -9909,62 +9909,18 @@ const TABS = [
           <section style={cardStyle}>
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 10,
+                textAlign: "center",
                 marginBottom: 12,
               }}
             >
-              <div>
-                <h2 style={{ margin: 0, fontSize: 18 }}>
-                  Prediction IQ Report
-                </h2>
-                <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                  Weekly insight for {currentPlayer || "your account"}
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                <button
-                  type="button"
-                  onClick={() => setPredictionIqPreview((value) => !value)}
-                  style={{
-                    padding: "7px 10px",
-                    borderRadius: 8,
-                    border: `1px solid ${predictionIqPreview ? theme.warn : theme.line}`,
-                    background: predictionIqPreview ? "rgba(245,158,11,0.14)" : theme.panelHi,
-                    color: predictionIqPreview ? theme.warn : theme.accent,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {predictionIqPreview ? "Real data" : "Preview sample"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowPredictionIqModal(true)}
-                  style={{
-                    padding: "7px 10px",
-                    borderRadius: 8,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panelHi,
-                    color: theme.accent,
-                    fontSize: 12,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Pop out
-                </button>
+              <h2 style={{ margin: 0, fontSize: 18 }}>
+                Prediction IQ Report
+              </h2>
+              <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                Weekly insight for {currentPlayer || "your account"}
               </div>
             </div>
-            {renderPredictionIqReport({
-              report: predictionIqPreview ? predictionIqSampleReport : predictionIqReport,
-              preview: predictionIqPreview,
-            })}
+            {renderPredictionIqReport()}
           </section>
         )}
 
