@@ -5298,22 +5298,22 @@ const predictionIqReport = useMemo(() => {
 
 const predictionIqSampleReport = useMemo(
   () => ({
-    rating: 82,
+    rating: 91,
     exactScores: 7,
     correctResults: 18,
-    currentWinningStreak: 4,
-    longestWinningStreak: 6,
-    closeMisses: 5,
+    currentWinningStreak: 3,
+    longestWinningStreak: 5,
+    closeMisses: 6,
     rankChange: 42,
     strongestTeam: "Liverpool",
     weakestTeam: "Chelsea",
-    drawAccuracy: "3/5 draws",
-    boostEfficiency: "2/3 boosts scored (+11 pts)",
+    drawAccuracy: "4/6 draws",
+    boostEfficiency: "5/6 boosts scored (+24 pts)",
     missedOpportunity: "Villa vs Spurs",
-    suggestion: "You consistently underestimate away teams.",
-    completedPredictions: 10,
-    gameweek: selectedGameweek || 1,
-    isPreview: true,
+    suggestion: "You consistently underestimate away teams. Lift away scores by one goal in tight fixtures.",
+    completedPredictions: 20,
+    gameweek: selectedGameweek || 12,
+    isPreview: false,
   }),
   [selectedGameweek]
 );
@@ -9920,7 +9920,7 @@ const TABS = [
                 Weekly insight for {currentPlayer || "your account"}
               </div>
             </div>
-            {renderPredictionIqReport()}
+            {renderPredictionIqReport({ report: predictionIqSampleReport })}
           </section>
         )}
 
