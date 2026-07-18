@@ -2745,7 +2745,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
   const [showPredictionIqModal, setShowPredictionIqModal] = useState(false);
   const [predictionIqPendingAfterWinner, setPredictionIqPendingAfterWinner] = useState(false);
-  const [predictionIqPreview, setPredictionIqPreview] = useState(false);
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -5296,28 +5295,6 @@ const predictionIqReport = useMemo(() => {
   selectedGameweek,
 ]);
 
-const predictionIqSampleReport = useMemo(
-  () => ({
-    rating: 91,
-    exactScores: 7,
-    correctResults: 18,
-    currentWinningStreak: 3,
-    longestWinningStreak: 5,
-    closeMisses: 6,
-    rankChange: 42,
-    strongestTeam: "Liverpool",
-    weakestTeam: "Chelsea",
-    drawAccuracy: "4/6 draws",
-    boostEfficiency: "5/6 boosts scored (+24 pts)",
-    missedOpportunity: "Villa vs Spurs",
-    suggestion: "You consistently underestimate away teams. Lift away scores by one goal in tight fixtures.",
-    completedPredictions: 20,
-    gameweek: selectedGameweek || 12,
-    isPreview: false,
-  }),
-  [selectedGameweek]
-);
-
 // Winner popup for league tables (once per user per gameweek/matchday)
 useEffect(() => {
   if (!isLoggedIn || !currentUserId) return;
@@ -5392,7 +5369,6 @@ useEffect(() => {
   setWinnerModalType("gw");
   setShowWinnerModal(true);
   if (!isWorldCupMode) {
-    setPredictionIqPreview(false);
     setPredictionIqPendingAfterWinner(true);
   }
   localStorage.setItem(seenKey, "true");
@@ -5808,7 +5784,6 @@ const visibleSeasonWinnerHistory = useMemo(
   const renderPredictionIqReport = (options = {}) => {
     const compact = !!options.compact;
     const report = options.report || predictionIqReport;
-    const isPreview = !!options.preview || !!report.isPreview;
     const rankText =
       report.rankChange > 0
         ? `+${report.rankChange} ranking places`
@@ -5835,22 +5810,6 @@ const visibleSeasonWinnerHistory = useMemo(
 
     return (
       <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
-        {isPreview && (
-          <div
-            style={{
-              background: "rgba(245,158,11,0.12)",
-              border: `1px solid ${theme.warn}`,
-              borderRadius: 10,
-              padding: "8px 10px",
-              color: theme.text,
-              fontSize: 12,
-              fontWeight: 750,
-              textAlign: "center",
-            }}
-          >
-            Preview sample - not real player data
-          </div>
-        )}
         <div
           style={{
             display: "grid",
@@ -7402,11 +7361,7 @@ if (!isLoggedIn) {
                 ×
               </button>
             </div>
-            {renderPredictionIqReport({
-              compact: true,
-              report: predictionIqPreview ? predictionIqSampleReport : predictionIqReport,
-              preview: predictionIqPreview,
-            })}
+            {renderPredictionIqReport({ compact: true })}
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button
                 type="button"
@@ -9920,7 +9875,7 @@ const TABS = [
                 Weekly insight for {currentPlayer || "your account"}
               </div>
             </div>
-            {renderPredictionIqReport({ report: predictionIqSampleReport })}
+            {renderPredictionIqReport()}
           </section>
         )}
 
