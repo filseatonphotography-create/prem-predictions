@@ -198,6 +198,7 @@ const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
 const TOTALS_FILE = path.join(DATA_DIR, "totals.json");
 const SEASON_WINNERS_FILE = path.join(DATA_DIR, "seasonWinners.json");
+const BADGE_HISTORY_FILE = path.join(DATA_DIR, "badgeHistory.json");
 const LEGACY_MAP_FILE = path.join(DATA_DIR, "legacyMap.json");
 const COINS_FILE = path.join(DATA_DIR, "coins.json");
 const RESULTS_FILE = path.join(DATA_DIR, "results.json");
@@ -389,6 +390,9 @@ const saveTotals = (t) => saveJson(TOTALS_FILE, t);
 const loadSeasonWinners = () => loadJson(SEASON_WINNERS_FILE, []);
 const saveSeasonWinners = (records) =>
   saveJson(SEASON_WINNERS_FILE, Array.isArray(records) ? records : []);
+const loadBadgeHistory = () => loadJson(BADGE_HISTORY_FILE, []);
+const saveBadgeHistory = (records) =>
+  saveJson(BADGE_HISTORY_FILE, Array.isArray(records) ? records : []);
 
 function isValidSeasonWinnerRecord(record) {
   if (!record || typeof record !== "object") return false;
@@ -401,6 +405,41 @@ function isValidSeasonWinnerRecord(record) {
     ? Math.floor(startYear / 100) * 100 + Number(match[2])
     : Number(match[2]);
   return endYear === startYear + 1;
+}
+
+function sanitizeBadgeHistoryRecord(record) {
+  if (!record || typeof record !== "object" || !record.id) return null;
+  const safeRecord = {
+    id: String(record.id),
+    mode: String(record.mode || ""),
+    modeLabel: String(record.modeLabel || ""),
+    seasonLabel: String(record.seasonLabel || ""),
+    player: String(record.player || ""),
+    userId: record.userId ? String(record.userId) : "",
+    playedSeason: !!record.playedSeason,
+    founder: !!record.founder,
+    globalWinnerCount: Math.max(0, Number(record.globalWinnerCount) || 0),
+    currentWeeklyWinStreak: Math.max(0, Number(record.currentWeeklyWinStreak) || 0),
+    longestWeeklyWinStreak: Math.max(0, Number(record.longestWeeklyWinStreak) || 0),
+    exactScores: Math.max(0, Number(record.exactScores) || 0),
+    correctCaptains: Math.max(0, Number(record.correctCaptains) || 0),
+    earnedBadgeIds: Array.isArray(record.earnedBadgeIds)
+      ? Array.from(
+          new Set(
+            record.earnedBadgeIds
+              .map((badgeId) => String(badgeId || "").trim())
+              .filter(Boolean)
+          )
+        )
+      : [],
+    updatedAt: String(record.updatedAt || new Date().toISOString()),
+  };
+
+  if (!safeRecord.mode || !safeRecord.seasonLabel || (!safeRecord.player && !safeRecord.userId)) {
+    return null;
+  }
+
+  return safeRecord;
 }
 
 // Legacy map (legacyName -> userId)
@@ -2429,6 +2468,75 @@ app.post("/api/history/season-winners", authOptional, (req, res) => {
     return res.json(list);
   } catch (err) {
     console.error("season winners save error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.get("/api/history/badges", (req, res) => {
+  try {
+    const records = loadBadgeHistory();
+    const list = Array.isArray(records) ? records : [];
+    const cleanRecords = list
+      .map(sanitizeBadgeHistoryRecord)
+      .filter(Boolean);
+    if (cleanRecords.length !== list.length) {
+      saveBadgeHistory(cleanRecords);
+    }
+    return res.json(cleanRecords);
+  } catch (err) {
+    console.error("badge history get error", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/history/badges", authMiddleware, (req, res) => {
+  try {
+    const safeRecord = sanitizeBadgeHistoryRecord(req.body?.record);
+    if (!safeRecord) {
+      return res.status(400).json({ error: "Invalid badge history record" });
+    }
+
+    if (req.user?.id && safeRecord.userId && String(req.user.id) !== safeRecord.userId) {
+      return res.status(403).json({ error: "Cannot save another user's badge history" });
+    }
+
+    const records = loadBadgeHistory();
+    const list = Array.isArray(records)
+      ? records.map(sanitizeBadgeHistoryRecord).filter(Boolean)
+      : [];
+    const existingIndex = list.findIndex((item) => item?.id === safeRecord.id);
+
+    if (existingIndex === -1) {
+      list.unshift(safeRecord);
+    } else {
+      const existing = list[existingIndex];
+      list[existingIndex] = {
+        ...existing,
+        ...safeRecord,
+        playedSeason: !!existing.playedSeason || !!safeRecord.playedSeason,
+        founder: !!existing.founder || !!safeRecord.founder,
+        globalWinnerCount: Math.max(existing.globalWinnerCount || 0, safeRecord.globalWinnerCount),
+        currentWeeklyWinStreak: Math.max(
+          existing.currentWeeklyWinStreak || 0,
+          safeRecord.currentWeeklyWinStreak
+        ),
+        longestWeeklyWinStreak: Math.max(
+          existing.longestWeeklyWinStreak || 0,
+          safeRecord.longestWeeklyWinStreak
+        ),
+        exactScores: Math.max(existing.exactScores || 0, safeRecord.exactScores),
+        correctCaptains: Math.max(existing.correctCaptains || 0, safeRecord.correctCaptains),
+        earnedBadgeIds: Array.from(
+          new Set([...(existing.earnedBadgeIds || []), ...(safeRecord.earnedBadgeIds || [])])
+        ),
+        updatedAt: safeRecord.updatedAt || existing.updatedAt,
+      };
+    }
+
+    saveBadgeHistory(list);
+    return res.json(list);
+  } catch (err) {
+    console.error("badge history save error", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

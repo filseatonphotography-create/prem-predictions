@@ -77,6 +77,7 @@ const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
 const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
 const SELECTED_MINI_LEAGUE_STORAGE_KEY = "prediction_selected_mini_league_v1";
 const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
+const BADGE_HISTORY_STORAGE_KEY = "prediction_badge_history_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
 const PREMIER_MODE = "premierLeague";
@@ -94,6 +95,57 @@ const PREMIER_SEASON_WINNER_RECORD = {
   completedAt: "2026-05-24T15:00:00.000Z",
 };
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
+const ORIGINALS_LEAGUE_PLAYERS = new Set(PLAYERS);
+const BADGE_DEFINITIONS = [
+  {
+    id: "founder",
+    label: "Founder",
+    icon: "👑",
+    requirement: "Be one of the players in the Originals league.",
+  },
+  {
+    id: "addict",
+    label: "Addict",
+    icon: "⚽",
+    requirement: "Play more than 2 Premier League seasons.",
+  },
+  {
+    id: "veteran",
+    label: "Veteran",
+    icon: "🛡️",
+    requirement: "Play more than 5 Premier League seasons.",
+  },
+  {
+    id: "globalWinner",
+    label: "Global League Winner",
+    icon: "★",
+    requirement: "Win 1 or more global Premier League seasons.",
+  },
+  {
+    id: "streaker",
+    label: "Streaker",
+    icon: "🔥",
+    requirement: "Finish top of your mini-league for 3 gameweeks in a row.",
+  },
+  {
+    id: "superStreaker",
+    label: "Super Streaker",
+    icon: "⚡",
+    requirement: "Finish top of your mini-league for 5 or more gameweeks in a row.",
+  },
+  {
+    id: "sharpShooter",
+    label: "Sharp Shooter",
+    icon: "🎯",
+    requirement: "Land 5 exact scores in completed Premier League predictions.",
+  },
+  {
+    id: "captainClever",
+    label: "Captain Clever",
+    icon: "©",
+    requirement: "Make 3 correct captain selections.",
+  },
+];
 const TEAM_BADGES = {
   Arsenal: "/badges/Arsenal.png",
   "Aston Villa": "/badges/aston_ville.png",
@@ -243,6 +295,42 @@ function mergeSeasonWinnerRecords(localRecords = [], remoteRecords = []) {
   return Array.from(byId.values()).sort((a, b) => {
     const aTime = Date.parse(a.completedAt);
     const bTime = Date.parse(b.completedAt);
+    if (Number.isFinite(aTime) && Number.isFinite(bTime)) return bTime - aTime;
+    return String(b.seasonLabel || "").localeCompare(String(a.seasonLabel || ""));
+  });
+}
+
+function mergeBadgeHistoryRecords(localRecords = [], remoteRecords = []) {
+  const byId = new Map();
+  [...remoteRecords, ...localRecords].forEach((record) => {
+    if (!record?.id) return;
+    const id = String(record.id);
+    const existing = byId.get(id) || {};
+    byId.set(id, {
+      ...existing,
+      ...record,
+      playedSeason: !!existing.playedSeason || !!record.playedSeason,
+      founder: !!existing.founder || !!record.founder,
+      globalWinnerCount: Math.max(existing.globalWinnerCount || 0, record.globalWinnerCount || 0),
+      currentWeeklyWinStreak: Math.max(
+        existing.currentWeeklyWinStreak || 0,
+        record.currentWeeklyWinStreak || 0
+      ),
+      longestWeeklyWinStreak: Math.max(
+        existing.longestWeeklyWinStreak || 0,
+        record.longestWeeklyWinStreak || 0
+      ),
+      exactScores: Math.max(existing.exactScores || 0, record.exactScores || 0),
+      correctCaptains: Math.max(existing.correctCaptains || 0, record.correctCaptains || 0),
+      earnedBadgeIds: Array.from(
+        new Set([...(existing.earnedBadgeIds || []), ...(record.earnedBadgeIds || [])])
+      ),
+      updatedAt: record.updatedAt || existing.updatedAt,
+    });
+  });
+  return Array.from(byId.values()).sort((a, b) => {
+    const aTime = Date.parse(a.updatedAt);
+    const bTime = Date.parse(b.updatedAt);
     if (Number.isFinite(aTime) && Number.isFinite(bTime)) return bTime - aTime;
     return String(b.seasonLabel || "").localeCompare(String(a.seasonLabel || ""));
   });
@@ -928,6 +1016,34 @@ async function apiSaveSeasonWinner(record, token = "") {
     const headers = { "Content-Type": "application/json" };
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${BACKEND_BASE}/api/history/season-winners`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ record }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+async function apiGetBadgeHistory() {
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/history/badges`);
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => []);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function apiSaveBadgeHistoryRecord(record, token = "") {
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${BACKEND_BASE}/api/history/badges`, {
       method: "POST",
       headers,
       body: JSON.stringify({ record }),
@@ -2544,6 +2660,15 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       return [PREMIER_SEASON_WINNER_RECORD];
     }
   });
+  const [badgeHistory, setBadgeHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem(BADGE_HISTORY_STORAGE_KEY);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return mergeBadgeHistoryRecords(Array.isArray(parsed) ? parsed : [], []);
+    } catch {
+      return [];
+    }
+  });
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showLeaguesMenu, setShowLeaguesMenu] = useState(false);
@@ -2599,6 +2724,22 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   useEffect(() => {
     localStorage.setItem(SEASON_WINNERS_STORAGE_KEY, JSON.stringify(seasonWinnerHistory));
   }, [seasonWinnerHistory]);
+
+  useEffect(() => {
+    localStorage.setItem(BADGE_HISTORY_STORAGE_KEY, JSON.stringify(badgeHistory));
+  }, [badgeHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const remoteRecords = await apiGetBadgeHistory();
+      if (cancelled || !remoteRecords.length) return;
+      setBadgeHistory((prev) => mergeBadgeHistoryRecords(prev, remoteRecords));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2745,6 +2886,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
   const [showPredictionIqModal, setShowPredictionIqModal] = useState(false);
   const [predictionIqPendingAfterWinner, setPredictionIqPendingAfterWinner] = useState(false);
+  const [predictionIqDemo, setPredictionIqDemo] = useState(false);
+  const badgeHistorySaveSignatureRef = useRef("");
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -5070,7 +5213,13 @@ const predictionIqReport = useMemo(() => {
     strongestTeam: "Not enough data",
     weakestTeam: "Not enough data",
     drawAccuracy: "No draws yet",
-    boostEfficiency: "No boosts used",
+    resultAccuracyBreakdown: "No results yet",
+    biasDetector: "Not enough data",
+    bestPrediction: "Not enough data",
+    captainAccuracy: "No captains yet",
+    captainPoints: "0 points",
+    mostCaptainedTeam: "Not enough data",
+    biggestCaptainMiss: "Not enough data",
     missedOpportunity: "Not enough data",
     suggestion: "Make a few more predictions to unlock a sharper suggestion.",
     completedPredictions: 0,
@@ -5103,12 +5252,16 @@ const predictionIqReport = useMemo(() => {
   let totalPoints = 0;
   let actualDraws = 0;
   let correctDraws = 0;
-  let boostedPicks = 0;
-  let successfulBoosts = 0;
-  let boostPointsDelta = 0;
+  const actualSideStats = {
+    H: { total: 0, correct: 0 },
+    D: { total: 0, correct: 0 },
+    A: { total: 0, correct: 0 },
+  };
+  const predictedSideCounts = { H: 0, D: 0, A: 0 };
   let awayGoalUnderestimates = 0;
   let awayResultUnderestimates = 0;
   let missedOpportunity = null;
+  let bestPrediction = null;
   const teamStats = {};
 
   completedFixtures.forEach((fixture) => {
@@ -5129,6 +5282,10 @@ const predictionIqReport = useMemo(() => {
     const actualResult = getResult(realHome, realAway);
     const isCorrectResult = predictedResult === actualResult;
 
+    predictedSideCounts[predictedResult] = (predictedSideCounts[predictedResult] || 0) + 1;
+    actualSideStats[actualResult].total += 1;
+    if (isCorrectResult) actualSideStats[actualResult].correct += 1;
+
     if (predHome === realHome && predAway === realAway) exactScores += 1;
     else if (Math.abs(predHome - realHome) + Math.abs(predAway - realAway) === 1) closeMisses += 1;
     if (isCorrectResult) {
@@ -5137,11 +5294,6 @@ const predictionIqReport = useMemo(() => {
     if (actualResult === "D") {
       actualDraws += 1;
       if (predictedResult === "D") correctDraws += 1;
-    }
-    if (pred.isDouble || pred.isTriple) {
-      boostedPicks += 1;
-      if (basePoints > 0) successfulBoosts += 1;
-      boostPointsDelta += points - basePoints;
     }
     if (predAway < realAway) awayGoalUnderestimates += 1;
     if (predictedResult !== "A" && actualResult === "A") {
@@ -5156,6 +5308,12 @@ const predictionIqReport = useMemo(() => {
 
     const multiplier = pred.isTriple ? 3 : pred.isDouble ? 2 : 1;
     const missedScore = (7 * multiplier) - points;
+    if (points > 0 && (!bestPrediction || points > bestPrediction.points)) {
+      bestPrediction = {
+        label: `${fixture.homeTeam} ${predHome}-${predAway} ${fixture.awayTeam} (${points} pts)`,
+        points,
+      };
+    }
     if (points === 0 && (!missedOpportunity || missedScore > missedOpportunity.missedScore)) {
       missedOpportunity = {
         label: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
@@ -5181,23 +5339,12 @@ const predictionIqReport = useMemo(() => {
     }
     return gw === selectedGameweek ? currentGwPoints : 0;
   };
-  const currentScore =
-    Number(gwTotals[currentPredictionKey]) ||
-    Number(gwTotals[currentUserId]) ||
-    Number(gwTotals[currentPlayer]) ||
-    currentGwPoints;
-  const previousTotals = {};
-  if (computedWeeklyTotals) {
-    activeGameweeks
-      .filter((gw) => gw < selectedGameweek)
-      .forEach((gw) => {
-        Object.entries(computedWeeklyTotals[gw] || {}).forEach(([key, value]) => {
-          previousTotals[key] = (previousTotals[key] || 0) + (Number(value) || 0);
-        });
-      });
-  }
-  const rankEntries = Object.entries(gwTotals).filter(([, score]) => Number(score) > 0);
-  const previousRankEntries = rankEntries.map(([key]) => [key, previousTotals[key] || 0]);
+  const completedGameweeks = activeGameweeks
+    .filter((gw) => gw <= selectedGameweek)
+    .filter((gw) => {
+      const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
+      return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+    });
   const rankOf = (entries, key, fallbackScore = 0) => {
     const sorted = [...entries];
     if (!sorted.some(([entryKey]) => String(entryKey) === String(key))) {
@@ -5207,20 +5354,106 @@ const predictionIqReport = useMemo(() => {
     const index = sorted.findIndex(([entryKey]) => String(entryKey) === String(key));
     return index === -1 ? 0 : index + 1;
   };
-  const userRankKey = gwTotals[currentPredictionKey] !== undefined ? currentPredictionKey : currentUserId;
-  const previousRank = rankOf(previousRankEntries, userRankKey, 0);
-  const currentRank = rankOf(
-    rankEntries.map(([key, score]) => [key, (previousTotals[key] || 0) + (Number(score) || 0)]),
-    userRankKey,
-    currentScore
-  );
-  const rankChange = previousRank && currentRank ? previousRank - currentRank : 0;
-  const completedGameweeks = activeGameweeks
-    .filter((gw) => gw <= selectedGameweek)
-    .filter((gw) => {
-      const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
-      return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+  const globalUsersForRank = (dedupedGlobalUsers || []).length
+    ? dedupedGlobalUsers
+    : (globalLeaderboard || []).map((row) => ({
+        userId: row.userId || row.player,
+        username: row.player,
+      }));
+  const scoreGlobalUserToGameweek = (user, maxGameweek) => {
+    const userId = String(user?.userId || "");
+    const username = user?.username || user?.player || "";
+    const preds =
+      String(userId) === String(currentUserId || "") || username === currentPlayer
+        ? currentPredictions
+        : (globalPredictionsByUserId[userId] || predictions[userId] || predictions[username] || {});
+    let score = 0;
+    activeFixtures.forEach((fixture) => {
+      if (fixture.gameweek > maxGameweek) return;
+      const res = results[fixture.id];
+      if (!hasValidResultScore(res)) return;
+      const pred =
+        preds[String(fixture.id)] !== undefined
+          ? preds[String(fixture.id)]
+          : preds[fixture.id];
+      if (!hasPredictionScore(pred)) return;
+      score += getTotalPoints(pred, res);
     });
+    return score;
+  };
+  const globalCurrentEntries = globalUsersForRank
+    .map((user) => [user.userId || user.username, scoreGlobalUserToGameweek(user, selectedGameweek)])
+    .filter(([, score]) => Number(score) > 0);
+  const globalPreviousEntries = globalUsersForRank
+    .map((user) => [user.userId || user.username, scoreGlobalUserToGameweek(user, selectedGameweek - 1)])
+    .filter(([, score]) => Number(score) > 0);
+  const globalUser = globalUsersForRank.find(
+    (user) =>
+      String(user?.userId || "") === String(currentUserId || "") ||
+      String(user?.username || user?.player || "") === String(currentPlayer || "")
+  );
+  const globalUserKey = globalUser?.userId || currentUserId || currentPlayer;
+  const globalCurrentScore = globalUser
+    ? scoreGlobalUserToGameweek(globalUser, selectedGameweek)
+    : currentGwPoints;
+  const globalPreviousScore = globalUser
+    ? scoreGlobalUserToGameweek(globalUser, selectedGameweek - 1)
+    : 0;
+  const previousRank = globalUserKey
+    ? rankOf(globalPreviousEntries, globalUserKey, globalPreviousScore)
+    : 0;
+  const currentRank = globalUserKey
+    ? rankOf(globalCurrentEntries, globalUserKey, globalCurrentScore)
+    : 0;
+  const rankChange = previousRank && currentRank ? previousRank - currentRank : 0;
+
+  let captainSelections = 0;
+  let correctCaptains = 0;
+  let captainPointsTotal = 0;
+  let biggestCaptainMiss = null;
+  const captainedTeamCounts = {};
+  completedGameweeks.forEach((gw) => {
+    const captainFixture = activeFixtures.find((fixture) => {
+      if (fixture.gameweek !== gw) return false;
+      const pred = getPred(fixture.id);
+      return hasPredictionScore(pred) && !!pred.isDouble && hasValidResultScore(results[fixture.id]);
+    });
+    if (!captainFixture) return;
+    const pred = getPred(captainFixture.id);
+    const result = results[captainFixture.id];
+    const predHome = Number(pred.homeGoals);
+    const predAway = Number(pred.awayGoals);
+    const realHome = Number(result.homeGoals);
+    const realAway = Number(result.awayGoals);
+    const predictedResult = getResult(predHome, predAway);
+    const actualResult = getResult(realHome, realAway);
+    const basePoints = getBasePoints(predHome, predAway, realHome, realAway);
+    const captainPoints = getTotalPoints(pred, result);
+    const backedTeam =
+      predictedResult === "H"
+        ? captainFixture.homeTeam
+        : predictedResult === "A"
+        ? captainFixture.awayTeam
+        : "Draw";
+
+    captainSelections += 1;
+    captainPointsTotal += captainPoints;
+    captainedTeamCounts[backedTeam] = (captainedTeamCounts[backedTeam] || 0) + 1;
+    if (predictedResult === actualResult) correctCaptains += 1;
+
+    const missedCaptainPoints = 14 - captainPoints;
+    if (
+      basePoints === 0 &&
+      (!biggestCaptainMiss || missedCaptainPoints > biggestCaptainMiss.missedCaptainPoints)
+    ) {
+      biggestCaptainMiss = {
+        label: `${backedTeam} in ${captainFixture.homeTeam} vs ${captainFixture.awayTeam}`,
+        missedCaptainPoints,
+      };
+    }
+  });
+  const mostCaptainedTeam = Object.entries(captainedTeamCounts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
   const weeklyWinnerFlags = completedGameweeks.map((gw) => {
     const totals = computedWeeklyTotals?.[gw] || {};
     const scores = Object.values(totals).map((score) => Number(score) || 0);
@@ -5253,6 +5486,29 @@ const predictionIqReport = useMemo(() => {
   );
 
   let suggestion = "Your result reads are balanced this week. Keep watching team news and fixture context.";
+  let biasDetector = "Balanced prediction mix";
+  if (possiblePredictions >= 3) {
+    const homeShare = predictedSideCounts.H / possiblePredictions;
+    const drawShare = predictedSideCounts.D / possiblePredictions;
+    const awayShare = predictedSideCounts.A / possiblePredictions;
+    if (homeShare >= 0.6) {
+      biasDetector = "You lean heavily towards home wins.";
+    } else if (awayShare >= 0.5) {
+      biasDetector = "You are unusually willing to back away teams.";
+    } else if (drawShare <= 0.1 && actualDraws > 0) {
+      biasDetector = "You are avoiding draws.";
+    } else if (awayGoalUnderestimates >= Math.ceil(possiblePredictions / 2)) {
+      biasDetector = "You tend to underrate away goals.";
+    }
+  }
+  const resultAccuracyBreakdown = ["H", "D", "A"]
+    .map((side) => {
+      const label = side === "H" ? "Home" : side === "D" ? "Draw" : "Away";
+      const stat = actualSideStats[side];
+      return `${label} ${stat.correct}/${stat.total}`;
+    })
+    .join(" • ");
+
   if (awayResultUnderestimates >= 2 || awayGoalUnderestimates >= Math.ceil(possiblePredictions / 2)) {
     suggestion = "You consistently underestimate away teams.";
   } else if (exactScores === 0 && correctResults > 0) {
@@ -5272,9 +5528,17 @@ const predictionIqReport = useMemo(() => {
     strongestTeam: teamRows[0]?.team || "Not enough data",
     weakestTeam: teamRows[teamRows.length - 1]?.team || "Not enough data",
     drawAccuracy: actualDraws ? `${correctDraws}/${actualDraws} draws` : "No draws yet",
-    boostEfficiency: boostedPicks
-      ? `${successfulBoosts}/${boostedPicks} boosts scored (${boostPointsDelta >= 0 ? "+" : ""}${boostPointsDelta} pts)`
-      : "No boosts used",
+    resultAccuracyBreakdown,
+    biasDetector,
+    bestPrediction: bestPrediction?.label || "No scoring prediction yet",
+    captainAccuracy: captainSelections
+      ? `${correctCaptains}/${captainSelections} selections`
+      : "No captains yet",
+    captainPoints: `${captainPointsTotal} points`,
+    mostCaptainedTeam: mostCaptainedTeam
+      ? `${mostCaptainedTeam[0]} (${mostCaptainedTeam[1]})`
+      : "Not enough data",
+    biggestCaptainMiss: biggestCaptainMiss?.label || "No major miss",
     missedOpportunity: missedOpportunity?.label || "No major miss",
     suggestion,
     completedPredictions: possiblePredictions,
@@ -5288,12 +5552,42 @@ const predictionIqReport = useMemo(() => {
   currentPredictionKey,
   currentPlayer,
   currentUserId,
+  dedupedGlobalUsers,
   gameMode,
+  globalLeaderboard,
+  globalPredictionsByUserId,
   isWorldCupMode,
   predictions,
   results,
   selectedGameweek,
 ]);
+
+const predictionIqDemoReport = useMemo(
+  () => ({
+    rating: 84,
+    exactScores: 3,
+    correctResults: 7,
+    currentWinningStreak: 2,
+    longestWinningStreak: 3,
+    closeMisses: 4,
+    rankChange: 12,
+    strongestTeam: "Liverpool",
+    weakestTeam: "Chelsea",
+    drawAccuracy: "1/2 draws",
+    resultAccuracyBreakdown: "Home 4/5 • Draw 1/2 • Away 2/3",
+    biasDetector: "You lean slightly towards home wins.",
+    bestPrediction: "Newcastle 2-1 Spurs (7 pts)",
+    captainAccuracy: "3/5 selections",
+    captainPoints: "34 points",
+    mostCaptainedTeam: "Liverpool (2)",
+    biggestCaptainMiss: "Chelsea in Chelsea vs Brighton",
+    missedOpportunity: "Villa vs Spurs",
+    suggestion: "Your captain picks are strong, but you leave points behind by underrating away goals.",
+    completedPredictions: 10,
+    gameweek: selectedGameweek || 5,
+  }),
+  [selectedGameweek]
+);
 
 // Winner popup for league tables (once per user per gameweek/matchday)
 useEffect(() => {
@@ -5707,6 +6001,345 @@ const visibleSeasonWinnerHistory = useMemo(
   [seasonWinnerHistory, gameMode]
 );
 
+const badgeStatsByKey = useMemo(() => {
+  const stats = {};
+  const ensureStats = (key, player = "", userId = "") => {
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey) return null;
+    if (!stats[cleanKey]) {
+      stats[cleanKey] = {
+        player,
+        userId,
+        founder: false,
+        seasonsPlayed: 0,
+        globalWinnerCount: 0,
+        currentWeeklyWinStreak: 0,
+        longestWeeklyWinStreak: 0,
+        exactScores: 0,
+        correctCaptains: 0,
+        earnedBadgeIds: [],
+      };
+    }
+    if (player && !stats[cleanKey].player) stats[cleanKey].player = player;
+    if (userId && !stats[cleanKey].userId) stats[cleanKey].userId = userId;
+    return stats[cleanKey];
+  };
+  const mergeStats = (targetKey, sourceKey) => {
+    const target = ensureStats(targetKey);
+    const source = stats[String(sourceKey || "").trim()];
+    if (!target || !source) return;
+    target.founder = target.founder || source.founder;
+    target.seasonsPlayed = Math.max(target.seasonsPlayed, source.seasonsPlayed);
+    target.globalWinnerCount = Math.max(target.globalWinnerCount, source.globalWinnerCount);
+    target.currentWeeklyWinStreak = Math.max(target.currentWeeklyWinStreak, source.currentWeeklyWinStreak);
+    target.longestWeeklyWinStreak = Math.max(target.longestWeeklyWinStreak, source.longestWeeklyWinStreak);
+    target.exactScores = Math.max(target.exactScores, source.exactScores);
+    target.correctCaptains = Math.max(target.correctCaptains, source.correctCaptains);
+    target.earnedBadgeIds = Array.from(
+      new Set([...(target.earnedBadgeIds || []), ...(source.earnedBadgeIds || [])])
+    );
+  };
+
+  const knownPlayers = [
+    ...PLAYERS.map((player) => ({ player, userId: "" })),
+    ...leaderboard.map((row) => ({ player: row.player, userId: row.userId || "" })),
+    ...globalLeaderboard.map((row) => ({ player: row.player, userId: row.userId || "" })),
+    ...leagueHistoryUsers.map((user) => ({ player: user.username, userId: user.userId || "" })),
+    ...dedupedGlobalUsers.map((user) => ({ player: user.username, userId: user.userId || "" })),
+  ];
+
+  knownPlayers.forEach(({ player, userId }) => {
+    const name = String(player || "").trim();
+    const id = String(userId || "").trim();
+    const nameStats = ensureStats(name, name, id);
+    if (nameStats && ORIGINALS_LEAGUE_PLAYERS.has(name)) {
+      nameStats.founder = true;
+    }
+    if (id) {
+      const idStats = ensureStats(id, name, id);
+      idStats.founder = idStats.founder || ORIGINALS_LEAGUE_PLAYERS.has(name);
+      mergeStats(id, name);
+      mergeStats(name, id);
+    }
+  });
+
+  (seasonWinnerHistory || [])
+    .filter(isValidSeasonWinnerRecord)
+    .filter((record) => getModeKey(record.mode) === "premier")
+    .forEach((record) => {
+      (record.winners || []).forEach((winner) => {
+        const name = String(winner?.player || "").trim();
+        const id = String(winner?.userId || "").trim();
+        const keys = [id, name].filter(Boolean);
+        keys.forEach((key) => {
+          const row = ensureStats(key, name, id);
+          if (row) row.globalWinnerCount += 1;
+        });
+      });
+    });
+
+  const playedSeasonsByKey = {};
+  const addPlayedSeason = (key, seasonLabel) => {
+    const cleanKey = String(key || "").trim();
+    const cleanSeason = String(seasonLabel || "").trim();
+    if (!cleanKey || !cleanSeason) return;
+    if (!playedSeasonsByKey[cleanKey]) playedSeasonsByKey[cleanKey] = new Set();
+    playedSeasonsByKey[cleanKey].add(cleanSeason);
+  };
+  (badgeHistory || [])
+    .filter((record) => record && getModeKey(record.mode) === "premier")
+    .forEach((record) => {
+      const name = String(record.player || "").trim();
+      const id = String(record.userId || "").trim();
+      const keys = [id, name].filter(Boolean);
+      keys.forEach((key) => {
+        const row = ensureStats(key, name, id);
+        if (!row) return;
+        row.founder = row.founder || !!record.founder;
+        row.globalWinnerCount = Math.max(row.globalWinnerCount, Number(record.globalWinnerCount) || 0);
+        row.currentWeeklyWinStreak = Math.max(
+          row.currentWeeklyWinStreak,
+          Number(record.currentWeeklyWinStreak) || 0
+        );
+        row.longestWeeklyWinStreak = Math.max(
+          row.longestWeeklyWinStreak,
+          Number(record.longestWeeklyWinStreak) || 0
+        );
+        row.exactScores = Math.max(row.exactScores, Number(record.exactScores) || 0);
+        row.correctCaptains = Math.max(row.correctCaptains, Number(record.correctCaptains) || 0);
+        row.earnedBadgeIds = Array.from(
+          new Set([...(row.earnedBadgeIds || []), ...((record.earnedBadgeIds || []).filter(Boolean))])
+        );
+        if (record.playedSeason) addPlayedSeason(key, record.seasonLabel);
+      });
+    });
+
+  const streaks = {};
+  [...historicalScores]
+    .sort((a, b) => (Number(a.gameweek) || 0) - (Number(b.gameweek) || 0))
+    .forEach((row) => {
+      const entries = Object.entries(row)
+        .filter(([key]) => key !== "gameweek")
+        .map(([key, value]) => [key, Number(value) || 0])
+        .filter(([, value]) => value > 0);
+      if (!entries.length) return;
+      const topScore = Math.max(...entries.map(([, value]) => value));
+      const winners = new Set(entries.filter(([, value]) => value === topScore).map(([key]) => key));
+      Object.keys(streaks).forEach((key) => {
+        if (!winners.has(key)) streaks[key].current = 0;
+      });
+      winners.forEach((key) => {
+        if (!streaks[key]) streaks[key] = { current: 0, longest: 0 };
+        streaks[key].current += 1;
+        streaks[key].longest = Math.max(streaks[key].longest, streaks[key].current);
+      });
+    });
+
+  Object.entries(streaks).forEach(([key, streak]) => {
+    const row = ensureStats(key);
+    if (!row) return;
+    row.currentWeeklyWinStreak = streak.current;
+    row.longestWeeklyWinStreak = streak.longest;
+  });
+
+  const currentStatsKeys = [currentUserId, currentPlayer].filter(Boolean);
+  currentStatsKeys.forEach((key) => {
+    const row = ensureStats(key, currentPlayer, currentUserId);
+    if (!row) return;
+    row.seasonsPlayed = predictionIqReport.completedPredictions > 0 ? 1 : 0;
+    row.exactScores = predictionIqReport.exactScores || 0;
+    const captainMatch = String(predictionIqReport.captainAccuracy || "").match(/^(\d+)/);
+    row.correctCaptains = captainMatch ? Number(captainMatch[1]) || 0 : 0;
+    row.currentWeeklyWinStreak = Math.max(
+      row.currentWeeklyWinStreak,
+      predictionIqReport.currentWinningStreak || 0
+    );
+    row.longestWeeklyWinStreak = Math.max(
+      row.longestWeeklyWinStreak,
+      predictionIqReport.longestWinningStreak || 0
+    );
+  });
+  if (currentUserId && currentPlayer) {
+    mergeStats(currentUserId, currentPlayer);
+    mergeStats(currentPlayer, currentUserId);
+  }
+
+  Object.entries(stats).forEach(([key, row]) => {
+    row.seasonsPlayed = Math.max(
+      row.seasonsPlayed || 0,
+      playedSeasonsByKey[key]?.size || 0
+    );
+    if (!row.seasonsPlayed && (row.founder || row.globalWinnerCount > 0)) {
+      row.seasonsPlayed = 1;
+    }
+    stats[key] = row;
+  });
+
+  return stats;
+}, [
+  seasonWinnerHistory,
+  historicalScores,
+  leaderboard,
+  globalLeaderboard,
+  leagueHistoryUsers,
+  dedupedGlobalUsers,
+  currentUserId,
+  currentPlayer,
+  predictionIqReport,
+  badgeHistory,
+]);
+
+const getPlayerBadgeStats = (row = {}) => {
+  const id = String(row.userId || "").trim();
+  const name = String(row.player || row.username || "").trim();
+  return (
+    badgeStatsByKey[id] ||
+    badgeStatsByKey[name] || {
+      player: name,
+      userId: id,
+      founder: ORIGINALS_LEAGUE_PLAYERS.has(name),
+      seasonsPlayed: 0,
+      globalWinnerCount: 0,
+      currentWeeklyWinStreak: 0,
+      longestWeeklyWinStreak: 0,
+      exactScores: 0,
+      correctCaptains: 0,
+      earnedBadgeIds: [],
+    }
+  );
+};
+
+const getEarnedBadges = (badgeStats = {}) =>
+  BADGE_DEFINITIONS.filter((badge) => {
+    if ((badgeStats.earnedBadgeIds || []).includes(badge.id)) return true;
+    if (badge.id === "founder") return !!badgeStats.founder;
+    if (badge.id === "addict") return (badgeStats.seasonsPlayed || 0) > 2;
+    if (badge.id === "veteran") return (badgeStats.seasonsPlayed || 0) > 5;
+    if (badge.id === "globalWinner") return (badgeStats.globalWinnerCount || 0) > 0;
+    if (badge.id === "streaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 3;
+    if (badge.id === "superStreaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 5;
+    if (badge.id === "sharpShooter") return (badgeStats.exactScores || 0) >= 5;
+    if (badge.id === "captainClever") return (badgeStats.correctCaptains || 0) >= 3;
+    return false;
+  });
+
+useEffect(() => {
+  if (isWorldCupMode || (!currentUserId && !currentPlayer)) return;
+
+  const liveStats = getPlayerBadgeStats({
+    player: currentPlayer,
+    userId: currentUserId,
+  });
+  if (!liveStats) return;
+
+  const earnedBadgeIds = getEarnedBadges(liveStats).map((badge) => badge.id);
+  const playedSeason =
+    (predictionIqReport.completedPredictions || 0) > 0 ||
+    (currentGwPoints || 0) > 0 ||
+    earnedBadgeIds.length > 0;
+  if (!playedSeason && !earnedBadgeIds.length) return;
+
+  const seasonLabel = getSeasonLabelFromFixtures(activeFixtures) || "Current season";
+  const userKey = String(currentUserId || currentPlayer || "").trim();
+  if (!userKey) return;
+
+  const nextRecord = {
+    id: `premier-${userKey}-${seasonLabel}`,
+    mode: PREMIER_MODE,
+    modeLabel: "Premier League",
+    seasonLabel,
+    player: currentPlayer || liveStats.player || "",
+    userId: currentUserId || liveStats.userId || "",
+    playedSeason,
+    founder: !!liveStats.founder,
+    globalWinnerCount: liveStats.globalWinnerCount || 0,
+    currentWeeklyWinStreak: liveStats.currentWeeklyWinStreak || 0,
+    longestWeeklyWinStreak: liveStats.longestWeeklyWinStreak || 0,
+    exactScores: liveStats.exactScores || 0,
+    correctCaptains: liveStats.correctCaptains || 0,
+    earnedBadgeIds,
+    updatedAt: new Date().toISOString(),
+  };
+  const saveSignature = JSON.stringify({
+    ...nextRecord,
+    updatedAt: "",
+    earnedBadgeIds: [...earnedBadgeIds].sort(),
+  });
+  if (badgeHistorySaveSignatureRef.current === saveSignature) return;
+  badgeHistorySaveSignatureRef.current = saveSignature;
+
+  setBadgeHistory((prev) => {
+    const current = Array.isArray(prev) ? prev : [];
+    const existingIndex = current.findIndex((record) => record?.id === nextRecord.id);
+    if (existingIndex === -1) return [nextRecord, ...current];
+
+    const existing = current[existingIndex] || {};
+    const merged = {
+      ...existing,
+      ...nextRecord,
+      globalWinnerCount: Math.max(existing.globalWinnerCount || 0, nextRecord.globalWinnerCount),
+      currentWeeklyWinStreak: Math.max(
+        existing.currentWeeklyWinStreak || 0,
+        nextRecord.currentWeeklyWinStreak
+      ),
+      longestWeeklyWinStreak: Math.max(
+        existing.longestWeeklyWinStreak || 0,
+        nextRecord.longestWeeklyWinStreak
+      ),
+      exactScores: Math.max(existing.exactScores || 0, nextRecord.exactScores),
+      correctCaptains: Math.max(existing.correctCaptains || 0, nextRecord.correctCaptains),
+      earnedBadgeIds: Array.from(
+        new Set([...(existing.earnedBadgeIds || []), ...nextRecord.earnedBadgeIds])
+      ),
+      updatedAt: nextRecord.updatedAt,
+    };
+
+    const existingBadgeIds = [...(existing.earnedBadgeIds || [])].sort().join("|");
+    const mergedBadgeIds = [...(merged.earnedBadgeIds || [])].sort().join("|");
+    const unchanged =
+      String(existing.player || "") === String(merged.player || "") &&
+      String(existing.userId || "") === String(merged.userId || "") &&
+      !!existing.playedSeason === !!merged.playedSeason &&
+      !!existing.founder === !!merged.founder &&
+      (Number(existing.globalWinnerCount) || 0) === (Number(merged.globalWinnerCount) || 0) &&
+      (Number(existing.currentWeeklyWinStreak) || 0) ===
+        (Number(merged.currentWeeklyWinStreak) || 0) &&
+      (Number(existing.longestWeeklyWinStreak) || 0) ===
+        (Number(merged.longestWeeklyWinStreak) || 0) &&
+      (Number(existing.exactScores) || 0) === (Number(merged.exactScores) || 0) &&
+      (Number(existing.correctCaptains) || 0) === (Number(merged.correctCaptains) || 0) &&
+      existingBadgeIds === mergedBadgeIds;
+
+    if (unchanged) {
+      return current;
+    }
+
+    const next = [...current];
+    next[existingIndex] = merged;
+    return next;
+  });
+
+  let cancelled = false;
+  (async () => {
+    const remoteRecords = await apiSaveBadgeHistoryRecord(nextRecord, authToken);
+    if (cancelled || !remoteRecords) return;
+    setBadgeHistory((prev) => mergeBadgeHistoryRecords(prev, remoteRecords));
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [
+  isWorldCupMode,
+  currentUserId,
+  currentPlayer,
+  authToken,
+  activeFixtures,
+  badgeStatsByKey,
+  predictionIqReport,
+  currentGwPoints,
+]);
+
   // ---------- UI STYLES (redesigned, high contrast, mobile‑first) ----------
  const theme = isWorldCupMode
   ? {
@@ -5781,6 +6414,56 @@ const visibleSeasonWinnerHistory = useMemo(
     whiteSpace: "nowrap",
   });
 
+  const renderBadgeStrip = (row, options = {}) => {
+    const compact = !!options.compact;
+    const limit = options.limit || 4;
+    const badgeStats = getPlayerBadgeStats(row);
+    const badges = getEarnedBadges(badgeStats).slice(0, limit);
+    if (!badges.length) return null;
+
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          marginLeft: compact ? 4 : 6,
+          verticalAlign: "middle",
+          flexShrink: 0,
+        }}
+      >
+        {badges.map((badge) => (
+          <span
+            key={badge.id}
+            title={`${badge.label}: ${badge.requirement}`}
+            aria-label={badge.label}
+            style={{
+              minWidth: compact ? 18 : 20,
+              height: compact ? 18 : 20,
+              padding: badge.id === "globalWinner" ? "0 4px" : 0,
+              borderRadius: 999,
+              border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
+              background:
+                badge.id === "globalWinner"
+                  ? "linear-gradient(180deg, #facc15, #b45309)"
+                  : theme.panel,
+              color: badge.id === "globalWinner" ? "#111827" : theme.text,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: compact ? 10 : 11,
+              fontWeight: 900,
+              lineHeight: 1,
+              boxShadow: badge.id === "globalWinner" ? "0 0 0 1px rgba(250,204,21,0.2)" : "none",
+            }}
+          >
+            {badge.id === "globalWinner" ? badgeStats.globalWinnerCount || 1 : badge.icon}
+          </span>
+        ))}
+      </span>
+    );
+  };
+
   const renderPredictionIqReport = (options = {}) => {
     const compact = !!options.compact;
     const report = options.report || predictionIqReport;
@@ -5797,15 +6480,25 @@ const visibleSeasonWinnerHistory = useMemo(
       { icon: "🏆", label: "Correct results", value: report.correctResults },
       { icon: "🔥", label: "Win Streak", value: report.currentWinningStreak || 0 },
       { icon: "⭐", label: "Longest Win Streak", value: report.longestWinningStreak || 0 },
-      { icon: "📈", label: "Ranking movement", value: rankText },
+      { icon: "📈", label: "Global ranking movement", value: rankText },
     ];
     const detailItems = [
       { label: "Your strongest team", value: report.strongestTeam },
       { label: "Your weakest", value: report.weakestTeam },
       { label: "Draw accuracy", value: report.drawAccuracy },
-      { label: "Boost efficiency", value: report.boostEfficiency },
       { label: "Near misses", value: `${report.closeMisses || 0} one-goal misses` },
       { label: "Biggest missed opportunity", value: report.missedOpportunity },
+    ];
+    const captainItems = [
+      { label: "Correct captain selection", value: report.captainAccuracy },
+      { label: "Captain points", value: report.captainPoints },
+      { label: "Most captained team", value: report.mostCaptainedTeam },
+      { label: "Biggest losing team", value: report.biggestCaptainMiss },
+    ];
+    const styleItems = [
+      { label: "Bias detector", value: report.biasDetector },
+      { label: "Best prediction", value: report.bestPrediction },
+      { label: "Home/Draw/Away accuracy", value: report.resultAccuracyBreakdown },
     ];
 
     return (
@@ -5950,6 +6643,132 @@ const visibleSeasonWinnerHistory = useMemo(
               </div>
             </div>
           ))}
+        </div>
+
+        <div
+          style={{
+            background: theme.panelHi,
+            border: `1px solid ${theme.line}`,
+            borderRadius: 12,
+            padding: 14,
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+            Captain analysis
+          </div>
+          <div
+            style={{
+              display: "grid",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
+          >
+            {captainItems.map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile || compact ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(180px, auto)",
+                  gap: isMobile || compact ? 3 : 10,
+                  alignItems: "center",
+                  padding: "8px 10px",
+                  borderTop: item === captainItems[0] ? "none" : `1px solid ${theme.line}`,
+                  fontSize: 13,
+                }}
+              >
+                <div
+                  style={{
+                    color: theme.muted,
+                    fontWeight: 750,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.label}
+                </div>
+                <div
+                  style={{
+                    color: theme.text,
+                    fontWeight: 900,
+                    textAlign: isMobile || compact ? "left" : "right",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={item.value}
+                >
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: theme.panelHi,
+            border: `1px solid ${theme.line}`,
+            borderRadius: 12,
+            padding: 14,
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+            Prediction style
+          </div>
+          <div
+            style={{
+              display: "grid",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 10,
+              overflow: "hidden",
+            }}
+          >
+            {styleItems.map((item) => (
+              <div
+                key={item.label}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile || compact ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(220px, auto)",
+                  gap: isMobile || compact ? 3 : 10,
+                  alignItems: "center",
+                  padding: "8px 10px",
+                  borderTop: item === styleItems[0] ? "none" : `1px solid ${theme.line}`,
+                  fontSize: 13,
+                }}
+              >
+                <div
+                  style={{
+                    color: theme.muted,
+                    fontWeight: 750,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {item.label}
+                </div>
+                <div
+                  style={{
+                    color: theme.text,
+                    fontWeight: 900,
+                    textAlign: isMobile || compact ? "left" : "right",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={item.value}
+                >
+                  {item.value}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div
@@ -7474,7 +8293,39 @@ if (!isLoggedIn) {
 <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
   {getModeLabel(gameMode)} Mode
 </div>
-            <div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
+            <div
+              style={{
+                marginTop: 8,
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: isMobile ? 5 : 8,
+                flexWrap: "nowrap",
+              }}
+            >
+              {!isWorldCupMode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveView("predictionIq");
+                    setShowMobileMenu(false);
+                    setShowLeaguesMenu(false);
+                  }}
+                  style={{
+                    padding: isMobile ? "5px 8px" : "6px 10px",
+                    borderRadius: 999,
+                    border: `1px solid ${activeView === "predictionIq" ? theme.accent : theme.line}`,
+                    background: activeView === "predictionIq" ? "rgba(56,189,248,0.15)" : theme.panelHi,
+                    color: activeView === "predictionIq" ? theme.text : theme.accent,
+                    fontSize: isMobile ? 11 : 12,
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  PA IQ
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -7506,6 +8357,27 @@ if (!isLoggedIn) {
                 }}
               >
                 {activeView === "predictions" ? "Refresh Page" : "Make Predictions"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveView("badges");
+                  setShowMobileMenu(false);
+                  setShowLeaguesMenu(false);
+                }}
+                style={{
+                  padding: isMobile ? "5px 8px" : "6px 10px",
+                  borderRadius: 999,
+                  border: `1px solid ${activeView === "badges" ? theme.accent : theme.line}`,
+                  background: activeView === "badges" ? "rgba(56,189,248,0.15)" : theme.panelHi,
+                  color: activeView === "badges" ? theme.text : theme.accent,
+                  fontSize: isMobile ? 11 : 12,
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Badges
               </button>
             </div>
           </div>
@@ -7907,6 +8779,7 @@ const TABS = [
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
+  { id: "badges", label: "Badges" },
   { id: "history", label: isWorldCupMode ? "WC History" : "History" },
   { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
   { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
@@ -9729,11 +10602,22 @@ const TABS = [
                       fontSize: 15,
                       color: i === 0 ? "#FFD700" : theme.text,
                       minWidth: 0,
+                      display: "flex",
+                      alignItems: "center",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                     }}>
-                      <span title={row.player}>{displayPlayerName}</span>
+                      <span
+                        title={row.player}
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          minWidth: 0,
+                        }}
+                      >
+                        {displayPlayerName}
+                      </span>
+                      {renderBadgeStrip(row, { compact: true, limit: 3 })}
                     </div>
                     <div style={{ 
                       textAlign: "right", 
@@ -9825,12 +10709,23 @@ const TABS = [
                         fontSize: 15,
                         color: i === 0 ? "#FFD700" : theme.text,
                         minWidth: 0,
+                        display: "flex",
+                        alignItems: "center",
                         overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
                       }}
                     >
-                      <span title={row.player}>{displayPlayerName}</span>
+                      <span
+                        title={row.player}
+                        style={{
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          minWidth: 0,
+                        }}
+                      >
+                        {displayPlayerName}
+                      </span>
+                      {renderBadgeStrip(row, { compact: true, limit: 3 })}
                     </div>
                     <div
                       style={{
@@ -9874,8 +10769,210 @@ const TABS = [
               <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
                 Weekly insight for {currentPlayer || "your account"}
               </div>
+              <button
+                type="button"
+                onClick={() => setPredictionIqDemo((value) => !value)}
+                style={{
+                  marginTop: 10,
+                  padding: "7px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${predictionIqDemo ? theme.warn : theme.line}`,
+                  background: predictionIqDemo ? "rgba(245,158,11,0.14)" : theme.panelHi,
+                  color: predictionIqDemo ? theme.warn : theme.accent,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {predictionIqDemo ? "Show real data" : "Show demo data"}
+              </button>
             </div>
-            {renderPredictionIqReport()}
+            {renderPredictionIqReport({
+              report: predictionIqDemo ? predictionIqDemoReport : predictionIqReport,
+            })}
+          </section>
+        )}
+
+        {activeView === "badges" && (
+          <section style={cardStyle}>
+            {(() => {
+              const currentBadgeStats = getPlayerBadgeStats({
+                player: currentPlayer,
+                userId: currentUserId,
+              });
+              const earnedBadges = getEarnedBadges(currentBadgeStats);
+              const getBadgeProgress = (badge) => {
+                if (badge.id === "founder") {
+                  return currentBadgeStats.founder ? "Originals league member" : "Locked";
+                }
+                if (badge.id === "addict") {
+                  return `${currentBadgeStats.seasonsPlayed || 0}/3 seasons`;
+                }
+                if (badge.id === "veteran") {
+                  return `${currentBadgeStats.seasonsPlayed || 0}/6 seasons`;
+                }
+                if (badge.id === "globalWinner") {
+                  return `${currentBadgeStats.globalWinnerCount || 0} global season wins`;
+                }
+                if (badge.id === "streaker") {
+                  return `${currentBadgeStats.longestWeeklyWinStreak || 0}/3 best streak`;
+                }
+                if (badge.id === "superStreaker") {
+                  return `${currentBadgeStats.longestWeeklyWinStreak || 0}/5 best streak`;
+                }
+                if (badge.id === "sharpShooter") {
+                  return `${currentBadgeStats.exactScores || 0}/5 exact scores`;
+                }
+                if (badge.id === "captainClever") {
+                  return `${currentBadgeStats.correctCaptains || 0}/3 correct captains`;
+                }
+                return "Locked";
+              };
+
+              return (
+                <div style={{ display: "grid", gap: 14 }}>
+                  <div style={{ textAlign: "center" }}>
+                    <h2 style={{ margin: 0, fontSize: 18 }}>Badges</h2>
+                    <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                      Earned badges appear next to player names in league tables.
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      background: theme.panelHi,
+                      border: `1px solid ${theme.line}`,
+                      borderRadius: 12,
+                      padding: 14,
+                      display: "grid",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+                      Your badges
+                    </div>
+                    {earnedBadges.length ? (
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {earnedBadges.map((badge) => (
+                          <div
+                            key={badge.id}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 7,
+                              padding: "7px 10px",
+                              borderRadius: 999,
+                              border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
+                              background:
+                                badge.id === "globalWinner"
+                                  ? "rgba(250,204,21,0.16)"
+                                  : theme.panel,
+                              color: theme.text,
+                              fontSize: 13,
+                              fontWeight: 900,
+                            }}
+                          >
+                            <span aria-hidden="true">
+                              {badge.id === "globalWinner"
+                                ? currentBadgeStats.globalWinnerCount || 1
+                                : badge.icon}
+                            </span>
+                            <span>{badge.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ color: theme.muted, fontSize: 13 }}>
+                        No badges earned yet. Keep playing to unlock your first one.
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
+                      gap: 10,
+                    }}
+                  >
+                    {BADGE_DEFINITIONS.map((badge) => {
+                      const earned = earnedBadges.some((earnedBadge) => earnedBadge.id === badge.id);
+                      return (
+                        <div
+                          key={badge.id}
+                          style={{
+                            background: theme.panelHi,
+                            border: `1px solid ${earned ? theme.accent2 : theme.line}`,
+                            borderRadius: 12,
+                            padding: 12,
+                            display: "grid",
+                            gridTemplateColumns: "38px minmax(0, 1fr)",
+                            gap: 10,
+                            alignItems: "center",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 38,
+                              height: 38,
+                              borderRadius: 999,
+                              border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
+                              background:
+                                earned && badge.id === "globalWinner"
+                                  ? "linear-gradient(180deg, #facc15, #b45309)"
+                                  : earned
+                                  ? "rgba(34,197,94,0.16)"
+                                  : theme.panel,
+                              color: earned && badge.id === "globalWinner" ? "#111827" : theme.text,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 18,
+                              fontWeight: 900,
+                            }}
+                          >
+                            {badge.id === "globalWinner" && earned
+                              ? currentBadgeStats.globalWinnerCount || 1
+                              : badge.icon}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "space-between",
+                                gap: 8,
+                              }}
+                            >
+                              <div style={{ fontSize: 15, fontWeight: 900, color: theme.text }}>
+                                {badge.label}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 900,
+                                  color: earned ? theme.accent2 : theme.muted,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {earned ? "Earned" : "Locked"}
+                              </div>
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 12, color: theme.muted, lineHeight: 1.35 }}>
+                              {badge.requirement}
+                            </div>
+                            <div style={{ marginTop: 6, fontSize: 12, color: theme.accent, fontWeight: 800 }}>
+                              {getBadgeProgress(badge)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </section>
         )}
 
