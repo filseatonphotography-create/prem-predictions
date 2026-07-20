@@ -149,7 +149,13 @@ const BADGE_DEFINITIONS = [
     id: "captainClever",
     label: "Captain Clever",
     icon: "©",
-    requirement: "Make 3 correct captain selections.",
+    requirement: "Make 5 correct captain selections in one Premier League season.",
+  },
+  {
+    id: "captainKing",
+    label: "Captain King",
+    icon: "♛",
+    requirement: "Make 10 correct captain selections in one Premier League season.",
   },
 ];
 const TEAM_BADGES = {
@@ -5606,9 +5612,11 @@ const predictionIqDemoReport = useMemo(
 );
 
 const currentSeasonPredictionStats = useMemo(() => {
-  if (isWorldCupMode) return { exactScores: 0 };
+  if (isWorldCupMode) return { exactScores: 0, correctCaptains: 0 };
   const currentPredictions = predictions[currentPredictionKey] || {};
   let exactScores = 0;
+  let correctCaptains = 0;
+  const captainGameweeks = new Set();
 
   activeFixtures.forEach((fixture) => {
     const result = results[fixture.id];
@@ -5624,9 +5632,16 @@ const currentSeasonPredictionStats = useMemo(() => {
     const realAway = Number(result.awayGoals);
     if (![predHome, predAway, realHome, realAway].every(Number.isFinite)) return;
     if (predHome === realHome && predAway === realAway) exactScores += 1;
+
+    if (pred.isDouble && !captainGameweeks.has(fixture.gameweek)) {
+      captainGameweeks.add(fixture.gameweek);
+      if (getResult(predHome, predAway) === getResult(realHome, realAway)) {
+        correctCaptains += 1;
+      }
+    }
   });
 
-  return { exactScores };
+  return { exactScores, correctCaptains };
 }, [activeFixtures, currentPredictionKey, isWorldCupMode, predictions, results]);
 
 // Winner popup for league tables (once per user per gameweek/matchday)
@@ -6188,8 +6203,7 @@ const badgeStatsByKey = useMemo(() => {
     if (!row) return;
     row.seasonsPlayed = predictionIqReport.completedPredictions > 0 ? 1 : 0;
     row.exactScores = currentSeasonPredictionStats.exactScores || 0;
-    const captainMatch = String(predictionIqReport.captainAccuracy || "").match(/^(\d+)/);
-    row.correctCaptains = captainMatch ? Number(captainMatch[1]) || 0 : 0;
+    row.correctCaptains = currentSeasonPredictionStats.correctCaptains || 0;
     row.currentWeeklyWinStreak = Math.max(
       row.currentWeeklyWinStreak,
       predictionIqReport.currentWinningStreak || 0
@@ -6252,7 +6266,6 @@ const getPlayerBadgeStats = (row = {}) => {
 
 const getEarnedBadges = (badgeStats = {}) =>
   BADGE_DEFINITIONS.filter((badge) => {
-    if ((badgeStats.earnedBadgeIds || []).includes(badge.id)) return true;
     if (badge.id === "founder") return !!badgeStats.founder;
     if (badge.id === "addict") return (badgeStats.seasonsPlayed || 0) > 2;
     if (badge.id === "veteran") return (badgeStats.seasonsPlayed || 0) > 5;
@@ -6261,7 +6274,8 @@ const getEarnedBadges = (badgeStats = {}) =>
     if (badge.id === "superStreaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 5;
     if (badge.id === "sharpShooter") return (badgeStats.exactScores || 0) >= 5;
     if (badge.id === "sniper") return (badgeStats.exactScores || 0) >= 10;
-    if (badge.id === "captainClever") return (badgeStats.correctCaptains || 0) >= 3;
+    if (badge.id === "captainClever") return (badgeStats.correctCaptains || 0) >= 5;
+    if (badge.id === "captainKing") return (badgeStats.correctCaptains || 0) >= 10;
     return false;
   });
 
@@ -10878,7 +10892,10 @@ const TABS = [
                   return `${currentBadgeStats.exactScores || 0}/10 season exact scores`;
                 }
                 if (badge.id === "captainClever") {
-                  return `${currentBadgeStats.correctCaptains || 0}/3 correct captains`;
+                  return `${currentBadgeStats.correctCaptains || 0}/5 season correct captains`;
+                }
+                if (badge.id === "captainKing") {
+                  return `${currentBadgeStats.correctCaptains || 0}/10 season correct captains`;
                 }
                 return "Locked";
               };
