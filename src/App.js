@@ -5316,7 +5316,7 @@ const predictionIqReport = useMemo(() => {
     }
     if (points === 0 && (!missedOpportunity || missedScore > missedOpportunity.missedScore)) {
       missedOpportunity = {
-        label: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        label: `${fixture.homeTeam} ${realHome}-${realAway} ${fixture.awayTeam}, predicted ${predHome}-${predAway}`,
         missedScore,
       };
     }
@@ -5412,6 +5412,7 @@ const predictionIqReport = useMemo(() => {
   let captainPointsTotal = 0;
   let biggestCaptainMiss = null;
   const captainedTeamCounts = {};
+  const failedCaptainedTeamCounts = {};
   completedGameweeks.forEach((gw) => {
     const captainFixture = activeFixtures.find((fixture) => {
       if (fixture.gameweek !== gw) return false;
@@ -5440,6 +5441,9 @@ const predictionIqReport = useMemo(() => {
     captainPointsTotal += captainPoints;
     captainedTeamCounts[backedTeam] = (captainedTeamCounts[backedTeam] || 0) + 1;
     if (predictedResult === actualResult) correctCaptains += 1;
+    if (basePoints === 0) {
+      failedCaptainedTeamCounts[backedTeam] = (failedCaptainedTeamCounts[backedTeam] || 0) + 1;
+    }
 
     const missedCaptainPoints = 14 - captainPoints;
     if (
@@ -5447,12 +5451,14 @@ const predictionIqReport = useMemo(() => {
       (!biggestCaptainMiss || missedCaptainPoints > biggestCaptainMiss.missedCaptainPoints)
     ) {
       biggestCaptainMiss = {
-        label: `${backedTeam} in ${captainFixture.homeTeam} vs ${captainFixture.awayTeam}`,
+        label: `${captainFixture.homeTeam} ${realHome}-${realAway} ${captainFixture.awayTeam}, predicted ${predHome}-${predAway}`,
         missedCaptainPoints,
       };
     }
   });
   const mostCaptainedTeam = Object.entries(captainedTeamCounts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const biggestLosingTeam = Object.entries(failedCaptainedTeamCounts)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
   const weeklyWinnerFlags = completedGameweeks.map((gw) => {
     const totals = computedWeeklyTotals?.[gw] || {};
@@ -5534,11 +5540,15 @@ const predictionIqReport = useMemo(() => {
     captainAccuracy: captainSelections
       ? `${correctCaptains}/${captainSelections} selections`
       : "No captains yet",
-    captainPoints: `${captainPointsTotal} points`,
+    captainPoints: captainSelections
+      ? `${captainPointsTotal}/${captainSelections * 14} points`
+      : "0/0 points",
     mostCaptainedTeam: mostCaptainedTeam
       ? `${mostCaptainedTeam[0]} (${mostCaptainedTeam[1]})`
       : "Not enough data",
-    biggestCaptainMiss: biggestCaptainMiss?.label || "No major miss",
+    biggestCaptainMiss: biggestLosingTeam
+      ? `${biggestLosingTeam[0]} - (${biggestLosingTeam[1]})`
+      : biggestCaptainMiss?.label || "No major miss",
     missedOpportunity: missedOpportunity?.label || "No major miss",
     suggestion,
     completedPredictions: possiblePredictions,
@@ -5578,10 +5588,10 @@ const predictionIqDemoReport = useMemo(
     biasDetector: "You lean slightly towards home wins.",
     bestPrediction: "Newcastle 2-1 Spurs (7 pts)",
     captainAccuracy: "3/5 selections",
-    captainPoints: "34 points",
+    captainPoints: "34/70 points",
     mostCaptainedTeam: "Liverpool (2)",
-    biggestCaptainMiss: "Chelsea in Chelsea vs Brighton",
-    missedOpportunity: "Villa vs Spurs",
+    biggestCaptainMiss: "Chelsea - (2)",
+    missedOpportunity: "Villa 2-1 Spurs, predicted 1-3",
     suggestion: "Your captain picks are strong, but you leave points behind by underrating away goals.",
     completedPredictions: 10,
     gameweek: selectedGameweek || 5,
@@ -8296,36 +8306,40 @@ if (!isLoggedIn) {
             <div
               style={{
                 marginTop: 8,
-                display: "flex",
+                display: "grid",
+                gridTemplateColumns: isMobile ? "58px auto 58px" : "74px auto 74px",
                 justifyContent: "center",
                 alignItems: "center",
-                gap: isMobile ? 5 : 8,
-                flexWrap: "nowrap",
+                gap: isMobile ? 6 : 8,
+                width: "100%",
               }}
             >
-              {!isWorldCupMode && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveView("predictionIq");
-                    setShowMobileMenu(false);
-                    setShowLeaguesMenu(false);
-                  }}
-                  style={{
-                    padding: isMobile ? "5px 8px" : "6px 10px",
-                    borderRadius: 999,
-                    border: `1px solid ${activeView === "predictionIq" ? theme.accent : theme.line}`,
-                    background: activeView === "predictionIq" ? "rgba(56,189,248,0.15)" : theme.panelHi,
-                    color: activeView === "predictionIq" ? theme.text : theme.accent,
-                    fontSize: isMobile ? 11 : 12,
-                    fontWeight: 900,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  PA IQ
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveView("predictionIq");
+                  setShowMobileMenu(false);
+                  setShowLeaguesMenu(false);
+                }}
+                disabled={isWorldCupMode}
+                style={{
+                  width: "100%",
+                  minHeight: isMobile ? 28 : 31,
+                  padding: isMobile ? "5px 4px" : "6px 8px",
+                  borderRadius: 999,
+                  border: `1px solid ${activeView === "predictionIq" ? theme.accent : theme.line}`,
+                  background: activeView === "predictionIq" ? "rgba(56,189,248,0.15)" : theme.panelHi,
+                  color: activeView === "predictionIq" ? theme.text : theme.accent,
+                  fontSize: isMobile ? 11 : 12,
+                  fontWeight: 900,
+                  cursor: isWorldCupMode ? "default" : "pointer",
+                  opacity: isWorldCupMode ? 0 : 1,
+                  pointerEvents: isWorldCupMode ? "none" : "auto",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                PA IQ
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -8343,7 +8357,7 @@ if (!isLoggedIn) {
                 disabled={activeView === "predictions" && resultsRefreshing}
                 style={{
                   width: "auto",
-                  minWidth: 0,
+                  minWidth: isMobile ? 148 : 178,
                   padding: isMobile ? "6px 12px" : "7px 14px",
                   borderRadius: 999,
                   border: `1px solid ${theme.accent}`,
@@ -8366,7 +8380,9 @@ if (!isLoggedIn) {
                   setShowLeaguesMenu(false);
                 }}
                 style={{
-                  padding: isMobile ? "5px 8px" : "6px 10px",
+                  width: "100%",
+                  minHeight: isMobile ? 28 : 31,
+                  padding: isMobile ? "5px 4px" : "6px 8px",
                   borderRadius: 999,
                   border: `1px solid ${activeView === "badges" ? theme.accent : theme.line}`,
                   background: activeView === "badges" ? "rgba(56,189,248,0.15)" : theme.panelHi,
@@ -10853,32 +10869,45 @@ const TABS = [
                       Your badges
                     </div>
                     {earnedBadges.length ? (
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: isMobile ? 10 : 14,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: isMobile ? "6px 0 2px" : "10px 0 4px",
+                        }}
+                      >
                         {earnedBadges.map((badge) => (
                           <div
                             key={badge.id}
+                            title={`${badge.label}: ${badge.requirement}`}
+                            aria-label={badge.label}
                             style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 7,
-                              padding: "7px 10px",
-                              borderRadius: 999,
+                              width: isMobile ? 54 : 66,
+                              height: isMobile ? 54 : 66,
+                              borderRadius: "50%",
                               border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
                               background:
                                 badge.id === "globalWinner"
-                                  ? "rgba(250,204,21,0.16)"
-                                  : theme.panel,
-                              color: theme.text,
-                              fontSize: 13,
+                                  ? "linear-gradient(180deg, #facc15, #b45309)"
+                                  : "rgba(56,189,248,0.12)",
+                              color: badge.id === "globalWinner" ? "#111827" : theme.text,
+                              fontSize: isMobile ? 24 : 30,
                               fontWeight: 900,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              boxShadow:
+                                badge.id === "globalWinner"
+                                  ? "0 8px 22px rgba(250,204,21,0.18)"
+                                  : "0 8px 22px rgba(0,0,0,0.22)",
                             }}
                           >
-                            <span aria-hidden="true">
-                              {badge.id === "globalWinner"
-                                ? currentBadgeStats.globalWinnerCount || 1
-                                : badge.icon}
-                            </span>
-                            <span>{badge.label}</span>
+                            {badge.id === "globalWinner"
+                              ? currentBadgeStats.globalWinnerCount || 1
+                              : badge.icon}
                           </div>
                         ))}
                       </div>
