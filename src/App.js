@@ -101,7 +101,7 @@ const BADGE_DEFINITIONS = [
     id: "founder",
     label: "Founder",
     icon: "👑",
-    requirement: "Be one of the players in the Originals league.",
+    requirement: "First ever mini-league member.",
   },
   {
     id: "addict",
@@ -8338,7 +8338,7 @@ if (!isLoggedIn) {
                   whiteSpace: "nowrap",
                 }}
               >
-                PA IQ
+                IQ Report
               </button>
               <button
                 type="button"
