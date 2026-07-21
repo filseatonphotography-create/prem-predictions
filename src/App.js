@@ -96,11 +96,12 @@ const PREMIER_SEASON_WINNER_RECORD = {
 };
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const ORIGINALS_LEAGUE_PLAYERS = new Set(PLAYERS);
+const emptyGlobalMedals = () => ({ gold: 0, silver: 0, bronze: 0 });
 const BADGE_DEFINITIONS = [
   {
     id: "founder",
     label: "Founder",
-    icon: "👑",
+    icon: "★",
     requirement: "First ever mini-league member.",
   },
   {
@@ -116,10 +117,32 @@ const BADGE_DEFINITIONS = [
     requirement: "Play more than 5 Premier League seasons.",
   },
   {
-    id: "globalWinner",
-    label: "Global League Winner",
-    icon: "★",
-    requirement: "Win 1 or more global Premier League seasons.",
+    id: "globalGold",
+    label: "Global League Gold",
+    icon: "●",
+    medalType: "gold",
+    requirement: "Finish 1st in the Global League.",
+  },
+  {
+    id: "globalSilver",
+    label: "Global League Silver",
+    icon: "●",
+    medalType: "silver",
+    requirement: "Finish 2nd in the Global League.",
+  },
+  {
+    id: "globalBronze",
+    label: "Global League Bronze",
+    icon: "●",
+    medalType: "bronze",
+    requirement: "Finish 3rd in the Global League.",
+  },
+  {
+    id: "gambler",
+    label: "The Gambler Badge",
+    icon: "",
+    image: "/coin_PA_32.png",
+    requirement: "Win 1 or more Coins League seasons.",
   },
   {
     id: "streaker",
@@ -146,16 +169,22 @@ const BADGE_DEFINITIONS = [
     requirement: "Land 10 exact scores in one Premier League season.",
   },
   {
+    id: "superSniper",
+    label: "Super Sniper",
+    icon: "✦",
+    requirement: "Land 20 or more exact scores in one Premier League season.",
+  },
+  {
     id: "captainClever",
     label: "Captain Clever",
     icon: "©",
-    requirement: "Make 5 correct captain selections in one Premier League season.",
+    requirement: "Make 10 correct captain selections in one Premier League season.",
   },
   {
     id: "captainKing",
     label: "Captain King",
-    icon: "♛",
-    requirement: "Make 10 correct captain selections in one Premier League season.",
+    icon: "👑",
+    requirement: "Make 20 correct captain selections in one Premier League season.",
   },
 ];
 const TEAM_BADGES = {
@@ -324,6 +353,15 @@ function mergeBadgeHistoryRecords(localRecords = [], remoteRecords = []) {
       playedSeason: !!existing.playedSeason || !!record.playedSeason,
       founder: !!existing.founder || !!record.founder,
       globalWinnerCount: Math.max(existing.globalWinnerCount || 0, record.globalWinnerCount || 0),
+      globalMedals: {
+        gold: Math.max(
+          existing.globalMedals?.gold || existing.globalWinnerCount || 0,
+          record.globalMedals?.gold || record.globalWinnerCount || 0
+        ),
+        silver: Math.max(existing.globalMedals?.silver || 0, record.globalMedals?.silver || 0),
+        bronze: Math.max(existing.globalMedals?.bronze || 0, record.globalMedals?.bronze || 0),
+      },
+      coinLeagueWins: Math.max(existing.coinLeagueWins || 0, record.coinLeagueWins || 0),
       currentWeeklyWinStreak: Math.max(
         existing.currentWeeklyWinStreak || 0,
         record.currentWeeklyWinStreak || 0
@@ -3611,7 +3649,7 @@ useEffect(() => {
 
 // Fetch multi-player coins leaderboard from backend
 useEffect(() => {
-  if (activeView !== "coinsLeague" && activeView !== "summary") return;
+  if (activeView !== "coinsLeague" && activeView !== "summary" && activeView !== "badges") return;
   if (!authToken) return; // Don't fetch if not authenticated yet
 
   let cancelled = false;
@@ -6068,6 +6106,8 @@ const badgeStatsByKey = useMemo(() => {
         founder: false,
         seasonsPlayed: 0,
         globalWinnerCount: 0,
+        globalMedals: emptyGlobalMedals(),
+        coinLeagueWins: 0,
         currentWeeklyWinStreak: 0,
         longestWeeklyWinStreak: 0,
         exactScores: 0,
@@ -6086,6 +6126,15 @@ const badgeStatsByKey = useMemo(() => {
     target.founder = target.founder || source.founder;
     target.seasonsPlayed = Math.max(target.seasonsPlayed, source.seasonsPlayed);
     target.globalWinnerCount = Math.max(target.globalWinnerCount, source.globalWinnerCount);
+    target.globalMedals = {
+      gold: Math.max(
+        target.globalMedals?.gold || target.globalWinnerCount || 0,
+        source.globalMedals?.gold || source.globalWinnerCount || 0
+      ),
+      silver: Math.max(target.globalMedals?.silver || 0, source.globalMedals?.silver || 0),
+      bronze: Math.max(target.globalMedals?.bronze || 0, source.globalMedals?.bronze || 0),
+    };
+    target.coinLeagueWins = Math.max(target.coinLeagueWins || 0, source.coinLeagueWins || 0);
     target.currentWeeklyWinStreak = Math.max(target.currentWeeklyWinStreak, source.currentWeeklyWinStreak);
     target.longestWeeklyWinStreak = Math.max(target.longestWeeklyWinStreak, source.longestWeeklyWinStreak);
     target.exactScores = Math.max(target.exactScores, source.exactScores);
@@ -6128,10 +6177,50 @@ const badgeStatsByKey = useMemo(() => {
         const keys = [id, name].filter(Boolean);
         keys.forEach((key) => {
           const row = ensureStats(key, name, id);
-          if (row) row.globalWinnerCount += 1;
+          if (row) {
+            row.globalWinnerCount += 1;
+            row.globalMedals.gold += 1;
+          }
         });
       });
     });
+
+  const badgeSeasonComplete =
+    !isWorldCupMode &&
+    activeFixtures.length > 0 &&
+    activeFixtures.every((fixture) => isFixtureCompleted(fixture, results));
+
+  if (badgeSeasonComplete && globalLeaderboard.length >= 3) {
+    globalLeaderboard.slice(0, 3).forEach((row, index) => {
+      const medalType = index === 0 ? "gold" : index === 1 ? "silver" : "bronze";
+      const name = String(row.player || "").trim();
+      const id = String(row.userId || "").trim();
+      [id, name].filter(Boolean).forEach((key) => {
+        const stat = ensureStats(key, name, id);
+        if (!stat) return;
+        stat.globalMedals[medalType] = Math.max(stat.globalMedals[medalType] || 0, 1);
+        if (medalType === "gold") {
+          stat.globalWinnerCount = Math.max(stat.globalWinnerCount || 0, 1);
+        }
+      });
+    });
+  }
+
+  if (badgeSeasonComplete && coinsLeagueRows.length > 0) {
+    const topProfit = Math.max(...coinsLeagueRows.map((row) => Number(row.profit) || 0));
+    if (Number.isFinite(topProfit)) {
+      coinsLeagueRows
+        .filter((row) => (Number(row.profit) || 0) === topProfit)
+        .forEach((row) => {
+          const name = String(row.player || "").trim();
+          const id = String(row.userId || "").trim();
+          [id, name].filter(Boolean).forEach((key) => {
+            const stat = ensureStats(key, name, id);
+            if (stat) stat.coinLeagueWins = Math.max(stat.coinLeagueWins || 0, 1);
+          });
+        });
+    }
+  }
 
   const playedSeasonsByKey = {};
   const addPlayedSeason = (key, seasonLabel) => {
@@ -6152,6 +6241,15 @@ const badgeStatsByKey = useMemo(() => {
         if (!row) return;
         row.founder = row.founder || !!record.founder;
         row.globalWinnerCount = Math.max(row.globalWinnerCount, Number(record.globalWinnerCount) || 0);
+        row.globalMedals = {
+          gold: Math.max(
+            row.globalMedals?.gold || row.globalWinnerCount || 0,
+            Number(record.globalMedals?.gold) || Number(record.globalWinnerCount) || 0
+          ),
+          silver: Math.max(row.globalMedals?.silver || 0, Number(record.globalMedals?.silver) || 0),
+          bronze: Math.max(row.globalMedals?.bronze || 0, Number(record.globalMedals?.bronze) || 0),
+        };
+        row.coinLeagueWins = (row.coinLeagueWins || 0) + (Number(record.coinLeagueWins) || 0);
         row.currentWeeklyWinStreak = Math.max(
           row.currentWeeklyWinStreak,
           Number(record.currentWeeklyWinStreak) || 0
@@ -6223,7 +6321,7 @@ const badgeStatsByKey = useMemo(() => {
       row.seasonsPlayed || 0,
       playedSeasonsByKey[key]?.size || 0
     );
-    if (!row.seasonsPlayed && (row.founder || row.globalWinnerCount > 0)) {
+    if (!row.seasonsPlayed && (row.founder || row.globalWinnerCount > 0 || row.coinLeagueWins > 0 || Object.values(row.globalMedals || {}).some((count) => count > 0))) {
       row.seasonsPlayed = 1;
     }
     stats[key] = row;
@@ -6232,9 +6330,11 @@ const badgeStatsByKey = useMemo(() => {
   return stats;
 }, [
   seasonWinnerHistory,
+  activeFixtures,
   historicalScores,
   leaderboard,
   globalLeaderboard,
+  coinsLeagueRows,
   leagueHistoryUsers,
   dedupedGlobalUsers,
   currentUserId,
@@ -6242,6 +6342,8 @@ const badgeStatsByKey = useMemo(() => {
   predictionIqReport,
   currentSeasonPredictionStats,
   badgeHistory,
+  isWorldCupMode,
+  results,
 ]);
 
 const getPlayerBadgeStats = (row = {}) => {
@@ -6255,6 +6357,8 @@ const getPlayerBadgeStats = (row = {}) => {
       founder: ORIGINALS_LEAGUE_PLAYERS.has(name),
       seasonsPlayed: 0,
       globalWinnerCount: 0,
+      globalMedals: emptyGlobalMedals(),
+      coinLeagueWins: 0,
       currentWeeklyWinStreak: 0,
       longestWeeklyWinStreak: 0,
       exactScores: 0,
@@ -6269,13 +6373,17 @@ const getEarnedBadges = (badgeStats = {}) =>
     if (badge.id === "founder") return !!badgeStats.founder;
     if (badge.id === "addict") return (badgeStats.seasonsPlayed || 0) > 2;
     if (badge.id === "veteran") return (badgeStats.seasonsPlayed || 0) > 5;
-    if (badge.id === "globalWinner") return (badgeStats.globalWinnerCount || 0) > 0;
+    if (badge.id === "globalGold") return (badgeStats.globalMedals?.gold || badgeStats.globalWinnerCount || 0) > 0;
+    if (badge.id === "globalSilver") return (badgeStats.globalMedals?.silver || 0) > 0;
+    if (badge.id === "globalBronze") return (badgeStats.globalMedals?.bronze || 0) > 0;
+    if (badge.id === "gambler") return (badgeStats.coinLeagueWins || 0) > 0;
     if (badge.id === "streaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 3;
     if (badge.id === "superStreaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 5;
     if (badge.id === "sharpShooter") return (badgeStats.exactScores || 0) >= 5;
     if (badge.id === "sniper") return (badgeStats.exactScores || 0) >= 10;
-    if (badge.id === "captainClever") return (badgeStats.correctCaptains || 0) >= 5;
-    if (badge.id === "captainKing") return (badgeStats.correctCaptains || 0) >= 10;
+    if (badge.id === "superSniper") return (badgeStats.exactScores || 0) >= 20;
+    if (badge.id === "captainClever") return (badgeStats.correctCaptains || 0) >= 10;
+    if (badge.id === "captainKing") return (badgeStats.correctCaptains || 0) >= 20;
     return false;
   });
 
@@ -6308,7 +6416,9 @@ useEffect(() => {
     userId: currentUserId || liveStats.userId || "",
     playedSeason,
     founder: !!liveStats.founder,
-    globalWinnerCount: liveStats.globalWinnerCount || 0,
+    globalWinnerCount: liveStats.globalMedals?.gold || liveStats.globalWinnerCount || 0,
+    globalMedals: liveStats.globalMedals || emptyGlobalMedals(),
+    coinLeagueWins: liveStats.coinLeagueWins || 0,
     currentWeeklyWinStreak: liveStats.currentWeeklyWinStreak || 0,
     longestWeeklyWinStreak: liveStats.longestWeeklyWinStreak || 0,
     exactScores: liveStats.exactScores || 0,
@@ -6334,6 +6444,15 @@ useEffect(() => {
       ...existing,
       ...nextRecord,
       globalWinnerCount: Math.max(existing.globalWinnerCount || 0, nextRecord.globalWinnerCount),
+      globalMedals: {
+        gold: Math.max(
+          existing.globalMedals?.gold || existing.globalWinnerCount || 0,
+          nextRecord.globalMedals?.gold || nextRecord.globalWinnerCount || 0
+        ),
+        silver: Math.max(existing.globalMedals?.silver || 0, nextRecord.globalMedals?.silver || 0),
+        bronze: Math.max(existing.globalMedals?.bronze || 0, nextRecord.globalMedals?.bronze || 0),
+      },
+      coinLeagueWins: Math.max(existing.coinLeagueWins || 0, nextRecord.coinLeagueWins || 0),
       currentWeeklyWinStreak: Math.max(
         existing.currentWeeklyWinStreak || 0,
         nextRecord.currentWeeklyWinStreak
@@ -6358,6 +6477,10 @@ useEffect(() => {
       !!existing.playedSeason === !!merged.playedSeason &&
       !!existing.founder === !!merged.founder &&
       (Number(existing.globalWinnerCount) || 0) === (Number(merged.globalWinnerCount) || 0) &&
+      (Number(existing.globalMedals?.gold) || 0) === (Number(merged.globalMedals?.gold) || 0) &&
+      (Number(existing.globalMedals?.silver) || 0) === (Number(merged.globalMedals?.silver) || 0) &&
+      (Number(existing.globalMedals?.bronze) || 0) === (Number(merged.globalMedals?.bronze) || 0) &&
+      (Number(existing.coinLeagueWins) || 0) === (Number(merged.coinLeagueWins) || 0) &&
       (Number(existing.currentWeeklyWinStreak) || 0) ===
         (Number(merged.currentWeeklyWinStreak) || 0) &&
       (Number(existing.longestWeeklyWinStreak) || 0) ===
@@ -6470,6 +6593,90 @@ useEffect(() => {
     whiteSpace: "nowrap",
   });
 
+  const getBadgeDisplayValue = (badge, badgeStats = {}) => {
+    if (badge.medalType) {
+      return badgeStats.globalMedals?.[badge.medalType] || 0;
+    }
+    if (badge.id === "gambler") {
+      return badgeStats.coinLeagueWins || 0;
+    }
+    return badge.icon;
+  };
+
+  const getBadgeVisual = (badge, earned = false) => {
+    if (badge.medalType === "gold") {
+      return { border: "#facc15", background: "linear-gradient(180deg, #facc15, #b45309)", color: "#111827" };
+    }
+    if (badge.medalType === "silver") {
+      return { border: "#d1d5db", background: "linear-gradient(180deg, #f8fafc, #9ca3af)", color: "#111827" };
+    }
+    if (badge.medalType === "bronze") {
+      return { border: "#cd7f32", background: "linear-gradient(180deg, #f59e0b, #92400e)", color: "#111827" };
+    }
+    if (badge.id === "sniper" || badge.id === "superSniper") {
+      return { border: "#ef4444", background: earned ? "rgba(239,68,68,0.16)" : theme.panel, color: "#f87171" };
+    }
+    if (badge.id === "captainClever") {
+      return { border: "#facc15", background: earned ? "rgba(250,204,21,0.16)" : theme.panel, color: "#facc15" };
+    }
+    if (badge.id === "gambler") {
+      return { border: "#facc15", background: earned ? "rgba(250,204,21,0.16)" : theme.panel, color: "#111827" };
+    }
+    return {
+      border: earned ? theme.accent2 : theme.line,
+      background: earned ? "rgba(34,197,94,0.16)" : theme.panel,
+      color: theme.text,
+    };
+  };
+
+  const getBadgeFontSize = (badge, baseSize) => {
+    if (badge.id === "sniper" || badge.id === "superSniper") return Math.round(baseSize * 1.32);
+    if (badge.id === "captainClever") return Math.round(baseSize * 1.2);
+    return baseSize;
+  };
+
+  const renderBadgeIconContent = (badge, badgeStats = {}, size = 24) => {
+    if (badge.image) {
+      const count = getBadgeDisplayValue(badge, badgeStats);
+      return (
+        <span
+          style={{
+            position: "relative",
+            width: size,
+            height: size,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <img
+            src={badge.image}
+            alt=""
+            aria-hidden="true"
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+          />
+          <span
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#111827",
+              fontSize: Math.max(9, Math.round(size * 0.42)),
+              fontWeight: 1000,
+              lineHeight: 1,
+              textShadow: "0 1px 1px rgba(255,255,255,0.45)",
+            }}
+          >
+            {count}
+          </span>
+        </span>
+      );
+    }
+    return getBadgeDisplayValue(badge, badgeStats);
+  };
+
   const renderBadgeStrip = (row, options = {}) => {
     const compact = !!options.compact;
     const limit = options.limit || 4;
@@ -6488,34 +6695,34 @@ useEffect(() => {
           flexShrink: 0,
         }}
       >
-        {badges.map((badge) => (
-          <span
-            key={badge.id}
-            title={`${badge.label}: ${badge.requirement}`}
-            aria-label={badge.label}
-            style={{
-              minWidth: compact ? 18 : 20,
-              height: compact ? 18 : 20,
-              padding: badge.id === "globalWinner" ? "0 4px" : 0,
-              borderRadius: 999,
-              border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
-              background:
-                badge.id === "globalWinner"
-                  ? "linear-gradient(180deg, #facc15, #b45309)"
-                  : theme.panel,
-              color: badge.id === "globalWinner" ? "#111827" : theme.text,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: compact ? 10 : 11,
-              fontWeight: 900,
-              lineHeight: 1,
-              boxShadow: badge.id === "globalWinner" ? "0 0 0 1px rgba(250,204,21,0.2)" : "none",
-            }}
-          >
-            {badge.id === "globalWinner" ? badgeStats.globalWinnerCount || 1 : badge.icon}
-          </span>
-        ))}
+        {badges.map((badge) => {
+          const visual = getBadgeVisual(badge, true);
+          return (
+            <span
+              key={badge.id}
+              title={`${badge.label}: ${badge.requirement}`}
+              aria-label={badge.label}
+              style={{
+                minWidth: compact ? 18 : 20,
+                height: compact ? 18 : 20,
+                padding: badge.medalType ? "0 4px" : 0,
+                borderRadius: 999,
+                border: `1px solid ${visual.border}`,
+                background: visual.background,
+                color: visual.color,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: getBadgeFontSize(badge, compact ? 10 : 11),
+                fontWeight: 900,
+                lineHeight: 1,
+                boxShadow: badge.medalType ? "0 0 0 1px rgba(250,204,21,0.2)" : "none",
+              }}
+            >
+              {renderBadgeIconContent(badge, badgeStats, compact ? 15 : 17)}
+            </span>
+          );
+        })}
       </span>
     );
   };
@@ -6539,23 +6746,89 @@ useEffect(() => {
       { icon: "📈", label: "Global ranking movement", value: rankText },
     ];
     const detailItems = [
-      { label: "Your strongest team", value: report.strongestTeam },
-      { label: "Your weakest", value: report.weakestTeam },
-      { label: "Draw accuracy", value: report.drawAccuracy },
-      { label: "Near misses", value: `${report.closeMisses || 0} one-goal misses` },
-      { label: "Biggest missed opportunity", value: report.missedOpportunity },
+      { label: "Your strongest team", value: report.strongestTeam, color: "#22C55E", teamValue: report.strongestTeam },
+      { label: "Your weakest", value: report.weakestTeam, color: "#EF4444", teamValue: report.weakestTeam },
+      { label: "Draw accuracy", value: report.drawAccuracy, color: "#38BDF8" },
+      { label: "Near misses", value: `${report.closeMisses || 0} one-goal misses`, color: "#F59E0B" },
+      { label: "Biggest missed opportunity", value: report.missedOpportunity, color: "#A78BFA" },
     ];
     const captainItems = [
-      { label: "Correct captain selection", value: report.captainAccuracy },
-      { label: "Captain points", value: report.captainPoints },
-      { label: "Most captained team", value: report.mostCaptainedTeam },
-      { label: "Biggest losing team", value: report.biggestCaptainMiss },
+      { label: "Correct captain selection", value: report.captainAccuracy, color: "#22C55E" },
+      { label: "Captain points", value: report.captainPoints, color: "#F59E0B" },
+      { label: "Most captained team", value: report.mostCaptainedTeam, color: "#38BDF8", teamValue: report.mostCaptainedTeam },
+      { label: "Biggest losing team", value: report.biggestCaptainMiss, color: "#EF4444", teamValue: report.biggestCaptainMiss },
     ];
     const styleItems = [
-      { label: "Bias detector", value: report.biasDetector },
-      { label: "Best prediction", value: report.bestPrediction },
-      { label: "Home/Draw/Away accuracy", value: report.resultAccuracyBreakdown },
+      { label: "Bias detector", value: report.biasDetector, color: "#A78BFA" },
+      { label: "Best prediction", value: report.bestPrediction, color: "#22C55E" },
+      { label: "Home/Draw/Away accuracy", value: report.resultAccuracyBreakdown, color: "#38BDF8" },
     ];
+    const getIqTeamBadge = (value = "") => {
+      const text = String(value || "");
+      const teams = Array.from(
+        new Set(activeFixtures.flatMap((fixture) => [fixture.homeTeam, fixture.awayTeam]))
+      ).sort((a, b) => b.length - a.length);
+      const team = teams.find((teamName) =>
+        text.toLowerCase().includes(String(teamName).toLowerCase())
+      );
+      return team ? resolveTeamBadge(team) : resolveTeamBadge(text.replace(/\s*[-(].*$/, "").trim());
+    };
+    const renderIqImpactCard = (item) => {
+      const badgeSrc = item.teamValue ? getIqTeamBadge(item.teamValue) : "";
+      return (
+        <div
+          key={item.label}
+          style={{
+            background: theme.panelHi,
+            border: `2px solid ${item.color || theme.line}`,
+            borderRadius: 12,
+            padding: isMobile || compact ? "14px 12px" : "16px 14px",
+            minWidth: 0,
+            textAlign: "center",
+            display: "grid",
+            justifyItems: "center",
+            gap: 8,
+            boxShadow: "0 8px 18px rgba(0,0,0,0.18)",
+          }}
+        >
+          {badgeSrc && (
+            <img
+              src={badgeSrc}
+              alt=""
+              aria-hidden="true"
+              style={{
+                width: isMobile || compact ? 34 : 42,
+                height: isMobile || compact ? 34 : 42,
+                objectFit: "contain",
+              }}
+            />
+          )}
+          <div
+            style={{
+              width: 46,
+              height: 3,
+              borderRadius: 999,
+              background: item.color || theme.accent,
+            }}
+          />
+          <div style={{ fontSize: 12, color: item.color || theme.muted, fontWeight: 900 }}>
+            {item.label}
+          </div>
+          <div
+            title={item.value}
+            style={{
+              fontSize: isMobile || compact ? 17 : 20,
+              fontWeight: 950,
+              color: theme.text,
+              lineHeight: 1.18,
+              overflowWrap: "anywhere",
+            }}
+          >
+            {item.value}
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
@@ -6666,164 +6939,57 @@ useEffect(() => {
           style={{
             display: "grid",
             gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
-            gap: 8,
+            gap: 10,
           }}
         >
-          {detailItems.map((item) => (
-            <div
-              key={item.label}
-              style={{
-                background: theme.panelHi,
-                border: `1px solid ${theme.line}`,
-                borderRadius: 10,
-                padding: "10px 12px",
-                minWidth: 0,
-              }}
-            >
-              <div style={{ fontSize: 11, color: theme.muted, fontWeight: 800 }}>
-                {item.label}
-              </div>
-              <div
-                style={{
-                  marginTop: 3,
-                  fontSize: 15,
-                  fontWeight: 800,
-                  color: theme.text,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={item.value}
-              >
-                {item.value}
-              </div>
-            </div>
-          ))}
+          {detailItems.map(renderIqImpactCard)}
         </div>
 
         <div
           style={{
-            background: theme.panelHi,
-            border: `1px solid ${theme.line}`,
+            background: "linear-gradient(180deg, rgba(245,158,11,0.08), rgba(11,18,32,0.94))",
+            border: `2px solid ${theme.warn}`,
             borderRadius: 12,
             padding: 14,
             display: "grid",
-            gap: 10,
+            gap: 12,
           }}
         >
-          <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+          <div style={{ fontSize: 16, color: theme.warn, fontWeight: 900, textAlign: "center" }}>
             Captain analysis
           </div>
           <div
             style={{
               display: "grid",
-              border: `1px solid ${theme.line}`,
-              borderRadius: 10,
-              overflow: "hidden",
+              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              gap: 10,
             }}
           >
-            {captainItems.map((item) => (
-              <div
-                key={item.label}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isMobile || compact ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(180px, auto)",
-                  gap: isMobile || compact ? 3 : 10,
-                  alignItems: "center",
-                  padding: "8px 10px",
-                  borderTop: item === captainItems[0] ? "none" : `1px solid ${theme.line}`,
-                  fontSize: 13,
-                }}
-              >
-                <div
-                  style={{
-                    color: theme.muted,
-                    fontWeight: 750,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {item.label}
-                </div>
-                <div
-                  style={{
-                    color: theme.text,
-                    fontWeight: 900,
-                    textAlign: isMobile || compact ? "left" : "right",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={item.value}
-                >
-                  {item.value}
-                </div>
-              </div>
-            ))}
+            {captainItems.map(renderIqImpactCard)}
           </div>
         </div>
 
         <div
           style={{
-            background: theme.panelHi,
-            border: `1px solid ${theme.line}`,
+            background: "linear-gradient(180deg, rgba(56,189,248,0.08), rgba(11,18,32,0.94))",
+            border: `2px solid ${theme.accent}`,
             borderRadius: 12,
             padding: 14,
             display: "grid",
-            gap: 10,
+            gap: 12,
           }}
         >
-          <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+          <div style={{ fontSize: 16, color: theme.accent, fontWeight: 900, textAlign: "center" }}>
             Prediction style
           </div>
           <div
             style={{
               display: "grid",
-              border: `1px solid ${theme.line}`,
-              borderRadius: 10,
-              overflow: "hidden",
+              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              gap: 10,
             }}
           >
-            {styleItems.map((item) => (
-              <div
-                key={item.label}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isMobile || compact ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(220px, auto)",
-                  gap: isMobile || compact ? 3 : 10,
-                  alignItems: "center",
-                  padding: "8px 10px",
-                  borderTop: item === styleItems[0] ? "none" : `1px solid ${theme.line}`,
-                  fontSize: 13,
-                }}
-              >
-                <div
-                  style={{
-                    color: theme.muted,
-                    fontWeight: 750,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {item.label}
-                </div>
-                <div
-                  style={{
-                    color: theme.text,
-                    fontWeight: 900,
-                    textAlign: isMobile || compact ? "left" : "right",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                  title={item.value}
-                >
-                  {item.value}
-                </div>
-              </div>
-            ))}
+            {styleItems.map(renderIqImpactCard)}
           </div>
         </div>
 
@@ -10876,8 +11042,17 @@ const TABS = [
                 if (badge.id === "veteran") {
                   return `${currentBadgeStats.seasonsPlayed || 0}/6 seasons`;
                 }
-                if (badge.id === "globalWinner") {
-                  return `${currentBadgeStats.globalWinnerCount || 0} global season wins`;
+                if (badge.id === "globalGold") {
+                  return `${currentBadgeStats.globalMedals?.gold || currentBadgeStats.globalWinnerCount || 0} gold medals`;
+                }
+                if (badge.id === "globalSilver") {
+                  return `${currentBadgeStats.globalMedals?.silver || 0} silver medals`;
+                }
+                if (badge.id === "globalBronze") {
+                  return `${currentBadgeStats.globalMedals?.bronze || 0} bronze medals`;
+                }
+                if (badge.id === "gambler") {
+                  return `${currentBadgeStats.coinLeagueWins || 0} Coins League wins`;
                 }
                 if (badge.id === "streaker") {
                   return `${currentBadgeStats.longestWeeklyWinStreak || 0}/3 best-score streak`;
@@ -10891,11 +11066,14 @@ const TABS = [
                 if (badge.id === "sniper") {
                   return `${currentBadgeStats.exactScores || 0}/10 season exact scores`;
                 }
+                if (badge.id === "superSniper") {
+                  return `${currentBadgeStats.exactScores || 0}/20 season exact scores`;
+                }
                 if (badge.id === "captainClever") {
-                  return `${currentBadgeStats.correctCaptains || 0}/5 season correct captains`;
+                  return `${currentBadgeStats.correctCaptains || 0}/10 season correct captains`;
                 }
                 if (badge.id === "captainKing") {
-                  return `${currentBadgeStats.correctCaptains || 0}/10 season correct captains`;
+                  return `${currentBadgeStats.correctCaptains || 0}/20 season correct captains`;
                 }
                 return "Locked";
               };
@@ -10933,37 +11111,34 @@ const TABS = [
                           padding: isMobile ? "6px 0 2px" : "10px 0 4px",
                         }}
                       >
-                        {earnedBadges.map((badge) => (
-                          <div
-                            key={badge.id}
-                            title={`${badge.label}: ${badge.requirement}`}
-                            aria-label={badge.label}
-                            style={{
-                              width: isMobile ? 54 : 66,
-                              height: isMobile ? 54 : 66,
-                              borderRadius: "50%",
-                              border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
-                              background:
-                                badge.id === "globalWinner"
-                                  ? "linear-gradient(180deg, #facc15, #b45309)"
-                                  : "rgba(56,189,248,0.12)",
-                              color: badge.id === "globalWinner" ? "#111827" : theme.text,
-                              fontSize: isMobile ? 24 : 30,
-                              fontWeight: 900,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              boxShadow:
-                                badge.id === "globalWinner"
+                        {earnedBadges.map((badge) => {
+                          const visual = getBadgeVisual(badge, true);
+                          return (
+                            <div
+                              key={badge.id}
+                              title={`${badge.label}: ${badge.requirement}`}
+                              aria-label={badge.label}
+                              style={{
+                                width: isMobile ? 54 : 66,
+                                height: isMobile ? 54 : 66,
+                                borderRadius: "50%",
+                                border: `1px solid ${visual.border}`,
+                                background: visual.background,
+                                color: visual.color,
+                                fontSize: getBadgeFontSize(badge, isMobile ? 24 : 30),
+                                fontWeight: 900,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                boxShadow: badge.medalType
                                   ? "0 8px 22px rgba(250,204,21,0.18)"
                                   : "0 8px 22px rgba(0,0,0,0.22)",
-                            }}
-                          >
-                            {badge.id === "globalWinner"
-                              ? currentBadgeStats.globalWinnerCount || 1
-                              : badge.icon}
-                          </div>
-                        ))}
+                              }}
+                            >
+                              {renderBadgeIconContent(badge, currentBadgeStats, isMobile ? 36 : 44)}
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <div style={{ color: theme.muted, fontSize: 13 }}>
@@ -10981,6 +11156,7 @@ const TABS = [
                   >
                     {BADGE_DEFINITIONS.map((badge) => {
                       const earned = earnedBadges.some((earnedBadge) => earnedBadge.id === badge.id);
+                      const visual = getBadgeVisual(badge, earned);
                       return (
                         <div
                           key={badge.id}
@@ -11000,24 +11176,19 @@ const TABS = [
                               width: 38,
                               height: 38,
                               borderRadius: 999,
-                              border: `1px solid ${badge.id === "globalWinner" ? "#facc15" : theme.line}`,
-                              background:
-                                earned && badge.id === "globalWinner"
-                                  ? "linear-gradient(180deg, #facc15, #b45309)"
-                                  : earned
-                                  ? "rgba(34,197,94,0.16)"
-                                  : theme.panel,
-                              color: earned && badge.id === "globalWinner" ? "#111827" : theme.text,
+                              border: `1px solid ${visual.border}`,
+                              background: visual.background,
+                              color: visual.color,
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              fontSize: 18,
+                              fontSize: getBadgeFontSize(badge, 18),
                               fontWeight: 900,
                             }}
                           >
-                            {badge.id === "globalWinner" && earned
-                              ? currentBadgeStats.globalWinnerCount || 1
-                              : badge.icon}
+                            {earned
+                              ? renderBadgeIconContent(badge, currentBadgeStats, 26)
+                              : renderBadgeIconContent(badge, {}, 24)}
                           </div>
                           <div style={{ minWidth: 0 }}>
                             <div
@@ -11540,11 +11711,22 @@ const TABS = [
         fontSize: 15,
         color: i === 0 ? "#FFD700" : theme.text,
         minWidth: 0,
+        display: "flex",
+        alignItems: "center",
         overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
       }}>
-        <span title={row.player}>{displayPlayerName}</span>
+        <span
+          title={row.player}
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            minWidth: 0,
+          }}
+        >
+          {displayPlayerName}
+        </span>
+        {renderBadgeStrip(row, { compact: true, limit: 3 })}
       </div>
       <div style={{ 
         textAlign: "right", 

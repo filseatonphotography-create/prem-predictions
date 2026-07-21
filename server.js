@@ -419,6 +419,15 @@ function sanitizeBadgeHistoryRecord(record) {
     playedSeason: !!record.playedSeason,
     founder: !!record.founder,
     globalWinnerCount: Math.max(0, Number(record.globalWinnerCount) || 0),
+    globalMedals: {
+      gold: Math.max(
+        0,
+        Number(record.globalMedals?.gold) || Number(record.globalWinnerCount) || 0
+      ),
+      silver: Math.max(0, Number(record.globalMedals?.silver) || 0),
+      bronze: Math.max(0, Number(record.globalMedals?.bronze) || 0),
+    },
+    coinLeagueWins: Math.max(0, Number(record.coinLeagueWins) || 0),
     currentWeeklyWinStreak: Math.max(0, Number(record.currentWeeklyWinStreak) || 0),
     longestWeeklyWinStreak: Math.max(0, Number(record.longestWeeklyWinStreak) || 0),
     exactScores: Math.max(0, Number(record.exactScores) || 0),
@@ -2516,6 +2525,15 @@ app.post("/api/history/badges", authMiddleware, (req, res) => {
         playedSeason: !!existing.playedSeason || !!safeRecord.playedSeason,
         founder: !!existing.founder || !!safeRecord.founder,
         globalWinnerCount: Math.max(existing.globalWinnerCount || 0, safeRecord.globalWinnerCount),
+        globalMedals: {
+          gold: Math.max(
+            existing.globalMedals?.gold || existing.globalWinnerCount || 0,
+            safeRecord.globalMedals?.gold || safeRecord.globalWinnerCount || 0
+          ),
+          silver: Math.max(existing.globalMedals?.silver || 0, safeRecord.globalMedals?.silver || 0),
+          bronze: Math.max(existing.globalMedals?.bronze || 0, safeRecord.globalMedals?.bronze || 0),
+        },
+        coinLeagueWins: Math.max(existing.coinLeagueWins || 0, safeRecord.coinLeagueWins || 0),
         currentWeeklyWinStreak: Math.max(
           existing.currentWeeklyWinStreak || 0,
           safeRecord.currentWeeklyWinStreak
@@ -3333,9 +3351,6 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     const legacyMap = loadLegacyMap() || {};
     const leagueId = (req.query.leagueId || "").trim();
     const mode = normalizeCoinsMode(req.query.mode);
-    if (mode === "premier") {
-      return res.json({ leaderboard: [] });
-    }
     const settledFixtureIds = buildSettledCoinsFixtureIdSet(mode, results, matchStates);
 
     // Map userId -> username (handle numeric/string)
