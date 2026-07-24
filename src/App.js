@@ -71,6 +71,7 @@ const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const WELCOME_PENDING_STORAGE_KEY = "prediction_welcome_pending_user_v1";
 const WELCOME_SEEN_STORAGE_KEY = "prediction_welcome_seen_users_v1";
+const WELCOME_VIDEO_SRC = "/welcome-video.mp4";
 const PREMIER_SEASON_RESET_STORAGE_KEY = "premier_season_reset_2026_27_v3";
 const MIGRATION_FLAG = "phil_legacy_migrated_v1";
 const GAME_MODE_STORAGE_KEY = "prediction_game_mode_v1";
@@ -7951,7 +7952,7 @@ if (!isLoggedIn) {
               </div>
               <div>
                 <div style={{ fontSize: 12, color: theme.muted, textTransform: "uppercase", letterSpacing: 1 }}>
-                  {shouldShowWelcome ? "Account created" : "Welcome Page"}
+                  {shouldShowWelcome ? "Account created" : "Welcome Video"}
                 </div>
                 <h1 style={{ margin: "3px 0 0", fontSize: isMobile ? 26 : 34, color: "#ffffff" }}>
                   Welcome, {currentPlayer}
@@ -7988,81 +7989,36 @@ if (!isLoggedIn) {
           >
             <div style={{ display: "grid", gap: 8 }}>
               <h2 style={{ margin: 0, color: "#ffffff", fontSize: isMobile ? 24 : 30 }}>
-                You are ready to start predicting.
+                Welcome to Prediction Addiction.
               </h2>
               <p style={{ margin: 0, color: theme.muted, lineHeight: 1.55, fontSize: 15 }}>
-                Prediction Addiction has two main competitions: the league table for score predictions
-                and the coins game for backing match outcomes. Make your picks before the deadline,
-                then track the tables as results come in. Use the Leagues menu to create or join
-                mini-leagues with friends.
+                Watch this quick introduction, then continue to make your predictions.
               </p>
             </div>
 
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))",
-                gap: 12,
-              }}
-            >
-              {[
-                ["League", "Predict exact scores each gameweek. Correct outcomes and exact scores add points to your league table."],
-                ["Coins", "Spend your weekly coins on home, draw, or away outcomes. Winning bets return coins based on the price."],
-              ].map(([title, copy]) => (
-                <div
-                  key={title}
-                  style={{
-                    padding: 14,
-                    borderRadius: 12,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panelHi,
-                  }}
-                >
-                  <div style={{ color: "#ffffff", fontSize: 18, fontWeight: 800 }}>{title}</div>
-                  <div style={{ marginTop: 6, color: theme.muted, fontSize: 13, lineHeight: 1.45 }}>
-                    {copy}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "140px minmax(0, 1fr)",
-                gap: 16,
-                alignItems: "center",
-                padding: 14,
                 borderRadius: 12,
+                overflow: "hidden",
                 border: `1px solid ${theme.line}`,
-                background: "rgba(56,189,248,0.08)",
+                background: "#020617",
+                boxShadow: "0 18px 40px rgba(0,0,0,0.28)",
               }}
             >
-              <div
+              <video
+                src={WELCOME_VIDEO_SRC}
+                controls
+                playsInline
+                preload="metadata"
                 style={{
-                  width: 112,
-                  height: 112,
-                  borderRadius: 24,
-                  overflow: "hidden",
-                  margin: isMobile ? "0 auto" : 0,
-                  boxShadow: "0 18px 38px rgba(0,0,0,0.32)",
+                  width: "100%",
+                  display: "block",
+                  aspectRatio: "16 / 9",
+                  background: "#020617",
                 }}
               >
-                <img
-                  src="/icon_180.png"
-                  alt="Prediction Addiction home screen icon"
-                  style={{ width: "100%", height: "100%", display: "block" }}
-                />
-              </div>
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ color: "#ffffff", fontSize: 18, fontWeight: 800 }}>
-                  Save it to your home screen
-                </div>
-                <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.5 }}>
-                  Add this page to your phone home screen so it opens like an app. This is the
-                  icon you will see when it is saved.
-                </div>
-              </div>
+                Your browser does not support the welcome video.
+              </video>
             </div>
 
             <div
@@ -8075,40 +8031,9 @@ if (!isLoggedIn) {
               }}
             >
               <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.45, maxWidth: 520 }}>
-                Settings has account, avatar, favourite team, notifications, and password options.
-                Rules has the scoring details for predictions and coins.
+                You can replay this any time from the Welcome Video option in the main menu.
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => completeWelcome("settings")}
-                  style={{
-                    padding: "9px 12px",
-                    borderRadius: 999,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    cursor: "pointer",
-                    fontWeight: 700,
-                  }}
-                >
-                  Settings
-                </button>
-                <button
-                  type="button"
-                  onClick={() => completeWelcome("rules")}
-                  style={{
-                    padding: "9px 12px",
-                    borderRadius: 999,
-                    border: `1px solid ${theme.line}`,
-                    background: theme.panelHi,
-                    color: theme.text,
-                    cursor: "pointer",
-                    fontWeight: 700,
-                  }}
-                >
-                  Rules
-                </button>
                 <button
                   type="button"
                   onClick={() => completeWelcome("predictions")}
@@ -9014,7 +8939,7 @@ const TABS = [
   { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
   { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
   { id: "rules", label: "Rules" },
-  { id: "welcome", label: "Welcome Page" },
+  { id: "welcome", label: "Welcome Video" },
 ];
 
   // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
