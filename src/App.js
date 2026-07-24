@@ -13025,7 +13025,7 @@ const TABS = [
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                     <span style={{ fontSize: 20, minWidth: 24 }}>🪙</span>
                     <div>
-                      <strong>Starting Balance:</strong> You get <strong>10 coins per {isWorldCupMode ? "matchday" : "gameweek"}</strong>.
+                      <strong>Starting Balance:</strong> You get <strong>10 coins per {isWorldCupMode ? "matchday" : "gameweek"}</strong>. These 10 coins do <strong>not carry over</strong>, so use them or lose them!
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
