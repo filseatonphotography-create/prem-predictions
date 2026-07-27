@@ -8214,6 +8214,33 @@ if (!isLoggedIn) {
               <p style={{ margin: 0, color: theme.muted, lineHeight: 1.55, fontSize: 15 }}>
                 Watch this quick introduction, then continue to make your predictions.
               </p>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  paddingTop: 4,
+                  color: theme.muted,
+                  lineHeight: 1.5,
+                  fontSize: 14,
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  Be sure to add this webpage to your homescreen on your mobile/cell phone.
+                  The website will then work like an app, the icon for the game will look like this.
+                </div>
+                <img
+                  src="/icon_180.png"
+                  alt="Prediction Addiction home screen icon"
+                  style={{
+                    width: isMobile ? 54 : 64,
+                    height: isMobile ? 54 : 64,
+                    borderRadius: 16,
+                    boxShadow: "0 10px 22px rgba(0,0,0,0.28)",
+                    flex: "0 0 auto",
+                  }}
+                />
+              </div>
             </div>
 
             <div
