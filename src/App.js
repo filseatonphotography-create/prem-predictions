@@ -2287,18 +2287,18 @@ function buildFixtureModel(fixture, context = {}) {
   const formGap = homeFormPoints - awayFormPoints;
   const gdGap = homeGdPerGame - awayGdPerGame;
 
-  // Keep the prior as the anchor, then blend in live context more gently.
-  const priorEdge = ratingGap * 0.07;
-  const tableEdge = positionGap * 0.14;
-  const formEdge = formGap * 0.08;
-  const gdEdge = gdGap * 0.22;
-  const homeAdvantage = 0.42;
+  // Keep pre-season strength as the anchor, then let real results sharpen the model quickly.
+  const priorEdge = ratingGap * 0.12;
+  const tableEdge = positionGap * 0.18;
+  const formEdge = formGap * 0.12;
+  const gdEdge = gdGap * 0.32;
+  const homeAdvantage = 0.62;
 
   const rawEdge = priorEdge + tableEdge + formEdge + gdEdge + homeAdvantage;
-  const cappedEdge = Math.max(-2.25, Math.min(2.25, rawEdge));
-  const homeRaw = 1 / (1 + Math.exp(-cappedEdge / 2.45));
-  let drawProb = 0.285 - Math.min(Math.abs(cappedEdge) * 0.016, 0.07);
-  drawProb = Math.max(0.20, Math.min(0.31, drawProb));
+  const cappedEdge = Math.max(-4.1, Math.min(4.1, rawEdge));
+  const homeRaw = 1 / (1 + Math.exp(-cappedEdge / 1.8));
+  let drawProb = 0.255 - Math.min(Math.abs(cappedEdge) * 0.024, 0.105);
+  drawProb = Math.max(0.15, Math.min(0.285, drawProb));
   const nonDrawProb = 1 - drawProb;
   const homeProb = homeRaw * nonDrawProb;
   const awayProb = (1 - homeRaw) * nonDrawProb;

@@ -140,6 +140,20 @@ describe("World Cup sync helpers", () => {
     expect(odds[202].away).toBeLessThan(odds[201].away);
   });
 
+  test("keeps Premier League fixture odds decisive for clear difficulty gaps", () => {
+    const fixtures = [
+      { id: 301, homeTeam: "Arsenal FC", awayTeam: "Coventry City FC" },
+      { id: 302, homeTeam: "Fulham FC", awayTeam: "Chelsea FC" },
+    ];
+
+    const odds = buildGeneratedModelOdds(fixtures);
+
+    expect(odds[301].home).toBeLessThan(1.4);
+    expect(odds[301].away).toBeGreaterThan(8);
+    expect(odds[302].away).toBeLessThan(odds[302].home);
+    expect(odds[302].draw).toBeGreaterThan(odds[302].away);
+  });
+
   test("normalizes World Cup aliases used by the live feed", () => {
     expect(normalizeTeamName("Bosnia-Herzegovina")).toBe(
       normalizeTeamName("Bosnia and Herzegovina")
