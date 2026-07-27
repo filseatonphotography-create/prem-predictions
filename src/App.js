@@ -3036,6 +3036,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [predictionIqDemo, setPredictionIqDemo] = useState(false);
   const [badgeAwardBadges, setBadgeAwardBadges] = useState([]);
   const badgeHistorySaveSignatureRef = useRef("");
+  const swipeStartRef = useRef(null);
   const winnerAudioRef = useRef(null);
 
 // Coins game state
@@ -8272,9 +8273,92 @@ if (!isLoggedIn) {
     );
   }
 
+  const swipeMenuItems = [
+    { id: "predictions", enabled: true },
+    { id: "results", enabled: true },
+    { id: "summary", enabled: true },
+    { id: "predictionIq", enabled: !isWorldCupMode },
+    { id: "badges", enabled: true },
+    { id: "history", enabled: true },
+    { id: "winprob", enabled: true },
+    { id: "settings", enabled: true },
+    { id: "rules", enabled: true },
+    { id: "welcome", enabled: true },
+  ].filter((item) => item.enabled);
+
+  const canStartSwipeNavigation = (target) => {
+    if (!isMobile || !isLoggedIn || showMobileMenu || showLeaguesMenu) return false;
+    if (!target || typeof target.closest !== "function") return true;
+    return !target.closest(
+      [
+        "header",
+        "button",
+        "a",
+        "input",
+        "textarea",
+        "select",
+        "video",
+        "[role='button']",
+        "[data-swipe-ignore='true']",
+      ].join(",")
+    );
+  };
+
+  const handleSwipeTouchStart = (event) => {
+    if (!canStartSwipeNavigation(event.target)) {
+      swipeStartRef.current = null;
+      return;
+    }
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    swipeStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      at: Date.now(),
+    };
+  };
+
+  const handleSwipeTouchEnd = (event) => {
+    const start = swipeStartRef.current;
+    swipeStartRef.current = null;
+    if (!start || !isMobile || !isLoggedIn || showMobileMenu || showLeaguesMenu) return;
+
+    const touch = event.changedTouches?.[0];
+    if (!touch) return;
+
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    if (absX < 70 || absX < absY * 1.35 || Date.now() - start.at > 800) return;
+
+    const currentIndex = swipeMenuItems.findIndex((item) => item.id === activeView);
+    if (currentIndex === -1) return;
+
+    const nextIndex = dx < 0
+      ? Math.min(currentIndex + 1, swipeMenuItems.length - 1)
+      : Math.max(currentIndex - 1, 0);
+    const nextView = swipeMenuItems[nextIndex]?.id;
+    if (!nextView || nextView === activeView) return;
+
+    setActiveView(nextView);
+    setShowMobileMenu(false);
+    setShowLeaguesMenu(false);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+  };
+
   // ---------- MAIN APP ----------
   return (
-    <div style={pageStyle}>
+    <div
+      style={pageStyle}
+      onTouchStart={handleSwipeTouchStart}
+      onTouchEnd={handleSwipeTouchEnd}
+      onTouchCancel={() => {
+        swipeStartRef.current = null;
+      }}
+    >
       {showWorldCupFavoritePrompt && (
         <div
           style={{
