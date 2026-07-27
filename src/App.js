@@ -2569,6 +2569,10 @@ export default function App() {
     playSoundFile("/badge-win.MP3", 0.45);
   };
 
+  const playSwipeSound = () => {
+    playSoundFile("/page-swipe.MP3", 0.24);
+  };
+
   const updateSoundEffectsEnabled = (enabled) => {
     setSoundEffectsEnabled(enabled);
     localStorage.setItem("sound_effects_enabled_v1", String(enabled));
@@ -8362,6 +8366,7 @@ if (!isLoggedIn) {
     if (!nextView || nextView === activeView) return;
 
     setActiveView(nextView);
+    playSwipeSound();
     setShowMobileMenu(false);
     setShowLeaguesMenu(false);
     window.requestAnimationFrame(() => {
