@@ -8285,6 +8285,25 @@ if (!isLoggedIn) {
     { id: "rules", enabled: true },
     { id: "welcome", enabled: true },
   ].filter((item) => item.enabled);
+  const swipeLeagueMenuItems = (isWorldCupMode
+    ? [
+        { id: "league" },
+        { id: "worldCupGroupTables" },
+        { id: "coinsLeague" },
+        { id: "globalLeague" },
+        { id: "leagues" },
+      ]
+    : [
+        { id: "league" },
+        { id: "globalLeague" },
+        { id: "premierLeagueTable" },
+        { id: "coinsLeague" },
+        { id: "leagues" },
+      ]);
+  const getSwipeNavigationItems = () => {
+    const activeInLeagueMenu = swipeLeagueMenuItems.some((item) => item.id === activeView);
+    return activeInLeagueMenu ? swipeLeagueMenuItems : swipeMenuItems;
+  };
 
   const canStartSwipeNavigation = (target) => {
     if (!isMobile || !isLoggedIn || showMobileMenu || showLeaguesMenu) return false;
@@ -8332,13 +8351,14 @@ if (!isLoggedIn) {
     const absY = Math.abs(dy);
     if (absX < 70 || absX < absY * 1.35 || Date.now() - start.at > 800) return;
 
-    const currentIndex = swipeMenuItems.findIndex((item) => item.id === activeView);
+    const swipeItems = getSwipeNavigationItems();
+    const currentIndex = swipeItems.findIndex((item) => item.id === activeView);
     if (currentIndex === -1) return;
 
     const nextIndex = dx < 0
-      ? Math.min(currentIndex + 1, swipeMenuItems.length - 1)
+      ? Math.min(currentIndex + 1, swipeItems.length - 1)
       : Math.max(currentIndex - 1, 0);
-    const nextView = swipeMenuItems[nextIndex]?.id;
+    const nextView = swipeItems[nextIndex]?.id;
     if (!nextView || nextView === activeView) return;
 
     setActiveView(nextView);
