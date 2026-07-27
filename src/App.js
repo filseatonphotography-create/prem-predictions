@@ -158,7 +158,7 @@ const BADGE_DEFINITIONS = [
     id: "gambler",
     label: "The Gambler Badge",
     icon: "",
-    image: "/coin_PA_32.png",
+    image: "/coin.png",
     requirement: "Win 1 or more Coins League seasons.",
   },
   {
@@ -182,13 +182,13 @@ const BADGE_DEFINITIONS = [
   {
     id: "sniper",
     label: "Sniper",
-    icon: "⌖",
+    icon: "◎",
     requirement: "Land 10 exact scores in one Premier League season.",
   },
   {
     id: "superSniper",
     label: "Super Sniper",
-    icon: "⌖",
+    icon: "◎",
     requirement: "Land 20 or more exact scores in one Premier League season.",
   },
   {
@@ -6644,10 +6644,10 @@ useEffect(() => {
       return { border: "#f59e0b", background: earned ? "linear-gradient(180deg, #fbbf24, #b45309)" : theme.panel, color: "#111827" };
     }
     if (badge.id === "sniper") {
-      return { border: "#d1d5db", background: earned ? "linear-gradient(180deg, #f8fafc, #94a3b8)" : theme.panel, color: "#111827" };
+      return { border: "#f8fafc", background: earned ? "linear-gradient(180deg, #111827, #64748b)" : theme.panel, color: "#f8fafc" };
     }
     if (badge.id === "superSniper") {
-      return { border: "#facc15", background: earned ? "linear-gradient(180deg, #fde68a, #d97706)" : theme.panel, color: "#111827" };
+      return { border: "#facc15", background: earned ? "linear-gradient(180deg, #111827, #b45309)" : theme.panel, color: "#facc15" };
     }
     if (badge.id === "captainClever") {
       return { border: "#facc15", background: earned ? "rgba(250,204,21,0.16)" : theme.panel, color: "#facc15" };
@@ -6663,13 +6663,31 @@ useEffect(() => {
   };
 
   const getBadgeFontSize = (badge, baseSize) => {
-    if (badge.id === "sniper" || badge.id === "superSniper") return Math.round(baseSize * 1.32);
+    if (badge.id === "founder") return Math.round(baseSize * 1.75);
+    if (badge.id === "addict") return Math.round(baseSize * 1.85);
+    if (badge.id === "veteran") return Math.round(baseSize * 1.55);
+    if (badge.id === "streaker") return Math.round(baseSize * 1.9);
+    if (badge.id === "superStreaker") return Math.round(baseSize * 1.9);
+    if (badge.id === "sharpShooter") return Math.round(baseSize * 1.9);
+    if (badge.id === "sniper" || badge.id === "superSniper") return Math.round(baseSize * 1.9);
     if (badge.id === "captainClever") return Math.round(baseSize * 1.2);
     return baseSize;
   };
 
+  const shouldFillBadgeIcon = (badge) =>
+    [
+      "founder",
+      "addict",
+      "veteran",
+      "streaker",
+      "superStreaker",
+      "sharpShooter",
+      "sniper",
+      "superSniper",
+    ].includes(badge.id);
+
   const renderBadgeIconContent = (badge, badgeStats = {}, size = 24) => {
-    if (badge.id === "sharpShooter") {
+    if (shouldFillBadgeIcon(badge)) {
       return (
         <span
           aria-hidden="true"
@@ -6679,8 +6697,9 @@ useEffect(() => {
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: Math.round(size * 1.18),
+            fontSize: getBadgeFontSize(badge, Math.round(size * 0.64)),
             lineHeight: 1,
+            transform: badge.id === "founder" ? "translateY(-1px)" : "none",
           }}
         >
           {badge.icon}
@@ -6704,7 +6723,7 @@ useEffect(() => {
             src={badge.image}
             alt=""
             aria-hidden="true"
-            style={{ width: "122%", height: "122%", objectFit: "cover" }}
+            style={{ width: "150%", height: "150%", objectFit: "cover" }}
           />
           <span
             style={{
