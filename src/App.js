@@ -6699,6 +6699,7 @@ useEffect(() => {
     const compact = !!options.compact;
     const limit = options.limit == null ? 4 : options.limit;
     const wrap = !!options.wrap;
+    const columns = options.columns || 0;
     const badgeStats = getPlayerBadgeStats(row);
     const badges = getEarnedBadges(badgeStats).slice(0, limit);
     if (!badges.length) return null;
@@ -6706,8 +6707,9 @@ useEffect(() => {
     return (
       <span
         style={{
-          display: "inline-flex",
+          display: columns ? "inline-grid" : "inline-flex",
           alignItems: "center",
+          gridTemplateColumns: columns ? `repeat(${columns}, max-content)` : undefined,
           flexWrap: wrap ? "wrap" : "nowrap",
           gap: 4,
           marginLeft: wrap ? 0 : compact ? 4 : 6,
@@ -10794,7 +10796,7 @@ const TABS = [
                       >
                         {displayPlayerName}
                       </span>
-                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true })}
+                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
                     </div>
                     <div style={{ 
                       textAlign: "right", 
@@ -10904,7 +10906,7 @@ const TABS = [
                       >
                         {displayPlayerName}
                       </span>
-                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true })}
+                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
                     </div>
                     <div
                       style={{
@@ -11677,7 +11679,7 @@ const TABS = [
         >
           {displayPlayerName}
         </span>
-        {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true })}
+        {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
       </div>
       <div style={{ 
         textAlign: "right", 
