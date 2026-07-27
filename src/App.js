@@ -97,7 +97,6 @@ const PREMIER_SEASON_WINNER_RECORD = {
 };
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const ORIGINALS_LEAGUE_PLAYERS = new Set(PLAYERS);
-const BADGE_TABLE_DEMO_PLAYER = "Phil";
 const emptyGlobalMedals = () => ({ gold: 0, silver: 0, bronze: 0 });
 const BADGE_DEFINITIONS = [
   {
@@ -6351,22 +6350,6 @@ const badgeStatsByKey = useMemo(() => {
 const getPlayerBadgeStats = (row = {}) => {
   const id = String(row.userId || "").trim();
   const name = String(row.player || row.username || "").trim();
-  if (name === BADGE_TABLE_DEMO_PLAYER) {
-    return {
-      player: name,
-      userId: id,
-      founder: true,
-      seasonsPlayed: 6,
-      globalWinnerCount: 1,
-      globalMedals: { gold: 1, silver: 1, bronze: 1 },
-      coinLeagueWins: 1,
-      currentWeeklyWinStreak: 5,
-      longestWeeklyWinStreak: 5,
-      exactScores: 20,
-      correctCaptains: 20,
-      earnedBadgeIds: BADGE_DEFINITIONS.map((badge) => badge.id),
-    };
-  }
   return (
     badgeStatsByKey[id] ||
     badgeStatsByKey[name] || {
