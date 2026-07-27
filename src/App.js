@@ -182,13 +182,13 @@ const BADGE_DEFINITIONS = [
   {
     id: "sniper",
     label: "Sniper",
-    icon: "◎",
+    icon: "⌖",
     requirement: "Land 10 exact scores in one Premier League season.",
   },
   {
     id: "superSniper",
     label: "Super Sniper",
-    icon: "◎",
+    icon: "⌖",
     requirement: "Land 20 or more exact scores in one Premier League season.",
   },
   {
