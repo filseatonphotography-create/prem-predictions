@@ -205,6 +205,8 @@ const RESULTS_FILE = path.join(DATA_DIR, "results.json");
 const MATCH_STATES_FILE = path.join(DATA_DIR, "matchStates.json");
 const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
 const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
+const TEST_ACCOUNT_USERNAMES = new Set(["testuser", "testuser2", "edward", "charlie", "chat123"]);
+const LEAGUE_INACTIVE_WINDOW_MS = 10 * 7 * 24 * 60 * 60 * 1000;
 const PREMIER_SEASON_WINNER_RECORD = {
   id: "premier-2025/26",
   mode: "premierLeague",
@@ -570,6 +572,81 @@ function loadLeagues() {
 
 const saveLeagues = (leagues) => saveJson(LEAGUES_FILE, leagues);
 
+function parseActivityTime(value) {
+  if (value === null || value === undefined || value === "") return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getUserPredictionActivityAt(userId, predictionsByUserId = {}) {
+  const userPreds = predictionsByUserId[String(userId)] || predictionsByUserId[userId] || {};
+  return Object.values(userPreds || {}).reduce((latest, prediction) => {
+    const updatedAt = parseActivityTime(prediction?.updatedAt);
+    return Math.max(latest, updatedAt);
+  }, 0);
+}
+
+function getUserLeagueActivityAt(user, predictionsByUserId = {}) {
+  if (!user?.id) return 0;
+  return Math.max(
+    parseActivityTime(user.lastLoginAt),
+    parseActivityTime(user.createdAt),
+    getUserPredictionActivityAt(user.id, predictionsByUserId)
+  );
+}
+
+function normalizeLeagueMembers(league) {
+  return Array.from(new Set(getLeagueMemberIds(league)));
+}
+
+function pruneInactiveLeagueMembers(leagues, users, predictionsByUserId, now = Date.now()) {
+  const userById = {};
+  (users || []).forEach((user) => {
+    if (user?.id) userById[String(user.id)] = user;
+  });
+
+  let changed = false;
+  const removed = [];
+
+  (leagues || []).forEach((league) => {
+    const originalMembers = normalizeLeagueMembers(league);
+    if (!originalMembers.length) return;
+
+    const activeMembers = originalMembers.filter((memberId) => {
+      const user = userById[String(memberId)];
+      if (!user) {
+        removed.push({ leagueId: league.id, userId: String(memberId), reason: "missing-user" });
+        return false;
+      }
+
+      const activeAt = getUserLeagueActivityAt(user, predictionsByUserId);
+      if (activeAt && now - activeAt > LEAGUE_INACTIVE_WINDOW_MS) {
+        removed.push({
+          leagueId: league.id,
+          userId: String(memberId),
+          username: user.username || "",
+          reason: "inactive",
+          activeAt: new Date(activeAt).toISOString(),
+        });
+        return false;
+      }
+
+      return true;
+    });
+
+    if (activeMembers.length !== originalMembers.length) {
+      league.members = activeMembers;
+      league.memberUserIds = activeMembers.slice();
+      changed = true;
+    }
+  });
+
+  return { changed, removed };
+}
+
 // ---------------------------------------------------------------------------
 // TOKENS (stateless, survive restarts)
 // token format: userId.nonce.signature
@@ -610,6 +687,13 @@ function authMiddleware(req, res, next) {
   const users = loadUsers();
   const user = users.find((u) => u.id === data.id);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const now = Date.now();
+  const lastSeenAt = parseActivityTime(user.lastLoginAt);
+  if (!lastSeenAt || now - lastSeenAt > 24 * 60 * 60 * 1000) {
+    user.lastLoginAt = new Date(now).toISOString();
+    saveUsers(users);
+  }
 
   req.user = { id: user.id, username: user.username };
   next();
@@ -969,6 +1053,9 @@ app.post("/api/login", (req, res) => {
       saveLegacyMap(legacyMap);
       console.log(`Auto legacy-mapped ${user.username} -> ${user.id}`);
     }
+
+    user.lastLoginAt = new Date().toISOString();
+    saveUsers(users);
 
     const token = createToken(user.id);
 return res.json({ userId: user.id, username: user.username, token });
@@ -2010,6 +2097,121 @@ app.post("/api/admin/leagues/add-member-by-name", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: REMOVE TEST ACCOUNTS
+// POST /api/admin/users/remove-test-accounts
+// headers: x-admin-key: prem-admin-reset
+// body: optional { usernames: ["testuser"], dryRun: true }
+// ---------------------------------------------------------------------------
+app.post("/api/admin/users/remove-test-accounts", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const requestedUsernames = Array.isArray(req.body?.usernames)
+      ? req.body.usernames
+      : Array.from(TEST_ACCOUNT_USERNAMES);
+    const targetUsernames = new Set(
+      requestedUsernames
+        .map((username) => String(username || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const dryRun = req.body?.dryRun === true;
+
+    if (!targetUsernames.size) {
+      return res.status(400).json({ error: "At least one username is required." });
+    }
+
+    const users = loadUsers() || [];
+    const matchedUsers = users.filter((user) =>
+      targetUsernames.has(String(user?.username || "").trim().toLowerCase())
+    );
+    const removedUserIds = new Set(matchedUsers.map((user) => String(user.id)));
+    const removedUsernames = matchedUsers.map((user) => user.username);
+    const missingUsernames = Array.from(targetUsernames).filter(
+      (username) =>
+        !matchedUsers.some(
+          (user) => String(user?.username || "").trim().toLowerCase() === username
+        )
+    );
+
+    const removeIdKeys = (obj = {}) => {
+      const next = { ...(obj || {}) };
+      removedUserIds.forEach((userId) => {
+        delete next[userId];
+      });
+      return next;
+    };
+
+    const leagues = loadLeagues() || [];
+    const cleanedLeagues = leagues.map((league) => {
+      const cleanMembers = (members) =>
+        Array.isArray(members)
+          ? members.filter((memberId) => !removedUserIds.has(String(memberId)))
+          : members;
+      return {
+        ...league,
+        ownerId: removedUserIds.has(String(league.ownerId || "")) ? null : league.ownerId,
+        ownerUserId: removedUserIds.has(String(league.ownerUserId || ""))
+          ? null
+          : league.ownerUserId,
+        members: cleanMembers(league.members),
+        memberUserIds: cleanMembers(league.memberUserIds),
+      };
+    });
+
+    const legacyMap = loadLegacyMap() || {};
+    const cleanedLegacyMap = { ...legacyMap };
+    Object.entries(cleanedLegacyMap).forEach(([name, userId]) => {
+      if (
+        targetUsernames.has(String(name || "").trim().toLowerCase()) ||
+        removedUserIds.has(String(userId))
+      ) {
+        delete cleanedLegacyMap[name];
+      }
+    });
+
+    const badgeHistory = loadBadgeHistory() || [];
+    const cleanedBadgeHistory = Array.isArray(badgeHistory)
+      ? badgeHistory.filter((record) => !removedUserIds.has(String(record?.userId || "")))
+      : [];
+    const seasonWinners = loadSeasonWinners() || [];
+    const cleanedSeasonWinners = Array.isArray(seasonWinners)
+      ? seasonWinners.filter((record) => !removedUserIds.has(String(record?.userId || "")))
+      : [];
+    const resetTokens = loadPasswordResetTokens() || [];
+    const cleanedResetTokens = Array.isArray(resetTokens)
+      ? resetTokens.filter((token) => !removedUserIds.has(String(token?.userId || "")))
+      : [];
+
+    if (!dryRun) {
+      saveUsers(users.filter((user) => !removedUserIds.has(String(user.id))));
+      saveLeagues(cleanedLeagues);
+      savePredictions(removeIdKeys(loadPredictions() || {}));
+      saveCoins(removeIdKeys(loadCoins() || {}));
+      saveAvatars(removeIdKeys(loadAvatars() || {}));
+      saveJson(PUSH_SUBSCRIPTIONS_FILE, removeIdKeys(loadJson(PUSH_SUBSCRIPTIONS_FILE, {})));
+      saveLegacyMap(cleanedLegacyMap);
+      saveBadgeHistory(cleanedBadgeHistory);
+      saveSeasonWinners(cleanedSeasonWinners);
+      savePasswordResetTokens(cleanedResetTokens);
+    }
+
+    return res.json({
+      ok: true,
+      dryRun,
+      removedUserIds: Array.from(removedUserIds),
+      removedUsernames,
+      missingUsernames,
+    });
+  } catch (err) {
+    console.error("admin remove-test-accounts error", err);
+    return res.status(500).json({ error: "Admin remove-test-accounts failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {
@@ -2036,11 +2238,23 @@ function getLeagueMemberIds(league) {
   return members.map((memberId) => String(memberId));
 }
 
+function loadLeaguesWithInactiveMembersPruned() {
+  const leagues = loadLeagues();
+  const users = loadUsers();
+  const predictions = loadPredictions();
+  const { changed, removed } = pruneInactiveLeagueMembers(leagues, users, predictions);
+  if (changed) {
+    saveLeagues(leagues);
+    console.log("[leagues] Pruned inactive members", removed);
+  }
+  return leagues;
+}
+
 app.get("/api/leagues/my", authMiddleware, (req, res) => {
   try {
     const userId = String(req.user.id);
     const mode = normalizeLeagueMode(req.query.mode);
-    const leagues = loadLeagues();
+    const leagues = loadLeaguesWithInactiveMembersPruned();
     const myLeagues = leagues
       .map((league) => {
         const members = getLeagueMemberIds(league);
@@ -2066,7 +2280,7 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
 app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
   try {
     const mode = normalizeLeagueMode(req.query.mode);
-    const leagues = loadLeagues();
+    const leagues = loadLeaguesWithInactiveMembersPruned();
     const predictionsByUserId = loadPredictions();
     const resultsByFixtureId = loadResults();
     const fixtures = getFixturesForMode(mode);
@@ -2185,7 +2399,7 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
     if (!code)
       return res.status(400).json({ error: "Invite/join code is required." });
 
-    const leagues = loadLeagues();
+    const leagues = loadLeaguesWithInactiveMembersPruned();
     const league = leagues.find((l) => {
       const stored = (l.joinCode || l.inviteCode || "").toUpperCase();
       return stored === code && leagueMatchesMode(l, mode);
@@ -2295,7 +2509,7 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
     const userId = String(req.user.id);
     const leagueId = (req.params.leagueId || "").trim();
 
-    const leagues = loadLeagues();
+    const leagues = loadLeaguesWithInactiveMembersPruned();
     const league = leagues.find((l) => l.id === leagueId);
 
     if (!league) {
@@ -2371,7 +2585,7 @@ app.get("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
     const userId = String(req.user.id);
     const leagueId = (req.params.leagueId || "").trim();
 
-    const leagues = loadLeagues();
+    const leagues = loadLeaguesWithInactiveMembersPruned();
     const league = leagues.find((l) => l.id === leagueId);
     if (!league) return res.status(404).json({ error: "Mini-league not found." });
 
@@ -2395,7 +2609,7 @@ app.post("/api/totals/league/:leagueId", authMiddleware, (req, res) => {
     const leagueId = (req.params.leagueId || "").trim();
     const { weeklyTotals, leagueTotals } = req.body || {};
 
-    const leagues = loadLeagues();
+    const leagues = loadLeaguesWithInactiveMembersPruned();
     const league = leagues.find((l) => l.id === leagueId);
     if (!league) return res.status(404).json({ error: "Mini-league not found." });
 
