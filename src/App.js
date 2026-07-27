@@ -97,7 +97,23 @@ const PREMIER_SEASON_WINNER_RECORD = {
 };
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const ORIGINALS_LEAGUE_PLAYERS = new Set(PLAYERS);
+const ORIGINALS_LEAGUE_USER_IDS = new Set([
+  "1763801801299",
+  "1763801801288",
+  "1763801999658",
+  "1763802020494",
+  "1763812904100",
+  "1763813732635",
+  "1763874000000",
+]);
 const emptyGlobalMedals = () => ({ gold: 0, silver: 0, bronze: 0 });
+const positiveBadgeCount = (value) => {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+};
+const isOriginalsFounder = (name = "", userId = "") =>
+  ORIGINALS_LEAGUE_PLAYERS.has(String(name || "").trim()) ||
+  ORIGINALS_LEAGUE_USER_IDS.has(String(userId || "").trim());
 const BADGE_DEFINITIONS = [
   {
     id: "founder",
@@ -6169,12 +6185,12 @@ const badgeStatsByKey = useMemo(() => {
     const name = String(player || "").trim();
     const id = String(userId || "").trim();
     const nameStats = ensureStats(name, name, id);
-    if (nameStats && ORIGINALS_LEAGUE_PLAYERS.has(name)) {
+    if (nameStats && isOriginalsFounder(name, id)) {
       nameStats.founder = true;
     }
     if (id) {
       const idStats = ensureStats(id, name, id);
-      idStats.founder = idStats.founder || ORIGINALS_LEAGUE_PLAYERS.has(name);
+      idStats.founder = idStats.founder || isOriginalsFounder(name, id);
       mergeStats(id, name);
       mergeStats(name, id);
     }
@@ -6331,6 +6347,21 @@ const badgeStatsByKey = useMemo(() => {
   }
 
   Object.entries(stats).forEach(([key, row]) => {
+    row.founder = !!row.founder || isOriginalsFounder(row.player, row.userId || key);
+    row.globalWinnerCount = positiveBadgeCount(row.globalWinnerCount);
+    row.globalMedals = {
+      gold: positiveBadgeCount(row.globalMedals?.gold) || positiveBadgeCount(row.globalWinnerCount),
+      silver: positiveBadgeCount(row.globalMedals?.silver),
+      bronze: positiveBadgeCount(row.globalMedals?.bronze),
+    };
+    if (!row.globalMedals.gold && !row.globalWinnerCount) {
+      row.globalWinnerCount = 0;
+    }
+    row.coinLeagueWins = positiveBadgeCount(row.coinLeagueWins);
+    row.currentWeeklyWinStreak = positiveBadgeCount(row.currentWeeklyWinStreak);
+    row.longestWeeklyWinStreak = positiveBadgeCount(row.longestWeeklyWinStreak);
+    row.exactScores = positiveBadgeCount(row.exactScores);
+    row.correctCaptains = positiveBadgeCount(row.correctCaptains);
     row.seasonsPlayed = Math.max(
       row.seasonsPlayed || 0,
       playedSeasonsByKey[key]?.size || 0
@@ -6368,7 +6399,7 @@ const getPlayerBadgeStats = (row = {}) => {
     badgeStatsByKey[name] || {
       player: name,
       userId: id,
-      founder: ORIGINALS_LEAGUE_PLAYERS.has(name),
+      founder: isOriginalsFounder(name, id),
       seasonsPlayed: 0,
       globalWinnerCount: 0,
       globalMedals: emptyGlobalMedals(),
@@ -6387,10 +6418,10 @@ const getEarnedBadges = (badgeStats = {}) =>
     if (badge.id === "founder") return !!badgeStats.founder;
     if (badge.id === "addict") return (badgeStats.seasonsPlayed || 0) > 2;
     if (badge.id === "veteran") return (badgeStats.seasonsPlayed || 0) > 5;
-    if (badge.id === "globalGold") return (badgeStats.globalMedals?.gold || badgeStats.globalWinnerCount || 0) > 0;
-    if (badge.id === "globalSilver") return (badgeStats.globalMedals?.silver || 0) > 0;
-    if (badge.id === "globalBronze") return (badgeStats.globalMedals?.bronze || 0) > 0;
-    if (badge.id === "gambler") return (badgeStats.coinLeagueWins || 0) > 0;
+    if (badge.id === "globalGold") return (positiveBadgeCount(badgeStats.globalMedals?.gold) || positiveBadgeCount(badgeStats.globalWinnerCount)) > 0;
+    if (badge.id === "globalSilver") return positiveBadgeCount(badgeStats.globalMedals?.silver) > 0;
+    if (badge.id === "globalBronze") return positiveBadgeCount(badgeStats.globalMedals?.bronze) > 0;
+    if (badge.id === "gambler") return positiveBadgeCount(badgeStats.coinLeagueWins) > 0;
     if (badge.id === "streaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 3;
     if (badge.id === "superStreaker") return (badgeStats.longestWeeklyWinStreak || 0) >= 5;
     if (badge.id === "sharpShooter") return (badgeStats.exactScores || 0) >= 5;
@@ -6589,12 +6620,12 @@ useEffect(() => {
   const getBadgeDisplayValue = (badge, badgeStats = {}) => {
     if (badge.medalType) {
       if (badge.medalType === "gold") {
-        return badgeStats.globalMedals?.gold || badgeStats.globalWinnerCount || 0;
+        return positiveBadgeCount(badgeStats.globalMedals?.gold) || positiveBadgeCount(badgeStats.globalWinnerCount);
       }
-      return badgeStats.globalMedals?.[badge.medalType] || 0;
+      return positiveBadgeCount(badgeStats.globalMedals?.[badge.medalType]);
     }
     if (badge.id === "gambler") {
-      return badgeStats.coinLeagueWins || 0;
+      return positiveBadgeCount(badgeStats.coinLeagueWins);
     }
     return badge.icon;
   };
