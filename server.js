@@ -448,6 +448,26 @@ function sanitizeBadgeHistoryRecord(record) {
     return null;
   }
 
+  const updatedAt = Date.parse(safeRecord.updatedAt || "");
+  const allBadgeDemoRecord =
+    safeRecord.player === "Phil" &&
+    Number.isFinite(updatedAt) &&
+    updatedAt < Date.parse("2026-07-28T00:00:00.000Z") &&
+    safeRecord.earnedBadgeIds.length >= 14 &&
+    safeRecord.exactScores >= 20 &&
+    safeRecord.correctCaptains >= 20 &&
+    safeRecord.longestWeeklyWinStreak >= 5;
+  if (allBadgeDemoRecord) {
+    safeRecord.globalWinnerCount = 0;
+    safeRecord.globalMedals = { gold: 0, silver: 0, bronze: 0 };
+    safeRecord.coinLeagueWins = 0;
+    safeRecord.currentWeeklyWinStreak = 0;
+    safeRecord.longestWeeklyWinStreak = 0;
+    safeRecord.exactScores = 0;
+    safeRecord.correctCaptains = 0;
+    safeRecord.earnedBadgeIds = [];
+  }
+
   return safeRecord;
 }
 
@@ -2488,7 +2508,10 @@ app.get("/api/history/badges", (req, res) => {
     const cleanRecords = list
       .map(sanitizeBadgeHistoryRecord)
       .filter(Boolean);
-    if (cleanRecords.length !== list.length) {
+    if (
+      cleanRecords.length !== list.length ||
+      JSON.stringify(cleanRecords) !== JSON.stringify(list)
+    ) {
       saveBadgeHistory(cleanRecords);
     }
     return res.json(cleanRecords);
@@ -2524,29 +2547,6 @@ app.post("/api/history/badges", authMiddleware, (req, res) => {
         ...safeRecord,
         playedSeason: !!existing.playedSeason || !!safeRecord.playedSeason,
         founder: !!existing.founder || !!safeRecord.founder,
-        globalWinnerCount: Math.max(existing.globalWinnerCount || 0, safeRecord.globalWinnerCount),
-        globalMedals: {
-          gold: Math.max(
-            existing.globalMedals?.gold || existing.globalWinnerCount || 0,
-            safeRecord.globalMedals?.gold || safeRecord.globalWinnerCount || 0
-          ),
-          silver: Math.max(existing.globalMedals?.silver || 0, safeRecord.globalMedals?.silver || 0),
-          bronze: Math.max(existing.globalMedals?.bronze || 0, safeRecord.globalMedals?.bronze || 0),
-        },
-        coinLeagueWins: Math.max(existing.coinLeagueWins || 0, safeRecord.coinLeagueWins || 0),
-        currentWeeklyWinStreak: Math.max(
-          existing.currentWeeklyWinStreak || 0,
-          safeRecord.currentWeeklyWinStreak
-        ),
-        longestWeeklyWinStreak: Math.max(
-          existing.longestWeeklyWinStreak || 0,
-          safeRecord.longestWeeklyWinStreak
-        ),
-        exactScores: Math.max(existing.exactScores || 0, safeRecord.exactScores),
-        correctCaptains: Math.max(existing.correctCaptains || 0, safeRecord.correctCaptains),
-        earnedBadgeIds: Array.from(
-          new Set([...(existing.earnedBadgeIds || []), ...(safeRecord.earnedBadgeIds || [])])
-        ),
         updatedAt: safeRecord.updatedAt || existing.updatedAt,
       };
     }

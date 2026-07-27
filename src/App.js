@@ -188,6 +188,40 @@ const BADGE_DEFINITIONS = [
     requirement: "Make 20 correct captain selections in one Premier League season.",
   },
 ];
+
+function isMaxBadgeDemoHistoryRecord(record = {}) {
+  const updatedAt = Date.parse(record.updatedAt || "");
+  const earnedIds = new Set(
+    (Array.isArray(record.earnedBadgeIds) ? record.earnedBadgeIds : [])
+      .map((badgeId) => String(badgeId || "").trim())
+      .filter(Boolean)
+  );
+  return (
+    String(record.player || "").trim() === "Phil" &&
+    Number.isFinite(updatedAt) &&
+    updatedAt < Date.parse("2026-07-28T00:00:00.000Z") &&
+    BADGE_DEFINITIONS.every((badge) => earnedIds.has(badge.id)) &&
+    (Number(record.exactScores) || 0) >= 20 &&
+    (Number(record.correctCaptains) || 0) >= 20 &&
+    (Number(record.longestWeeklyWinStreak) || 0) >= 5
+  );
+}
+
+function stripMaxBadgeDemoHistory(record = {}) {
+  if (!isMaxBadgeDemoHistoryRecord(record)) return record;
+  return {
+    ...record,
+    globalWinnerCount: 0,
+    globalMedals: emptyGlobalMedals(),
+    coinLeagueWins: 0,
+    currentWeeklyWinStreak: 0,
+    longestWeeklyWinStreak: 0,
+    exactScores: 0,
+    correctCaptains: 0,
+    earnedBadgeIds: [],
+  };
+}
+
 const TEAM_BADGES = {
   Arsenal: "/badges/Arsenal.png",
   "Aston Villa": "/badges/aston_ville.png",
@@ -346,37 +380,15 @@ function mergeBadgeHistoryRecords(localRecords = [], remoteRecords = []) {
   const byId = new Map();
   [...remoteRecords, ...localRecords].forEach((record) => {
     if (!record?.id) return;
+    const cleanRecord = stripMaxBadgeDemoHistory(record);
     const id = String(record.id);
     const existing = byId.get(id) || {};
     byId.set(id, {
       ...existing,
-      ...record,
-      playedSeason: !!existing.playedSeason || !!record.playedSeason,
-      founder: !!existing.founder || !!record.founder,
-      globalWinnerCount: Math.max(existing.globalWinnerCount || 0, record.globalWinnerCount || 0),
-      globalMedals: {
-        gold: Math.max(
-          existing.globalMedals?.gold || existing.globalWinnerCount || 0,
-          record.globalMedals?.gold || record.globalWinnerCount || 0
-        ),
-        silver: Math.max(existing.globalMedals?.silver || 0, record.globalMedals?.silver || 0),
-        bronze: Math.max(existing.globalMedals?.bronze || 0, record.globalMedals?.bronze || 0),
-      },
-      coinLeagueWins: Math.max(existing.coinLeagueWins || 0, record.coinLeagueWins || 0),
-      currentWeeklyWinStreak: Math.max(
-        existing.currentWeeklyWinStreak || 0,
-        record.currentWeeklyWinStreak || 0
-      ),
-      longestWeeklyWinStreak: Math.max(
-        existing.longestWeeklyWinStreak || 0,
-        record.longestWeeklyWinStreak || 0
-      ),
-      exactScores: Math.max(existing.exactScores || 0, record.exactScores || 0),
-      correctCaptains: Math.max(existing.correctCaptains || 0, record.correctCaptains || 0),
-      earnedBadgeIds: Array.from(
-        new Set([...(existing.earnedBadgeIds || []), ...(record.earnedBadgeIds || [])])
-      ),
-      updatedAt: record.updatedAt || existing.updatedAt,
+      ...cleanRecord,
+      playedSeason: !!existing.playedSeason || !!cleanRecord.playedSeason,
+      founder: !!existing.founder || !!cleanRecord.founder,
+      updatedAt: cleanRecord.updatedAt || existing.updatedAt,
     });
   });
   return Array.from(byId.values()).sort((a, b) => {
@@ -6233,6 +6245,7 @@ const badgeStatsByKey = useMemo(() => {
   };
   (badgeHistory || [])
     .filter((record) => record && getModeKey(record.mode) === "premier")
+    .map(stripMaxBadgeDemoHistory)
     .forEach((record) => {
       const name = String(record.player || "").trim();
       const id = String(record.userId || "").trim();
@@ -6444,29 +6457,8 @@ useEffect(() => {
     const merged = {
       ...existing,
       ...nextRecord,
-      globalWinnerCount: Math.max(existing.globalWinnerCount || 0, nextRecord.globalWinnerCount),
-      globalMedals: {
-        gold: Math.max(
-          existing.globalMedals?.gold || existing.globalWinnerCount || 0,
-          nextRecord.globalMedals?.gold || nextRecord.globalWinnerCount || 0
-        ),
-        silver: Math.max(existing.globalMedals?.silver || 0, nextRecord.globalMedals?.silver || 0),
-        bronze: Math.max(existing.globalMedals?.bronze || 0, nextRecord.globalMedals?.bronze || 0),
-      },
-      coinLeagueWins: Math.max(existing.coinLeagueWins || 0, nextRecord.coinLeagueWins || 0),
-      currentWeeklyWinStreak: Math.max(
-        existing.currentWeeklyWinStreak || 0,
-        nextRecord.currentWeeklyWinStreak
-      ),
-      longestWeeklyWinStreak: Math.max(
-        existing.longestWeeklyWinStreak || 0,
-        nextRecord.longestWeeklyWinStreak
-      ),
-      exactScores: Math.max(existing.exactScores || 0, nextRecord.exactScores),
-      correctCaptains: Math.max(existing.correctCaptains || 0, nextRecord.correctCaptains),
-      earnedBadgeIds: Array.from(
-        new Set([...(existing.earnedBadgeIds || []), ...nextRecord.earnedBadgeIds])
-      ),
+      playedSeason: !!existing.playedSeason || !!nextRecord.playedSeason,
+      founder: !!existing.founder || !!nextRecord.founder,
       updatedAt: nextRecord.updatedAt,
     };
 
@@ -6596,6 +6588,9 @@ useEffect(() => {
 
   const getBadgeDisplayValue = (badge, badgeStats = {}) => {
     if (badge.medalType) {
+      if (badge.medalType === "gold") {
+        return badgeStats.globalMedals?.gold || badgeStats.globalWinnerCount || 0;
+      }
       return badgeStats.globalMedals?.[badge.medalType] || 0;
     }
     if (badge.id === "gambler") {
