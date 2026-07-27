@@ -79,6 +79,7 @@ const GAMEWEEK_BY_MODE_STORAGE_KEY = "prediction_gameweeks_by_mode_v1";
 const SELECTED_MINI_LEAGUE_STORAGE_KEY = "prediction_selected_mini_league_v1";
 const SEASON_WINNERS_STORAGE_KEY = "prediction_season_winners_v1";
 const BADGE_HISTORY_STORAGE_KEY = "prediction_badge_history_v1";
+const BADGE_SEEN_STORAGE_KEY = "prediction_seen_badges_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
 const PREMIER_MODE = "premierLeague";
@@ -2422,7 +2423,16 @@ export default function App() {
     } catch {}
     return true;
   });
-  const scoreAudioCtxRef = useRef(null);
+  const playSoundFile = (src, volume = 0.3) => {
+    if (!soundEffectsEnabled) return;
+    try {
+      const audio = new Audio(src);
+      audio.volume = volume;
+      audio.play().catch((err) => console.log("Audio play failed:", err));
+    } catch (err) {
+      console.log("Audio error:", err);
+    }
+  };
 
   // All users' avatars
   const [avatarsByUserId, setAvatarsByUserId] = useState({});
@@ -2461,39 +2471,15 @@ export default function App() {
 
   // Sound effects for coins
   const playCoinSound = (isAdding) => {
-    if (!soundEffectsEnabled) return;
-    try {
-      const audio = new Audio(isAdding ? '/coin.mp3' : '/negative coin.mp3');
-      audio.volume = 0.3;
-      audio.play().catch(err => console.log('Audio play failed:', err));
-    } catch (err) {
-      console.log('Audio error:', err);
-    }
+    playSoundFile(isAdding ? "/coin.mp3" : "/negative-sound.MP3", 0.3);
   };
 
-  // Generic click sounds for score +/- (no files)
   const playScoreSound = (isAdding) => {
-    if (!soundEffectsEnabled) return;
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      if (!scoreAudioCtxRef.current) scoreAudioCtxRef.current = new AudioCtx();
-      const ctx = scoreAudioCtxRef.current;
-      if (ctx.state === "suspended") ctx.resume();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = isAdding ? 880 : 440;
-      gain.gain.value = 0.18;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      const now = ctx.currentTime;
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-      osc.stop(now + 0.13);
-    } catch (err) {
-      console.log("Score sound error:", err);
-    }
+    playSoundFile(isAdding ? "/score-up.MP3" : "/negative-sound.MP3", 0.3);
+  };
+
+  const playBadgeWinSound = () => {
+    playSoundFile("/badge-win.MP3", 0.45);
   };
 
   const updateSoundEffectsEnabled = (enabled) => {
@@ -2966,6 +2952,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [showPredictionIqModal, setShowPredictionIqModal] = useState(false);
   const [predictionIqPendingAfterWinner, setPredictionIqPendingAfterWinner] = useState(false);
   const [predictionIqDemo, setPredictionIqDemo] = useState(false);
+  const [badgeAwardBadges, setBadgeAwardBadges] = useState([]);
   const badgeHistorySaveSignatureRef = useRef("");
   const winnerAudioRef = useRef(null);
 
@@ -6431,6 +6418,52 @@ const getEarnedBadges = (badgeStats = {}) =>
     if (badge.id === "captainKing") return (badgeStats.correctCaptains || 0) >= 20;
     return false;
   });
+
+const currentBadgeStats = useMemo(
+  () => getPlayerBadgeStats({ player: currentPlayer, userId: currentUserId }),
+  [badgeStatsByKey, currentPlayer, currentUserId]
+);
+const currentEarnedBadges = useMemo(
+  () => getEarnedBadges(currentBadgeStats),
+  [currentBadgeStats]
+);
+
+useEffect(() => {
+  if (activeView !== "badges" || !currentUserId || !currentEarnedBadges.length) return;
+
+  const storageKey = String(currentUserId || currentPlayer || "").trim();
+  if (!storageKey) return;
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(BADGE_SEEN_STORAGE_KEY) || "{}");
+    const seenIds = new Set(Array.isArray(saved[storageKey]) ? saved[storageKey] : []);
+    const newlyEarned = currentEarnedBadges.filter((badge) => !seenIds.has(badge.id));
+    if (!newlyEarned.length) return;
+
+    setBadgeAwardBadges(newlyEarned);
+    playBadgeWinSound();
+    localStorage.setItem(
+      BADGE_SEEN_STORAGE_KEY,
+      JSON.stringify({
+        ...(saved || {}),
+        [storageKey]: Array.from(
+          new Set([...seenIds, ...currentEarnedBadges.map((badge) => badge.id)])
+        ),
+      })
+    );
+  } catch {
+    localStorage.setItem(
+      BADGE_SEEN_STORAGE_KEY,
+      JSON.stringify({ [storageKey]: currentEarnedBadges.map((badge) => badge.id) })
+    );
+  }
+}, [activeView, currentUserId, currentPlayer, currentEarnedBadges]);
+
+useEffect(() => {
+  if (!badgeAwardBadges.length) return;
+  const timeoutId = setTimeout(() => setBadgeAwardBadges([]), 3600);
+  return () => clearTimeout(timeoutId);
+}, [badgeAwardBadges]);
 
 useEffect(() => {
   if (isWorldCupMode || (!currentUserId && !currentPlayer)) return;
@@ -11034,11 +11067,7 @@ const TABS = [
         {activeView === "badges" && (
           <section style={cardStyle}>
             {(() => {
-              const currentBadgeStats = getPlayerBadgeStats({
-                player: currentPlayer,
-                userId: currentUserId,
-              });
-              const earnedBadges = getEarnedBadges(currentBadgeStats);
+              const earnedBadges = currentEarnedBadges;
               const getBadgeProgress = (badge) => {
                 if (badge.id === "founder") {
                   return currentBadgeStats.founder ? "Originals league member" : "Locked";
@@ -11094,6 +11123,57 @@ const TABS = [
                     </div>
                   </div>
 
+                  {badgeAwardBadges.length > 0 && (
+                    <div
+                      className="badge-award-panel"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(34,197,94,0.22), rgba(56,189,248,0.16))",
+                        border: `1px solid ${theme.accent2}`,
+                        borderRadius: 12,
+                        padding: isMobile ? 12 : 14,
+                        display: "grid",
+                        gap: 10,
+                        justifyItems: "center",
+                        textAlign: "center",
+                      }}
+                    >
+                      <div style={{ color: theme.accent2, fontSize: 12, fontWeight: 1000, textTransform: "uppercase" }}>
+                        New badge earned
+                      </div>
+                      <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+                        {badgeAwardBadges.map((badge) => {
+                          const visual = getBadgeVisual(badge, true);
+                          return (
+                            <div
+                              key={badge.id}
+                              className="badge-award-icon"
+                              title={`${badge.label}: ${badge.requirement}`}
+                              aria-label={badge.label}
+                              style={{
+                                width: isMobile ? 58 : 68,
+                                height: isMobile ? 58 : 68,
+                                borderRadius: "50%",
+                                border: `1px solid ${visual.border}`,
+                                background: visual.background,
+                                color: visual.color,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                overflow: "hidden",
+                                boxShadow: "0 16px 34px rgba(0,0,0,0.28)",
+                              }}
+                            >
+                              {renderBadgeIconContent(badge, currentBadgeStats, isMobile ? 42 : 50)}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ color: theme.text, fontSize: 15, fontWeight: 900 }}>
+                        {badgeAwardBadges.map((badge) => badge.label).join(", ")}
+                      </div>
+                    </div>
+                  )}
+
                   <div
                     style={{
                       background: theme.panelHi,
@@ -11137,6 +11217,7 @@ const TABS = [
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
+                                overflow: "hidden",
                                 boxShadow: badge.medalType
                                   ? "0 8px 22px rgba(250,204,21,0.18)"
                                   : "0 8px 22px rgba(0,0,0,0.22)",
@@ -11189,6 +11270,7 @@ const TABS = [
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
+                              overflow: "hidden",
                               fontSize: getBadgeFontSize(badge, 18),
                               fontWeight: 900,
                             }}

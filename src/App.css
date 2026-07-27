@@ -70,6 +70,40 @@ html {
   }
 }
 
+.badge-award-panel {
+  animation: badge-award-panel-in 0.42s ease-out both;
+}
+
+.badge-award-icon {
+  animation: badge-award-pop 0.78s cubic-bezier(0.18, 0.89, 0.32, 1.28) both;
+}
+
+@keyframes badge-award-panel-in {
+  0% {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes badge-award-pop {
+  0% {
+    transform: scale(0.18) rotate(-18deg);
+    opacity: 0;
+  }
+  58% {
+    transform: scale(1.14) rotate(6deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
 /* REAL bold football-style title */
 h1 {
   font-family: 'Impact', 'Arial Black', sans-serif;
