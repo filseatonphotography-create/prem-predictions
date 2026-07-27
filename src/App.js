@@ -84,6 +84,8 @@ const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
+const PREMIER_TABLE_CURRENT_VIEW = "current-2026-27";
+const PREMIER_TABLE_HISTORY_VIEW = "history-2025-26";
 const MAX_USERNAME_LENGTH = 11;
 const USERNAME_DISPLAY_LENGTH = 11;
 const PREMIER_SEASON_WINNER_RECORD = {
@@ -1674,7 +1676,7 @@ function getPredictionLandingGameweek(fixturesSource = FIXTURES, gameweeks = GAM
 // Seed ratings for the 2026/27 Premier League clubs.
 const TEAM_RATINGS = {
   Arsenal: 98,
-  "Man City": 96,
+  "Man City": 101,
   "Aston Villa": 92,
   Chelsea: 90,
   "Crystal Palace": 86,
@@ -2252,6 +2254,83 @@ function buildLeaguePerformanceContext(results) {
   return byTeam;
 }
 
+export function buildPremierLeagueTableRows(fixtures = FIXTURES, results = {}) {
+  const byTeam = {};
+
+  (fixtures || []).forEach((fixture) => {
+    [fixture.homeTeam, fixture.awayTeam].forEach((teamName) => {
+      if (!teamName) return;
+      const teamKey = normalizeTeamName(teamName);
+      if (byTeam[teamKey]) return;
+      byTeam[teamKey] = {
+        team: {
+          id: teamKey,
+          name: teamName,
+          shortName: teamName.replace(/\s*(FC|AFC)$/i, "").trim(),
+          tla: getTeamCode(teamName),
+        },
+        playedGames: 0,
+        won: 0,
+        draw: 0,
+        lost: 0,
+        points: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDifference: 0,
+        position: 0,
+      };
+    });
+
+    if (!isFixtureCompleted(fixture, results)) return;
+
+    const res = results[fixture.id];
+    const homeGoals = Number(res.homeGoals);
+    const awayGoals = Number(res.awayGoals);
+    if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return;
+
+    const home = byTeam[normalizeTeamName(fixture.homeTeam)];
+    const away = byTeam[normalizeTeamName(fixture.awayTeam)];
+    if (!home || !away) return;
+
+    home.playedGames += 1;
+    away.playedGames += 1;
+    home.goalsFor += homeGoals;
+    home.goalsAgainst += awayGoals;
+    away.goalsFor += awayGoals;
+    away.goalsAgainst += homeGoals;
+    home.goalDifference = home.goalsFor - home.goalsAgainst;
+    away.goalDifference = away.goalsFor - away.goalsAgainst;
+
+    if (homeGoals > awayGoals) {
+      home.won += 1;
+      away.lost += 1;
+      home.points += 3;
+    } else if (homeGoals < awayGoals) {
+      away.won += 1;
+      home.lost += 1;
+      away.points += 3;
+    } else {
+      home.draw += 1;
+      away.draw += 1;
+      home.points += 1;
+      away.points += 1;
+    }
+  });
+
+  const rows = Object.values(byTeam);
+  rows.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.goalDifference !== a.goalDifference) return b.goalDifference - a.goalDifference;
+    if (b.goalsFor !== a.goalsFor) return b.goalsFor - a.goalsFor;
+    return (a.team?.name || "").localeCompare(b.team?.name || "");
+  });
+  rows.forEach((row, index) => {
+    row.position = index + 1;
+  });
+
+  return rows;
+}
+
 function buildFixtureModel(fixture, context = {}) {
   if (!fixture) {
     return {
@@ -2700,6 +2779,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   
   const [, setApiStatus] = useState("Auto results: loading…");
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
+  const [premierLeagueTableView, setPremierLeagueTableView] = useState(PREMIER_TABLE_CURRENT_VIEW);
   const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
   const [premierLeagueTableError, setPremierLeagueTableError] = useState("");
@@ -3316,9 +3396,22 @@ const worldCupGroupTables = useMemo(() => {
     });
 }, [isWorldCupMode, activeFixtures, results]);
 
+const currentPremierLeagueTableRows = useMemo(
+  () => buildPremierLeagueTableRows(FIXTURES, results),
+  [results]
+);
+const displayedPremierLeagueTableRows =
+  premierLeagueTableView === PREMIER_TABLE_HISTORY_VIEW
+    ? premierLeagueTableRows
+    : currentPremierLeagueTableRows;
+const displayedPremierLeagueTableStarted = displayedPremierLeagueTableRows.some(
+  (row) => Number(row?.playedGames) > 0
+);
+const isHistoricalPremierLeagueTable = premierLeagueTableView === PREMIER_TABLE_HISTORY_VIEW;
+
 const premierLeagueInsights = useMemo(() => {
   const out = {};
-  (premierLeagueTableRows || []).forEach((row) => {
+  (displayedPremierLeagueTableRows || []).forEach((row) => {
     const teamName = row?.team?.name || row?.team?.shortName || row?.team?.tla || "";
     if (!teamName) return;
     out[normalizeTeamName(teamName)] = buildPremierTeamInsights(
@@ -3328,7 +3421,7 @@ const premierLeagueInsights = useMemo(() => {
     );
   });
   return out;
-}, [premierLeagueTableRows, results, leaguePerformanceContext]);
+}, [displayedPremierLeagueTableRows, results, leaguePerformanceContext]);
 
 // (debug logs removed)
 
@@ -3753,6 +3846,12 @@ useEffect(() => {
 
 useEffect(() => {
   if (activeView !== "premierLeagueTable") return;
+  if (premierLeagueTableView !== PREMIER_TABLE_HISTORY_VIEW) {
+    setPremierLeagueTableLoading(false);
+    setPremierLeagueTableError("");
+    return;
+  }
+  if (premierLeagueTableRows.length > 0) return;
 
   let cancelled = false;
 
@@ -3778,7 +3877,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [activeView]);
+}, [activeView, premierLeagueTableView, premierLeagueTableRows.length]);
 
   // If odds didn’t load on first mount (some mobile browsers do this),
 // refetch them when user opens Win Probabilities.
@@ -11335,7 +11434,48 @@ const TABS = [
             >
               Click team for form and fixture rating.
             </div>
-            {lastStandingsUpdated && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                marginBottom: 10,
+              }}
+            >
+              <select
+                value={premierLeagueTableView}
+                onChange={(e) => {
+                  setPremierLeagueTableView(e.target.value);
+                  setExpandedPremierTeam("");
+                }}
+                style={{
+                  width: isMobile ? "100%" : 260,
+                  padding: "9px 10px",
+                  borderRadius: 8,
+                  border: `1.5px solid #ffffff`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  fontWeight: 700,
+                  fontSize: 13,
+                }}
+              >
+                <option value={PREMIER_TABLE_CURRENT_VIEW}>2026/27 Season</option>
+                <option value={PREMIER_TABLE_HISTORY_VIEW}>2025/26 Historical standings</option>
+              </select>
+            </div>
+            {!isHistoricalPremierLeagueTable && !displayedPremierLeagueTableStarted && (
+              <div
+                style={{
+                  marginTop: -2,
+                  marginBottom: 12,
+                  textAlign: "center",
+                  fontSize: 12,
+                  color: theme.muted,
+                }}
+              >
+                Fixtures released. All teams start on zero until results come in.
+              </div>
+            )}
+            {isHistoricalPremierLeagueTable && lastStandingsUpdated && (
               <div
                 style={{
                   marginTop: -6,
@@ -11350,7 +11490,7 @@ const TABS = [
             )}
 
             <div style={{ display: "grid", gap: 8 }}>
-              {premierLeagueTableLoading && (
+              {isHistoricalPremierLeagueTable && premierLeagueTableLoading && (
                 <div
                   style={{
                     background: theme.panelHi,
@@ -11361,11 +11501,11 @@ const TABS = [
                     textAlign: "center",
                   }}
                 >
-                  Loading standings...
+                  Loading historical standings...
                 </div>
               )}
 
-              {!premierLeagueTableLoading && premierLeagueTableError && (
+              {isHistoricalPremierLeagueTable && !premierLeagueTableLoading && premierLeagueTableError && (
                 <div
                   style={{
                     background: theme.panelHi,
@@ -11380,9 +11520,9 @@ const TABS = [
                 </div>
               )}
 
-              {!premierLeagueTableLoading &&
-                !premierLeagueTableError &&
-                premierLeagueTableRows.map((row, i) => {
+              {(!isHistoricalPremierLeagueTable || !premierLeagueTableLoading) &&
+                (!isHistoricalPremierLeagueTable || !premierLeagueTableError) &&
+                displayedPremierLeagueTableRows.map((row, i) => {
                   const teamName =
                     row?.team?.name ||
                     row?.team?.shortName ||
@@ -11398,9 +11538,11 @@ const TABS = [
                     "";
 
                   let borderColor = theme.line;
-                  if (i === 0) borderColor = "#FFD700";
-                  else if (i < 4) borderColor = "#22C55E";
-                  else if (i >= premierLeagueTableRows.length - 3) borderColor = "#EF4444";
+                  if (displayedPremierLeagueTableStarted || isHistoricalPremierLeagueTable) {
+                    if (i === 0) borderColor = "#FFD700";
+                    else if (i < 4) borderColor = "#22C55E";
+                    else if (i >= displayedPremierLeagueTableRows.length - 3) borderColor = "#EF4444";
+                  }
 
                   return (
                     <div

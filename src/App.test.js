@@ -13,6 +13,7 @@ import {
   mergeCloudPredictionsPreservingLocalBoosts,
   setOnlyCaptainForFixtureRound,
   buildGeneratedModelOdds,
+  buildPremierLeagueTableRows,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -144,6 +145,7 @@ describe("World Cup sync helpers", () => {
     const fixtures = [
       { id: 301, homeTeam: "Arsenal FC", awayTeam: "Coventry City FC" },
       { id: 302, homeTeam: "Fulham FC", awayTeam: "Chelsea FC" },
+      { id: 303, homeTeam: "Manchester City FC", awayTeam: "AFC Bournemouth" },
     ];
 
     const odds = buildGeneratedModelOdds(fixtures);
@@ -152,6 +154,21 @@ describe("World Cup sync helpers", () => {
     expect(odds[301].away).toBeGreaterThan(8);
     expect(odds[302].away).toBeLessThan(odds[302].home);
     expect(odds[302].draw).toBeGreaterThan(odds[302].away);
+    expect(odds[303].home).toBeLessThan(1.4);
+    expect(odds[303].away).toBeGreaterThan(7);
+  });
+
+  test("builds the current Premier League table from released fixtures", () => {
+    const rows = buildPremierLeagueTableRows(FIXTURES, {});
+    const teamKeys = new Set(rows.map((row) => normalizeTeamName(row.team.name)));
+
+    expect(rows).toHaveLength(20);
+    expect(teamKeys.has(normalizeTeamName("Coventry City FC"))).toBe(true);
+    expect(teamKeys.has(normalizeTeamName("Hull City AFC"))).toBe(true);
+    expect(teamKeys.has(normalizeTeamName("Ipswich Town FC"))).toBe(true);
+    expect(teamKeys.has(normalizeTeamName("West Ham United FC"))).toBe(false);
+    expect(teamKeys.has(normalizeTeamName("Wolverhampton Wanderers FC"))).toBe(false);
+    expect(rows.every((row) => row.playedGames === 0 && row.points === 0)).toBe(true);
   });
 
   test("normalizes World Cup aliases used by the live feed", () => {
