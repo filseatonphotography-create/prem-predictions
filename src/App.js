@@ -102,7 +102,7 @@ const BADGE_DEFINITIONS = [
   {
     id: "founder",
     label: "Founder",
-    icon: "★",
+    icon: "✪",
     requirement: "First ever mini-league member.",
   },
   {
@@ -172,7 +172,7 @@ const BADGE_DEFINITIONS = [
   {
     id: "superSniper",
     label: "Super Sniper",
-    icon: "✦",
+    icon: "⌖",
     requirement: "Land 20 or more exact scores in one Premier League season.",
   },
   {
@@ -6614,8 +6614,14 @@ useEffect(() => {
     if (badge.medalType === "bronze") {
       return { border: "#cd7f32", background: "linear-gradient(180deg, #f59e0b, #92400e)", color: "#111827" };
     }
-    if (badge.id === "sniper" || badge.id === "superSniper") {
-      return { border: "#ef4444", background: earned ? "rgba(239,68,68,0.16)" : theme.panel, color: "#f87171" };
+    if (badge.id === "founder") {
+      return { border: "#f59e0b", background: earned ? "linear-gradient(180deg, #fbbf24, #b45309)" : theme.panel, color: "#111827" };
+    }
+    if (badge.id === "sniper") {
+      return { border: "#d1d5db", background: earned ? "linear-gradient(180deg, #f8fafc, #94a3b8)" : theme.panel, color: "#111827" };
+    }
+    if (badge.id === "superSniper") {
+      return { border: "#facc15", background: earned ? "linear-gradient(180deg, #fde68a, #d97706)" : theme.panel, color: "#111827" };
     }
     if (badge.id === "captainClever") {
       return { border: "#facc15", background: earned ? "rgba(250,204,21,0.16)" : theme.panel, color: "#facc15" };
@@ -6637,6 +6643,24 @@ useEffect(() => {
   };
 
   const renderBadgeIconContent = (badge, badgeStats = {}, size = 24) => {
+    if (badge.id === "sharpShooter") {
+      return (
+        <span
+          aria-hidden="true"
+          style={{
+            width: size,
+            height: size,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: Math.round(size * 1.18),
+            lineHeight: 1,
+          }}
+        >
+          {badge.icon}
+        </span>
+      );
+    }
     if (badge.image) {
       const count = getBadgeDisplayValue(badge, badgeStats);
       return (
@@ -6654,7 +6678,7 @@ useEffect(() => {
             src={badge.image}
             alt=""
             aria-hidden="true"
-            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            style={{ width: "122%", height: "122%", objectFit: "cover" }}
           />
           <span
             style={{
@@ -6719,10 +6743,14 @@ useEffect(() => {
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
+                overflow: "hidden",
                 fontSize: getBadgeFontSize(badge, compact ? 10 : 11),
                 fontWeight: 900,
                 lineHeight: 1,
-                boxShadow: badge.medalType ? "0 0 0 1px rgba(250,204,21,0.2)" : "none",
+                boxShadow:
+                  badge.medalType || badge.id === "founder" || badge.id === "sniper" || badge.id === "superSniper"
+                    ? "0 0 0 1px rgba(250,204,21,0.2)"
+                    : "none",
               }}
             >
               {renderBadgeIconContent(badge, badgeStats, compact ? 15 : 17)}
