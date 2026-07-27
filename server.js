@@ -2521,7 +2521,7 @@ app.get("/api/history/badges", (req, res) => {
   }
 });
 
-app.post("/api/history/badges", authMiddleware, (req, res) => {
+app.post("/api/history/badges", authMiddleware, async (req, res) => {
   try {
     const safeRecord = sanitizeBadgeHistoryRecord(req.body?.record);
     if (!safeRecord) {
@@ -2537,6 +2537,15 @@ app.post("/api/history/badges", authMiddleware, (req, res) => {
       ? records.map(sanitizeBadgeHistoryRecord).filter(Boolean)
       : [];
     const existingIndex = list.findIndex((item) => item?.id === safeRecord.id);
+    const existingBadgeIds =
+      existingIndex === -1
+        ? []
+        : Array.isArray(list[existingIndex]?.earnedBadgeIds)
+        ? list[existingIndex].earnedBadgeIds
+        : [];
+    const newlyEarnedBadgeIds = safeRecord.earnedBadgeIds.filter(
+      (badgeId) => !existingBadgeIds.includes(badgeId)
+    );
 
     if (existingIndex === -1) {
       list.unshift(safeRecord);
@@ -2552,6 +2561,17 @@ app.post("/api/history/badges", authMiddleware, (req, res) => {
     }
 
     saveBadgeHistory(list);
+    if (newlyEarnedBadgeIds.length > 0 && safeRecord.userId) {
+      await sendPushNotification(safeRecord.userId, "badgeEarned", {
+        title: "New badge earned",
+        body:
+          newlyEarnedBadgeIds.length === 1
+            ? "You earned a new badge."
+            : `You earned ${newlyEarnedBadgeIds.length} new badges.`,
+        url: "/",
+        tag: `badge-earned-${safeRecord.userId}`,
+      });
+    }
     return res.json(list);
   } catch (err) {
     console.error("badge history save error", err);

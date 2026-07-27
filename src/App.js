@@ -82,6 +82,14 @@ const BADGE_HISTORY_STORAGE_KEY = "prediction_badge_history_v1";
 const BADGE_SEEN_STORAGE_KEY = "prediction_seen_badges_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
+const DEFAULT_PUSH_PREFS = {
+  deadline1h: true,
+  deadline24h: true,
+  bingpot: true,
+  betWin: true,
+  badgeEarned: true,
+  favoriteTeamResult: false,
+};
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
 const PREMIER_TABLE_CURRENT_VIEW = "current-2026-27";
@@ -2766,15 +2774,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [pushPrefs, setPushPrefs] = useState(() => {
     try {
       const saved = localStorage.getItem("push_prefs_v1");
-      if (saved) return JSON.parse(saved);
+      if (saved) return { ...DEFAULT_PUSH_PREFS, ...JSON.parse(saved) };
     } catch {}
-    return {
-      deadline1h: true,
-      deadline24h: true,
-      bingpot: true,
-      betWin: true,
-      favoriteTeamResult: false,
-    };
+    return DEFAULT_PUSH_PREFS;
   });
   
   const [, setApiStatus] = useState("Auto results: loading…");
@@ -3688,7 +3690,7 @@ useEffect(() => {
       const prefs = await apiGetPushPrefs(authToken);
       if (prefs && typeof prefs === "object") {
         setPushPrefs((prev) => {
-          const next = { ...prev, ...prefs };
+          const next = { ...DEFAULT_PUSH_PREFS, ...prev, ...prefs };
           localStorage.setItem("push_prefs_v1", JSON.stringify(next));
           return next;
         });
@@ -3731,7 +3733,10 @@ useEffect(() => {
         return;
       }
 
-      const localPushPrefs = JSON.parse(localStorage.getItem("push_prefs_v1") || "{}");
+      const localPushPrefs = {
+        ...DEFAULT_PUSH_PREFS,
+        ...JSON.parse(localStorage.getItem("push_prefs_v1") || "{}"),
+      };
       const localFixturePrefs = JSON.parse(
         localStorage.getItem(FIXTURE_PUSH_STORAGE_KEY) || "{}"
       );
@@ -13675,6 +13680,7 @@ const TABS = [
                       { key: "deadline24h", label: "Notify 24 hours before deadline" },
                       { key: "bingpot", label: "Bingpot notification" },
                       { key: "betWin", label: "Bet win notification" },
+                      { key: "badgeEarned", label: "New badge earned notification" },
                       { key: "favoriteTeamResult", label: "Favourite team result notification" },
                     ].map((opt) => (
                       <label
