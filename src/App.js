@@ -97,6 +97,7 @@ const PREMIER_SEASON_WINNER_RECORD = {
 };
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const ORIGINALS_LEAGUE_PLAYERS = new Set(PLAYERS);
+const BADGE_TABLE_DEMO_PLAYER = "Phil";
 const emptyGlobalMedals = () => ({ gold: 0, silver: 0, bronze: 0 });
 const BADGE_DEFINITIONS = [
   {
@@ -6350,6 +6351,22 @@ const badgeStatsByKey = useMemo(() => {
 const getPlayerBadgeStats = (row = {}) => {
   const id = String(row.userId || "").trim();
   const name = String(row.player || row.username || "").trim();
+  if (name === BADGE_TABLE_DEMO_PLAYER) {
+    return {
+      player: name,
+      userId: id,
+      founder: true,
+      seasonsPlayed: 6,
+      globalWinnerCount: 1,
+      globalMedals: { gold: 1, silver: 1, bronze: 1 },
+      coinLeagueWins: 1,
+      currentWeeklyWinStreak: 5,
+      longestWeeklyWinStreak: 5,
+      exactScores: 20,
+      correctCaptains: 20,
+      earnedBadgeIds: BADGE_DEFINITIONS.map((badge) => badge.id),
+    };
+  }
   return (
     badgeStatsByKey[id] ||
     badgeStatsByKey[name] || {
@@ -6680,7 +6697,8 @@ useEffect(() => {
 
   const renderBadgeStrip = (row, options = {}) => {
     const compact = !!options.compact;
-    const limit = options.limit || 4;
+    const limit = options.limit == null ? 4 : options.limit;
+    const wrap = !!options.wrap;
     const badgeStats = getPlayerBadgeStats(row);
     const badges = getEarnedBadges(badgeStats).slice(0, limit);
     if (!badges.length) return null;
@@ -6690,8 +6708,10 @@ useEffect(() => {
         style={{
           display: "inline-flex",
           alignItems: "center",
+          flexWrap: wrap ? "wrap" : "nowrap",
           gap: 4,
-          marginLeft: compact ? 4 : 6,
+          marginLeft: wrap ? 0 : compact ? 4 : 6,
+          marginTop: wrap ? 4 : 0,
           verticalAlign: "middle",
           flexShrink: 0,
         }}
@@ -10758,8 +10778,9 @@ const TABS = [
                       color: i === 0 ? "#FFD700" : theme.text,
                       minWidth: 0,
                       display: "flex",
-                      alignItems: "center",
-                      overflow: "hidden",
+                      flexDirection: "column",
+                      alignItems: "flex-start",
+                      overflow: "visible",
                     }}>
                       <span
                         title={row.player}
@@ -10768,11 +10789,12 @@ const TABS = [
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                           minWidth: 0,
+                          maxWidth: "100%",
                         }}
                       >
                         {displayPlayerName}
                       </span>
-                      {renderBadgeStrip(row, { compact: true, limit: 3 })}
+                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true })}
                     </div>
                     <div style={{ 
                       textAlign: "right", 
@@ -10865,8 +10887,9 @@ const TABS = [
                         color: i === 0 ? "#FFD700" : theme.text,
                         minWidth: 0,
                         display: "flex",
-                        alignItems: "center",
-                        overflow: "hidden",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        overflow: "visible",
                       }}
                     >
                       <span
@@ -10876,11 +10899,12 @@ const TABS = [
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
                           minWidth: 0,
+                          maxWidth: "100%",
                         }}
                       >
                         {displayPlayerName}
                       </span>
-                      {renderBadgeStrip(row, { compact: true, limit: 3 })}
+                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true })}
                     </div>
                     <div
                       style={{
@@ -11637,8 +11661,9 @@ const TABS = [
         color: i === 0 ? "#FFD700" : theme.text,
         minWidth: 0,
         display: "flex",
-        alignItems: "center",
-        overflow: "hidden",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        overflow: "visible",
       }}>
         <span
           title={row.player}
@@ -11647,11 +11672,12 @@ const TABS = [
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             minWidth: 0,
+            maxWidth: "100%",
           }}
         >
           {displayPlayerName}
         </span>
-        {renderBadgeStrip(row, { compact: true, limit: 3 })}
+        {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true })}
       </div>
       <div style={{ 
         textAlign: "right", 
