@@ -207,6 +207,7 @@ const PUSH_SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "pushSubscriptions.json");
 const PASSWORD_RESET_TOKENS_FILE = path.join(DATA_DIR, "passwordResetTokens.json");
 const TEST_ACCOUNT_USERNAMES = new Set(["testuser", "testuser2", "edward", "charlie", "chat123"]);
 const LEAGUE_INACTIVE_WINDOW_MS = 10 * 7 * 24 * 60 * 60 * 1000;
+const ORIGINALS_LEAGUE_CODE = "ORIGINALS";
 const PREMIER_SEASON_WINNER_RECORD = {
   id: "premier-2025/26",
   mode: "premierLeague",
@@ -602,6 +603,13 @@ function normalizeLeagueMembers(league) {
   return Array.from(new Set(getLeagueMemberIds(league)));
 }
 
+function isOriginalsLeague(league) {
+  return (
+    String(league?.joinCode || league?.inviteCode || "").trim().toUpperCase() ===
+    ORIGINALS_LEAGUE_CODE
+  );
+}
+
 function pruneInactiveLeagueMembers(leagues, users, predictionsByUserId, now = Date.now()) {
   const userById = {};
   (users || []).forEach((user) => {
@@ -612,6 +620,8 @@ function pruneInactiveLeagueMembers(leagues, users, predictionsByUserId, now = D
   const removed = [];
 
   (leagues || []).forEach((league) => {
+    if (isOriginalsLeague(league)) return;
+
     const originalMembers = normalizeLeagueMembers(league);
     if (!originalMembers.length) return;
 
