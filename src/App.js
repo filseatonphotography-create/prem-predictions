@@ -2609,6 +2609,10 @@ export default function App() {
     playSoundFile("/page-swipe.MP3", 0.24);
   };
 
+  const playFixtureBellSound = (enabled) => {
+    playSoundFile(enabled ? "/notification-bell.MP3" : "/negative-sound.MP3", 0.35);
+  };
+
   const updateSoundEffectsEnabled = (enabled) => {
     setSoundEffectsEnabled(enabled);
     localStorage.setItem("sound_effects_enabled_v1", String(enabled));
@@ -4842,6 +4846,7 @@ setNewPasswordInput("");
       const savedPrefs = await apiSetFixturePushPref(authToken, fixtureKey, nextEnabled);
       setFixturePushPrefs(savedPrefs || {});
       localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(savedPrefs || {}));
+      playFixtureBellSound(nextEnabled);
     } catch (err) {
       setFixturePushPrefs((prev) => ({ ...prev, [fixtureKey]: previousEnabled }));
       alert(`Failed to update fixture notifications: ${err.message}`);
