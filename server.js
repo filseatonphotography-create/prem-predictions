@@ -841,6 +841,55 @@ function computeSeasonCoinsForUser(coinsForUser, resultsByFixtureId, options = {
   };
 }
 
+function computeBestGameweekCoinsProfit(coinsForUser, resultsByFixtureId, options = {}) {
+  const gwObj = coinsForUser || {};
+  const results = resultsByFixtureId || {};
+  const settledFixtureIds = options.settledFixtureIds || null;
+  let best = null;
+
+  Object.entries(gwObj).forEach(([gwKey, fixObj]) => {
+    if (gwKey === "__modes") return;
+    if (!fixObj || typeof fixObj !== "object") return;
+
+    let totalStake = 0;
+    let totalReturn = 0;
+
+    Object.values(fixObj).forEach((bet) => {
+      if (!bet) return;
+      const { fixtureId, stake, side, oddsSnapshot } = bet || {};
+      const stakeNum = Number(stake);
+      if (!Number.isFinite(stakeNum) || stakeNum <= 0) return;
+
+      const fixtureIdKey = String(fixtureId);
+      if (settledFixtureIds && !settledFixtureIds.has(fixtureIdKey)) return;
+
+      const res = results[fixtureId] || results[fixtureIdKey];
+      if (!hasSettledCoinsResult(res)) return;
+
+      totalStake += stakeNum;
+
+      const resultSide = getResult(Number(res.homeGoals), Number(res.awayGoals));
+      if (side === resultSide && oddsSnapshot) {
+        const rawPrice =
+          resultSide === "H"
+            ? oddsSnapshot.home
+            : resultSide === "D"
+            ? oddsSnapshot.draw
+            : oddsSnapshot.away;
+        const priceNum = Number(rawPrice);
+        if (Number.isFinite(priceNum)) totalReturn += stakeNum * priceNum;
+      }
+    });
+
+    const profit = totalReturn - totalStake;
+    if (totalStake > 0 && (!best || profit > best.profit)) {
+      best = { gameweek: gwKey, profit, totalStake, totalReturn };
+    }
+  });
+
+  return best;
+}
+
 function normalizeCoinsMode(mode) {
   return normalizeLeagueMode(mode) === "worldcup" ? "worldcup" : "premier";
 }
@@ -2544,7 +2593,13 @@ app.get("/api/predictions/league/:leagueId", authMiddleware, (req, res) => {
     const usersInLeague = members
       .map((id) => usersById[String(id)])
       .filter(Boolean)
-      .map((u) => ({ userId: String(u.id), username: u.username }));
+      .map((u) => ({
+        userId: String(u.id),
+        username: u.username,
+        createdAt: u.createdAt || "",
+        favoriteTeam: (u.favoriteTeam || "").trim(),
+        favoriteCountry: (u.favoriteCountry || "").trim(),
+      }));
 
     const predictionsByUserId = {};
     members.forEach((mid) => {
@@ -2573,6 +2628,9 @@ app.get("/api/predictions/all", authMiddleware, (req, res) => {
     const usersOut = users.map((u) => ({
       userId: u.id,
       username: u.username,
+      createdAt: u.createdAt || "",
+      favoriteTeam: (u.favoriteTeam || "").trim(),
+      favoriteCountry: (u.favoriteCountry || "").trim(),
     }));
 
     const predictionsByUserId = {};
@@ -3622,11 +3680,15 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
     }
 
     const addRow = (userIdKey, coinsRecord) => {
+      const modeCoins = getCoinsModeBucket(coinsRecord || {}, mode, false);
       const summary = computeSeasonCoinsForUser(
-        getCoinsModeBucket(coinsRecord || {}, mode, false),
+        modeCoins,
         results,
         { settledFixtureIds }
       );
+      const bestGameweek = computeBestGameweekCoinsProfit(modeCoins, results, {
+        settledFixtureIds,
+      });
       const legacyNameFromId =
         legacyIdToName[String(userIdKey)] || legacyIdToName[userIdKey] || null;
       const legacyNameFromKey = legacyMap[userIdKey] ? String(userIdKey) : null;
@@ -3641,6 +3703,7 @@ app.get("/api/coins/leaderboard", authOptional, (req, res) => {
         totalStake: summary.totalStake,
         totalReturn: summary.totalReturn,
         profit: summary.profit,
+        bestGameweekCoinsWin: bestGameweek,
       });
       // Log each user's summary for debugging
       console.log(

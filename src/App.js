@@ -347,6 +347,16 @@ function formatUsernameForDisplay(username, maxLength = USERNAME_DISPLAY_LENGTH)
   return `${name.slice(0, Math.max(1, maxLength - 3))}...`;
 }
 
+function formatProfileDate(value) {
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) return "Unknown";
+  return new Date(time).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function getFixturesForMode(mode) {
   return mode === WORLD_CUP_MODE ? WORLD_CUP_FIXTURES : FIXTURES;
 }
@@ -2863,6 +2873,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [leagueUsernamesByUserId, setLeagueUsernamesByUserId] = useState({});
   const [leagueHistoryUsers, setLeagueHistoryUsers] = useState([]);
   const [leaguePredictionsByUserId, setLeaguePredictionsByUserId] = useState({});
+  const [expandedPlayerRowKey, setExpandedPlayerRowKey] = useState("");
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
   const isResetPasswordRoute = useMemo(() => {
     try {
@@ -3799,7 +3810,13 @@ useEffect(() => {
 
 // Fetch multi-player coins leaderboard from backend
 useEffect(() => {
-  if (activeView !== "coinsLeague" && activeView !== "summary" && activeView !== "badges") return;
+  if (
+    activeView !== "coinsLeague" &&
+    activeView !== "summary" &&
+    activeView !== "badges" &&
+    activeView !== "league" &&
+    activeView !== "globalLeague"
+  ) return;
   if (!authToken) return; // Don't fetch if not authenticated yet
 
   let cancelled = false;
@@ -3812,7 +3829,7 @@ useEffect(() => {
       activeController = controller;
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
       
-      const leagueId = selectedMiniLeague?.id || "";
+      const leagueId = activeView === "globalLeague" ? "" : selectedMiniLeague?.id || "";
       const url = leagueId
         ? `${BACKEND_BASE}/api/coins/leaderboard?leagueId=${encodeURIComponent(leagueId)}&mode=${encodeURIComponent(getModeKey(gameMode))}`
         : `${BACKEND_BASE}/api/coins/leaderboard?mode=${encodeURIComponent(getModeKey(gameMode))}`;
@@ -4239,7 +4256,16 @@ useEffect(() => {
         }
       });
       const nextLeagueHistoryUsers = Object.values(historyUsersByName).map(
-        ({ userId, username }) => ({ userId, username })
+        ({ userId, username }) => {
+          const source = leagueUsers.find((u) => String(u?.userId || "") === String(userId)) || {};
+          return {
+            userId,
+            username,
+            createdAt: source.createdAt || "",
+            favoriteTeam: source.favoriteTeam || "",
+            favoriteCountry: source.favoriteCountry || "",
+          };
+        }
       );
 
             // 3) Keys = legacy PLAYERS + league members (mapped)
@@ -6152,6 +6178,260 @@ const historicalScores = useMemo(() => {
   worldCupHistoryPredictionsByUserId,
   selectedMiniLeague,
 ]);
+
+const profileUsersByUserId = useMemo(() => {
+  const out = {};
+  [...(globalUsers || []), ...(leagueHistoryUsers || [])].forEach((user) => {
+    const userId = String(user?.userId || "");
+    if (!userId) return;
+    out[userId] = { ...(out[userId] || {}), ...user };
+  });
+  return out;
+}, [globalUsers, leagueHistoryUsers]);
+
+const profileUsersByUsername = useMemo(() => {
+  const out = {};
+  [...(globalUsers || []), ...(leagueHistoryUsers || [])].forEach((user) => {
+    const username = String(user?.username || "").trim();
+    if (!username) return;
+    out[username] = { ...(out[username] || {}), ...user };
+  });
+  return out;
+}, [globalUsers, leagueHistoryUsers]);
+
+const coinsRowsByUserId = useMemo(() => {
+  const out = {};
+  (coinsLeagueRows || []).forEach((row) => {
+    const userId = String(row?.userId || "");
+    if (userId) out[userId] = row;
+  });
+  return out;
+}, [coinsLeagueRows]);
+
+const coinsRowsByPlayer = useMemo(() => {
+  const out = {};
+  (coinsLeagueRows || []).forEach((row) => {
+    const player = String(row?.player || "").trim();
+    if (player) out[player] = row;
+  });
+  return out;
+}, [coinsLeagueRows]);
+
+function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
+  const userId = String(row?.userId || "");
+  const player = String(row?.player || "").trim();
+  const profile = (userId && profileUsersByUserId[userId]) || profileUsersByUsername[player] || {};
+  const favorite =
+    activeFavoriteByUserId[userId] ||
+    activeFavoriteByUsername[player] ||
+    (isWorldCupMode ? profile.favoriteCountry : profile.favoriteTeam) ||
+    "";
+  const coinsRow = (userId && coinsRowsByUserId[userId]) || coinsRowsByPlayer[player] || {};
+  const bestCoins = coinsRow.bestGameweekCoinsWin || null;
+
+  const rowsForRank = tableRows || [];
+  const rowKey = userId || player;
+  const getScoreForGameweek = (gw, targetRow) => {
+    const targetUserId = String(targetRow?.userId || "");
+    const targetPlayer = String(targetRow?.player || "").trim();
+    const totals = scope === "global" ? null : computedWeeklyTotals?.[gw];
+    if (totals) {
+      const candidates = [targetUserId, targetPlayer].filter(Boolean);
+      for (const key of candidates) {
+        if (totals[key] !== undefined) return Number(totals[key]) || 0;
+      }
+    }
+    if (!isWorldCupMode) {
+      return Number(SPREADSHEET_WEEKLY_TOTALS[targetPlayer]?.[gw - 1]) || 0;
+    }
+    const preds = globalPredictionsByUserId[targetUserId] || leaguePredictionsByUserId[targetUserId] || {};
+    let score = 0;
+    activeFixtures.forEach((fixture) => {
+      if (fixture.gameweek !== gw) return;
+      const res = results[fixture.id];
+      if (!hasValidResultScore(res)) return;
+      const pred =
+        preds[String(fixture.id)] !== undefined
+          ? preds[String(fixture.id)]
+          : preds[fixture.id];
+      if (pred) score += getTotalPoints(pred, res);
+    });
+    return score;
+  };
+
+  let bestRank = Number(rankIndex) + 1;
+  let bestGameweekScore = null;
+  let cumulativeScores = {};
+  activeGameweeks.forEach((gw) => {
+    const scoredRows = rowsForRank.map((candidate) => {
+      const candidateKey = String(candidate?.userId || candidate?.player || "");
+      const score = getScoreForGameweek(gw, candidate);
+      cumulativeScores[candidateKey] = (cumulativeScores[candidateKey] || 0) + score;
+      return { key: candidateKey, score: cumulativeScores[candidateKey] };
+    });
+    scoredRows.sort((a, b) => b.score - a.score);
+    const position = scoredRows.findIndex((item) => item.key === rowKey);
+    if (position >= 0) bestRank = Math.min(bestRank, position + 1);
+
+    const weeklyScore = getScoreForGameweek(gw, row);
+    if (!bestGameweekScore || weeklyScore > bestGameweekScore.score) {
+      bestGameweekScore = { gameweek: gw, score: weeklyScore };
+    }
+  });
+
+  const preds =
+    (userId && (globalPredictionsByUserId[userId] || leaguePredictionsByUserId[userId])) ||
+    predictions[player] ||
+    {};
+  let exactScores = 0;
+  let captainPicks = 0;
+  activeFixtures.forEach((fixture) => {
+    const pred =
+      preds[String(fixture.id)] !== undefined ? preds[String(fixture.id)] : preds[fixture.id];
+    const res = results[fixture.id];
+    if (!pred || !hasValidResultScore(res)) return;
+    if (Number(pred.homeGoals) === Number(res.homeGoals) && Number(pred.awayGoals) === Number(res.awayGoals)) {
+      exactScores += 1;
+    }
+    if (pred.isDouble || pred.isTriple) captainPicks += 1;
+  });
+
+  return {
+    memberSince: formatProfileDate(profile.createdAt),
+    favorite: favorite || "Not set",
+    currentPosition: Number(rankIndex) + 1,
+    bestPosition: bestRank || Number(rankIndex) + 1,
+    bestGameweekScore,
+    bestCoins,
+    exactScores,
+    captainPicks,
+    coinsProfit: typeof coinsRow.profit === "number" ? coinsRow.profit : null,
+  };
+}
+
+function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatter, scope }) {
+  const displayPlayerName = formatUsernameForDisplay(row.player);
+  const decoration = getLeaderboardDecoration(
+    rows,
+    index,
+    (item) => (scope === "coins" ? (typeof item?.profit === "number" ? item.profit : item?.points) : item?.points),
+    leaderboardDecorationsEnabled
+  );
+  const borderColor = decoration.borderColor || theme.line;
+  const rowAvatar = getAvatarForRow(row);
+  const rowKey = `${scope}:${row.userId || row.player}`;
+  const isExpanded = expandedPlayerRowKey === rowKey;
+  const profile = getLeaderboardProfile(row, rows, index, scope);
+  const scoreLabel = profile.bestGameweekScore
+    ? `${Math.round(profile.bestGameweekScore.score)} pts (${getModeGameweekLabel(gameMode, profile.bestGameweekScore.gameweek)})`
+    : "No completed scores";
+  const coinsLabel = profile.bestCoins
+    ? `${Number(profile.bestCoins.profit || 0).toFixed(2)} (${getModeGameweekLabel(gameMode, profile.bestCoins.gameweek)})`
+    : profile.coinsProfit !== null
+    ? `${Number(profile.coinsProfit || 0).toFixed(2)} season profit`
+    : "No coins data";
+
+  return (
+    <div
+      key={row.userId || row.player}
+      style={{
+        background: theme.panelHi,
+        border: `2px solid ${borderColor}`,
+        borderRadius: 12,
+        overflow: "hidden",
+        transition: "transform 0.2s",
+      }}
+    >
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        onClick={() => setExpandedPlayerRowKey((prev) => (prev === rowKey ? "" : rowKey))}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpandedPlayerRowKey((prev) => (prev === rowKey ? "" : rowKey));
+          }
+        }}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "50px auto minmax(0, 1fr) 90px 18px",
+          gap: 10,
+          alignItems: "center",
+          padding: "12px 14px",
+          cursor: "pointer",
+        }}
+      >
+        <div style={{ color: decoration.borderColor || theme.muted, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 4 }}>
+          {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
+          {!decoration.emoji && <span>{decoration.rank}</span>}
+        </div>
+        <PlayerAvatar
+          name={row.player}
+          size={36}
+          seed={rowAvatar.seed}
+          avatarStyle={rowAvatar.style}
+          favoriteMode={gameMode}
+          favoriteTeam={activeFavoriteByUserId[String(row.userId || "")] || activeFavoriteByUsername[row.player] || ""}
+        />
+        <div style={{ fontWeight: 700, fontSize: 15, color: decoration.highlight ? "#FFD700" : theme.text, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", overflow: "visible" }}>
+          <span title={row.player} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "100%" }}>
+            {displayPlayerName}
+          </span>
+          {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
+        </div>
+        <div style={{ textAlign: "right", fontWeight: 800, fontSize: 18, color: decoration.borderColor || theme.accent }}>
+          <AnimatedNumber value={Number(value) || 0} duration={450} format={valueFormatter} />
+        </div>
+        <div aria-hidden="true" style={{ color: theme.muted, fontSize: 16, fontWeight: 900 }}>
+          {isExpanded ? "▲" : "▼"}
+        </div>
+      </div>
+
+      {isExpanded && (
+        <div
+          style={{
+            borderTop: `1px solid ${theme.line}`,
+            padding: "10px 14px 14px",
+            background: "rgba(255,255,255,0.02)",
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, minmax(0, 1fr))",
+            gap: 8,
+          }}
+        >
+          {[
+            { label: "Member since", value: profile.memberSince },
+            { label: isWorldCupMode ? "Favourite country" : "Favourite team", value: profile.favorite },
+            { label: "Highest position", value: `#${profile.bestPosition}` },
+            { label: "Current position", value: `#${profile.currentPosition}` },
+            { label: "Best week score", value: scoreLabel },
+            { label: "Best coins week", value: coinsLabel },
+            { label: "Exact scores", value: profile.exactScores },
+            { label: "Captain picks", value: profile.captainPicks },
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                background: theme.panel,
+                border: `1px solid ${theme.line}`,
+                borderRadius: 8,
+                padding: "8px 9px",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ fontSize: 10, color: theme.muted, textTransform: "uppercase", fontWeight: 800, letterSpacing: 0.5 }}>
+                {item.label}
+              </div>
+              <div style={{ marginTop: 3, fontSize: 13, color: theme.text, fontWeight: 800, overflowWrap: "anywhere" }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const currentSeasonWinnerRecord = useMemo(() => {
   if (!activeFixtures.length || !activeGameweeks.length || !leaderboard?.length) {
@@ -11076,94 +11356,16 @@ const TABS = [
               </div>
             ) : (
             <div style={{ display: "grid", gap: 8 }}>
-              {leaderboard.map((row, i) => {
-                const displayPlayerName = formatUsernameForDisplay(row.player);
-                const decoration = getLeaderboardDecoration(
-                  leaderboard,
-                  i,
-                  (item) => item?.points,
-                  leaderboardDecorationsEnabled
-                );
-                const borderColor = decoration.borderColor || theme.line;
-                const rowAvatar = getAvatarForRow(row);
-
-                return (
-                  <div
-                    key={row.userId || row.player}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "50px auto minmax(0, 1fr) 90px",
-                      gap: 10,
-                      alignItems: "center",
-                      background: theme.panelHi,
-                      border: `2px solid ${borderColor}`,
-                      padding: "12px 14px",
-                      borderRadius: 12,
-                      transition: "transform 0.2s",
-                    }}
-                  >
-                    <div style={{ 
-                      color: decoration.borderColor || theme.muted,
-                      fontWeight: 700,
-                      fontSize: 16,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4
-                    }}>
-                      {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
-                      {!decoration.emoji && <span>{decoration.rank}</span>}
-                    </div>
-                    <PlayerAvatar 
-                      name={row.player}
-                      size={36}
-                      seed={rowAvatar.seed}
-                      avatarStyle={rowAvatar.style}
-                      favoriteMode={gameMode}
-                      favoriteTeam={
-                        activeFavoriteByUserId[String(row.userId || "")] ||
-                        activeFavoriteByUsername[row.player] ||
-                        ""
-                      }
-                    />
-                    <div style={{ 
-                      fontWeight: 700,
-                      fontSize: 15,
-                      color: decoration.highlight ? "#FFD700" : theme.text,
-                      minWidth: 0,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "flex-start",
-                      overflow: "visible",
-                    }}>
-                      <span
-                        title={row.player}
-                        style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          minWidth: 0,
-                          maxWidth: "100%",
-                        }}
-                      >
-                        {displayPlayerName}
-                      </span>
-                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
-                    </div>
-                    <div style={{ 
-                      textAlign: "right", 
-                      fontWeight: 800,
-                      fontSize: 18,
-                      color: decoration.borderColor || theme.accent
-                    }}>
-                      <AnimatedNumber
-                        value={row.points}
-                        duration={450}
-                        format={(v) => Math.round(v)}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+              {leaderboard.map((row, i) =>
+                renderExpandableLeaderboardRow({
+                  row,
+                  rows: leaderboard,
+                  index: i,
+                  value: row.points,
+                  valueFormatter: (v) => Math.round(v),
+                  scope: "league",
+                })
+              )}
             </div>
             )}
           </section>
@@ -11174,100 +11376,16 @@ const TABS = [
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🌍 WC Global League" : "🌍 Global League Table"}</h2>
             <div style={{ display: "grid", gap: 8 }}>
-              {globalLeaderboard.map((row, i) => {
-                const displayPlayerName = formatUsernameForDisplay(row.player);
-                const decoration = getLeaderboardDecoration(
-                  globalLeaderboard,
-                  i,
-                  (item) => item?.points,
-                  leaderboardDecorationsEnabled
-                );
-                const borderColor = decoration.borderColor || theme.line;
-                const rowAvatar = getAvatarForRow(row);
-
-                return (
-                  <div
-                    key={row.userId || row.player}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "50px auto minmax(0, 1fr) 90px",
-                      gap: 10,
-                      alignItems: "center",
-                      background: theme.panelHi,
-                      border: `2px solid ${borderColor}`,
-                      padding: "12px 14px",
-                      borderRadius: 12,
-                      transition: "transform 0.2s",
-                    }}
-                  >
-                    <div
-                      style={{
-                        color: decoration.borderColor || theme.muted,
-                        fontWeight: 700,
-                        fontSize: 16,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
-                      {!decoration.emoji && <span>{decoration.rank}</span>}
-                    </div>
-                    <PlayerAvatar
-                      name={row.player}
-                      size={36}
-                      seed={rowAvatar.seed}
-                      avatarStyle={rowAvatar.style}
-                      favoriteMode={gameMode}
-                      favoriteTeam={
-                        activeFavoriteByUserId[String(row.userId || "")] ||
-                        activeFavoriteByUsername[row.player] ||
-                        ""
-                      }
-                    />
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 15,
-                        color: decoration.highlight ? "#FFD700" : theme.text,
-                        minWidth: 0,
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-start",
-                        overflow: "visible",
-                      }}
-                    >
-                      <span
-                        title={row.player}
-                        style={{
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          minWidth: 0,
-                          maxWidth: "100%",
-                        }}
-                      >
-                        {displayPlayerName}
-                      </span>
-                      {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
-                    </div>
-                    <div
-                      style={{
-                        textAlign: "right",
-                        fontWeight: 800,
-                        fontSize: 18,
-                        color: decoration.borderColor || theme.accent,
-                      }}
-                    >
-                      <AnimatedNumber
-                        value={row.points}
-                        duration={450}
-                        format={(v) => Math.round(v)}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+              {globalLeaderboard.map((row, i) =>
+                renderExpandableLeaderboardRow({
+                  row,
+                  rows: globalLeaderboard,
+                  index: i,
+                  value: row.points,
+                  valueFormatter: (v) => Math.round(v),
+                  scope: "global",
+                })
+              )}
             </div>
           </section>
         )}
