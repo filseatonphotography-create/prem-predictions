@@ -6300,13 +6300,6 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
   const bestSeasonPosition = bestSeasonRecord
     ? `#${bestSeasonRecord.position} (${Math.round(Number(bestSeasonRecord.points) || 0)} pts, ${bestSeasonRecord.seasonLabel})`
     : "No finished season yet";
-  const originalsBestFinishRecord = ORIGINALS_SEASON_POSITION_RECORDS.find(
-    (record) => record.player === player
-  );
-  const originalsBestFinish = originalsBestFinishRecord
-    ? `#${originalsBestFinishRecord.position} (${Math.round(Number(originalsBestFinishRecord.points) || 0)} pts, ${originalsBestFinishRecord.seasonLabel})`
-    : "No Originals finish yet";
-
   const preds =
     (userId && (globalPredictionsByUserId[userId] || leaguePredictionsByUserId[userId])) ||
     predictions[player] ||
@@ -6329,7 +6322,6 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
     favorite: favorite || "Not set",
     currentPosition: Number(rankIndex) + 1,
     bestSeasonPosition,
-    originalsBestFinish,
     bestGameweekScore,
     bestCoins,
     exactScores,
@@ -6432,7 +6424,6 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
             { label: "Member since", value: profile.memberSince },
             { label: isWorldCupMode ? "Favourite country" : "Favourite team", value: profile.favorite },
             { label: "Best season position", value: profile.bestSeasonPosition },
-            { label: "Originals best finish", value: profile.originalsBestFinish },
             { label: "Current position", value: `#${profile.currentPosition}` },
             { label: "Best week score", value: scoreLabel },
             { label: "Best coins week", value: coinsLabel },
