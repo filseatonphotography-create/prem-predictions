@@ -2157,6 +2157,32 @@ function isFixtureCompleted(fixture, results) {
   return hasValidResultScore(res);
 }
 
+function getLeaderboardDisplayRank(rows = [], index = 0, getValue = () => 0) {
+  const currentValue = Number(getValue(rows[index])) || 0;
+  const firstMatchingIndex = rows.findIndex(
+    (row) => (Number(getValue(row)) || 0) === currentValue
+  );
+  return firstMatchingIndex >= 0 ? firstMatchingIndex + 1 : index + 1;
+}
+
+function hasLeaderboardValueSpread(rows = [], getValue = () => 0) {
+  const values = rows.map((row) => Number(getValue(row)) || 0);
+  return new Set(values).size > 1;
+}
+
+function getLeaderboardDecoration(rows = [], index = 0, getValue = () => 0, enabled = true) {
+  const rank = getLeaderboardDisplayRank(rows, index, getValue);
+  if (!enabled || !hasLeaderboardValueSpread(rows, getValue)) {
+    return { rank, borderColor: null, emoji: "", highlight: false };
+  }
+
+  if (rank === 1) return { rank, borderColor: "#FFD700", emoji: "🥇", highlight: true };
+  if (rank === 2) return { rank, borderColor: "#C0C0C0", emoji: "🥈", highlight: false };
+  if (rank === 3) return { rank, borderColor: "#CD7F32", emoji: "🥉", highlight: false };
+  if (index === rows.length - 1) return { rank, borderColor: null, emoji: "💩", highlight: false };
+  return { rank, borderColor: null, emoji: "", highlight: false };
+}
+
 function getScoreLabel(matchState) {
   const status = String(matchState?.status || "").toUpperCase();
   if (["IN_PLAY", "PAUSED", "LIVE"].includes(status)) return "LIVE SCORE";
@@ -3402,6 +3428,11 @@ const worldCupGroupTables = useMemo(() => {
       return { group, rows };
     });
 }, [isWorldCupMode, activeFixtures, results]);
+
+const leaderboardDecorationsEnabled = useMemo(
+  () => activeFixtures.some((fixture) => isFixtureCompleted(fixture, results)),
+  [activeFixtures, results]
+);
 
 const currentPremierLeagueTableRows = useMemo(
   () => buildPremierLeagueTableRows(FIXTURES, results),
@@ -11047,22 +11078,13 @@ const TABS = [
             <div style={{ display: "grid", gap: 8 }}>
               {leaderboard.map((row, i) => {
                 const displayPlayerName = formatUsernameForDisplay(row.player);
-                // Color scheme based on position
-                let borderColor = theme.line;
-                let emoji = "";
-                
-                if (i === 0) {
-                  borderColor = "#FFD700"; // Gold for 1st
-                  emoji = "🥇";
-                } else if (i === 1) {
-                  borderColor = "#C0C0C0"; // Silver for 2nd
-                  emoji = "🥈";
-                } else if (i === 2) {
-                  borderColor = "#CD7F32"; // Bronze for 3rd
-                  emoji = "🥉";
-                } else if (i === leaderboard.length - 1) {
-                  emoji = "💩"; // Poo for last place
-                }
+                const decoration = getLeaderboardDecoration(
+                  leaderboard,
+                  i,
+                  (item) => item?.points,
+                  leaderboardDecorationsEnabled
+                );
+                const borderColor = decoration.borderColor || theme.line;
                 const rowAvatar = getAvatarForRow(row);
 
                 return (
@@ -11081,15 +11103,15 @@ const TABS = [
                     }}
                   >
                     <div style={{ 
-                      color: i < 3 ? borderColor : theme.muted,
+                      color: decoration.borderColor || theme.muted,
                       fontWeight: 700,
                       fontSize: 16,
                       display: "flex",
                       alignItems: "center",
                       gap: 4
                     }}>
-                      {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
-                      {!emoji && <span>{i + 1}</span>}
+                      {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
+                      {!decoration.emoji && <span>{decoration.rank}</span>}
                     </div>
                     <PlayerAvatar 
                       name={row.player}
@@ -11106,7 +11128,7 @@ const TABS = [
                     <div style={{ 
                       fontWeight: 700,
                       fontSize: 15,
-                      color: i === 0 ? "#FFD700" : theme.text,
+                      color: decoration.highlight ? "#FFD700" : theme.text,
                       minWidth: 0,
                       display: "flex",
                       flexDirection: "column",
@@ -11131,7 +11153,7 @@ const TABS = [
                       textAlign: "right", 
                       fontWeight: 800,
                       fontSize: 18,
-                      color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : theme.accent
+                      color: decoration.borderColor || theme.accent
                     }}>
                       <AnimatedNumber
                         value={row.points}
@@ -11154,21 +11176,13 @@ const TABS = [
             <div style={{ display: "grid", gap: 8 }}>
               {globalLeaderboard.map((row, i) => {
                 const displayPlayerName = formatUsernameForDisplay(row.player);
-                let borderColor = theme.line;
-                let emoji = "";
-
-                if (i === 0) {
-                  borderColor = "#FFD700";
-                  emoji = "🥇";
-                } else if (i === 1) {
-                  borderColor = "#C0C0C0";
-                  emoji = "🥈";
-                } else if (i === 2) {
-                  borderColor = "#CD7F32";
-                  emoji = "🥉";
-                } else if (i === globalLeaderboard.length - 1) {
-                  emoji = "💩";
-                }
+                const decoration = getLeaderboardDecoration(
+                  globalLeaderboard,
+                  i,
+                  (item) => item?.points,
+                  leaderboardDecorationsEnabled
+                );
+                const borderColor = decoration.borderColor || theme.line;
                 const rowAvatar = getAvatarForRow(row);
 
                 return (
@@ -11188,7 +11202,7 @@ const TABS = [
                   >
                     <div
                       style={{
-                        color: i < 3 ? borderColor : theme.muted,
+                        color: decoration.borderColor || theme.muted,
                         fontWeight: 700,
                         fontSize: 16,
                         display: "flex",
@@ -11196,8 +11210,8 @@ const TABS = [
                         gap: 4,
                       }}
                     >
-                      {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
-                      {!emoji && <span>{i + 1}</span>}
+                      {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
+                      {!decoration.emoji && <span>{decoration.rank}</span>}
                     </div>
                     <PlayerAvatar
                       name={row.player}
@@ -11215,7 +11229,7 @@ const TABS = [
                       style={{
                         fontWeight: 700,
                         fontSize: 15,
-                        color: i === 0 ? "#FFD700" : theme.text,
+                        color: decoration.highlight ? "#FFD700" : theme.text,
                         minWidth: 0,
                         display: "flex",
                         flexDirection: "column",
@@ -11242,14 +11256,7 @@ const TABS = [
                         textAlign: "right",
                         fontWeight: 800,
                         fontSize: 18,
-                        color:
-                          i === 0
-                            ? "#FFD700"
-                            : i === 1
-                            ? "#C0C0C0"
-                            : i === 2
-                            ? "#CD7F32"
-                            : theme.accent,
+                        color: decoration.borderColor || theme.accent,
                       }}
                     >
                       <AnimatedNumber
@@ -12023,22 +12030,18 @@ const TABS = [
       : 0;
   const displayPlayerName = formatUsernameForDisplay(row.player);
 
-  // Color scheme based on position
-  let borderColor = theme.line;
-  let emoji = "";
-  
-  if (i === 0) {
-    borderColor = "#FFD700"; // Gold for 1st
-    emoji = "🥇";
-  } else if (i === 1) {
-    borderColor = "#C0C0C0"; // Silver for 2nd
-    emoji = "🥈";
-  } else if (i === 2) {
-    borderColor = "#CD7F32"; // Bronze for 3rd
-    emoji = "🥉";
-  } else if (i === coinsLeagueRows.length - 1) {
-    emoji = "💩"; // Poo for last place
-  }
+  const decoration = getLeaderboardDecoration(
+    coinsLeagueRows,
+    i,
+    (item) =>
+      typeof item?.profit === "number"
+        ? item.profit
+        : typeof item?.points === "number"
+        ? item.points
+        : 0,
+    leaderboardDecorationsEnabled
+  );
+  const borderColor = decoration.borderColor || theme.line;
   const rowAvatar = getAvatarForRow(row);
 
   return (
@@ -12056,15 +12059,15 @@ const TABS = [
       }}
     >
       <div style={{ 
-        color: i < 3 ? borderColor : theme.muted,
+        color: decoration.borderColor || theme.muted,
         fontWeight: 700,
         fontSize: 16,
         display: "flex",
         alignItems: "center",
         gap: 4
       }}>
-        {emoji && <span style={{ fontSize: 18 }}>{emoji}</span>}
-        {!emoji && <span>{i + 1}</span>}
+        {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
+        {!decoration.emoji && <span>{decoration.rank}</span>}
       </div>
       <PlayerAvatar 
         name={row.player} 
@@ -12081,7 +12084,7 @@ const TABS = [
       <div style={{ 
         fontWeight: 700,
         fontSize: 15,
-        color: i === 0 ? "#FFD700" : theme.text,
+        color: decoration.highlight ? "#FFD700" : theme.text,
         minWidth: 0,
         display: "flex",
         flexDirection: "column",
@@ -12106,7 +12109,7 @@ const TABS = [
         textAlign: "right", 
         fontWeight: 800,
         fontSize: 18,
-        color: i === 0 ? "#FFD700" : i === 1 ? "#C0C0C0" : i === 2 ? "#CD7F32" : theme.accent
+        color: decoration.borderColor || theme.accent
       }}>
         <AnimatedNumber
           value={Number(value) || 0}
