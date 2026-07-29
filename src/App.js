@@ -6242,6 +6242,9 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
     "";
   const coinsRow = (userId && coinsRowsByUserId[userId]) || coinsRowsByPlayer[player] || {};
   const bestCoins = coinsRow.bestGameweekCoinsWin || null;
+  const rowScore = Number(row?.points) || 0;
+  const currentScoreRank =
+    (tableRows || []).filter((candidate) => (Number(candidate?.points) || 0) > rowScore).length + 1;
 
   const getScoreForGameweek = (gw, targetRow) => {
     const targetUserId = String(targetRow?.userId || "");
@@ -6290,8 +6293,8 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
     finishedSeasonRecords.push({
       player,
       seasonLabel,
-      position: Number(rankIndex) + 1,
-      points: Number(row?.points) || 0,
+      position: currentScoreRank,
+      points: rowScore,
     });
   }
   const bestSeasonRecord = finishedSeasonRecords
@@ -6304,28 +6307,41 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
     (userId && (globalPredictionsByUserId[userId] || leaguePredictionsByUserId[userId])) ||
     predictions[player] ||
     {};
-  let exactScores = 0;
-  let captainPicks = 0;
+  let bingpots = 0;
+  let captainSelections = 0;
+  let captainWins = 0;
   activeFixtures.forEach((fixture) => {
     const pred =
       preds[String(fixture.id)] !== undefined ? preds[String(fixture.id)] : preds[fixture.id];
     const res = results[fixture.id];
     if (!pred || !hasValidResultScore(res)) return;
-    if (Number(pred.homeGoals) === Number(res.homeGoals) && Number(pred.awayGoals) === Number(res.awayGoals)) {
-      exactScores += 1;
+    const predHome = Number(pred.homeGoals);
+    const predAway = Number(pred.awayGoals);
+    const realHome = Number(res.homeGoals);
+    const realAway = Number(res.awayGoals);
+    if (predHome === realHome && predAway === realAway) {
+      bingpots += 1;
     }
-    if (pred.isDouble || pred.isTriple) captainPicks += 1;
+    if (pred.isDouble || pred.isTriple) {
+      captainSelections += 1;
+      if (getResult(predHome, predAway) === getResult(realHome, realAway)) {
+        captainWins += 1;
+      }
+    }
   });
+  const captainAccuracy = captainSelections
+    ? `${Math.round((captainWins / captainSelections) * 100)}% (${captainWins}/${captainSelections})`
+    : "No captains yet";
 
   return {
     memberSince: formatProfileDate(profile.createdAt),
     favorite: favorite || "Not set",
-    currentPosition: Number(rankIndex) + 1,
+    currentPosition: currentScoreRank,
     bestSeasonPosition,
     bestGameweekScore,
     bestCoins,
-    exactScores,
-    captainPicks,
+    bingpots,
+    captainAccuracy,
     coinsProfit: typeof coinsRow.profit === "number" ? coinsRow.profit : null,
   };
 }
@@ -6427,8 +6443,8 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
             { label: "Current position", value: `#${profile.currentPosition}` },
             { label: "Best week score", value: scoreLabel },
             { label: "Best coins week", value: coinsLabel },
-            { label: "Exact scores", value: profile.exactScores },
-            { label: "Captain picks", value: profile.captainPicks },
+            { label: "Bingpots", value: profile.bingpots },
+            { label: "Captain accuracy", value: profile.captainAccuracy },
           ].map((item) => (
             <div
               key={item.label}
