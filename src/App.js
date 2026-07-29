@@ -106,6 +106,15 @@ const PREMIER_SEASON_WINNER_RECORD = {
   points: 643,
   completedAt: "2026-05-24T15:00:00.000Z",
 };
+const ORIGINALS_SEASON_POSITION_RECORDS = [
+  { player: "Phil", seasonLabel: "2025/26", points: 643 },
+  { player: "Dave", seasonLabel: "2025/26", points: 594 },
+  { player: "Emma", seasonLabel: "2025/26", points: 586 },
+  { player: "Ian", seasonLabel: "2025/26", points: 583 },
+  { player: "Steve", seasonLabel: "2025/26", points: 458 },
+  { player: "Anthony", seasonLabel: "2025/26", points: 327 },
+  { player: "Tom", seasonLabel: "2025/26", points: 233 },
+].map((record, index) => ({ ...record, position: index + 1 }));
 const PLAYERS = ["Tom", "Emma", "Phil", "Steve", "Dave", "Ian", "Anthony"];
 const ORIGINALS_LEAGUE_PLAYERS = new Set(PLAYERS);
 const ORIGINALS_LEAGUE_USER_IDS = new Set([
@@ -6234,8 +6243,6 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
   const coinsRow = (userId && coinsRowsByUserId[userId]) || coinsRowsByPlayer[player] || {};
   const bestCoins = coinsRow.bestGameweekCoinsWin || null;
 
-  const rowsForRank = tableRows || [];
-  const rowKey = userId || player;
   const getScoreForGameweek = (gw, targetRow) => {
     const targetUserId = String(targetRow?.userId || "");
     const targetPlayer = String(targetRow?.player || "").trim();
@@ -6264,25 +6271,35 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
     return score;
   };
 
-  let bestRank = Number(rankIndex) + 1;
   let bestGameweekScore = null;
-  let cumulativeScores = {};
   activeGameweeks.forEach((gw) => {
-    const scoredRows = rowsForRank.map((candidate) => {
-      const candidateKey = String(candidate?.userId || candidate?.player || "");
-      const score = getScoreForGameweek(gw, candidate);
-      cumulativeScores[candidateKey] = (cumulativeScores[candidateKey] || 0) + score;
-      return { key: candidateKey, score: cumulativeScores[candidateKey] };
-    });
-    scoredRows.sort((a, b) => b.score - a.score);
-    const position = scoredRows.findIndex((item) => item.key === rowKey);
-    if (position >= 0) bestRank = Math.min(bestRank, position + 1);
-
     const weeklyScore = getScoreForGameweek(gw, row);
     if (!bestGameweekScore || weeklyScore > bestGameweekScore.score) {
       bestGameweekScore = { gameweek: gw, score: weeklyScore };
     }
   });
+
+  const finishedSeasonRecords = ORIGINALS_SEASON_POSITION_RECORDS.filter(
+    (record) => record.player === player
+  );
+  const currentSeasonComplete =
+    activeFixtures.length > 0 &&
+    activeFixtures.every((fixture) => isFixtureCompleted(fixture, results));
+  if (currentSeasonComplete) {
+    const seasonLabel = getSeasonLabelFromFixtures(activeFixtures) || "Current season";
+    finishedSeasonRecords.push({
+      player,
+      seasonLabel,
+      position: Number(rankIndex) + 1,
+      points: Number(row?.points) || 0,
+    });
+  }
+  const bestSeasonRecord = finishedSeasonRecords
+    .filter((record) => Number.isFinite(Number(record.position)))
+    .sort((a, b) => Number(a.position) - Number(b.position) || Number(b.points || 0) - Number(a.points || 0))[0];
+  const bestSeasonPosition = bestSeasonRecord
+    ? `#${bestSeasonRecord.position} (${Math.round(Number(bestSeasonRecord.points) || 0)} pts, ${bestSeasonRecord.seasonLabel})`
+    : "No finished season yet";
 
   const preds =
     (userId && (globalPredictionsByUserId[userId] || leaguePredictionsByUserId[userId])) ||
@@ -6305,7 +6322,7 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
     memberSince: formatProfileDate(profile.createdAt),
     favorite: favorite || "Not set",
     currentPosition: Number(rankIndex) + 1,
-    bestPosition: bestRank || Number(rankIndex) + 1,
+    bestSeasonPosition,
     bestGameweekScore,
     bestCoins,
     exactScores,
@@ -6407,7 +6424,7 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
           {[
             { label: "Member since", value: profile.memberSince },
             { label: isWorldCupMode ? "Favourite country" : "Favourite team", value: profile.favorite },
-            { label: "Highest position", value: `#${profile.bestPosition}` },
+            { label: "Best season position", value: profile.bestSeasonPosition },
             { label: "Current position", value: `#${profile.currentPosition}` },
             { label: "Best week score", value: scoreLabel },
             { label: "Best coins week", value: coinsLabel },
