@@ -5961,7 +5961,8 @@ const predictionIqDemoReport = useMemo(
 
 const fantasyHelpReport = useMemo(() => {
   const emptyReport = {
-    rating: 0,
+    signalScore: 0,
+    signalLabel: "Not ready",
     gameweek: selectedGameweek,
     predictedGoals: 0,
     predictedCleanSheets: 0,
@@ -5982,6 +5983,12 @@ const fantasyHelpReport = useMemo(() => {
     completedResults: 0,
     submittedPredictions: 0,
     missingPredictions: 0,
+    signalBreakdown: [
+      { label: "Your attack predictions", value: 0, max: 30 },
+      { label: "Your clean-sheet predictions", value: 0, max: 25 },
+      { label: "Actual form", value: 0, max: 20 },
+      { label: "Next 3 fixtures", value: 0, max: 25 },
+    ],
   };
 
   if (isWorldCupMode || !selectedGameweek) return emptyReport;
@@ -6186,17 +6193,48 @@ const fantasyHelpReport = useMemo(() => {
   const avoidTeam = avoidRows[0]?.team || emptyReport.avoidTeam;
   const fixtureTeam = fixtureRows[0]?.team || emptyReport.fixtureSwing;
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
-  const rating = Math.max(
-    0,
-    Math.min(
-      100,
-      Math.round(
-        (attackRows[0]?.attackScore || 0) * 5 +
-          (defenceRows[0]?.defenceScore || 0) * 4 +
-          (fixtureRows[0]?.fixtureScore || 0) * 3
+  const topAttackPredictedGoals = attackRows[0]?.predictedFor || 0;
+  const topPredictedCleanSheets = defenceRows[0]?.predictedCleanSheets || 0;
+  const topCleanSheetStreak = bestCleanSheetRun?.cleanSheetStreak || 0;
+  const topFixtureScore = fixtureRows[0]?.fixtureScore || 0;
+  const attackSignal = submittedPredictions
+    ? Math.min(30, Math.round(topAttackPredictedGoals * 8 + (attackRows[0]?.predictedWins || 0) * 4))
+    : 0;
+  const cleanSheetSignal = submittedPredictions
+    ? Math.min(25, Math.round(topPredictedCleanSheets * 14 + Math.min(8, topCleanSheetStreak * 3)))
+    : 0;
+  const actualFormSignal = completedResults
+    ? Math.min(
+        20,
+        Math.round(
+          Math.max(0, topCleanSheetStreak) * 4 +
+            Math.max(0, (attackRows[0]?.actualFor || 0) / Math.max(1, attackRows[0]?.actualPlayed || 1)) * 4
+        )
       )
-    )
+    : 0;
+  const fixtureSignal = fixtureRows[0]
+    ? Math.min(25, Math.max(0, Math.round(topFixtureScore * 2.2)))
+    : 0;
+  const signalScore = Math.min(
+    100,
+    attackSignal + cleanSheetSignal + actualFormSignal + fixtureSignal
   );
+  const signalLabel =
+    !submittedPredictions
+      ? "Fixture-only"
+      : signalScore >= 75
+      ? "Very strong"
+      : signalScore >= 55
+      ? "Strong"
+      : signalScore >= 35
+      ? "Medium"
+      : "Light";
+  const signalBreakdown = [
+    { label: "Your attack predictions", value: attackSignal, max: 30 },
+    { label: "Your clean-sheet predictions", value: cleanSheetSignal, max: 25 },
+    { label: "Actual form", value: actualFormSignal, max: 20 },
+    { label: "Next 3 fixtures", value: fixtureSignal, max: 25 },
+  ];
 
   let mainAdvice = "Your predictions point to a balanced fantasy week. Treat this as a shortlist, then check real FPL prices, injuries and line-ups separately.";
   if (!submittedPredictions) {
@@ -6210,7 +6248,8 @@ const fantasyHelpReport = useMemo(() => {
   }
 
   return {
-    rating,
+    signalScore,
+    signalLabel,
     gameweek: selectedGameweek,
     predictedGoals,
     predictedCleanSheets: teamRows.reduce((sum, row) => sum + row.predictedCleanSheets, 0),
@@ -6237,6 +6276,7 @@ const fantasyHelpReport = useMemo(() => {
     completedResults,
     submittedPredictions,
     missingPredictions: Math.max(0, selectedFixtures.length - submittedPredictions),
+    signalBreakdown,
   };
 }, [
   activeFixtures,
@@ -7993,8 +8033,14 @@ useEffect(() => {
   const renderFantasyHelpReport = (options = {}) => {
     const compact = !!options.compact;
     const report = options.report || fantasyHelpReport;
-    const ratingColor =
-      report.rating >= 80 ? theme.accent2 : report.rating >= 55 ? theme.accent : theme.warn;
+    const signalColor =
+      report.signalScore >= 75
+        ? theme.accent2
+        : report.signalScore >= 55
+        ? theme.accent
+        : report.signalScore >= 35
+        ? theme.warn
+        : theme.muted;
     const statItems = [
       { icon: "⚽", label: "Your predicted goals", value: report.predictedGoals },
       { icon: "🧤", label: "Your predicted clean sheets", value: report.predictedCleanSheets },
@@ -8143,6 +8189,56 @@ useEffect(() => {
         )}
       </div>
     );
+    const renderSignalBreakdown = (item) => {
+      const pct = item.max ? Math.max(0, Math.min(100, (item.value / item.max) * 100)) : 0;
+      return (
+        <div key={item.label} style={{ display: "grid", gap: 5 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) auto",
+              gap: 8,
+              alignItems: "center",
+              fontSize: 12,
+            }}
+          >
+            <div
+              style={{
+                color: theme.muted,
+                fontWeight: 800,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {item.label}
+            </div>
+            <div style={{ color: theme.text, fontWeight: 900 }}>
+              {item.value}/{item.max}
+            </div>
+          </div>
+          <div
+            aria-hidden="true"
+            style={{
+              height: 7,
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.08)",
+              overflow: "hidden",
+              border: `1px solid ${theme.line}`,
+            }}
+          >
+            <div
+              style={{
+                width: `${pct}%`,
+                height: "100%",
+                borderRadius: 999,
+                background: signalColor,
+              }}
+            />
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
@@ -8167,11 +8263,14 @@ useEffect(() => {
             }}
           >
             <div style={{ fontSize: 12, color: theme.muted, fontWeight: 800 }}>
-              Fantasy Rating
+              Signal Strength
             </div>
-            <div style={{ fontSize: 38, lineHeight: 1, fontWeight: 900, color: ratingColor }}>
-              {report.rating}
+            <div style={{ fontSize: 34, lineHeight: 1, fontWeight: 950, color: signalColor }}>
+              {report.signalScore}
               <span style={{ fontSize: 18, color: theme.muted }}>/100</span>
+            </div>
+            <div style={{ fontSize: 13, color: signalColor, fontWeight: 900 }}>
+              {report.signalLabel}
             </div>
             <div style={{ fontSize: 11, color: theme.muted }}>
               {getModeGameweekLabel(gameMode, report.gameweek)}
@@ -8190,6 +8289,9 @@ useEffect(() => {
           >
             <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
               Prediction and fixture signals
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {(report.signalBreakdown || []).map(renderSignalBreakdown)}
             </div>
             <div style={{ display: "grid", border: `1px solid ${theme.line}`, borderRadius: 10, overflow: "hidden" }}>
               {statItems.map((item) => (
