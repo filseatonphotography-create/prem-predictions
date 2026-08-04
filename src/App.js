@@ -501,6 +501,8 @@ function resolveWorldCupCountryName(teamName) {
 const WORLD_CUP_FIXTURE_ID_SET = new Set(
   WORLD_CUP_FIXTURES.map((fixture) => String(fixture.id))
 );
+const PREMIER_FIXTURE_ID_SET = new Set(FIXTURES.map((fixture) => String(fixture.id)));
+const ALL_SUPPORTED_FIXTURES = [...FIXTURES, ...WORLD_CUP_FIXTURES];
 
 function looksLikeUserId(value) {
   const text = String(value || "").trim();
@@ -513,6 +515,21 @@ function keepOnlyWorldCupPredictions(allPredictions = {}) {
     const kept = {};
     Object.entries(playerPredictions || {}).forEach(([fixtureId, prediction]) => {
       if (WORLD_CUP_FIXTURE_ID_SET.has(String(fixtureId))) {
+        kept[fixtureId] = prediction;
+      }
+    });
+    if (Object.keys(kept).length) cleaned[playerKey] = kept;
+  });
+  return cleaned;
+}
+
+function keepSupportedFixturePredictions(allPredictions = {}) {
+  const cleaned = {};
+  Object.entries(allPredictions || {}).forEach(([playerKey, playerPredictions]) => {
+    const kept = {};
+    Object.entries(playerPredictions || {}).forEach(([fixtureId, prediction]) => {
+      const id = String(fixtureId);
+      if (PREMIER_FIXTURE_ID_SET.has(id) || WORLD_CUP_FIXTURE_ID_SET.has(id)) {
         kept[fixtureId] = prediction;
       }
     });
@@ -3675,11 +3692,7 @@ useEffect(() => {
         localStorage.getItem(PREMIER_SEASON_RESET_STORAGE_KEY) === "true";
       if (saved) {
         const parsed = JSON.parse(saved);
-        setPredictions(
-          premierSeasonResetApplied
-            ? keepOnlyWorldCupPredictions(parsed.predictions || {})
-            : {}
-        );
+        setPredictions(keepSupportedFixturePredictions(parsed.predictions || {}));
         setResults(parsed.results || {});
         setOdds(parsed.odds || {});
         if (parsed.selectedGameweek)
@@ -4116,7 +4129,7 @@ useEffect(() => {
 
   // Persist app cache
   useEffect(() => {
-    const cachePredictions = keepOnlyWorldCupPredictions(predictions);
+    const cachePredictions = keepSupportedFixturePredictions(predictions);
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({ predictions: cachePredictions, results, odds, selectedGameweek, selectedGameweekByMode })
@@ -4160,11 +4173,11 @@ useEffect(() => {
           WORLD_CUP_FIXTURES
         );
         const resetSafeRemote =
-          keepOnlyWorldCupPredictions({ [key]: normalized })[key] || {};
+          keepSupportedFixturePredictions({ [key]: normalized })[key] || {};
 
         // Replace only the logged-in user's predictions with the cloud data
         setPredictions((prev) => {
-          const resetSafePrev = keepOnlyWorldCupPredictions(prev);
+          const resetSafePrev = keepSupportedFixturePredictions(prev);
           const localPredsForUser =
             currentPlayer === "Phil"
               ? {
@@ -4175,7 +4188,7 @@ useEffect(() => {
           const merged = mergeCloudPredictionsPreservingLocalBoosts(
             resetSafeRemote,
             localPredsForUser,
-            WORLD_CUP_FIXTURES
+            ALL_SUPPORTED_FIXTURES
           );
 
           return {
@@ -4439,8 +4452,8 @@ useEffect(() => {
         const userId = userIdByKey[k];
         const cloudDataRaw = userId ? (predictionsByUserId[userId] || {}) : {};
         const cloudData = isWorldCupMode
-          ? cloudDataRaw
-          : (keepOnlyWorldCupPredictions({ [k]: cloudDataRaw })[k] || {});
+          ? (keepOnlyWorldCupPredictions({ [k]: cloudDataRaw })[k] || {})
+          : (keepSupportedFixturePredictions({ [k]: cloudDataRaw })[k] || {});
         const philMergedData = k === "Phil" ? (predictions["Phil_merged"] || {}) : {};
 
         // Normalise all fixture IDs to STRING keys
