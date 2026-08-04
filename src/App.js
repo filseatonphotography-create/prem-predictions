@@ -1702,26 +1702,70 @@ function getPredictionLandingGameweek(fixturesSource = FIXTURES, gameweeks = GAM
 // --- TEAM RATINGS FOR MODELLED ODDS ---
 // Seed ratings for the 2026/27 Premier League clubs.
 const TEAM_RATINGS = {
-  Arsenal: 98,
-  "Man City": 101,
-  "Aston Villa": 92,
-  Chelsea: 90,
-  "Crystal Palace": 86,
-  Sunderland: 86,
-  Brighton: 85,
-  "Man Utd": 84,
-  Liverpool: 84,
+  Arsenal: 100,
+  "Man City": 100,
+  "Man Utd": 94,
+  "Aston Villa": 91,
+  Liverpool: 90,
+  Bournemouth: 84,
+  Sunderland: 84,
+  Brighton: 84,
+  Brentford: 83,
+  Chelsea: 86,
+  Fulham: 84,
+  Newcastle: 83,
   Everton: 83,
-  Spurs: 82,
-  Newcastle: 82,
-  Brentford: 81,
-  Bournemouth: 81,
-  Fulham: 79,
-  "Nott'm Forest": 78,
-  Leeds: 77,
-  Coventry: 75,
+  Leeds: 81,
+  "Crystal Palace": 80,
+  "Nott'm Forest": 79,
+  Spurs: 78,
+  Coventry: 76,
   Ipswich: 74,
   Hull: 72,
+};
+
+const PROMOTED_TEAM_PRIOR_FORM_POINTS = {
+  championshipWinner: 5.9,
+  promoted: 5.25,
+  playoffWinner: 4.7,
+};
+
+const PREMIER_PREVIOUS_SEASON_PROFILES = {
+  Arsenal: { position: 1, played: 38, points: 85, goalDifference: 44 },
+  "Man City": { position: 2, played: 38, points: 78, goalDifference: 42 },
+  "Man Utd": { position: 3, played: 38, points: 71, goalDifference: 19 },
+  "Aston Villa": { position: 4, played: 38, points: 65, goalDifference: 7 },
+  Liverpool: { position: 5, played: 38, points: 60, goalDifference: 10 },
+  Bournemouth: { position: 6, played: 38, points: 57, goalDifference: 4 },
+  Sunderland: { position: 7, played: 38, points: 54, goalDifference: -6 },
+  Brighton: { position: 8, played: 38, points: 53, goalDifference: 6 },
+  Brentford: { position: 9, played: 38, points: 53, goalDifference: 3 },
+  Chelsea: { position: 10, played: 38, points: 52, goalDifference: 6 },
+  Fulham: { position: 11, played: 38, points: 52, goalDifference: 4 },
+  Newcastle: { position: 12, played: 38, points: 49, goalDifference: -2 },
+  Everton: { position: 13, played: 38, points: 49, goalDifference: -3 },
+  Leeds: { position: 14, played: 38, points: 47, goalDifference: -7 },
+  "Crystal Palace": { position: 15, played: 38, points: 45, goalDifference: -10 },
+  "Nott'm Forest": { position: 16, played: 38, points: 44, goalDifference: -3 },
+  Spurs: { position: 17, played: 38, points: 41, goalDifference: -9 },
+  Coventry: {
+    position: 18,
+    promoted: true,
+    promotionProfile: "championshipWinner",
+    adjustedGoalDifferencePerGame: -0.38,
+  },
+  Ipswich: {
+    position: 19,
+    promoted: true,
+    promotionProfile: "promoted",
+    adjustedGoalDifferencePerGame: -0.52,
+  },
+  Hull: {
+    position: 20,
+    promoted: true,
+    promotionProfile: "playoffWinner",
+    adjustedGoalDifferencePerGame: -0.68,
+  },
 };
 
 const WORLD_CUP_OUTRIGHT_ODDS = {
@@ -1856,6 +1900,53 @@ function getTeamRating(name) {
   if (typeof rating === "number") return rating;
   // Fallback: mid-table-ish team
   return 82;
+}
+
+function getPreviousSeasonProfile(name) {
+  const raw = (name || "").trim();
+  if (PREMIER_PREVIOUS_SEASON_PROFILES[raw]) {
+    return PREMIER_PREVIOUS_SEASON_PROFILES[raw];
+  }
+
+  const normalized = normalizeTeamName(raw);
+  const match = Object.entries(PREMIER_PREVIOUS_SEASON_PROFILES).find(
+    ([teamName]) => normalizeTeamName(teamName) === normalized
+  );
+  return match ? match[1] : null;
+}
+
+function buildPreviousSeasonPrior(name) {
+  const profile = getPreviousSeasonProfile(name);
+  if (!profile) {
+    return {
+      position: 10,
+      formPoints: 6.2,
+      goalDifferencePerGame: 0,
+      promoted: false,
+    };
+  }
+
+  if (profile.promoted) {
+    return {
+      position: profile.position,
+      formPoints:
+        PROMOTED_TEAM_PRIOR_FORM_POINTS[profile.promotionProfile] ||
+        PROMOTED_TEAM_PRIOR_FORM_POINTS.promoted,
+      goalDifferencePerGame: Number(profile.adjustedGoalDifferencePerGame) || -0.55,
+      promoted: true,
+    };
+  }
+
+  const played = Number(profile.played) || 38;
+  const points = Number(profile.points) || 0;
+  const goalDifference = Number(profile.goalDifference) || 0;
+
+  return {
+    position: Number(profile.position) || 10,
+    formPoints: (points / played) * 5,
+    goalDifferencePerGame: goalDifference / played,
+    promoted: false,
+  };
 }
 
 /**
@@ -2226,6 +2317,7 @@ function getDifficultyMeta(score) {
 function buildLeaguePerformanceContext(results) {
   const byTeam = {};
   PREMIER_LEAGUE_TEAMS.forEach((team) => {
+    const prior = buildPreviousSeasonPrior(team);
     byTeam[normalizeTeamName(team)] = {
       team,
       played: 0,
@@ -2236,6 +2328,10 @@ function buildLeaguePerformanceContext(results) {
       lastFive: [],
       formPoints: 0,
       position: 10,
+      priorPosition: prior.position,
+      priorFormPoints: prior.formPoints,
+      priorGoalDifferencePerGame: prior.goalDifferencePerGame,
+      promoted: prior.promoted,
     };
   });
 
@@ -2409,22 +2505,40 @@ function buildFixtureModel(fixture, context = {}) {
   const awayPosition = Number(awayPerf.position) || 10;
   const homeFormPoints = Number(homePerf.formPoints) || 0;
   const awayFormPoints = Number(awayPerf.formPoints) || 0;
+  const homePlayed = Number(homePerf.played) || 0;
+  const awayPlayed = Number(awayPerf.played) || 0;
   const homeGdPerGame =
-    Number(homePerf.played) > 0 ? Number(homePerf.goalDifference || 0) / Number(homePerf.played) : 0;
+    homePlayed > 0 ? Number(homePerf.goalDifference || 0) / homePlayed : 0;
   const awayGdPerGame =
-    Number(awayPerf.played) > 0 ? Number(awayPerf.goalDifference || 0) / Number(awayPerf.played) : 0;
+    awayPlayed > 0 ? Number(awayPerf.goalDifference || 0) / awayPlayed : 0;
+  const homePrior = buildPreviousSeasonPrior(fixture.homeTeam);
+  const awayPrior = buildPreviousSeasonPrior(fixture.awayTeam);
 
   const ratingGap = getTeamRating(fixture.homeTeam) - getTeamRating(fixture.awayTeam);
-  const positionGap = awayPosition - homePosition;
-  const formGap = homeFormPoints - awayFormPoints;
-  const gdGap = homeGdPerGame - awayGdPerGame;
+  const currentPositionGap = awayPosition - homePosition;
+  const currentFormGap = homeFormPoints - awayFormPoints;
+  const currentGdGap = homeGdPerGame - awayGdPerGame;
+  const priorPositionGap = awayPrior.position - homePrior.position;
+  const priorFormGap = homePrior.formPoints - awayPrior.formPoints;
+  const priorGdGap = homePrior.goalDifferencePerGame - awayPrior.goalDifferencePerGame;
+  const currentSeasonWeight = Math.min(1, Math.max(homePlayed, awayPlayed) / 10);
 
-  // Keep pre-season strength as the anchor, then let real results sharpen the model quickly.
+  const positionGap =
+    priorPositionGap * (1 - currentSeasonWeight) +
+    currentPositionGap * currentSeasonWeight;
+  const formGap =
+    priorFormGap * (1 - currentSeasonWeight) +
+    currentFormGap * currentSeasonWeight;
+  const gdGap =
+    priorGdGap * (1 - currentSeasonWeight) +
+    currentGdGap * currentSeasonWeight;
+
+  // Keep last season as the early anchor, then let real results sharpen the model.
   const priorEdge = ratingGap * 0.12;
   const tableEdge = positionGap * 0.18;
   const formEdge = formGap * 0.12;
   const gdEdge = gdGap * 0.32;
-  const homeAdvantage = 0.62;
+  const homeAdvantage = 0.42;
 
   const rawEdge = priorEdge + tableEdge + formEdge + gdEdge + homeAdvantage;
   const cappedEdge = Math.max(-4.1, Math.min(4.1, rawEdge));
@@ -10887,13 +11001,14 @@ const TABS = [
       opacity: locked ? 0.4 : 1,
       cursor: locked ? "not-allowed" : "pointer",
     }}
-    onChange={(e) =>
+    onChange={(e) => {
+      playScoreSound(e.target.checked);
       updatePrediction(
         currentPredictionKey,
         fixture.id,
         { isDouble: e.target.checked }
-      )
-    }
+      );
+    }}
   />
 </label>
 
@@ -10938,15 +11053,16 @@ const TABS = [
     cursor: disableTripleBox ? "not-allowed" : "pointer",
   }}
   checked={!!pred.isTriple}
-  onChange={(e) =>
+  onChange={(e) => {
+    playScoreSound(e.target.checked);
     updatePrediction(
       currentPredictionKey,
       fixture.id,
       e.target.checked
         ? { isTriple: true, isDouble: false } // triple ON → captain OFF
         : { isTriple: false }                 // triple OFF → leave captain alone
-    )
-  }
+    );
+  }}
 />
   );
 })()}

@@ -158,6 +158,33 @@ describe("World Cup sync helpers", () => {
     expect(odds[303].away).toBeGreaterThan(7);
   });
 
+  test("uses prior-season standings and promoted-team status in fixture odds", () => {
+    const fixtures = [
+      { id: 304, homeTeam: "Everton FC", awayTeam: "Coventry City FC" },
+      { id: 305, homeTeam: "Everton FC", awayTeam: "Hull City AFC" },
+      { id: 306, homeTeam: "Crystal Palace FC", awayTeam: "Sunderland AFC" },
+    ];
+
+    const odds = buildGeneratedModelOdds(fixtures);
+
+    expect(odds[305].home).toBeLessThan(odds[304].home);
+    expect(odds[305].away).toBeGreaterThan(odds[304].away);
+    expect(odds[306].away).toBeLessThan(odds[306].home);
+  });
+
+  test("applies a modest home advantage to evenly matched fixtures", () => {
+    const fixtures = [
+      { id: 307, homeTeam: "Chelsea FC", awayTeam: "Fulham FC" },
+      { id: 308, homeTeam: "Fulham FC", awayTeam: "Chelsea FC" },
+    ];
+
+    const odds = buildGeneratedModelOdds(fixtures);
+
+    expect(odds[307].home).toBeLessThan(odds[308].away);
+    expect(odds[308].home).toBeLessThan(odds[307].away);
+    expect(Math.abs(odds[307].home - odds[308].away)).toBeLessThan(0.75);
+  });
+
   test("builds the current Premier League table from released fixtures", () => {
     const rows = buildPremierLeagueTableRows(FIXTURES, {});
     const teamKeys = new Set(rows.map((row) => normalizeTeamName(row.team.name)));
