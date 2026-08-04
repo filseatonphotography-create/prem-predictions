@@ -6214,9 +6214,34 @@ const fantasyHelpReport = useMemo(() => {
     .filter((row) => row.predictedFixtures)
     .sort((a, b) => b.avoidScore - a.avoidScore)
     .slice(0, 3);
-  const fixtureRows = [...teamRows]
-    .filter((row) => row.nextFixtureCount)
-    .sort((a, b) => b.fixtureScore - a.fixtureScore)
+  const fixtureRows = allTeams
+    .map((team) => {
+      const insights = buildPremierTeamInsights(team, results, leaguePerformanceContext);
+      const upcoming = (insights.upcoming || []).slice(0, 3);
+      const fixtureCount = upcoming.length;
+      const averageDifficulty = fixtureCount
+        ? upcoming.reduce((sum, item) => sum + Number(item.difficultyScore || 3), 0) / fixtureCount
+        : 5;
+      const roundedDifficulty = Math.max(1, Math.min(5, Math.round(averageDifficulty)));
+      const hardCount = upcoming.filter((item) => Number(item.difficultyScore || 3) >= 4).length;
+      const easyCount = upcoming.filter((item) => Number(item.difficultyScore || 3) <= 2).length;
+      const homeCount = upcoming.filter((item) => item.venue === "H").length;
+      const awayCount = upcoming.filter((item) => item.venue === "A").length;
+      const difficultyMeta = getDifficultyMeta(
+        hardCount >= 2 ? Math.max(4, roundedDifficulty) : roundedDifficulty
+      );
+
+      return {
+        team,
+        fixtureScore: fixtureCount ? 6 - averageDifficulty : 0,
+        averageDifficulty,
+        fixtureLabel: fixtureCount
+          ? `${fixtureCount} fixtures (${homeCount}H/${awayCount}A), ${difficultyMeta.label}${easyCount ? `, ${easyCount} favourable` : ""}${hardCount ? `, ${hardCount} hard` : ""}`
+          : "No upcoming fixtures",
+      };
+    })
+    .filter((row) => row.fixtureScore > 0)
+    .sort((a, b) => a.averageDifficulty - b.averageDifficulty || b.fixtureScore - a.fixtureScore)
     .slice(0, 5);
   const bestCleanSheetRun = [...teamRows].sort(
     (a, b) => b.cleanSheetStreak - a.cleanSheetStreak || b.defenceScore - a.defenceScore
@@ -6358,6 +6383,7 @@ const fantasyHelpReport = useMemo(() => {
   activeGameweeks,
   currentPredictionKey,
   isWorldCupMode,
+  leaguePerformanceContext,
   predictions,
   results,
   selectedGameweek,
