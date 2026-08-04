@@ -3216,6 +3216,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
+  const [fantasyInsightsScope, setFantasyInsightsScope] = useState("gameweek");
   const [showPredictionIqModal, setShowPredictionIqModal] = useState(false);
   const [predictionIqPendingAfterWinner, setPredictionIqPendingAfterWinner] = useState(false);
   const [predictionIqDemo, setPredictionIqDemo] = useState(false);
@@ -5979,19 +5980,20 @@ const fantasyHelpReport = useMemo(() => {
     averagePredictedGoals: "0.0",
     predictedCleanSheets: 0,
     predictedDraws: 0,
-    mostBacked: "No coins backed",
-    topAttackTeam: "Add more predictions",
-    topDefenceTeam: "Add more predictions",
-    formAttackTeam: "Not enough data",
-    formDefenceTeam: "Not enough results",
-    avoidTeam: "Not enough data",
-    dataRiskTeam: "Not enough data",
-    captainTeam: "Add more predictions",
-    differentialTeam: "Not enough data",
-    fixtureSwing: "Not enough fixtures",
+    mostBacked: "NA",
+    topAttackTeam: "NA",
+    topDefenceTeam: "NA",
+    formAttackTeam: "NA",
+    formDefenceTeam: "NA",
+    avoidTeam: "NA",
+    dataRiskTeam: "NA",
+    captainTeam: "NA",
+    differentialTeam: "NA",
+    fixtureSwing: "NA",
     cleanSheetTrend: "No clean-sheet streak yet",
-    formFormation: "Not enough form data",
-    predictionFormation: "Add predictions",
+    formFormation: "NA",
+    predictionFormation: "NA",
+    insightScope: fantasyInsightsScope,
     attackRows: [],
     defenceRows: [],
     formDefenceRows: [],
@@ -6125,15 +6127,39 @@ const fantasyHelpReport = useMemo(() => {
     (sum, row) => sum + row.predictedCleanSheets,
     0
   );
-  const averagePredictedGoals = submittedPredictions
-    ? (predictedGoals / submittedPredictions).toFixed(1)
+  const insightFixtures =
+    fantasyInsightsScope === "season"
+      ? activeFixtures.filter((fixture) => fixture.gameweek <= selectedGameweek)
+      : selectedFixtures;
+  let insightPredictedGoals = 0;
+  let insightPredictedDraws = 0;
+  let insightSubmittedPredictions = 0;
+  let insightPredictedCleanSheets = 0;
+  insightFixtures.forEach((fixture) => {
+    const pred = getPred(fixture.id);
+    if (!hasPredictionScore(pred)) return;
+    const homeGoals = Number(pred.homeGoals);
+    const awayGoals = Number(pred.awayGoals);
+    insightSubmittedPredictions += 1;
+    insightPredictedGoals += homeGoals + awayGoals;
+    if (homeGoals === awayGoals) insightPredictedDraws += 1;
+    if (awayGoals === 0) insightPredictedCleanSheets += 1;
+    if (homeGoals === 0) insightPredictedCleanSheets += 1;
+  });
+  const averagePredictedGoals = insightSubmittedPredictions
+    ? (insightPredictedGoals / insightSubmittedPredictions).toFixed(1)
     : "0.0";
   const backedStakeByTeam = {};
   Object.values(coinsState?.bets || {}).forEach((bet) => {
     const stake = Number(bet?.stake || 0);
     if (!stake) return;
     const fixture = activeFixtures.find((f) => String(f.id) === String(bet.fixtureId));
-    if (!fixture || fixture.gameweek !== selectedGameweek) return;
+    if (!fixture) return;
+    const isIncluded =
+      fantasyInsightsScope === "season"
+        ? fixture.gameweek <= selectedGameweek
+        : fixture.gameweek === selectedGameweek;
+    if (!isIncluded) return;
     const target =
       bet.side === "H"
         ? fixture.homeTeam
@@ -6296,11 +6322,19 @@ const fantasyHelpReport = useMemo(() => {
   const avoidTeam = avoidRows[0]?.team || emptyReport.avoidTeam;
   const dataRiskTeam = dataRiskRows[0]?.team || emptyReport.dataRiskTeam;
   const fixtureTeam = fixtureRows[0]?.team || emptyReport.fixtureSwing;
+  const topAttackTeams = attackRows.slice(0, 2).map((row) => row.team);
+  const topDefenceTeams = predictionDefenceRows.slice(0, 2).map((row) => row.team);
+  const formAttackTeams = formAttackRows.slice(0, 2).map((row) => row.team);
+  const formDefenceTeams = formDefenceRows.slice(0, 2).map((row) => row.team);
+  const fixtureTeams = fixtureRows.slice(0, 2).map((row) => row.team);
+  const dataRiskTeams = dataRiskRows.slice(0, 2).map((row) => row.team);
+  const predictionHardTeams = [...teamRows]
+    .filter((row) => row.predictedFixtures)
+    .sort((a, b) => b.predictedAgainst - a.predictedAgainst || a.predictedFor - b.predictedFor)
+    .slice(0, 2)
+    .map((row) => row.team);
   const predictionHardTeam =
-    [...teamRows]
-      .filter((row) => row.predictedFixtures)
-      .sort((a, b) => b.predictedAgainst - a.predictedAgainst || a.predictedFor - b.predictedFor)[0]
-      ?.team || emptyReport.avoidTeam;
+    predictionHardTeams[0] || emptyReport.avoidTeam;
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
   const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
   const actualCleanSheets = teamRows.reduce((sum, row) => sum + row.actualCleanSheets, 0);
@@ -6313,7 +6347,7 @@ const fantasyHelpReport = useMemo(() => {
 
   const predictionFormation =
     !submittedPredictions
-      ? "Add predictions"
+      ? "NA"
       : cleanSheetsPerPrediction >= 0.55 && goalsPerPrediction < 2.6
       ? "Consider 4-4-2 or 5-3-2"
       : goalsPerPrediction >= 3.2
@@ -6323,7 +6357,7 @@ const fantasyHelpReport = useMemo(() => {
       : "Consider a balanced 3-4-3";
   const formFormation =
     !completedResults
-      ? "Not enough form data"
+      ? "NA"
       : cleanSheetsPerResult >= 0.55 && goalsPerResult < 2.6
       ? "Consider a defensive 4-4-2"
       : goalsPerResult >= 3
@@ -6342,6 +6376,8 @@ const fantasyHelpReport = useMemo(() => {
       data: "Consider transferring in",
       predictionTeam: topAttackTeam,
       dataTeam: formAttackTeam,
+      predictionTeams: topAttackTeams,
+      dataTeams: formAttackTeams,
       predictionRole: "Attackers",
       dataRole: "Attackers",
       color: "#22C55E",
@@ -6352,6 +6388,8 @@ const fantasyHelpReport = useMemo(() => {
       data: "Consider transferring in",
       predictionTeam: topDefenceTeam,
       dataTeam: formDefenceAdviceTeam || formDefenceTeam,
+      predictionTeams: topDefenceTeams,
+      dataTeams: formDefenceTeams,
       predictionRole: "Defenders/GKs",
       dataRole: "Defenders/GKs",
       color: "#38BDF8",
@@ -6362,6 +6400,8 @@ const fantasyHelpReport = useMemo(() => {
       data: "Consider benching",
       predictionTeam: predictionHardTeam,
       dataTeam: dataRiskTeam,
+      predictionTeams: predictionHardTeams,
+      dataTeams: dataRiskTeams,
       predictionRole: "Defenders",
       dataRole: "Defenders",
       color: "#EF4444",
@@ -6372,6 +6412,8 @@ const fantasyHelpReport = useMemo(() => {
       data: "Consider transferring out",
       predictionTeam: predictionHardTeam,
       dataTeam: dataRiskTeam,
+      predictionTeams: predictionHardTeams,
+      dataTeams: dataRiskTeams,
       predictionRole: "Defenders",
       dataRole: "Defenders",
       color: "#EF4444",
@@ -6382,6 +6424,8 @@ const fantasyHelpReport = useMemo(() => {
       data: "Consider targeting",
       predictionTeam: topAttackTeam,
       dataTeam: fixtureTeam,
+      predictionTeams: topAttackTeams,
+      dataTeams: fixtureTeams,
       predictionRole: "Attackers",
       dataRole: "Assets",
       color: "#A78BFA",
@@ -6392,6 +6436,8 @@ const fantasyHelpReport = useMemo(() => {
       data: "Consider avoiding",
       predictionTeam: predictionHardTeam,
       dataTeam: dataRiskTeam,
+      predictionTeams: predictionHardTeams,
+      dataTeams: dataRiskTeams,
       predictionRole: "Defenders",
       dataRole: "Defenders",
       color: "#EF4444",
@@ -6400,10 +6446,10 @@ const fantasyHelpReport = useMemo(() => {
 
   return {
     gameweek: selectedGameweek,
-    predictedGoals,
+    predictedGoals: insightPredictedGoals,
     averagePredictedGoals,
-    predictedDraws,
-    predictedCleanSheets: predictedCleanSheetsTotal,
+    predictedDraws: insightPredictedDraws,
+    predictedCleanSheets: insightPredictedCleanSheets,
     mostBacked: mostBackedEntry
       ? `${mostBackedEntry[0]} (${mostBackedEntry[1]})`
       : emptyReport.mostBacked,
@@ -6433,14 +6479,16 @@ const fantasyHelpReport = useMemo(() => {
     dataRiskRows,
     adviceRows,
     completedResults,
-    submittedPredictions,
-    missingPredictions: Math.max(0, selectedFixtures.length - submittedPredictions),
+    submittedPredictions: insightSubmittedPredictions,
+    missingPredictions: Math.max(0, insightFixtures.length - insightSubmittedPredictions),
+    insightScope: fantasyInsightsScope,
   };
 }, [
   activeFixtures,
   activeGameweeks,
   coinsState,
   currentPredictionKey,
+  fantasyInsightsScope,
   isWorldCupMode,
   leaguePerformanceContext,
   predictions,
@@ -8337,10 +8385,8 @@ useEffect(() => {
       </div>
     );
     const renderAdviceComparisonRow = (item) => {
-      const predictionBadge = item.predictionTeam ? getFantasyTeamBadge(item.predictionTeam) : "";
-      const dataBadge = item.dataTeam ? getFantasyTeamBadge(item.dataTeam) : "";
-      const renderAdviceCell = (modeLabel, value, badgeSrc, team, role, color, borderColor) => {
-        const teamCode = team ? getTeamCode(team, gameMode) : "";
+      const renderAdviceCell = (modeLabel, value, teams, role, color, borderColor) => {
+        const suggestedTeams = (teams || []).filter(Boolean).slice(0, 2);
         return (
           <div
             style={{
@@ -8354,49 +8400,56 @@ useEffect(() => {
             }}
           >
             <div style={{ fontSize: 10, color: theme.muted, fontWeight: 900 }}>{modeLabel}</div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: badgeSrc ? "24px minmax(0, 1fr)" : "1fr",
-                gap: 8,
-                alignItems: "center",
-                minWidth: 0,
-              }}
-            >
-              {badgeSrc && <img src={badgeSrc} alt="" aria-hidden="true" style={{ width: 24, height: 24, objectFit: "contain" }} />}
-              <div style={{ minWidth: 0, display: "grid", gap: 4 }}>
-                {teamCode && (
-                  <div style={{ fontSize: 13, color: theme.text, fontWeight: 900, overflowWrap: "anywhere" }}>
-                    {value}
-                  </div>
-                )}
-                {teamCode ? (
-                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ color: theme.text, fontWeight: 950, fontSize: 15 }}>{teamCode}</span>
-                    {role && (
-                      <span
-                        style={{
-                          background: "rgba(255,255,255,0.09)",
-                          border: `1px solid ${theme.line}`,
-                          borderRadius: 8,
-                          padding: "3px 6px",
-                          color: theme.muted,
-                          fontSize: 10,
-                          fontWeight: 950,
-                          textTransform: "uppercase",
-                        }}
-                      >
-                        {role}
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 15, color: theme.text, fontWeight: 950, overflowWrap: "anywhere" }}>
-                    {value}
-                  </div>
-                )}
-              </div>
+            <div style={{ fontSize: suggestedTeams.length ? 13 : 15, color: theme.text, fontWeight: 900, overflowWrap: "anywhere" }}>
+              {value || "NA"}
             </div>
+            {suggestedTeams.length ? (
+              <div style={{ display: "grid", gap: 6 }}>
+                {suggestedTeams.map((team) => {
+                  const badgeSrc = getFantasyTeamBadge(team);
+                  const teamCode = getTeamCode(team, gameMode);
+                  return (
+                    <div
+                      key={`${modeLabel}-${value}-${team}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: badgeSrc ? "24px minmax(0, 1fr)" : "1fr",
+                        gap: 8,
+                        alignItems: "center",
+                        minWidth: 0,
+                      }}
+                    >
+                      {badgeSrc && <img src={badgeSrc} alt="" aria-hidden="true" style={{ width: 24, height: 24, objectFit: "contain" }} />}
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+                        <span style={{ color: theme.text, fontWeight: 950, fontSize: 15 }}>{teamCode}</span>
+                        {role && (
+                          <span
+                            style={{
+                              background: "rgba(255,255,255,0.09)",
+                              border: `1px solid ${theme.line}`,
+                              borderRadius: 8,
+                              padding: "3px 6px",
+                              color: theme.muted,
+                              fontSize: 10,
+                              fontWeight: 950,
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {role}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              role && (
+                <div style={{ color: theme.muted, fontSize: 10, fontWeight: 950, textTransform: "uppercase" }}>
+                  {role}
+                </div>
+              )
+            )}
           </div>
         );
       };
@@ -8415,8 +8468,22 @@ useEffect(() => {
           <div style={{ color: item.color || theme.muted, fontWeight: 950, fontSize: 13 }}>
             {item.label}
           </div>
-          {renderAdviceCell("Based on your predictions", item.prediction, predictionBadge, item.predictionTeam, item.predictionRole, "rgba(245,158,11,0.08)", theme.warn)}
-          {renderAdviceCell("Based on data", item.data, dataBadge, item.dataTeam, item.dataRole, "rgba(56,189,248,0.08)", theme.accent)}
+          {renderAdviceCell(
+            "Based on your predictions",
+            item.prediction,
+            item.predictionTeams || (item.predictionTeam ? [item.predictionTeam] : []),
+            item.predictionRole,
+            "rgba(245,158,11,0.08)",
+            theme.warn
+          )}
+          {renderAdviceCell(
+            "Based on data",
+            item.data,
+            item.dataTeams || (item.dataTeam ? [item.dataTeam] : []),
+            item.dataRole,
+            "rgba(56,189,248,0.08)",
+            theme.accent
+          )}
         </div>
       );
     };
@@ -8433,8 +8500,31 @@ useEffect(() => {
             gap: 12,
           }}
         >
-          <div style={{ fontSize: 18, color: theme.accent2, fontWeight: 950, textAlign: "center" }}>
-            Insights
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto",
+              gap: 10,
+              alignItems: "center",
+            }}
+          >
+            <div style={{ fontSize: 18, color: theme.accent2, fontWeight: 950, textAlign: isMobile || compact ? "center" : "left" }}>
+              {fantasyInsightsScope === "season" ? "Season Insights" : "Gameweek Insights"}
+            </div>
+            <select
+              value={fantasyInsightsScope}
+              onChange={(event) => setFantasyInsightsScope(event.target.value)}
+              style={{
+                ...probInput,
+                width: isMobile || compact ? "100%" : 190,
+                padding: "8px 10px",
+                fontSize: 13,
+                fontWeight: 850,
+              }}
+            >
+              <option value="gameweek">Gameweek Insights</option>
+              <option value="season">Season Insights</option>
+            </select>
           </div>
           <div
             style={{
@@ -8500,13 +8590,13 @@ useEffect(() => {
               "Easy fixtures",
               report.fixtureRows,
               "#22C55E",
-              "Fixture difficulty will appear once upcoming fixtures are available."
+              "NA"
             )}
             {renderFixtureDifficultyPanel(
               "Hard fixtures",
               report.fixtureHardRows,
               "#EF4444",
-              "Fixture difficulty will appear once upcoming fixtures are available."
+              "NA"
             )}
           </div>
         </div>
