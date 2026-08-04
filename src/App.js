@@ -5959,6 +5959,295 @@ const predictionIqDemoReport = useMemo(
   [selectedGameweek]
 );
 
+const fantasyHelpReport = useMemo(() => {
+  const emptyReport = {
+    rating: 0,
+    gameweek: selectedGameweek,
+    predictedGoals: 0,
+    predictedCleanSheets: 0,
+    fixtureWindow: "Next 3 gameweeks",
+    topAttackTeam: "Add more predictions",
+    topDefenceTeam: "Add more predictions",
+    formDefenceTeam: "Not enough results",
+    avoidTeam: "Not enough data",
+    captainTeam: "Add more predictions",
+    differentialTeam: "Not enough data",
+    fixtureSwing: "Not enough fixtures",
+    cleanSheetTrend: "No clean-sheet streak yet",
+    mainAdvice: "Enter scores for the selected gameweek to unlock fantasy recommendations.",
+    attackRows: [],
+    defenceRows: [],
+    avoidRows: [],
+    fixtureRows: [],
+    completedResults: 0,
+    submittedPredictions: 0,
+    missingPredictions: 0,
+  };
+
+  if (isWorldCupMode || !selectedGameweek) return emptyReport;
+
+  const currentPredictions = predictions[currentPredictionKey] || {};
+  const hasPredictionScore = (pred) => {
+    if (!pred) return false;
+    const home = Number(pred.homeGoals);
+    const away = Number(pred.awayGoals);
+    return Number.isFinite(home) && Number.isFinite(away);
+  };
+  const getPred = (fixtureId) =>
+    currentPredictions[String(fixtureId)] !== undefined
+      ? currentPredictions[String(fixtureId)]
+      : currentPredictions[fixtureId];
+
+  const allTeams = Array.from(
+    new Set(activeFixtures.flatMap((fixture) => [fixture.homeTeam, fixture.awayTeam]))
+  );
+  const teamStats = Object.fromEntries(
+    allTeams.map((team) => [
+      team,
+      {
+        team,
+        predictedFor: 0,
+        predictedAgainst: 0,
+        predictedCleanSheets: 0,
+        predictedWins: 0,
+        predictedFixtures: 0,
+        actualFor: 0,
+        actualAgainst: 0,
+        actualCleanSheets: 0,
+        actualWins: 0,
+        actualPlayed: 0,
+        cleanSheetStreak: 0,
+        nextFixtureCount: 0,
+        nextDifficulty: 0,
+        nextGoalPotential: 0,
+        nextCleanSheetPotential: 0,
+        nextHomeFixtures: 0,
+        nextAwayFixtures: 0,
+      },
+    ])
+  );
+
+  activeFixtures.forEach((fixture) => {
+    const result = results[fixture.id];
+    if (!hasValidResultScore(result) || fixture.gameweek > selectedGameweek) return;
+
+    const homeGoals = Number(result.homeGoals);
+    const awayGoals = Number(result.awayGoals);
+    const home = teamStats[fixture.homeTeam];
+    const away = teamStats[fixture.awayTeam];
+    if (!home || !away) return;
+
+    home.actualPlayed += 1;
+    away.actualPlayed += 1;
+    home.actualFor += homeGoals;
+    home.actualAgainst += awayGoals;
+    away.actualFor += awayGoals;
+    away.actualAgainst += homeGoals;
+    if (awayGoals === 0) home.actualCleanSheets += 1;
+    if (homeGoals === 0) away.actualCleanSheets += 1;
+    if (homeGoals > awayGoals) home.actualWins += 1;
+    if (awayGoals > homeGoals) away.actualWins += 1;
+  });
+
+  allTeams.forEach((team) => {
+    const completed = activeFixtures
+      .filter(
+        (fixture) =>
+          fixture.gameweek <= selectedGameweek &&
+          (fixture.homeTeam === team || fixture.awayTeam === team) &&
+          hasValidResultScore(results[fixture.id])
+      )
+      .sort((a, b) => b.gameweek - a.gameweek || String(b.kickoff).localeCompare(String(a.kickoff)));
+
+    let streak = 0;
+    for (const fixture of completed) {
+      const result = results[fixture.id];
+      const conceded =
+        fixture.homeTeam === team ? Number(result.awayGoals) : Number(result.homeGoals);
+      if (conceded !== 0) break;
+      streak += 1;
+    }
+    teamStats[team].cleanSheetStreak = streak;
+  });
+
+  const selectedFixtures = activeFixtures.filter((fixture) => fixture.gameweek === selectedGameweek);
+  let predictedGoals = 0;
+  let submittedPredictions = 0;
+  selectedFixtures.forEach((fixture) => {
+    const pred = getPred(fixture.id);
+    if (!hasPredictionScore(pred)) return;
+
+    submittedPredictions += 1;
+    const homeGoals = Number(pred.homeGoals);
+    const awayGoals = Number(pred.awayGoals);
+    const home = teamStats[fixture.homeTeam];
+    const away = teamStats[fixture.awayTeam];
+    if (!home || !away) return;
+
+    predictedGoals += homeGoals + awayGoals;
+    home.predictedFixtures += 1;
+    away.predictedFixtures += 1;
+    home.predictedFor += homeGoals;
+    home.predictedAgainst += awayGoals;
+    away.predictedFor += awayGoals;
+    away.predictedAgainst += homeGoals;
+    if (awayGoals === 0) home.predictedCleanSheets += 1;
+    if (homeGoals === 0) away.predictedCleanSheets += 1;
+    if (homeGoals > awayGoals) home.predictedWins += 1;
+    if (awayGoals > homeGoals) away.predictedWins += 1;
+  });
+
+  const windowGameweeks = activeGameweeks.filter(
+    (gw) => gw >= selectedGameweek && gw < selectedGameweek + 3
+  );
+  const windowFixtures = activeFixtures.filter((fixture) =>
+    windowGameweeks.includes(fixture.gameweek)
+  );
+  windowFixtures.forEach((fixture) => {
+    const home = teamStats[fixture.homeTeam];
+    const away = teamStats[fixture.awayTeam];
+    if (!home || !away) return;
+
+    const homeAttack = home.actualPlayed ? home.actualFor / home.actualPlayed : 1.2;
+    const awayAttack = away.actualPlayed ? away.actualFor / away.actualPlayed : 1.2;
+    const homeDefence = home.actualPlayed ? home.actualAgainst / home.actualPlayed : 1.2;
+    const awayDefence = away.actualPlayed ? away.actualAgainst / away.actualPlayed : 1.2;
+    const homeExpected = Math.max(0.2, homeAttack + awayDefence + 0.25);
+    const awayExpected = Math.max(0.2, awayAttack + homeDefence - 0.05);
+
+    home.nextFixtureCount += 1;
+    away.nextFixtureCount += 1;
+    home.nextHomeFixtures += 1;
+    away.nextAwayFixtures += 1;
+    home.nextGoalPotential += homeExpected;
+    away.nextGoalPotential += awayExpected;
+    home.nextCleanSheetPotential += Math.max(0, 2.6 - awayExpected);
+    away.nextCleanSheetPotential += Math.max(0, 2.6 - homeExpected);
+    home.nextDifficulty += awayExpected + Math.max(0, awayAttack - homeDefence);
+    away.nextDifficulty += homeExpected + Math.max(0, homeAttack - awayDefence);
+  });
+
+  const teamRows = Object.values(teamStats).map((stat) => {
+    const fixtureCount = Math.max(1, stat.nextFixtureCount);
+    const attackScore =
+      stat.predictedFor * 2.4 +
+      stat.predictedWins * 1.2 +
+      stat.nextGoalPotential +
+      (stat.actualPlayed ? (stat.actualFor / stat.actualPlayed) * 1.5 : 0);
+    const defenceScore =
+      stat.predictedCleanSheets * 3 +
+      stat.cleanSheetStreak * 1.6 +
+      stat.nextCleanSheetPotential +
+      (stat.actualPlayed ? Math.max(0, 2 - stat.actualAgainst / stat.actualPlayed) : 0);
+    const fixtureScore =
+      stat.nextFixtureCount
+        ? Math.max(0, 10 - stat.nextDifficulty / fixtureCount) + stat.nextGoalPotential / fixtureCount
+        : 0;
+    const avoidScore =
+      stat.predictedAgainst * 2.2 +
+      stat.nextDifficulty / fixtureCount +
+      (stat.actualPlayed ? (stat.actualAgainst / stat.actualPlayed) * 1.4 : 0) -
+      stat.predictedFor;
+
+    return {
+      ...stat,
+      attackScore,
+      defenceScore,
+      fixtureScore,
+      avoidScore,
+      fixtureLabel: stat.nextFixtureCount
+        ? `${stat.nextFixtureCount} fixtures (${stat.nextHomeFixtures}H/${stat.nextAwayFixtures}A), ${fixtureScore >= 9 ? "green" : fixtureScore >= 7 ? "mixed" : "hard"} run`
+        : "No fixtures",
+    };
+  });
+
+  const attackRows = [...teamRows]
+    .filter((row) => row.predictedFixtures)
+    .sort((a, b) => b.attackScore - a.attackScore)
+    .slice(0, 3);
+  const defenceRows = [...teamRows]
+    .filter((row) => row.predictedFixtures || row.cleanSheetStreak)
+    .sort((a, b) => b.defenceScore - a.defenceScore)
+    .slice(0, 3);
+  const avoidRows = [...teamRows]
+    .filter((row) => row.predictedFixtures)
+    .sort((a, b) => b.avoidScore - a.avoidScore)
+    .slice(0, 3);
+  const fixtureRows = [...teamRows]
+    .filter((row) => row.nextFixtureCount)
+    .sort((a, b) => b.fixtureScore - a.fixtureScore)
+    .slice(0, 5);
+  const bestCleanSheetRun = [...teamRows].sort(
+    (a, b) => b.cleanSheetStreak - a.cleanSheetStreak || b.defenceScore - a.defenceScore
+  )[0];
+
+  const topAttackTeam = attackRows[0]?.team || emptyReport.topAttackTeam;
+  const topDefenceTeam = defenceRows[0]?.team || emptyReport.topDefenceTeam;
+  const avoidTeam = avoidRows[0]?.team || emptyReport.avoidTeam;
+  const fixtureTeam = fixtureRows[0]?.team || emptyReport.fixtureSwing;
+  const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
+  const rating = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(
+        (attackRows[0]?.attackScore || 0) * 5 +
+          (defenceRows[0]?.defenceScore || 0) * 4 +
+          (fixtureRows[0]?.fixtureScore || 0) * 3
+      )
+    )
+  );
+
+  let mainAdvice = "Your predictions point to a balanced fantasy week. Treat this as a shortlist, then check real FPL prices, injuries and line-ups separately.";
+  if (!submittedPredictions) {
+    mainAdvice = "Enter score predictions for this gameweek to unlock personalised fantasy guidance. The fixture list can still highlight teams with kinder short-term runs.";
+  } else if (attackRows[0]?.predictedFor >= 3) {
+    mainAdvice = `Consider ${topAttackTeam} attackers: your scoreline gives them ${attackRows[0].predictedFor} predicted goals this gameweek.`;
+  } else if (defenceRows[0]?.predictedCleanSheets || defenceRows[0]?.cleanSheetStreak >= 3) {
+    mainAdvice = `Consider ${topDefenceTeam} defenders or goalkeepers: your prediction and the actual clean-sheet trend make them worth reviewing.`;
+  } else if (fixtureRows[0]) {
+    mainAdvice = `${fixtureTeam} has the strongest three-gameweek fixture signal here, including home/away context, so they are worth shortlisting.`;
+  }
+
+  return {
+    rating,
+    gameweek: selectedGameweek,
+    predictedGoals,
+    predictedCleanSheets: teamRows.reduce((sum, row) => sum + row.predictedCleanSheets, 0),
+    fixtureWindow: `GW ${windowGameweeks[0] || selectedGameweek}-${windowGameweeks[windowGameweeks.length - 1] || selectedGameweek}`,
+    topAttackTeam,
+    topDefenceTeam,
+    formDefenceTeam:
+      bestCleanSheetRun?.cleanSheetStreak >= 3
+        ? `${bestCleanSheetRun.team} (${bestCleanSheetRun.cleanSheetStreak} straight)`
+        : "No 3-match streak",
+    avoidTeam,
+    captainTeam: topAttackTeam,
+    differentialTeam: fixtureRows.find((row) => row.team !== topAttackTeam && row.team !== topDefenceTeam)?.team || "No standout",
+    fixtureSwing: fixtureTeam,
+    cleanSheetTrend:
+      bestCleanSheetRun?.cleanSheetStreak > 0
+        ? `${bestCleanSheetRun.team}: ${bestCleanSheetRun.cleanSheetStreak} clean sheets in a row`
+        : "No clean-sheet streak yet",
+    mainAdvice,
+    attackRows,
+    defenceRows,
+    avoidRows,
+    fixtureRows,
+    completedResults,
+    submittedPredictions,
+    missingPredictions: Math.max(0, selectedFixtures.length - submittedPredictions),
+  };
+}, [
+  activeFixtures,
+  activeGameweeks,
+  currentPredictionKey,
+  isWorldCupMode,
+  predictions,
+  results,
+  selectedGameweek,
+]);
+
 const currentSeasonPredictionStats = useMemo(() => {
   if (isWorldCupMode) return { exactScores: 0, correctCaptains: 0 };
   const currentPredictions = predictions[currentPredictionKey] || {};
@@ -7701,6 +7990,287 @@ useEffect(() => {
     );
   };
 
+  const renderFantasyHelpReport = (options = {}) => {
+    const compact = !!options.compact;
+    const report = options.report || fantasyHelpReport;
+    const ratingColor =
+      report.rating >= 80 ? theme.accent2 : report.rating >= 55 ? theme.accent : theme.warn;
+    const statItems = [
+      { icon: "⚽", label: "Your predicted goals", value: report.predictedGoals },
+      { icon: "🧤", label: "Your predicted clean sheets", value: report.predictedCleanSheets },
+      { icon: "📅", label: "Fixture window", value: report.fixtureWindow },
+      {
+        icon: "🧠",
+        label: "Predictions entered",
+        value: report.missingPredictions
+          ? `${report.submittedPredictions} entered, ${report.missingPredictions} missing`
+          : `${report.submittedPredictions} entered`,
+      },
+    ];
+    const detailItems = [
+      { label: "Your prediction: attackers", value: report.topAttackTeam, color: "#22C55E", teamValue: report.topAttackTeam },
+      { label: "Your prediction: defenders/GKs", value: report.topDefenceTeam, color: "#38BDF8", teamValue: report.topDefenceTeam },
+      { label: "Actual form: defence", value: report.formDefenceTeam, color: "#A78BFA", teamValue: report.formDefenceTeam },
+      { label: "Risk watch", value: report.avoidTeam, color: "#EF4444", teamValue: report.avoidTeam },
+    ];
+    const strategyItems = [
+      { label: "Captaincy candidates", value: report.captainTeam, color: "#F59E0B", teamValue: report.captainTeam },
+      { label: "Differential angle", value: report.differentialTeam, color: "#22C55E", teamValue: report.differentialTeam },
+      { label: "Fixture view", value: report.fixtureSwing, color: "#38BDF8", teamValue: report.fixtureSwing },
+      { label: "Actual clean-sheet trend", value: report.cleanSheetTrend, color: "#A78BFA", teamValue: report.cleanSheetTrend },
+    ];
+    const getFantasyTeamBadge = (value = "") => {
+      const text = String(value || "");
+      const teams = Array.from(
+        new Set(activeFixtures.flatMap((fixture) => [fixture.homeTeam, fixture.awayTeam]))
+      ).sort((a, b) => b.length - a.length);
+      const team = teams.find((teamName) =>
+        text.toLowerCase().includes(String(teamName).toLowerCase())
+      );
+      return team ? resolveTeamBadge(team) : resolveTeamBadge(text.replace(/\s*[-(].*$/, "").trim());
+    };
+    const renderFantasyImpactCard = (item) => {
+      const badgeSrc = item.teamValue ? getFantasyTeamBadge(item.teamValue) : "";
+      return (
+        <div
+          key={item.label}
+          style={{
+            background: theme.panelHi,
+            border: `2px solid ${item.color || theme.line}`,
+            borderRadius: 12,
+            padding: isMobile || compact ? "14px 12px" : "16px 14px",
+            minWidth: 0,
+            textAlign: "center",
+            display: "grid",
+            justifyItems: "center",
+            gap: 8,
+            boxShadow: "0 8px 18px rgba(0,0,0,0.18)",
+          }}
+        >
+          {badgeSrc && (
+            <img
+              src={badgeSrc}
+              alt=""
+              aria-hidden="true"
+              style={{
+                width: isMobile || compact ? 34 : 42,
+                height: isMobile || compact ? 34 : 42,
+                objectFit: "contain",
+              }}
+            />
+          )}
+          <div
+            style={{
+              width: 46,
+              height: 3,
+              borderRadius: 999,
+              background: item.color || theme.accent,
+            }}
+          />
+          <div style={{ fontSize: 12, color: item.color || theme.muted, fontWeight: 900 }}>
+            {item.label}
+          </div>
+          <div
+            title={item.value}
+            style={{
+              fontSize: isMobile || compact ? 17 : 20,
+              fontWeight: 950,
+              color: theme.text,
+              lineHeight: 1.18,
+              overflowWrap: "anywhere",
+            }}
+          >
+            {item.value}
+          </div>
+        </div>
+      );
+    };
+    const renderTeamRow = (row, type) => {
+      const badgeSrc = resolveTeamBadge(row.team);
+      const value =
+        type === "attack"
+          ? `${row.predictedFor.toFixed(1)} predicted GF by you`
+          : type === "defence"
+          ? `${row.predictedCleanSheets} predicted CS, ${row.cleanSheetStreak} actual CS run`
+          : type === "avoid"
+          ? `${row.predictedAgainst.toFixed(1)} predicted GA by you`
+          : row.fixtureLabel;
+      return (
+        <div
+          key={`${type}-${row.team}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "34px minmax(0, 1fr) auto",
+            gap: 10,
+            alignItems: "center",
+            padding: "9px 10px",
+            borderTop: `1px solid ${theme.line}`,
+            fontSize: 13,
+          }}
+        >
+          {badgeSrc ? (
+            <img src={badgeSrc} alt="" aria-hidden="true" style={{ width: 28, height: 28, objectFit: "contain" }} />
+          ) : (
+            <span />
+          )}
+          <div style={{ minWidth: 0, color: theme.text, fontWeight: 850, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.team}
+          </div>
+          <div style={{ color: theme.muted, fontWeight: 800, whiteSpace: "nowrap" }}>
+            {value}
+          </div>
+        </div>
+      );
+    };
+    const renderRankPanel = (title, rows, type, color) => (
+      <div
+        style={{
+          background: theme.panelHi,
+          border: `2px solid ${color}`,
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ padding: "10px 12px", color, fontSize: 14, fontWeight: 950 }}>
+          {title}
+        </div>
+        {(rows || []).length ? (
+          rows.map((row) => renderTeamRow(row, type))
+        ) : (
+          <div style={{ borderTop: `1px solid ${theme.line}`, padding: 12, color: theme.muted, fontSize: 13 }}>
+            Add predictions to generate this list.
+          </div>
+        )}
+      </div>
+    );
+
+    return (
+      <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile || compact ? "1fr" : "150px minmax(0, 1fr)",
+            gap: 12,
+            alignItems: "stretch",
+          }}
+        >
+          <div
+            style={{
+              background: theme.panelHi,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 14,
+              textAlign: "center",
+              display: "grid",
+              alignContent: "center",
+              gap: 4,
+            }}
+          >
+            <div style={{ fontSize: 12, color: theme.muted, fontWeight: 800 }}>
+              Fantasy Rating
+            </div>
+            <div style={{ fontSize: 38, lineHeight: 1, fontWeight: 900, color: ratingColor }}>
+              {report.rating}
+              <span style={{ fontSize: 18, color: theme.muted }}>/100</span>
+            </div>
+            <div style={{ fontSize: 11, color: theme.muted }}>
+              {getModeGameweekLabel(gameMode, report.gameweek)}
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: theme.panelHi,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 14,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
+              Prediction and fixture signals
+            </div>
+            <div style={{ display: "grid", border: `1px solid ${theme.line}`, borderRadius: 10, overflow: "hidden" }}>
+              {statItems.map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: 10,
+                    alignItems: "center",
+                    padding: "8px 10px",
+                    borderTop: item === statItems[0] ? "none" : `1px solid ${theme.line}`,
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ minWidth: 0, display: "flex", gap: 7, alignItems: "center", color: theme.muted, fontWeight: 750 }}>
+                    <span aria-hidden="true">{item.icon}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.label}
+                    </span>
+                  </div>
+                  <div style={{ color: theme.text, fontWeight: 900, textAlign: "right", whiteSpace: "nowrap" }}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          {detailItems.map(renderFantasyImpactCard)}
+        </div>
+
+        <div
+          style={{
+            background: "linear-gradient(180deg, rgba(245,158,11,0.08), rgba(11,18,32,0.94))",
+            border: `2px solid ${theme.warn}`,
+            borderRadius: 12,
+            padding: 14,
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <div style={{ fontSize: 16, color: theme.warn, fontWeight: 900, textAlign: "center" }}>
+            Fantasy guidance
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+            {strategyItems.map(renderFantasyImpactCard)}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+          {renderRankPanel("Consider attackers", report.attackRows, "attack", "#22C55E")}
+          {renderRankPanel("Consider defenders/GKs", report.defenceRows, "defence", "#38BDF8")}
+          {renderRankPanel("Risk/avoid watch", report.avoidRows, "avoid", "#EF4444")}
+          {renderRankPanel("Fixture difficulty: next 3", report.fixtureRows, "fixture", "#A78BFA")}
+        </div>
+
+        <div
+          style={{
+            background: "rgba(56,189,248,0.1)",
+            border: `1px solid ${theme.accent}`,
+            borderRadius: 12,
+            padding: 12,
+          }}
+        >
+          <div style={{ fontSize: 11, color: theme.muted, fontWeight: 800 }}>
+            Fantasy Advice
+          </div>
+          <div style={{ marginTop: 4, fontSize: 14, lineHeight: 1.35, fontWeight: 700 }}>
+            {report.mainAdvice}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: theme.muted, lineHeight: 1.35 }}>
+            Guidance only. This uses your predictions, app results and fixture home/away context. It does not use official FPL prices, injury news or predicted line-ups.
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const smallInput = {
     width: isMobile ? 34 : 36,
     padding: isMobile ? "6px 7px" : "6px 8px",
@@ -9267,7 +9837,7 @@ if (!isLoggedIn) {
               <button
                 type="button"
                 onClick={() => {
-                  setActiveView("predictionIq");
+                  setActiveView(activeView === "predictionIq" ? "fantasyHelp" : "predictionIq");
                   setShowMobileMenu(false);
                   setShowLeaguesMenu(false);
                 }}
@@ -9278,8 +9848,8 @@ if (!isLoggedIn) {
                   padding: isMobile ? "5px 4px" : "6px 8px",
                   borderRadius: 999,
                   border: `1px solid ${theme.accent}`,
-                  background: activeView === "predictionIq" ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.08)",
-                  color: activeView === "predictionIq" ? theme.text : theme.accent,
+                  background: activeView === "predictionIq" || activeView === "fantasyHelp" ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.08)",
+                  color: activeView === "predictionIq" || activeView === "fantasyHelp" ? theme.text : theme.accent,
                   fontSize: isMobile ? 11 : 12,
                   fontWeight: 900,
                   cursor: isWorldCupMode ? "default" : "pointer",
@@ -9289,7 +9859,7 @@ if (!isLoggedIn) {
                   boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
                 }}
               >
-                IQ Report
+                {activeView === "predictionIq" ? "Fantasy" : "IQ Report"}
               </button>
               <button
                 type="button"
@@ -9747,6 +10317,7 @@ const TABS = [
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
+  ...(!isWorldCupMode ? [{ id: "fantasyHelp", label: "Fantasy help" }] : []),
   { id: "badges", label: "Badges" },
   { id: "history", label: isWorldCupMode ? "WC History" : "History" },
   { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
@@ -11580,6 +12151,25 @@ const TABS = [
             {renderPredictionIqReport({
               report: predictionIqDemo ? predictionIqDemoReport : predictionIqReport,
             })}
+          </section>
+        )}
+
+        {activeView === "fantasyHelp" && !isWorldCupMode && (
+          <section style={cardStyle}>
+            <div
+              style={{
+                textAlign: "center",
+                marginBottom: 12,
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 18 }}>
+                Fantasy Help
+              </h2>
+              <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
+                Fantasy football advice from {currentPlayer || "your"} predictions and recent results
+              </div>
+            </div>
+            {renderFantasyHelpReport()}
           </section>
         )}
 
