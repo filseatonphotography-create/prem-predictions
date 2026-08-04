@@ -11177,14 +11177,15 @@ const TABS = [
         type="button"
         disabled={locked}
         title={sideLabel}
-        onClick={() =>
+        onClick={() => {
+          playScoreSound(true);
           handleCoinsChange(
             fixture.id,
             coinsStake,
             s,
             o
-          )
-        }
+          );
+        }}
         style={{
           padding: "2px 6px",
           borderRadius: 999,
