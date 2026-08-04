@@ -5998,6 +5998,7 @@ const fantasyHelpReport = useMemo(() => {
     predictionDefenceRows: [],
     avoidRows: [],
     fixtureRows: [],
+    fixtureHardRows: [],
     formAttackRows: [],
     dataRiskRows: [],
     adviceRows: [],
@@ -6246,36 +6247,7 @@ const fantasyHelpReport = useMemo(() => {
     .filter((row) => row.predictedFixtures)
     .sort((a, b) => b.avoidScore - a.avoidScore)
     .slice(0, 3);
-  const fixtureRows = allTeams
-    .map((team) => {
-      const insights = buildPremierTeamInsights(team, results, leaguePerformanceContext);
-      const upcoming = (insights.upcoming || []).slice(0, 3);
-      const fixtureCount = upcoming.length;
-      const averageDifficulty = fixtureCount
-        ? upcoming.reduce((sum, item) => sum + Number(item.difficultyScore || 3), 0) / fixtureCount
-        : 5;
-      const roundedDifficulty = Math.max(1, Math.min(5, Math.round(averageDifficulty)));
-      const hardCount = upcoming.filter((item) => Number(item.difficultyScore || 3) >= 4).length;
-      const easyCount = upcoming.filter((item) => Number(item.difficultyScore || 3) <= 2).length;
-      const homeCount = upcoming.filter((item) => item.venue === "H").length;
-      const awayCount = upcoming.filter((item) => item.venue === "A").length;
-      const difficultyMeta = getDifficultyMeta(
-        hardCount >= 2 ? Math.max(4, roundedDifficulty) : roundedDifficulty
-      );
-
-      return {
-        team,
-        fixtureScore: fixtureCount ? 6 - averageDifficulty : 0,
-        averageDifficulty,
-        fixtureLabel: fixtureCount
-          ? `${fixtureCount} fixtures (${homeCount}H/${awayCount}A), ${difficultyMeta.label}${easyCount ? `, ${easyCount} favourable` : ""}${hardCount ? `, ${hardCount} hard` : ""}`
-          : "No upcoming fixtures",
-      };
-    })
-    .filter((row) => row.fixtureScore > 0)
-    .sort((a, b) => a.averageDifficulty - b.averageDifficulty || b.fixtureScore - a.fixtureScore)
-    .slice(0, 5);
-  const dataRiskRows = allTeams
+  const fixtureDifficultyRows = allTeams
     .map((team) => {
       const insights = buildPremierTeamInsights(team, results, leaguePerformanceContext);
       const upcoming = (insights.upcoming || []).slice(0, 3);
@@ -6284,20 +6256,31 @@ const fantasyHelpReport = useMemo(() => {
         ? upcoming.reduce((sum, item) => sum + Number(item.difficultyScore || 3), 0) / fixtureCount
         : 0;
       const hardCount = upcoming.filter((item) => Number(item.difficultyScore || 3) >= 4).length;
+      const easyCount = upcoming.filter((item) => Number(item.difficultyScore || 3) <= 2).length;
       const homeCount = upcoming.filter((item) => item.venue === "H").length;
       const awayCount = upcoming.filter((item) => item.venue === "A").length;
       return {
         team,
+        upcoming,
+        fixtureScore: fixtureCount ? 6 - averageDifficulty : 0,
         averageDifficulty,
+        easyCount,
         hardCount,
+        homeCount,
+        awayCount,
         fixtureLabel: fixtureCount
-          ? `${fixtureCount} fixtures (${homeCount}H/${awayCount}A), ${hardCount} hard`
+          ? `${fixtureCount} fixtures (${homeCount}H/${awayCount}A)`
           : "No upcoming fixtures",
       };
     })
-    .filter((row) => row.averageDifficulty > 0)
+    .filter((row) => row.upcoming.length);
+  const fixtureRows = [...fixtureDifficultyRows]
+    .sort((a, b) => a.averageDifficulty - b.averageDifficulty || b.easyCount - a.easyCount)
+    .slice(0, 3);
+  const fixtureHardRows = [...fixtureDifficultyRows]
     .sort((a, b) => b.averageDifficulty - a.averageDifficulty || b.hardCount - a.hardCount)
     .slice(0, 3);
+  const dataRiskRows = fixtureHardRows;
   const bestCleanSheetRun = [...teamRows].sort(
     (a, b) => b.cleanSheetStreak - a.cleanSheetStreak || b.defenceScore - a.defenceScore
   )[0];
@@ -6305,6 +6288,7 @@ const fantasyHelpReport = useMemo(() => {
   const topAttackTeam = attackRows[0]?.team || emptyReport.topAttackTeam;
   const topDefenceTeam = predictionDefenceRows[0]?.team || emptyReport.topDefenceTeam;
   const formAttackTeam = formAttackRows[0]?.team || emptyReport.formAttackTeam;
+  const formDefenceAdviceTeam = bestCleanSheetRun?.team || formDefenceRows[0]?.team || "";
   const formDefenceTeam =
     bestCleanSheetRun?.cleanSheetStreak >= 3
       ? `${bestCleanSheetRun.team} (${bestCleanSheetRun.cleanSheetStreak} straight)`
@@ -6312,6 +6296,11 @@ const fantasyHelpReport = useMemo(() => {
   const avoidTeam = avoidRows[0]?.team || emptyReport.avoidTeam;
   const dataRiskTeam = dataRiskRows[0]?.team || emptyReport.dataRiskTeam;
   const fixtureTeam = fixtureRows[0]?.team || emptyReport.fixtureSwing;
+  const predictionHardTeam =
+    [...teamRows]
+      .filter((row) => row.predictedFixtures)
+      .sort((a, b) => b.predictedAgainst - a.predictedAgainst || a.predictedFor - b.predictedFor)[0]
+      ?.team || emptyReport.avoidTeam;
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
   const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
   const actualCleanSheets = teamRows.reduce((sum, row) => sum + row.actualCleanSheets, 0);
@@ -6348,27 +6337,63 @@ const fantasyHelpReport = useMemo(() => {
       color: "#F59E0B",
     },
     {
-      label: "Consider attack",
-      prediction: topAttackTeam,
-      data: formAttackTeam,
+      label: "Transfer in",
+      prediction: "Consider transferring in",
+      data: "Consider transferring in",
       predictionTeam: topAttackTeam,
       dataTeam: formAttackTeam,
+      predictionRole: "Attackers",
+      dataRole: "Attackers",
       color: "#22C55E",
     },
     {
-      label: "Consider defence/GK",
-      prediction: topDefenceTeam,
-      data: formDefenceTeam,
+      label: "Defence/GK",
+      prediction: "Consider transferring in",
+      data: "Consider transferring in",
       predictionTeam: topDefenceTeam,
-      dataTeam: formDefenceTeam,
+      dataTeam: formDefenceAdviceTeam || formDefenceTeam,
+      predictionRole: "Defenders/GKs",
+      dataRole: "Defenders/GKs",
       color: "#38BDF8",
     },
     {
-      label: "Risk watch",
-      prediction: avoidTeam,
-      data: dataRiskTeam,
-      predictionTeam: avoidTeam,
+      label: "Bench",
+      prediction: "Consider benching",
+      data: "Consider benching",
+      predictionTeam: predictionHardTeam,
       dataTeam: dataRiskTeam,
+      predictionRole: "Defenders",
+      dataRole: "Defenders",
+      color: "#EF4444",
+    },
+    {
+      label: "Transfer out",
+      prediction: "Consider transferring out",
+      data: "Consider transferring out",
+      predictionTeam: predictionHardTeam,
+      dataTeam: dataRiskTeam,
+      predictionRole: "Defenders",
+      dataRole: "Defenders",
+      color: "#EF4444",
+    },
+    {
+      label: "Fixture difficulty",
+      prediction: "Consider targeting",
+      data: "Consider targeting",
+      predictionTeam: topAttackTeam,
+      dataTeam: fixtureTeam,
+      predictionRole: "Attackers",
+      dataRole: "Assets",
+      color: "#A78BFA",
+    },
+    {
+      label: "Fixture difficulty",
+      prediction: "Consider avoiding",
+      data: "Consider avoiding",
+      predictionTeam: predictionHardTeam,
+      dataTeam: dataRiskTeam,
+      predictionRole: "Defenders",
+      dataRole: "Defenders",
       color: "#EF4444",
     },
   ];
@@ -6403,6 +6428,7 @@ const fantasyHelpReport = useMemo(() => {
     predictionDefenceRows,
     avoidRows,
     fixtureRows,
+    fixtureHardRows,
     formAttackRows,
     dataRiskRows,
     adviceRows,
@@ -8232,29 +8258,19 @@ useEffect(() => {
         </div>
       );
     };
-    const renderTeamRow = (row, type) => {
+    const renderFixtureDifficultyRow = (row) => {
       const badgeSrc = resolveTeamBadge(row.team);
-      const value =
-        type === "attack"
-          ? `${row.predictedFor.toFixed(1)} predicted GF by you`
-          : type === "defence"
-          ? `${row.predictedCleanSheets} predicted CS, ${row.cleanSheetStreak} actual CS run`
-          : type === "formDefence"
-          ? `${row.actualCleanSheets} actual CS, ${row.cleanSheetStreak} run`
-          : type === "avoid"
-          ? `${row.predictedAgainst.toFixed(1)} predicted GA by you`
-          : row.fixtureLabel;
+      const teamCode = getTeamCode(row.team, gameMode);
       return (
         <div
-          key={`${type}-${row.team}`}
+          key={row.team}
           style={{
             display: "grid",
-            gridTemplateColumns: "34px minmax(0, 1fr) auto",
+            gridTemplateColumns: "34px 44px minmax(0, 1fr)",
             gap: 10,
             alignItems: "center",
-            padding: "9px 10px",
+            padding: "8px 10px",
             borderTop: `1px solid ${theme.line}`,
-            fontSize: 13,
           }}
         >
           {badgeSrc ? (
@@ -8262,16 +8278,44 @@ useEffect(() => {
           ) : (
             <span />
           )}
-          <div style={{ minWidth: 0, color: theme.text, fontWeight: 850, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {row.team}
+          <div style={{ color: theme.text, fontWeight: 950, fontSize: 13 }}>
+            {teamCode}
           </div>
-          <div style={{ color: theme.muted, fontWeight: 800, whiteSpace: "nowrap" }}>
-            {value}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: 6,
+              minWidth: 0,
+            }}
+          >
+            {(row.upcoming || []).slice(0, 3).map((fixture, index) => {
+              const meta = getDifficultyMeta(Number(fixture.difficultyScore || 3));
+              return (
+                <div
+                  key={`${row.team}-${fixture.fixtureId || index}`}
+                  title={`${fixture.venue} v ${fixture.opponentCode || fixture.opponent}`}
+                  style={{
+                    background: meta.color,
+                    color: Number(fixture.difficultyScore || 3) <= 2 ? "#0b1220" : "#ffffff",
+                    borderRadius: 8,
+                    padding: "6px 4px",
+                    minWidth: 0,
+                    textAlign: "center",
+                    fontSize: 11,
+                    fontWeight: 950,
+                    lineHeight: 1.05,
+                  }}
+                >
+                  {fixture.venue} {fixture.opponentCode || getTeamCode(fixture.opponent, gameMode)}
+                </div>
+              );
+            })}
           </div>
         </div>
       );
     };
-    const renderRankPanel = (title, rows, type, color, emptyText = "Add predictions to generate this list.") => (
+    const renderFixtureDifficultyPanel = (title, rows, color, emptyText) => (
       <div
         style={{
           background: theme.panelHi,
@@ -8284,7 +8328,7 @@ useEffect(() => {
           {title}
         </div>
         {(rows || []).length ? (
-          rows.map((row) => renderTeamRow(row, type))
+          rows.map(renderFixtureDifficultyRow)
         ) : (
           <div style={{ borderTop: `1px solid ${theme.line}`, padding: 12, color: theme.muted, fontSize: 13 }}>
             {emptyText}
@@ -8295,13 +8339,70 @@ useEffect(() => {
     const renderAdviceComparisonRow = (item) => {
       const predictionBadge = item.predictionTeam ? getFantasyTeamBadge(item.predictionTeam) : "";
       const dataBadge = item.dataTeam ? getFantasyTeamBadge(item.dataTeam) : "";
-      const formatAdviceValue = (value) => {
-        const teamCode = getTeamCode(value, gameMode);
-        return teamCode && teamCode !== value ? teamCode : value;
+      const renderAdviceCell = (modeLabel, value, badgeSrc, team, role, color, borderColor) => {
+        const teamCode = team ? getTeamCode(team, gameMode) : "";
+        return (
+          <div
+            style={{
+              background: color,
+              border: `1px solid ${borderColor}`,
+              borderRadius: 10,
+              padding: "8px 9px",
+              minWidth: 0,
+              display: "grid",
+              gap: 6,
+            }}
+          >
+            <div style={{ fontSize: 10, color: theme.muted, fontWeight: 900 }}>{modeLabel}</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: badgeSrc ? "24px minmax(0, 1fr)" : "1fr",
+                gap: 8,
+                alignItems: "center",
+                minWidth: 0,
+              }}
+            >
+              {badgeSrc && <img src={badgeSrc} alt="" aria-hidden="true" style={{ width: 24, height: 24, objectFit: "contain" }} />}
+              <div style={{ minWidth: 0, display: "grid", gap: 4 }}>
+                {teamCode && (
+                  <div style={{ fontSize: 13, color: theme.text, fontWeight: 900, overflowWrap: "anywhere" }}>
+                    {value}
+                  </div>
+                )}
+                {teamCode ? (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ color: theme.text, fontWeight: 950, fontSize: 15 }}>{teamCode}</span>
+                    {role && (
+                      <span
+                        style={{
+                          background: "rgba(255,255,255,0.09)",
+                          border: `1px solid ${theme.line}`,
+                          borderRadius: 8,
+                          padding: "3px 6px",
+                          color: theme.muted,
+                          fontSize: 10,
+                          fontWeight: 950,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {role}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 15, color: theme.text, fontWeight: 950, overflowWrap: "anywhere" }}>
+                    {value}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
       };
       return (
         <div
-          key={item.label}
+          key={`${item.label}-${item.predictionTeam || item.prediction}-${item.dataTeam || item.data}`}
           style={{
             display: "grid",
             gridTemplateColumns: isMobile || compact ? "1fr" : "120px minmax(0, 1fr) minmax(0, 1fr)",
@@ -8314,46 +8415,8 @@ useEffect(() => {
           <div style={{ color: item.color || theme.muted, fontWeight: 950, fontSize: 13 }}>
             {item.label}
           </div>
-          <div
-            style={{
-              background: "rgba(245,158,11,0.08)",
-              border: `1px solid ${theme.warn}`,
-              borderRadius: 10,
-              padding: "8px 9px",
-              minWidth: 0,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
-            {predictionBadge && <img src={predictionBadge} alt="" aria-hidden="true" style={{ width: 24, height: 24, objectFit: "contain" }} />}
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 10, color: theme.muted, fontWeight: 900 }}>Based on your predictions</div>
-              <div style={{ fontSize: 15, color: theme.text, fontWeight: 950, overflowWrap: "anywhere" }}>
-                {formatAdviceValue(item.prediction)}
-              </div>
-            </div>
-          </div>
-          <div
-            style={{
-              background: "rgba(56,189,248,0.08)",
-              border: `1px solid ${theme.accent}`,
-              borderRadius: 10,
-              padding: "8px 9px",
-              minWidth: 0,
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
-            {dataBadge && <img src={dataBadge} alt="" aria-hidden="true" style={{ width: 24, height: 24, objectFit: "contain" }} />}
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 10, color: theme.muted, fontWeight: 900 }}>Based on data</div>
-              <div style={{ fontSize: 15, color: theme.text, fontWeight: 950, overflowWrap: "anywhere" }}>
-                {formatAdviceValue(item.data)}
-              </div>
-            </div>
-          </div>
+          {renderAdviceCell("Based on your predictions", item.prediction, predictionBadge, item.predictionTeam, item.predictionRole, "rgba(245,158,11,0.08)", theme.warn)}
+          {renderAdviceCell("Based on data", item.data, dataBadge, item.dataTeam, item.dataRole, "rgba(56,189,248,0.08)", theme.accent)}
         </div>
       );
     };
@@ -8423,13 +8486,29 @@ useEffect(() => {
             </div>
             {(report.adviceRows || []).map(renderAdviceComparisonRow)}
           </div>
-          {renderRankPanel(
-            "Fixture difficulty guide",
-            report.fixtureRows,
-            "fixture",
-            "#A78BFA",
-            "Fixture difficulty will appear once upcoming fixtures are available."
-          )}
+          <div style={{ color: "#A78BFA", fontSize: 15, fontWeight: 950 }}>
+            Fixture difficulty guide
+          </div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              gap: 10,
+            }}
+          >
+            {renderFixtureDifficultyPanel(
+              "Easy fixtures",
+              report.fixtureRows,
+              "#22C55E",
+              "Fixture difficulty will appear once upcoming fixtures are available."
+            )}
+            {renderFixtureDifficultyPanel(
+              "Hard fixtures",
+              report.fixtureHardRows,
+              "#EF4444",
+              "Fixture difficulty will appear once upcoming fixtures are available."
+            )}
+          </div>
         </div>
 
         <div
