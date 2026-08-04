@@ -8130,15 +8130,10 @@ useEffect(() => {
     ];
     const formItems = [
       { label: "Formation from form", value: report.formFormation, color: "#F59E0B" },
-      { label: "Actual form: defence", value: report.formDefenceTeam, color: "#A78BFA", teamValue: report.formDefenceTeam },
-      { label: "Actual clean-sheet trend", value: report.cleanSheetTrend, color: "#38BDF8", teamValue: report.cleanSheetTrend },
       { label: "Fixture difficulty", value: report.fixtureSwing, color: "#22C55E", teamValue: report.fixtureSwing },
     ];
     const predictionItems = [
       { label: "Formation from predictions", value: report.predictionFormation, color: "#F59E0B" },
-      { label: "Consider attackers", value: report.topAttackTeam, color: "#22C55E", teamValue: report.topAttackTeam },
-      { label: "Consider defenders/GKs", value: report.topDefenceTeam, color: "#38BDF8", teamValue: report.topDefenceTeam },
-      { label: "Risk watch", value: report.avoidTeam, color: "#EF4444", teamValue: report.avoidTeam },
       { label: "Captaincy candidates", value: report.captainTeam, color: "#F59E0B", teamValue: report.captainTeam },
       { label: "Differential angle", value: report.differentialTeam, color: "#22C55E", teamValue: report.differentialTeam },
     ];
@@ -8247,7 +8242,7 @@ useEffect(() => {
         </div>
       );
     };
-    const renderRankPanel = (title, rows, type, color) => (
+    const renderRankPanel = (title, rows, type, color, emptyText = "Add predictions to generate this list.") => (
       <div
         style={{
           background: theme.panelHi,
@@ -8263,7 +8258,7 @@ useEffect(() => {
           rows.map((row) => renderTeamRow(row, type))
         ) : (
           <div style={{ borderTop: `1px solid ${theme.line}`, padding: 12, color: theme.muted, fontSize: 13 }}>
-            Add predictions to generate this list.
+            {emptyText}
           </div>
         )}
       </div>
@@ -8418,8 +8413,20 @@ useEffect(() => {
             {formItems.map(renderFantasyImpactCard)}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-            {renderRankPanel("Actual clean-sheet form", report.formDefenceRows, "formDefence", "#38BDF8")}
-            {renderRankPanel("Fixture difficulty guide", report.fixtureRows, "fixture", "#A78BFA")}
+            {renderRankPanel(
+              "Actual clean-sheet form",
+              report.formDefenceRows,
+              "formDefence",
+              "#38BDF8",
+              "Clean-sheet form will appear once results are available."
+            )}
+            {renderRankPanel(
+              "Fixture difficulty guide",
+              report.fixtureRows,
+              "fixture",
+              "#A78BFA",
+              "Fixture difficulty will appear once upcoming fixtures are available."
+            )}
           </div>
           <div
             style={{
@@ -8474,19 +8481,16 @@ useEffect(() => {
 
         <div
           style={{
-            background: "rgba(56,189,248,0.1)",
-            border: `1px solid ${theme.accent}`,
+            background: "rgba(255,255,255,0.05)",
+            border: `1px solid ${theme.line}`,
             borderRadius: 12,
             padding: 12,
           }}
         >
           <div style={{ fontSize: 11, color: theme.muted, fontWeight: 800 }}>
-            Fantasy Advice
+            Data note
           </div>
-          <div style={{ marginTop: 4, fontSize: 14, lineHeight: 1.35, fontWeight: 700 }}>
-            {report.mainAdvice}
-          </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: theme.muted, lineHeight: 1.35 }}>
+          <div style={{ marginTop: 4, fontSize: 11, color: theme.muted, lineHeight: 1.35 }}>
             Guidance only. This uses your predictions, app results and fixture home/away context. It does not use official FPL prices, injury news or predicted line-ups.
           </div>
         </div>
