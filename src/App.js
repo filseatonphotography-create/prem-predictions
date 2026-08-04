@@ -5966,7 +5966,7 @@ const fantasyHelpReport = useMemo(() => {
     gameweek: selectedGameweek,
     predictedGoals: 0,
     predictedCleanSheets: 0,
-    fixtureWindow: "Next 3 gameweeks",
+    predictedDraws: 0,
     topAttackTeam: "Add more predictions",
     topDefenceTeam: "Add more predictions",
     formDefenceTeam: "Not enough results",
@@ -5975,9 +5975,15 @@ const fantasyHelpReport = useMemo(() => {
     differentialTeam: "Not enough data",
     fixtureSwing: "Not enough fixtures",
     cleanSheetTrend: "No clean-sheet streak yet",
+    formFormation: "Not enough form data",
+    predictionFormation: "Add predictions",
+    formAdvice: "Results and fixture difficulty will appear once enough matches have data.",
+    predictionAdvice: "Enter scores for the selected gameweek to unlock prediction-based fantasy guidance.",
     mainAdvice: "Enter scores for the selected gameweek to unlock fantasy recommendations.",
     attackRows: [],
     defenceRows: [],
+    formDefenceRows: [],
+    predictionDefenceRows: [],
     avoidRows: [],
     fixtureRows: [],
     completedResults: 0,
@@ -5986,8 +5992,8 @@ const fantasyHelpReport = useMemo(() => {
     signalBreakdown: [
       { label: "Your attack predictions", value: 0, max: 30 },
       { label: "Your clean-sheet predictions", value: 0, max: 25 },
-      { label: "Actual form", value: 0, max: 20 },
-      { label: "Next 3 fixtures", value: 0, max: 25 },
+      { label: "Draws predicted", value: 0, max: 15 },
+      { label: "Actual form", value: 0, max: 30 },
     ],
   };
 
@@ -6079,6 +6085,7 @@ const fantasyHelpReport = useMemo(() => {
 
   const selectedFixtures = activeFixtures.filter((fixture) => fixture.gameweek === selectedGameweek);
   let predictedGoals = 0;
+  let predictedDraws = 0;
   let submittedPredictions = 0;
   selectedFixtures.forEach((fixture) => {
     const pred = getPred(fixture.id);
@@ -6092,6 +6099,7 @@ const fantasyHelpReport = useMemo(() => {
     if (!home || !away) return;
 
     predictedGoals += homeGoals + awayGoals;
+    if (homeGoals === awayGoals) predictedDraws += 1;
     home.predictedFixtures += 1;
     away.predictedFixtures += 1;
     home.predictedFor += homeGoals;
@@ -6176,6 +6184,19 @@ const fantasyHelpReport = useMemo(() => {
     .filter((row) => row.predictedFixtures || row.cleanSheetStreak)
     .sort((a, b) => b.defenceScore - a.defenceScore)
     .slice(0, 3);
+  const predictionDefenceRows = [...teamRows]
+    .filter((row) => row.predictedFixtures)
+    .sort((a, b) => b.predictedCleanSheets - a.predictedCleanSheets || b.defenceScore - a.defenceScore)
+    .slice(0, 3);
+  const formDefenceRows = [...teamRows]
+    .filter((row) => row.actualPlayed || row.cleanSheetStreak)
+    .sort(
+      (a, b) =>
+        b.cleanSheetStreak - a.cleanSheetStreak ||
+        b.actualCleanSheets - a.actualCleanSheets ||
+        b.defenceScore - a.defenceScore
+    )
+    .slice(0, 3);
   const avoidRows = [...teamRows]
     .filter((row) => row.predictedFixtures)
     .sort((a, b) => b.avoidScore - a.avoidScore)
@@ -6189,35 +6210,43 @@ const fantasyHelpReport = useMemo(() => {
   )[0];
 
   const topAttackTeam = attackRows[0]?.team || emptyReport.topAttackTeam;
-  const topDefenceTeam = defenceRows[0]?.team || emptyReport.topDefenceTeam;
+  const topDefenceTeam = predictionDefenceRows[0]?.team || emptyReport.topDefenceTeam;
   const avoidTeam = avoidRows[0]?.team || emptyReport.avoidTeam;
   const fixtureTeam = fixtureRows[0]?.team || emptyReport.fixtureSwing;
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
+  const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
+  const actualCleanSheets = teamRows.reduce((sum, row) => sum + row.actualCleanSheets, 0);
   const topAttackPredictedGoals = attackRows[0]?.predictedFor || 0;
-  const topPredictedCleanSheets = defenceRows[0]?.predictedCleanSheets || 0;
+  const topPredictedCleanSheets = predictionDefenceRows[0]?.predictedCleanSheets || 0;
   const topCleanSheetStreak = bestCleanSheetRun?.cleanSheetStreak || 0;
-  const topFixtureScore = fixtureRows[0]?.fixtureScore || 0;
+  const goalsPerPrediction = submittedPredictions ? predictedGoals / submittedPredictions : 0;
+  const cleanSheetsPerPrediction = submittedPredictions
+    ? teamRows.reduce((sum, row) => sum + row.predictedCleanSheets, 0) / submittedPredictions
+    : 0;
+  const goalsPerResult = completedResults ? actualGoals / completedResults : 0;
+  const cleanSheetsPerResult = completedResults ? actualCleanSheets / completedResults : 0;
   const attackSignal = submittedPredictions
     ? Math.min(30, Math.round(topAttackPredictedGoals * 8 + (attackRows[0]?.predictedWins || 0) * 4))
     : 0;
   const cleanSheetSignal = submittedPredictions
-    ? Math.min(25, Math.round(topPredictedCleanSheets * 14 + Math.min(8, topCleanSheetStreak * 3)))
+    ? Math.min(25, Math.round(topPredictedCleanSheets * 18))
+    : 0;
+  const drawSignal = submittedPredictions
+    ? Math.min(15, Math.round((predictedDraws / submittedPredictions) * 15))
     : 0;
   const actualFormSignal = completedResults
     ? Math.min(
-        20,
+        30,
         Math.round(
           Math.max(0, topCleanSheetStreak) * 4 +
-            Math.max(0, (attackRows[0]?.actualFor || 0) / Math.max(1, attackRows[0]?.actualPlayed || 1)) * 4
+            Math.max(0, goalsPerResult) * 5 +
+            Math.max(0, cleanSheetsPerResult) * 5
         )
       )
     : 0;
-  const fixtureSignal = fixtureRows[0]
-    ? Math.min(25, Math.max(0, Math.round(topFixtureScore * 2.2)))
-    : 0;
   const signalScore = Math.min(
     100,
-    attackSignal + cleanSheetSignal + actualFormSignal + fixtureSignal
+    attackSignal + cleanSheetSignal + drawSignal + actualFormSignal
   );
   const signalLabel =
     !submittedPredictions
@@ -6232,9 +6261,36 @@ const fantasyHelpReport = useMemo(() => {
   const signalBreakdown = [
     { label: "Your attack predictions", value: attackSignal, max: 30 },
     { label: "Your clean-sheet predictions", value: cleanSheetSignal, max: 25 },
-    { label: "Actual form", value: actualFormSignal, max: 20 },
-    { label: "Next 3 fixtures", value: fixtureSignal, max: 25 },
+    { label: "Draws predicted", value: drawSignal, max: 15 },
+    { label: "Actual form", value: actualFormSignal, max: 30 },
   ];
+
+  const predictionFormation =
+    !submittedPredictions
+      ? "Add predictions"
+      : cleanSheetsPerPrediction >= 0.55 && goalsPerPrediction < 2.6
+      ? "Consider 4-4-2 or 5-3-2"
+      : goalsPerPrediction >= 3.2
+      ? "Consider 3-4-3 or 3-5-2"
+      : predictedDraws >= Math.ceil(submittedPredictions / 3)
+      ? "Consider a balanced 3-5-2"
+      : "Consider a balanced 3-4-3";
+  const formFormation =
+    !completedResults
+      ? "Not enough form data"
+      : cleanSheetsPerResult >= 0.55 && goalsPerResult < 2.6
+      ? "Consider a defensive 4-4-2"
+      : goalsPerResult >= 3
+      ? "Consider an attacking 3-4-3"
+      : "Consider a balanced 3-5-2";
+  const formAdvice =
+    !completedResults
+      ? "There is not enough completed result data yet, so fixture difficulty is the main form-based guide."
+      : `${formFormation}: recent results are averaging ${goalsPerResult.toFixed(1)} goals per match with ${cleanSheetsPerResult.toFixed(1)} clean sheets per match.`;
+  const predictionAdvice =
+    !submittedPredictions
+      ? "Enter scores for the selected gameweek to unlock prediction-based fantasy guidance."
+      : `${predictionFormation}: your ${submittedPredictions} predictions include ${predictedGoals} goals, ${teamRows.reduce((sum, row) => sum + row.predictedCleanSheets, 0)} clean-sheet calls and ${predictedDraws} draws.`;
 
   let mainAdvice = "Your predictions point to a balanced fantasy week. Treat this as a shortlist, then check real FPL prices, injuries and line-ups separately.";
   if (!submittedPredictions) {
@@ -6252,8 +6308,8 @@ const fantasyHelpReport = useMemo(() => {
     signalLabel,
     gameweek: selectedGameweek,
     predictedGoals,
+    predictedDraws,
     predictedCleanSheets: teamRows.reduce((sum, row) => sum + row.predictedCleanSheets, 0),
-    fixtureWindow: `GW ${windowGameweeks[0] || selectedGameweek}-${windowGameweeks[windowGameweeks.length - 1] || selectedGameweek}`,
     topAttackTeam,
     topDefenceTeam,
     formDefenceTeam:
@@ -6268,9 +6324,15 @@ const fantasyHelpReport = useMemo(() => {
       bestCleanSheetRun?.cleanSheetStreak > 0
         ? `${bestCleanSheetRun.team}: ${bestCleanSheetRun.cleanSheetStreak} clean sheets in a row`
         : "No clean-sheet streak yet",
+    formFormation,
+    predictionFormation,
+    formAdvice,
+    predictionAdvice,
     mainAdvice,
     attackRows,
     defenceRows,
+    formDefenceRows,
+    predictionDefenceRows,
     avoidRows,
     fixtureRows,
     completedResults,
@@ -8044,7 +8106,7 @@ useEffect(() => {
     const statItems = [
       { icon: "⚽", label: "Your predicted goals", value: report.predictedGoals },
       { icon: "🧤", label: "Your predicted clean sheets", value: report.predictedCleanSheets },
-      { icon: "📅", label: "Fixture window", value: report.fixtureWindow },
+      { icon: "🤝", label: "Draws predicted", value: report.predictedDraws },
       {
         icon: "🧠",
         label: "Predictions entered",
@@ -8053,17 +8115,19 @@ useEffect(() => {
           : `${report.submittedPredictions} entered`,
       },
     ];
-    const detailItems = [
-      { label: "Your prediction: attackers", value: report.topAttackTeam, color: "#22C55E", teamValue: report.topAttackTeam },
-      { label: "Your prediction: defenders/GKs", value: report.topDefenceTeam, color: "#38BDF8", teamValue: report.topDefenceTeam },
+    const formItems = [
+      { label: "Formation from form", value: report.formFormation, color: "#F59E0B" },
       { label: "Actual form: defence", value: report.formDefenceTeam, color: "#A78BFA", teamValue: report.formDefenceTeam },
-      { label: "Risk watch", value: report.avoidTeam, color: "#EF4444", teamValue: report.avoidTeam },
+      { label: "Actual clean-sheet trend", value: report.cleanSheetTrend, color: "#38BDF8", teamValue: report.cleanSheetTrend },
+      { label: "Fixture difficulty", value: report.fixtureSwing, color: "#22C55E", teamValue: report.fixtureSwing },
     ];
-    const strategyItems = [
+    const predictionItems = [
+      { label: "Formation from predictions", value: report.predictionFormation, color: "#F59E0B" },
+      { label: "Consider attackers", value: report.topAttackTeam, color: "#22C55E", teamValue: report.topAttackTeam },
+      { label: "Consider defenders/GKs", value: report.topDefenceTeam, color: "#38BDF8", teamValue: report.topDefenceTeam },
+      { label: "Risk watch", value: report.avoidTeam, color: "#EF4444", teamValue: report.avoidTeam },
       { label: "Captaincy candidates", value: report.captainTeam, color: "#F59E0B", teamValue: report.captainTeam },
       { label: "Differential angle", value: report.differentialTeam, color: "#22C55E", teamValue: report.differentialTeam },
-      { label: "Fixture view", value: report.fixtureSwing, color: "#38BDF8", teamValue: report.fixtureSwing },
-      { label: "Actual clean-sheet trend", value: report.cleanSheetTrend, color: "#A78BFA", teamValue: report.cleanSheetTrend },
     ];
     const getFantasyTeamBadge = (value = "") => {
       const text = String(value || "");
@@ -8138,6 +8202,8 @@ useEffect(() => {
           ? `${row.predictedFor.toFixed(1)} predicted GF by you`
           : type === "defence"
           ? `${row.predictedCleanSheets} predicted CS, ${row.cleanSheetStreak} actual CS run`
+          : type === "formDefence"
+          ? `${row.actualCleanSheets} actual CS, ${row.cleanSheetStreak} run`
           : type === "avoid"
           ? `${row.predictedAgainst.toFixed(1)} predicted GA by you`
           : row.fixtureLabel;
@@ -8288,7 +8354,7 @@ useEffect(() => {
             }}
           >
             <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
-              Prediction and fixture signals
+              Signal breakdown
             </div>
             <div style={{ display: "grid", gap: 8 }}>
               {(report.signalBreakdown || []).map(renderSignalBreakdown)}
@@ -8322,8 +8388,39 @@ useEffect(() => {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-          {detailItems.map(renderFantasyImpactCard)}
+        <div
+          style={{
+            background: "linear-gradient(180deg, rgba(56,189,248,0.08), rgba(11,18,32,0.94))",
+            border: `2px solid ${theme.accent}`,
+            borderRadius: 12,
+            padding: 14,
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <div style={{ fontSize: 16, color: theme.accent, fontWeight: 900, textAlign: "center" }}>
+            Based on form, results and fixture difficulty
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+            {formItems.map(renderFantasyImpactCard)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+            {renderRankPanel("Actual clean-sheet form", report.formDefenceRows, "formDefence", "#38BDF8")}
+            {renderRankPanel("Fixture difficulty guide", report.fixtureRows, "fixture", "#A78BFA")}
+          </div>
+          <div
+            style={{
+              background: "rgba(56,189,248,0.1)",
+              border: `1px solid ${theme.accent}`,
+              borderRadius: 12,
+              padding: 12,
+              fontSize: 14,
+              lineHeight: 1.35,
+              fontWeight: 700,
+            }}
+          >
+            {report.formAdvice}
+          </div>
         </div>
 
         <div
@@ -8337,18 +8434,29 @@ useEffect(() => {
           }}
         >
           <div style={{ fontSize: 16, color: theme.warn, fontWeight: 900, textAlign: "center" }}>
-            Fantasy guidance
+            Based on your predictions
           </div>
           <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-            {strategyItems.map(renderFantasyImpactCard)}
+            {predictionItems.map(renderFantasyImpactCard)}
           </div>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-          {renderRankPanel("Consider attackers", report.attackRows, "attack", "#22C55E")}
-          {renderRankPanel("Consider defenders/GKs", report.defenceRows, "defence", "#38BDF8")}
-          {renderRankPanel("Risk/avoid watch", report.avoidRows, "avoid", "#EF4444")}
-          {renderRankPanel("Fixture difficulty: next 3", report.fixtureRows, "fixture", "#A78BFA")}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+            {renderRankPanel("Consider attackers", report.attackRows, "attack", "#22C55E")}
+            {renderRankPanel("Consider defenders/GKs", report.predictionDefenceRows, "defence", "#38BDF8")}
+            {renderRankPanel("Risk/avoid watch", report.avoidRows, "avoid", "#EF4444")}
+          </div>
+          <div
+            style={{
+              background: "rgba(245,158,11,0.1)",
+              border: `1px solid ${theme.warn}`,
+              borderRadius: 12,
+              padding: 12,
+              fontSize: 14,
+              lineHeight: 1.35,
+              fontWeight: 700,
+            }}
+          >
+            {report.predictionAdvice}
+          </div>
         </div>
 
         <div
