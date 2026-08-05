@@ -1747,6 +1747,67 @@ const PROMOTED_TEAM_PRIOR_FORM_POINTS = {
   playoffWinner: 4.7,
 };
 
+const PREMIER_LEAGUE_MODEL_CONFIG = {
+  version: "premier-fixture-model-v2.0.0",
+  fallbackTeamRating: 82,
+  fallbackPosition: 10,
+  fallbackFormPointsPerMatch: 1.25,
+  fallbackGoalDifferencePerGame: 0,
+  neutralProbabilities: { home: 0.38, draw: 0.24, away: 0.38 },
+  currentSeasonBlendMatches: 10,
+  recentFormWeightsNewestFirst: [5, 4, 3, 2, 1],
+  recentGoalDifferenceCap: 4,
+  ratingWeight: 0.135,
+  positionWeight: 0.18,
+  formWeight: 0.42,
+  goalDifferenceWeight: 0.36,
+  streakWeight: 0.06,
+  maxStreakEdge: 0.18,
+  homeAdvantage: 0.27,
+  resultEdgeScale: 1.8,
+  maxResultEdge: 4.1,
+  drawBase: 0.255,
+  drawEdgeWeight: 0.024,
+  drawEdgeMaxReduction: 0.105,
+  minDrawProbability: 0.15,
+  maxDrawProbability: 0.285,
+  oddsOverround: 0.94,
+  leagueGoalsPerTeam: 1.38,
+  expectedGoalsMin: 0.15,
+  expectedGoalsMax: 4.5,
+  scoreMatrixMaxGoals: 7,
+  scorelineProbabilityBlend: 0.25,
+  attackExpectedGoalsWeight: 0.65,
+  attackScoreTwoPlusWeight: 1.2,
+  defenceCleanSheetWeight: 2.2,
+  defenceOpponentGoalsWeight: 0.75,
+  nextThreeFixtureWeights: [0.5, 0.3, 0.2],
+};
+
+const OVERALL_DIFFICULTY_BANDS = [
+  { minExpectedPoints: 2.15, score: 1, label: "Easy", color: "#22c55e" },
+  { minExpectedPoints: 1.7, score: 2, label: "Favourable", color: "#84cc16" },
+  { minExpectedPoints: 1.25, score: 3, label: "Balanced", color: "#eab308" },
+  { minExpectedPoints: 0.9, score: 4, label: "Hard", color: "#f97316" },
+  { minExpectedPoints: -Infinity, score: 5, label: "Very hard", color: "#ef4444" },
+];
+
+const ATTACK_DIFFICULTY_BANDS = [
+  { minRating: 2.05, score: 1, label: "Excellent", color: "#22c55e" },
+  { minRating: 1.55, score: 2, label: "Good", color: "#84cc16" },
+  { minRating: 1.15, score: 3, label: "Mixed", color: "#eab308" },
+  { minRating: 0.8, score: 4, label: "Difficult", color: "#f97316" },
+  { minRating: -Infinity, score: 5, label: "Very difficult", color: "#ef4444" },
+];
+
+const DEFENCE_DIFFICULTY_BANDS = [
+  { minRating: 1.65, score: 1, label: "Excellent clean-sheet opportunity", color: "#22c55e" },
+  { minRating: 1.2, score: 2, label: "Good", color: "#84cc16" },
+  { minRating: 0.82, score: 3, label: "Mixed", color: "#eab308" },
+  { minRating: 0.5, score: 4, label: "Risky", color: "#f97316" },
+  { minRating: -Infinity, score: 5, label: "Very risky", color: "#ef4444" },
+];
+
 const PREMIER_PREVIOUS_SEASON_PROFILES = {
   Arsenal: { position: 1, played: 38, points: 85, goalDifference: 44 },
   "Man City": { position: 2, played: 38, points: 78, goalDifference: 42 },
@@ -1859,13 +1920,7 @@ function buildWorldCupFixtureModel(fixture) {
   const awayOdds = getWorldCupOutrightOdds(fixture?.awayTeam);
 
   if (!homeOdds || !awayOdds) {
-    return {
-      homeProb: 0.36,
-      drawProb: 0.28,
-      awayProb: 0.36,
-      homeDifficultyScore: 3,
-      awayDifficultyScore: 3,
-    };
+    return buildFallbackFixtureModel("missing_world_cup_outright_odds");
   }
 
   const homeKey = normalizeTeamName(fixture.homeTeam);
@@ -1887,21 +1942,20 @@ function buildWorldCupFixtureModel(fixture) {
 
   const homeExpectedPoints = homeProb * 3 + drawProb;
   const awayExpectedPoints = awayProb * 3 + drawProb;
-
-  const toDifficultyScore = (expectedPoints) => {
-    if (expectedPoints >= 2.15) return 1;
-    if (expectedPoints >= 1.7) return 2;
-    if (expectedPoints >= 1.25) return 3;
-    if (expectedPoints >= 0.9) return 4;
-    return 5;
-  };
+  const homeDifficultyScore = getOverallDifficultyScore(homeExpectedPoints);
+  const awayDifficultyScore = getOverallDifficultyScore(awayExpectedPoints);
 
   return {
     homeProb,
     drawProb,
     awayProb,
-    homeDifficultyScore: toDifficultyScore(homeExpectedPoints),
-    awayDifficultyScore: toDifficultyScore(awayExpectedPoints),
+    homeExpectedPoints,
+    awayExpectedPoints,
+    homeDifficultyScore,
+    awayDifficultyScore,
+    homeDifficultyMeta: getDifficultyMeta(homeDifficultyScore),
+    awayDifficultyMeta: getDifficultyMeta(awayDifficultyScore),
+    modelVersion: "world-cup-outright-model-v1",
   };
 }
 
@@ -1966,10 +2020,66 @@ function buildPreviousSeasonPrior(name) {
   };
 }
 
+function getOutcomePoints(outcome) {
+  if (outcome === "W") return 3;
+  if (outcome === "D") return 1;
+  return 0;
+}
+
+function getConsecutiveCount(items, predicate) {
+  let count = 0;
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (!predicate(items[index])) break;
+    count += 1;
+  }
+  return count;
+}
+
+function getWeightedRecentForm(matches) {
+  const weights = PREMIER_LEAGUE_MODEL_CONFIG.recentFormWeightsNewestFirst;
+  const newestFirst = [...(matches || [])].slice(-weights.length).reverse();
+  const totalWeight = newestFirst.reduce(
+    (sum, _match, index) => sum + (weights[index] || 0),
+    0
+  );
+  if (!newestFirst.length || totalWeight <= 0) return 0;
+
+  // Points per match, weighted 5-4-3-2-1 from newest to oldest.
+  const weightedPoints = newestFirst.reduce(
+    (sum, match, index) => sum + getOutcomePoints(match.outcome) * (weights[index] || 0),
+    0
+  );
+  return weightedPoints / totalWeight;
+}
+
+function getRecentCappedAverage(matches, selector, cap) {
+  const recent = [...(matches || [])].slice(-5);
+  if (!recent.length) return 0;
+  const total = recent.reduce((sum, match) => {
+    const value = clampNumber(selector(match), -cap, cap);
+    return sum + value;
+  }, 0);
+  return total / recent.length;
+}
+
+function getTeamStreaks(matches) {
+  const allMatches = matches || [];
+  return {
+    consecutiveWins: getConsecutiveCount(allMatches, (match) => match.outcome === "W"),
+    consecutiveUnbeaten: getConsecutiveCount(allMatches, (match) => match.outcome !== "L"),
+    consecutiveDefeats: getConsecutiveCount(allMatches, (match) => match.outcome === "L"),
+    consecutiveCleanSheets: getConsecutiveCount(allMatches, (match) => Number(match.goalsAgainst) === 0),
+    consecutiveMatchesScoring: getConsecutiveCount(allMatches, (match) => Number(match.goalsFor) > 0),
+    consecutiveScoreless: getConsecutiveCount(allMatches, (match) => Number(match.goalsFor) === 0),
+  };
+}
+
 /**
  * Generate realistic-ish decimal odds for a fixture
  * using team ratings, home advantage and a draw baseline.
  * This feeds both the Win Probabilities view and the coins game.
+ * @deprecated The active Premier League pipeline uses buildFixtureModel() and
+ * buildGeneratedModelOdds(); this legacy helper has no current references.
  */
 function generateModelOddsForFixture(fixture) {
   if (!fixture) {
@@ -2323,12 +2433,72 @@ export function isFixtureLive(matchState) {
   );
 }
 
+function clampNumber(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.max(min, Math.min(max, number));
+}
+
+function normalizeProbabilitySet(values, fallback = PREMIER_LEAGUE_MODEL_CONFIG.neutralProbabilities) {
+  const home = clampNumber(values?.home ?? values?.homeProb, 0, 1);
+  const draw = clampNumber(values?.draw ?? values?.drawProb, 0, 1);
+  const away = clampNumber(values?.away ?? values?.awayProb, 0, 1);
+  const total = home + draw + away;
+
+  if (!Number.isFinite(total) || total <= 0) {
+    return {
+      homeProb: fallback.home,
+      drawProb: fallback.draw,
+      awayProb: fallback.away,
+    };
+  }
+
+  return {
+    homeProb: home / total,
+    drawProb: draw / total,
+    awayProb: away / total,
+  };
+}
+
+function getBandMeta(score, bands) {
+  return bands.find((band) => Number(score) <= band.score) || bands[bands.length - 1];
+}
+
+function scoreFromDescendingBands(value, bands, key) {
+  const numericValue = Number(value);
+  const match = bands.find((band) => numericValue >= band[key]);
+  return match ? match.score : bands[bands.length - 1].score;
+}
+
 function getDifficultyMeta(score) {
-  if (score <= 1) return { label: "Easy", color: "#22c55e" };
-  if (score <= 2) return { label: "Favourable", color: "#84cc16" };
-  if (score <= 3) return { label: "Balanced", color: "#eab308" };
-  if (score <= 4) return { label: "Hard", color: "#f97316" };
-  return { label: "Very hard", color: "#ef4444" };
+  const band = getBandMeta(score, OVERALL_DIFFICULTY_BANDS);
+  return { label: band.label, color: band.color };
+}
+
+function getAttackDifficultyMeta(score) {
+  const band = getBandMeta(score, ATTACK_DIFFICULTY_BANDS);
+  return { label: band.label, color: band.color };
+}
+
+function getDefenceDifficultyMeta(score) {
+  const band = getBandMeta(score, DEFENCE_DIFFICULTY_BANDS);
+  return { label: band.label, color: band.color };
+}
+
+function getOverallDifficultyScore(expectedPoints) {
+  return scoreFromDescendingBands(
+    expectedPoints,
+    OVERALL_DIFFICULTY_BANDS,
+    "minExpectedPoints"
+  );
+}
+
+function getAttackDifficultyScore(rating) {
+  return scoreFromDescendingBands(rating, ATTACK_DIFFICULTY_BANDS, "minRating");
+}
+
+function getDefenceDifficultyScore(rating) {
+  return scoreFromDescendingBands(rating, DEFENCE_DIFFICULTY_BANDS, "minRating");
 }
 
 function buildLeaguePerformanceContext(results) {
@@ -2343,7 +2513,13 @@ function buildLeaguePerformanceContext(results) {
       goalsAgainst: 0,
       goalDifference: 0,
       lastFive: [],
+      recentMatches: [],
       formPoints: 0,
+      weightedFormPointsPerMatch: 0,
+      recentGoalsForPerMatch: 0,
+      recentGoalsAgainstPerMatch: 0,
+      recentCappedGoalDifferencePerGame: 0,
+      streaks: getTeamStreaks([]),
       position: 10,
       priorPosition: prior.position,
       priorFormPoints: prior.formPoints,
@@ -2396,14 +2572,39 @@ function buildLeaguePerformanceContext(results) {
     away.lastFive.push(awayOutcome);
     if (home.lastFive.length > 5) home.lastFive.shift();
     if (away.lastFive.length > 5) away.lastFive.shift();
+    home.recentMatches.push({
+      outcome: homeOutcome,
+      goalsFor: homeGoals,
+      goalsAgainst: awayGoals,
+      goalDifference: homeGoals - awayGoals,
+    });
+    away.recentMatches.push({
+      outcome: awayOutcome,
+      goalsFor: awayGoals,
+      goalsAgainst: homeGoals,
+      goalDifference: awayGoals - homeGoals,
+    });
   });
 
   Object.values(byTeam).forEach((team) => {
-    team.formPoints = team.lastFive.reduce((sum, outcome) => {
-      if (outcome === "W") return sum + 3;
-      if (outcome === "D") return sum + 1;
-      return sum;
-    }, 0);
+    team.formPoints = team.lastFive.reduce((sum, outcome) => sum + getOutcomePoints(outcome), 0);
+    team.weightedFormPointsPerMatch = getWeightedRecentForm(team.recentMatches);
+    team.recentGoalsForPerMatch = getRecentCappedAverage(
+      team.recentMatches,
+      (match) => Number(match.goalsFor),
+      PREMIER_LEAGUE_MODEL_CONFIG.recentGoalDifferenceCap
+    );
+    team.recentGoalsAgainstPerMatch = getRecentCappedAverage(
+      team.recentMatches,
+      (match) => Number(match.goalsAgainst),
+      PREMIER_LEAGUE_MODEL_CONFIG.recentGoalDifferenceCap
+    );
+    team.recentCappedGoalDifferencePerGame = getRecentCappedAverage(
+      team.recentMatches,
+      (match) => Number(match.goalDifference),
+      PREMIER_LEAGUE_MODEL_CONFIG.recentGoalDifferenceCap
+    );
+    team.streaks = getTeamStreaks(team.recentMatches);
   });
 
   const ordered = Object.values(byTeam).sort((a, b) => {
@@ -2497,15 +2698,329 @@ export function buildPremierLeagueTableRows(fixtures = FIXTURES, results = {}) {
   return rows;
 }
 
-function buildFixtureModel(fixture, context = {}) {
+function getTeamRatingInfo(name) {
+  const raw = (name || "").trim();
+  if (typeof TEAM_RATINGS[raw] === "number") return { rating: TEAM_RATINGS[raw], fallback: null };
+
+  const normalized = normalizeTeamName(raw);
+  const match = Object.entries(TEAM_RATINGS).find(
+    ([teamName]) => normalizeTeamName(teamName) === normalized
+  );
+  if (match && typeof match[1] === "number") return { rating: match[1], fallback: null };
+
+  return {
+    rating: PREMIER_LEAGUE_MODEL_CONFIG.fallbackTeamRating,
+    fallback: "missing_team_rating",
+  };
+}
+
+function getPreviousSeasonPriorInfo(name) {
+  const profile = getPreviousSeasonProfile(name);
+  return {
+    prior: buildPreviousSeasonPrior(name),
+    fallback: profile ? null : "missing_previous_profile",
+  };
+}
+
+function buildTeamModelProfile(teamName, performanceByTeam, side) {
+  const key = normalizeTeamName(teamName);
+  const perf = performanceByTeam[key] || null;
+  const ratingInfo = getTeamRatingInfo(teamName);
+  const priorInfo = getPreviousSeasonPriorInfo(teamName);
+  const prior = priorInfo.prior;
+  const played = Number(perf?.played) || 0;
+  const seasonWeight = clampNumber(
+    played / PREMIER_LEAGUE_MODEL_CONFIG.currentSeasonBlendMatches,
+    0,
+    1
+  );
+  const fallbackPrefix = side === "home" ? "missing_home" : "missing_away";
+  const fallbacksUsed = [];
+  if (!perf) fallbacksUsed.push(`${fallbackPrefix}_performance`);
+  if (ratingInfo.fallback) fallbacksUsed.push(`${fallbackPrefix}_team_rating`);
+  if (priorInfo.fallback) fallbacksUsed.push(`${fallbackPrefix}_previous_profile`);
+
+  const currentPosition = Number(perf?.position) || PREMIER_LEAGUE_MODEL_CONFIG.fallbackPosition;
+  const currentFormPpm = Number.isFinite(Number(perf?.weightedFormPointsPerMatch))
+    ? Number(perf.weightedFormPointsPerMatch)
+    : 0;
+  const currentGdPerGame = played > 0
+    ? Number(perf?.goalDifference || 0) / played
+    : PREMIER_LEAGUE_MODEL_CONFIG.fallbackGoalDifferencePerGame;
+  const recentCappedGdPerGame = Number.isFinite(Number(perf?.recentCappedGoalDifferencePerGame))
+    ? Number(perf.recentCappedGoalDifferencePerGame)
+    : currentGdPerGame;
+  // Capped recent GD tempers one-off blowouts without discarding season evidence.
+  const robustCurrentGdPerGame = played > 0
+    ? currentGdPerGame * 0.65 + recentCappedGdPerGame * 0.35
+    : PREMIER_LEAGUE_MODEL_CONFIG.fallbackGoalDifferencePerGame;
+  const priorFormPpm = clampNumber(Number(prior.formPoints) / 5, 0, 3);
+  const blendedPosition = prior.position * (1 - seasonWeight) + currentPosition * seasonWeight;
+  const blendedFormPpm = priorFormPpm * (1 - seasonWeight) + currentFormPpm * seasonWeight;
+  const blendedGdPerGame =
+    prior.goalDifferencePerGame * (1 - seasonWeight) + robustCurrentGdPerGame * seasonWeight;
+  const goalsForPerGame = played > 0
+    ? Number(perf?.goalsFor || 0) / played
+    : PREMIER_LEAGUE_MODEL_CONFIG.leagueGoalsPerTeam + prior.goalDifferencePerGame / 2;
+  const goalsAgainstPerGame = played > 0
+    ? Number(perf?.goalsAgainst || 0) / played
+    : PREMIER_LEAGUE_MODEL_CONFIG.leagueGoalsPerTeam - prior.goalDifferencePerGame / 2;
+  const recentGoalsForPerMatch = Number.isFinite(Number(perf?.recentGoalsForPerMatch))
+    ? Number(perf.recentGoalsForPerMatch)
+    : goalsForPerGame;
+  const recentGoalsAgainstPerMatch = Number.isFinite(Number(perf?.recentGoalsAgainstPerMatch))
+    ? Number(perf.recentGoalsAgainstPerMatch)
+    : goalsAgainstPerGame;
+
+  return {
+    teamName,
+    key,
+    rating: ratingInfo.rating,
+    played,
+    seasonWeight,
+    position: blendedPosition,
+    formPointsPerMatch: blendedFormPpm,
+    goalDifferencePerGame: blendedGdPerGame,
+    goalsForPerGame: goalsForPerGame * 0.7 + recentGoalsForPerMatch * 0.3,
+    goalsAgainstPerGame: goalsAgainstPerGame * 0.7 + recentGoalsAgainstPerMatch * 0.3,
+    streaks: perf?.streaks || getTeamStreaks([]),
+    promoted: prior.promoted,
+    fallbacksUsed,
+  };
+}
+
+function getStreakEdge(profile) {
+  const streaks = profile?.streaks || {};
+  const raw =
+    Math.min(3, Number(streaks.consecutiveWins) || 0) * 0.04 +
+    Math.min(4, Number(streaks.consecutiveUnbeaten) || 0) * 0.015 -
+    Math.min(3, Number(streaks.consecutiveDefeats) || 0) * 0.045;
+  // Keep this small because weighted form already captures most momentum.
+  return clampNumber(
+    raw * PREMIER_LEAGUE_MODEL_CONFIG.streakWeight,
+    -PREMIER_LEAGUE_MODEL_CONFIG.maxStreakEdge,
+    PREMIER_LEAGUE_MODEL_CONFIG.maxStreakEdge
+  );
+}
+
+function buildResultStrengthProbabilities(homeProfile, awayProfile) {
+  const config = PREMIER_LEAGUE_MODEL_CONFIG;
+  const ratingGap = homeProfile.rating - awayProfile.rating;
+  const positionGap = awayProfile.position - homeProfile.position;
+  const formGap = homeProfile.formPointsPerMatch - awayProfile.formPointsPerMatch;
+  const gdGap = homeProfile.goalDifferencePerGame - awayProfile.goalDifferencePerGame;
+  const rawEdge =
+    ratingGap * config.ratingWeight +
+    positionGap * config.positionWeight +
+    formGap * config.formWeight +
+    gdGap * config.goalDifferenceWeight +
+    getStreakEdge(homeProfile) -
+    getStreakEdge(awayProfile) +
+    config.homeAdvantage;
+  const cappedEdge = clampNumber(rawEdge, -config.maxResultEdge, config.maxResultEdge);
+  const homeRaw = 1 / (1 + Math.exp(-cappedEdge / config.resultEdgeScale));
+  const drawProb = clampNumber(
+    config.drawBase - Math.min(Math.abs(cappedEdge) * config.drawEdgeWeight, config.drawEdgeMaxReduction),
+    config.minDrawProbability,
+    config.maxDrawProbability
+  );
+  const nonDrawProb = 1 - drawProb;
+  return {
+    ...normalizeProbabilitySet({
+      home: homeRaw * nonDrawProb,
+      draw: drawProb,
+      away: (1 - homeRaw) * nonDrawProb,
+    }),
+    rawEdge,
+    cappedEdge,
+  };
+}
+
+function calculateExpectedGoals(homeProfile, awayProfile) {
+  const config = PREMIER_LEAGUE_MODEL_CONFIG;
+  const ratingGoalEdge = (homeProfile.rating - awayProfile.rating) / 55;
+  const homeAttack =
+    homeProfile.goalsForPerGame * 0.55 +
+    (config.leagueGoalsPerTeam + homeProfile.goalDifferencePerGame / 2) * 0.3 +
+    config.leagueGoalsPerTeam * 0.15;
+  const awayDefensiveWeakness =
+    awayProfile.goalsAgainstPerGame * 0.55 +
+    (config.leagueGoalsPerTeam - awayProfile.goalDifferencePerGame / 2) * 0.3 +
+    config.leagueGoalsPerTeam * 0.15;
+  const awayAttack =
+    awayProfile.goalsForPerGame * 0.55 +
+    (config.leagueGoalsPerTeam + awayProfile.goalDifferencePerGame / 2) * 0.3 +
+    config.leagueGoalsPerTeam * 0.15;
+  const homeDefensiveWeakness =
+    homeProfile.goalsAgainstPerGame * 0.55 +
+    (config.leagueGoalsPerTeam - homeProfile.goalDifferencePerGame / 2) * 0.3 +
+    config.leagueGoalsPerTeam * 0.15;
+
+  // Estimated goals use app-owned inputs only; this is not official expected-goals data.
+  return {
+    homeExpectedGoals: clampNumber(
+      (homeAttack + awayDefensiveWeakness) / 2 + 0.18 + ratingGoalEdge * 0.28,
+      config.expectedGoalsMin,
+      config.expectedGoalsMax
+    ),
+    awayExpectedGoals: clampNumber(
+      (awayAttack + homeDefensiveWeakness) / 2 - ratingGoalEdge * 0.22,
+      config.expectedGoalsMin,
+      config.expectedGoalsMax
+    ),
+  };
+}
+
+function poissonProbability(lambda, goals) {
+  if (goals < 0) return 0;
+  let factorial = 1;
+  for (let value = 2; value <= goals; value += 1) factorial *= value;
+  return (Math.exp(-lambda) * Math.pow(lambda, goals)) / factorial;
+}
+
+function buildScorelineMatrix(homeExpectedGoals, awayExpectedGoals) {
+  const maxGoals = PREMIER_LEAGUE_MODEL_CONFIG.scoreMatrixMaxGoals;
+  const matrix = [];
+  let total = 0;
+  for (let homeGoals = 0; homeGoals <= maxGoals; homeGoals += 1) {
+    for (let awayGoals = 0; awayGoals <= maxGoals; awayGoals += 1) {
+      const probability =
+        poissonProbability(homeExpectedGoals, homeGoals) *
+        poissonProbability(awayExpectedGoals, awayGoals);
+      matrix.push({ homeGoals, awayGoals, probability });
+      total += probability;
+    }
+  }
+  // The 0-7 grid excludes tiny extreme tails, so the retained grid is normalised.
+  return {
+    matrix: matrix.map((row) => ({ ...row, probability: total > 0 ? row.probability / total : 0 })),
+    rawTotal: total,
+  };
+}
+
+function getScorelineOutcomeProbabilities(scorelineMatrix) {
+  const totals = scorelineMatrix.reduce(
+    (sum, row) => {
+      if (row.homeGoals > row.awayGoals) sum.home += row.probability;
+      else if (row.homeGoals === row.awayGoals) sum.draw += row.probability;
+      else sum.away += row.probability;
+      return sum;
+    },
+    { home: 0, draw: 0, away: 0 }
+  );
+  return normalizeProbabilitySet(totals);
+}
+
+function getScoreAtLeastProbability(lambda, threshold) {
+  let below = 0;
+  for (let goals = 0; goals < threshold; goals += 1) {
+    below += poissonProbability(lambda, goals);
+  }
+  return clampNumber(1 - below, 0, 1);
+}
+
+function blendProbabilitySets(primary, secondary, secondaryWeight) {
+  const weight = clampNumber(secondaryWeight, 0, 1);
+  return normalizeProbabilitySet({
+    home: primary.homeProb * (1 - weight) + secondary.homeProb * weight,
+    draw: primary.drawProb * (1 - weight) + secondary.drawProb * weight,
+    away: primary.awayProb * (1 - weight) + secondary.awayProb * weight,
+  });
+}
+
+function getFantasyDifficultyScores({
+  homeExpectedGoals,
+  awayExpectedGoals,
+  homeCleanSheetProb,
+  awayCleanSheetProb,
+  homeScoreTwoPlusProb,
+  awayScoreTwoPlusProb,
+}) {
+  const config = PREMIER_LEAGUE_MODEL_CONFIG;
+  const homeAttackRating =
+    homeExpectedGoals * config.attackExpectedGoalsWeight +
+    homeScoreTwoPlusProb * config.attackScoreTwoPlusWeight;
+  const awayAttackRating =
+    awayExpectedGoals * config.attackExpectedGoalsWeight +
+    awayScoreTwoPlusProb * config.attackScoreTwoPlusWeight;
+  const homeDefenceRating =
+    homeCleanSheetProb * config.defenceCleanSheetWeight -
+    awayExpectedGoals * config.defenceOpponentGoalsWeight +
+    1.35;
+  const awayDefenceRating =
+    awayCleanSheetProb * config.defenceCleanSheetWeight -
+    homeExpectedGoals * config.defenceOpponentGoalsWeight +
+    1.35;
+  return {
+    homeAttackDifficultyScore: getAttackDifficultyScore(homeAttackRating),
+    awayAttackDifficultyScore: getAttackDifficultyScore(awayAttackRating),
+    homeDefenceDifficultyScore: getDefenceDifficultyScore(homeDefenceRating),
+    awayDefenceDifficultyScore: getDefenceDifficultyScore(awayDefenceRating),
+    homeAttackRating,
+    awayAttackRating,
+    homeDefenceRating,
+    awayDefenceRating,
+  };
+}
+
+function getModelConfidence(homeProfile, awayProfile, fallbacksUsed) {
+  const playedScore = clampNumber(
+    ((homeProfile.played + awayProfile.played) / 2 / PREMIER_LEAGUE_MODEL_CONFIG.currentSeasonBlendMatches) * 45,
+    0,
+    45
+  );
+  const priorScore = 20 - fallbacksUsed.filter((item) => item.includes("previous_profile")).length * 8;
+  const ratingScore = 15 - fallbacksUsed.filter((item) => item.includes("team_rating")).length * 7;
+  const formScore = (homeProfile.played > 0 ? 10 : 0) + (awayProfile.played > 0 ? 10 : 0);
+  const confidenceScore = Math.round(clampNumber(playedScore + priorScore + ratingScore + formScore, 0, 100));
+  return {
+    confidence: confidenceScore >= 72 ? "high" : confidenceScore >= 42 ? "medium" : "low",
+    confidenceScore,
+  };
+}
+
+function buildFallbackFixtureModel(reason = "missing_fixture") {
+  const probs = normalizeProbabilitySet(PREMIER_LEAGUE_MODEL_CONFIG.neutralProbabilities);
+  const homeExpectedPoints = probs.homeProb * 3 + probs.drawProb;
+  const awayExpectedPoints = probs.awayProb * 3 + probs.drawProb;
+  const neutralGoals = PREMIER_LEAGUE_MODEL_CONFIG.leagueGoalsPerTeam;
+  const homeDifficultyScore = getOverallDifficultyScore(homeExpectedPoints);
+  const awayDifficultyScore = getOverallDifficultyScore(awayExpectedPoints);
+  return {
+    ...probs,
+    homeExpectedPoints,
+    awayExpectedPoints,
+    homeDifficultyScore,
+    awayDifficultyScore,
+    homeDifficultyMeta: getDifficultyMeta(homeDifficultyScore),
+    awayDifficultyMeta: getDifficultyMeta(awayDifficultyScore),
+    homeExpectedGoals: neutralGoals,
+    awayExpectedGoals: neutralGoals,
+    homeCleanSheetProb: poissonProbability(neutralGoals, 0),
+    awayCleanSheetProb: poissonProbability(neutralGoals, 0),
+    homeScoreTwoPlusProb: getScoreAtLeastProbability(neutralGoals, 2),
+    awayScoreTwoPlusProb: getScoreAtLeastProbability(neutralGoals, 2),
+    homeAttackDifficultyScore: 3,
+    awayAttackDifficultyScore: 3,
+    homeDefenceDifficultyScore: 3,
+    awayDefenceDifficultyScore: 3,
+    homeAttackDifficultyMeta: getAttackDifficultyMeta(3),
+    awayAttackDifficultyMeta: getAttackDifficultyMeta(3),
+    homeDefenceDifficultyMeta: getDefenceDifficultyMeta(3),
+    awayDefenceDifficultyMeta: getDefenceDifficultyMeta(3),
+    scorelineMatrixTotal: 1,
+    scorelineMatrixRawTotal: 1,
+    confidence: "low",
+    confidenceScore: 0,
+    fallbacksUsed: [reason],
+    modelInputs: { reason },
+    modelVersion: PREMIER_LEAGUE_MODEL_CONFIG.version,
+  };
+}
+
+export function buildFixtureModel(fixture, context = {}) {
   if (!fixture) {
-    return {
-      homeProb: 0.38,
-      drawProb: 0.24,
-      awayProb: 0.38,
-      homeDifficultyScore: 3,
-      awayDifficultyScore: 3,
-    };
+    return buildFallbackFixtureModel();
   }
 
   if (isWorldCupFixtureModel(fixture)) {
@@ -2513,77 +3028,84 @@ function buildFixtureModel(fixture, context = {}) {
   }
 
   const performanceByTeam = context.performanceByTeam || {};
-  const homeKey = normalizeTeamName(fixture.homeTeam);
-  const awayKey = normalizeTeamName(fixture.awayTeam);
-  const homePerf = performanceByTeam[homeKey] || {};
-  const awayPerf = performanceByTeam[awayKey] || {};
-
-  const homePosition = Number(homePerf.position) || 10;
-  const awayPosition = Number(awayPerf.position) || 10;
-  const homeFormPoints = Number(homePerf.formPoints) || 0;
-  const awayFormPoints = Number(awayPerf.formPoints) || 0;
-  const homePlayed = Number(homePerf.played) || 0;
-  const awayPlayed = Number(awayPerf.played) || 0;
-  const homeGdPerGame =
-    homePlayed > 0 ? Number(homePerf.goalDifference || 0) / homePlayed : 0;
-  const awayGdPerGame =
-    awayPlayed > 0 ? Number(awayPerf.goalDifference || 0) / awayPlayed : 0;
-  const homePrior = buildPreviousSeasonPrior(fixture.homeTeam);
-  const awayPrior = buildPreviousSeasonPrior(fixture.awayTeam);
-
-  const ratingGap = getTeamRating(fixture.homeTeam) - getTeamRating(fixture.awayTeam);
-  const currentPositionGap = awayPosition - homePosition;
-  const currentFormGap = homeFormPoints - awayFormPoints;
-  const currentGdGap = homeGdPerGame - awayGdPerGame;
-  const priorPositionGap = awayPrior.position - homePrior.position;
-  const priorFormGap = homePrior.formPoints - awayPrior.formPoints;
-  const priorGdGap = homePrior.goalDifferencePerGame - awayPrior.goalDifferencePerGame;
-  const currentSeasonWeight = Math.min(1, Math.max(homePlayed, awayPlayed) / 10);
-
-  const positionGap =
-    priorPositionGap * (1 - currentSeasonWeight) +
-    currentPositionGap * currentSeasonWeight;
-  const formGap =
-    priorFormGap * (1 - currentSeasonWeight) +
-    currentFormGap * currentSeasonWeight;
-  const gdGap =
-    priorGdGap * (1 - currentSeasonWeight) +
-    currentGdGap * currentSeasonWeight;
-
-  // Keep last season as the early anchor, then let real results sharpen the model.
-  const priorEdge = ratingGap * 0.12;
-  const tableEdge = positionGap * 0.18;
-  const formEdge = formGap * 0.12;
-  const gdEdge = gdGap * 0.32;
-  const homeAdvantage = 0.42;
-
-  const rawEdge = priorEdge + tableEdge + formEdge + gdEdge + homeAdvantage;
-  const cappedEdge = Math.max(-4.1, Math.min(4.1, rawEdge));
-  const homeRaw = 1 / (1 + Math.exp(-cappedEdge / 1.8));
-  let drawProb = 0.255 - Math.min(Math.abs(cappedEdge) * 0.024, 0.105);
-  drawProb = Math.max(0.15, Math.min(0.285, drawProb));
-  const nonDrawProb = 1 - drawProb;
-  const homeProb = homeRaw * nonDrawProb;
-  const awayProb = (1 - homeRaw) * nonDrawProb;
+  const homeProfile = buildTeamModelProfile(fixture.homeTeam, performanceByTeam, "home");
+  const awayProfile = buildTeamModelProfile(fixture.awayTeam, performanceByTeam, "away");
+  const strengthProbabilities = buildResultStrengthProbabilities(homeProfile, awayProfile);
+  const { homeExpectedGoals, awayExpectedGoals } = calculateExpectedGoals(homeProfile, awayProfile);
+  const scoreline = buildScorelineMatrix(homeExpectedGoals, awayExpectedGoals);
+  const scorelineProbabilities = getScorelineOutcomeProbabilities(scoreline.matrix);
+  const { homeProb, drawProb, awayProb } = blendProbabilitySets(
+    strengthProbabilities,
+    scorelineProbabilities,
+    PREMIER_LEAGUE_MODEL_CONFIG.scorelineProbabilityBlend
+  );
 
   const homeExpectedPoints = homeProb * 3 + drawProb;
   const awayExpectedPoints = awayProb * 3 + drawProb;
-
-  const toDifficultyScore = (expectedPoints) => {
-    if (expectedPoints >= 2.15) return 1;
-    if (expectedPoints >= 1.7) return 2;
-    if (expectedPoints >= 1.25) return 3;
-    if (expectedPoints >= 0.9) return 4;
-    return 5;
-  };
+  const homeDifficultyScore = getOverallDifficultyScore(homeExpectedPoints);
+  const awayDifficultyScore = getOverallDifficultyScore(awayExpectedPoints);
+  const homeCleanSheetProb = poissonProbability(awayExpectedGoals, 0);
+  const awayCleanSheetProb = poissonProbability(homeExpectedGoals, 0);
+  const homeScoreTwoPlusProb = getScoreAtLeastProbability(homeExpectedGoals, 2);
+  const awayScoreTwoPlusProb = getScoreAtLeastProbability(awayExpectedGoals, 2);
+  const fantasyDifficulty = getFantasyDifficultyScores({
+    homeExpectedGoals,
+    awayExpectedGoals,
+    homeCleanSheetProb,
+    awayCleanSheetProb,
+    homeScoreTwoPlusProb,
+    awayScoreTwoPlusProb,
+  });
+  const fallbacksUsed = [...homeProfile.fallbacksUsed, ...awayProfile.fallbacksUsed];
+  const confidence = getModelConfidence(homeProfile, awayProfile, fallbacksUsed);
 
   return {
     homeProb,
     drawProb,
     awayProb,
-    homeDifficultyScore: toDifficultyScore(homeExpectedPoints),
-    awayDifficultyScore: toDifficultyScore(awayExpectedPoints),
+    homeExpectedPoints,
+    awayExpectedPoints,
+    homeDifficultyScore,
+    awayDifficultyScore,
+    homeDifficultyMeta: getDifficultyMeta(homeDifficultyScore),
+    awayDifficultyMeta: getDifficultyMeta(awayDifficultyScore),
+    homeExpectedGoals,
+    awayExpectedGoals,
+    homeCleanSheetProb,
+    awayCleanSheetProb,
+    homeScoreTwoPlusProb,
+    awayScoreTwoPlusProb,
+    homeAttackDifficultyScore: fantasyDifficulty.homeAttackDifficultyScore,
+    awayAttackDifficultyScore: fantasyDifficulty.awayAttackDifficultyScore,
+    homeDefenceDifficultyScore: fantasyDifficulty.homeDefenceDifficultyScore,
+    awayDefenceDifficultyScore: fantasyDifficulty.awayDefenceDifficultyScore,
+    homeAttackDifficultyMeta: getAttackDifficultyMeta(fantasyDifficulty.homeAttackDifficultyScore),
+    awayAttackDifficultyMeta: getAttackDifficultyMeta(fantasyDifficulty.awayAttackDifficultyScore),
+    homeDefenceDifficultyMeta: getDefenceDifficultyMeta(fantasyDifficulty.homeDefenceDifficultyScore),
+    awayDefenceDifficultyMeta: getDefenceDifficultyMeta(fantasyDifficulty.awayDefenceDifficultyScore),
+    scorelineMatrixTotal: scoreline.matrix.reduce((sum, row) => sum + row.probability, 0),
+    scorelineMatrixRawTotal: scoreline.rawTotal,
+    confidence: confidence.confidence,
+    confidenceScore: confidence.confidenceScore,
+    fallbacksUsed,
+    modelInputs: {
+      homeProfile,
+      awayProfile,
+      strengthProbabilities,
+      scorelineProbabilities,
+      config: PREMIER_LEAGUE_MODEL_CONFIG,
+    },
+    modelVersion: PREMIER_LEAGUE_MODEL_CONFIG.version,
   };
+}
+
+export function buildFixtureModelsByFixture(fixtures = [], context = {}) {
+  const out = {};
+  (fixtures || []).forEach((fixture) => {
+    if (!fixture?.id) return;
+    out[fixture.id] = buildFixtureModel(fixture, context);
+  });
+  return out;
 }
 
 export function buildGeneratedModelOdds(fixtures = [], context = {}) {
@@ -2591,11 +3113,17 @@ export function buildGeneratedModelOdds(fixtures = [], context = {}) {
 
   (fixtures || []).forEach((fixture) => {
     const model = buildFixtureModel(fixture, context);
-    const overround = 0.94;
+    const overround = PREMIER_LEAGUE_MODEL_CONFIG.oddsOverround;
     out[fixture.id] = {
       home: Number((overround / model.homeProb).toFixed(2)),
       draw: Number((overround / model.drawProb).toFixed(2)),
       away: Number((overround / model.awayProb).toFixed(2)),
+      modelProbabilities: {
+        home: model.homeProb * 100,
+        draw: model.drawProb * 100,
+        away: model.awayProb * 100,
+      },
+      modelVersion: model.modelVersion,
     };
   });
 
@@ -2647,6 +3175,22 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
       const difficultyScore = isHome
         ? model.homeDifficultyScore
         : model.awayDifficultyScore;
+      const attackDifficultyScore = isHome
+        ? model.homeAttackDifficultyScore
+        : model.awayAttackDifficultyScore;
+      const defenceDifficultyScore = isHome
+        ? model.homeDefenceDifficultyScore
+        : model.awayDefenceDifficultyScore;
+      const winProbability = isHome ? model.homeProb : model.awayProb;
+      const cleanSheetProbability = isHome
+        ? model.homeCleanSheetProb
+        : model.awayCleanSheetProb;
+      const expectedGoals = isHome
+        ? model.homeExpectedGoals
+        : model.awayExpectedGoals;
+      const scoreTwoPlusProbability = isHome
+        ? model.homeScoreTwoPlusProb
+        : model.awayScoreTwoPlusProb;
 
       return {
         fixtureId: fixture.id,
@@ -2655,6 +3199,14 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
         venue: isHome ? "H" : "A",
         kickoff: fixture.kickoff,
         difficultyScore,
+        attackDifficultyScore,
+        defenceDifficultyScore,
+        winProbability,
+        cleanSheetProbability,
+        expectedGoals,
+        scoreTwoPlusProbability,
+        confidence: model.confidence,
+        confidenceScore: model.confidenceScore,
         ...getDifficultyMeta(difficultyScore),
       };
     });
@@ -2663,6 +3215,47 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
     form,
     upcoming,
     formPoints: Number(performanceByTeam[normalizedTeam]?.formPoints) || 0,
+  };
+}
+
+export function buildWeightedNextFixtureOutlook(upcomingFixtures = []) {
+  const validFixtures = (upcomingFixtures || [])
+    .slice(0, 3)
+    .filter((fixture) =>
+      Number.isFinite(Number(fixture?.difficultyScore)) &&
+      Number.isFinite(Number(fixture?.attackDifficultyScore)) &&
+      Number.isFinite(Number(fixture?.defenceDifficultyScore))
+    );
+  const weights = PREMIER_LEAGUE_MODEL_CONFIG.nextThreeFixtureWeights.slice(0, validFixtures.length);
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+
+  if (!validFixtures.length || totalWeight <= 0) {
+    return {
+      fixtureCount: 0,
+      confidence: "low",
+      validFixtures: [],
+      missingFixtureCount: Math.max(0, Math.min(3, (upcomingFixtures || []).length) - validFixtures.length),
+    };
+  }
+
+  const weightedAverage = (selector) =>
+    validFixtures.reduce(
+      (sum, fixture, index) => sum + Number(selector(fixture) || 0) * (weights[index] / totalWeight),
+      0
+    );
+
+  return {
+    fixtureCount: validFixtures.length,
+    confidence: validFixtures.length < 3 ? "medium" : "high",
+    validFixtures,
+    missingFixtureCount: Math.max(0, Math.min(3, (upcomingFixtures || []).length) - validFixtures.length),
+    overallDifficulty: weightedAverage((fixture) => fixture.difficultyScore),
+    attackDifficulty: weightedAverage((fixture) => fixture.attackDifficultyScore),
+    defenceDifficulty: weightedAverage((fixture) => fixture.defenceDifficultyScore),
+    winProbability: weightedAverage((fixture) => fixture.winProbability),
+    cleanSheetProbability: weightedAverage((fixture) => fixture.cleanSheetProbability),
+    expectedGoals: weightedAverage((fixture) => fixture.expectedGoals),
+    scoreTwoPlusProbability: weightedAverage((fixture) => fixture.scoreTwoPlusProbability),
   };
 }
 
@@ -3046,6 +3639,21 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     ];
 
     return buildGeneratedModelOdds(fixturesWithResolvedTeams, leaguePerformanceContext);
+  }, [fixtureOverridesByMode, leaguePerformanceContext]);
+
+  const generatedFixtureModelsByFixture = useMemo(() => {
+    const fixturesWithResolvedTeams = [
+      ...FIXTURES.map((fixture) => ({
+        ...fixture,
+        ...(fixtureOverridesByMode[PREMIER_MODE]?.[fixture.id] || {}),
+      })),
+      ...WORLD_CUP_FIXTURES.map((fixture) => ({
+        ...fixture,
+        ...(fixtureOverridesByMode[WORLD_CUP_MODE]?.[fixture.id] || {}),
+      })),
+    ];
+
+    return buildFixtureModelsByFixture(fixturesWithResolvedTeams, leaguePerformanceContext);
   }, [fixtureOverridesByMode, leaguePerformanceContext]);
 
   // Save activeView to localStorage whenever it changes
@@ -6277,10 +6885,9 @@ const fantasyHelpReport = useMemo(() => {
     .map((team) => {
       const insights = buildPremierTeamInsights(team, results, leaguePerformanceContext);
       const upcoming = (insights.upcoming || []).slice(0, 3);
-      const fixtureCount = upcoming.length;
-      const averageDifficulty = fixtureCount
-        ? upcoming.reduce((sum, item) => sum + Number(item.difficultyScore || 3), 0) / fixtureCount
-        : 0;
+      const outlook = buildWeightedNextFixtureOutlook(upcoming);
+      const fixtureCount = outlook.fixtureCount;
+      const averageDifficulty = fixtureCount ? outlook.overallDifficulty : 0;
       const hardCount = upcoming.filter((item) => Number(item.difficultyScore || 3) >= 4).length;
       const easyCount = upcoming.filter((item) => Number(item.difficultyScore || 3) <= 2).length;
       const homeCount = upcoming.filter((item) => item.venue === "H").length;
@@ -6288,8 +6895,14 @@ const fantasyHelpReport = useMemo(() => {
       return {
         team,
         upcoming,
+        outlook,
         fixtureScore: fixtureCount ? 6 - averageDifficulty : 0,
         averageDifficulty,
+        attackDifficulty: fixtureCount ? outlook.attackDifficulty : 0,
+        defenceDifficulty: fixtureCount ? outlook.defenceDifficulty : 0,
+        expectedGoals: fixtureCount ? outlook.expectedGoals : 0,
+        cleanSheetProbability: fixtureCount ? outlook.cleanSheetProbability : 0,
+        scoreTwoPlusProbability: fixtureCount ? outlook.scoreTwoPlusProbability : 0,
         easyCount,
         hardCount,
         homeCount,
@@ -6301,10 +6914,19 @@ const fantasyHelpReport = useMemo(() => {
     })
     .filter((row) => row.upcoming.length);
   const fixtureRows = [...fixtureDifficultyRows]
-    .sort((a, b) => a.averageDifficulty - b.averageDifficulty || b.easyCount - a.easyCount)
+    .sort(
+      (a, b) =>
+        a.attackDifficulty - b.attackDifficulty ||
+        b.expectedGoals - a.expectedGoals ||
+        b.scoreTwoPlusProbability - a.scoreTwoPlusProbability
+    )
     .slice(0, 3);
   const fixtureHardRows = [...fixtureDifficultyRows]
-    .sort((a, b) => b.averageDifficulty - a.averageDifficulty || b.hardCount - a.hardCount)
+    .sort(
+      (a, b) =>
+        b.defenceDifficulty - a.defenceDifficulty ||
+        a.cleanSheetProbability - b.cleanSheetProbability
+    )
     .slice(0, 3);
   const dataRiskRows = fixtureHardRows;
   const bestCleanSheetRun = [...teamRows].sort(
@@ -8339,10 +8961,18 @@ useEffect(() => {
           >
             {(row.upcoming || []).slice(0, 3).map((fixture, index) => {
               const meta = getDifficultyMeta(Number(fixture.difficultyScore || 3));
+              const titleParts = [
+                `${fixture.venue} v ${fixture.opponentCode || fixture.opponent}`,
+                `Win ${Math.round((fixture.winProbability || 0) * 100)}%`,
+                `Est goals ${Number(fixture.expectedGoals || 0).toFixed(1)}`,
+                `CS ${Math.round((fixture.cleanSheetProbability || 0) * 100)}%`,
+                `Atk ${fixture.attackDifficultyScore || "-"}`,
+                `Def ${fixture.defenceDifficultyScore || "-"}`,
+              ];
               return (
                 <div
                   key={`${row.team}-${fixture.fixtureId || index}`}
-                  title={`${fixture.venue} v ${fixture.opponentCode || fixture.opponent}`}
+                  title={titleParts.join(" | ")}
                   style={{
                     background: meta.color,
                     color: Number(fixture.difficultyScore || 3) <= 2 ? "#0b1220" : "#ffffff",
@@ -14085,8 +14715,15 @@ const TABS = [
 
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
+        const model = generatedFixtureModelsByFixture[fixture.id] || null;
         const o = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
-        const probs = computeProbabilities(o);
+        const probs = model
+          ? {
+              home: model.homeProb * 100,
+              draw: model.drawProb * 100,
+              away: model.awayProb * 100,
+            }
+          : computeProbabilities(o);
 
         return (
           <div

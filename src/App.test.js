@@ -12,7 +12,9 @@ import {
   normalizeCaptainsByGameweek,
   mergeCloudPredictionsPreservingLocalBoosts,
   setOnlyCaptainForFixtureRound,
+  buildFixtureModel,
   buildGeneratedModelOdds,
+  buildWeightedNextFixtureOutlook,
   buildPremierLeagueTableRows,
 } from "./App";
 import FIXTURES from "./fixtures";
@@ -183,6 +185,95 @@ describe("World Cup sync helpers", () => {
     expect(odds[307].home).toBeLessThan(odds[308].away);
     expect(odds[308].home).toBeLessThan(odds[307].away);
     expect(Math.abs(odds[307].home - odds[308].away)).toBeLessThan(0.75);
+  });
+
+  test("keeps fixture model probabilities normalised and difficulty derived from expected points", () => {
+    const model = buildFixtureModel({
+      id: 309,
+      homeTeam: "Chelsea FC",
+      awayTeam: "Fulham FC",
+    });
+
+    expect(model.homeProb + model.drawProb + model.awayProb).toBeCloseTo(1, 8);
+    expect(model.scorelineMatrixTotal).toBeCloseTo(1, 8);
+    expect(model.homeExpectedPoints).toBeCloseTo(model.homeProb * 3 + model.drawProb, 8);
+    expect(model.awayExpectedPoints).toBeCloseTo(model.awayProb * 3 + model.drawProb, 8);
+    expect(model.homeProb).toBeGreaterThan(model.awayProb);
+    expect(model.homeDifficultyScore).toBeLessThanOrEqual(model.awayDifficultyScore);
+    expect(model.homeDifficultyScore).toBe(3);
+  });
+
+  test("rates strong home fixtures as easier overall and better for attack", () => {
+    const model = buildFixtureModel({
+      id: 310,
+      homeTeam: "Arsenal FC",
+      awayTeam: "Hull City AFC",
+    });
+
+    expect(model.homeProb).toBeGreaterThan(model.awayProb);
+    expect(model.homeDifficultyScore).toBeLessThan(model.awayDifficultyScore);
+    expect(model.homeAttackDifficultyScore).toBeLessThanOrEqual(2);
+    expect(model.awayDefenceDifficultyScore).toBeGreaterThanOrEqual(4);
+    expect(model.homeExpectedGoals).toBeGreaterThan(model.awayExpectedGoals);
+  });
+
+  test("allows strong away teams to overcome home advantage", () => {
+    const model = buildFixtureModel({
+      id: 311,
+      homeTeam: "Hull City AFC",
+      awayTeam: "Arsenal FC",
+    });
+
+    expect(model.awayProb).toBeGreaterThan(model.homeProb);
+    expect(model.awayDifficultyScore).toBeLessThan(model.homeDifficultyScore);
+  });
+
+  test("handles missing fixture data without invalid numbers and records fallbacks", () => {
+    const model = buildFixtureModel({
+      id: 312,
+      homeTeam: "Unknown Home",
+      awayTeam: "Unknown Away",
+    });
+    const numericValues = [
+      model.homeProb,
+      model.drawProb,
+      model.awayProb,
+      model.homeExpectedGoals,
+      model.awayExpectedGoals,
+      model.homeCleanSheetProb,
+      model.awayCleanSheetProb,
+    ];
+
+    expect(numericValues.every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+    expect(model.homeProb + model.drawProb + model.awayProb).toBeCloseTo(1, 8);
+    expect(model.fallbacksUsed.length).toBeGreaterThan(0);
+  });
+
+  test("uses exact model probabilities for generated odds output", () => {
+    const fixture = { id: 313, homeTeam: "Arsenal FC", awayTeam: "Hull City AFC" };
+    const model = buildFixtureModel(fixture);
+    const odds = buildGeneratedModelOdds([fixture]);
+
+    expect(odds[313].modelProbabilities.home).toBeCloseTo(model.homeProb * 100, 8);
+    expect(odds[313].modelProbabilities.draw).toBeCloseTo(model.drawProb * 100, 8);
+    expect(odds[313].modelProbabilities.away).toBeCloseTo(model.awayProb * 100, 8);
+  });
+
+  test("weights next-three fixture outlooks 50/30/20 and renormalises shorter runs", () => {
+    const three = buildWeightedNextFixtureOutlook([
+      { difficultyScore: 1, attackDifficultyScore: 2, defenceDifficultyScore: 3, expectedGoals: 2, cleanSheetProbability: 0.4, scoreTwoPlusProbability: 0.5, winProbability: 0.6 },
+      { difficultyScore: 3, attackDifficultyScore: 4, defenceDifficultyScore: 5, expectedGoals: 1, cleanSheetProbability: 0.2, scoreTwoPlusProbability: 0.3, winProbability: 0.4 },
+      { difficultyScore: 5, attackDifficultyScore: 1, defenceDifficultyScore: 2, expectedGoals: 3, cleanSheetProbability: 0.6, scoreTwoPlusProbability: 0.7, winProbability: 0.8 },
+    ]);
+    const two = buildWeightedNextFixtureOutlook([
+      { difficultyScore: 1, attackDifficultyScore: 2, defenceDifficultyScore: 3, expectedGoals: 2, cleanSheetProbability: 0.4, scoreTwoPlusProbability: 0.5, winProbability: 0.6 },
+      { difficultyScore: 3, attackDifficultyScore: 4, defenceDifficultyScore: 5, expectedGoals: 1, cleanSheetProbability: 0.2, scoreTwoPlusProbability: 0.3, winProbability: 0.4 },
+    ]);
+
+    expect(three.overallDifficulty).toBeCloseTo(2.4, 8);
+    expect(three.attackDifficulty).toBeCloseTo(2.4, 8);
+    expect(two.overallDifficulty).toBeCloseTo(1.75, 8);
+    expect(two.attackDifficulty).toBeCloseTo(2.75, 8);
   });
 
   test("builds the current Premier League table from released fixtures", () => {
