@@ -190,6 +190,25 @@ function buildPositionMappings(rawPositions = []) {
   return { byId, positions };
 }
 
+function adaptFantasyBootstrapEvents(rawEvents = []) {
+  return (Array.isArray(rawEvents) ? rawEvents : [])
+    .map((event) => {
+      const id = toNumber(event?.id);
+      if (!id) return null;
+      return {
+        id,
+        gameweek: id,
+        name: safeString(event?.name) || `GW ${id}`,
+        deadline: event?.deadline_time || null,
+        finished: !!event?.finished,
+        isCurrent: !!event?.is_current,
+        isNext: !!event?.is_next,
+        dataChecked: !!event?.data_checked,
+      };
+    })
+    .filter(Boolean);
+}
+
 export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
   const fetchedAt = options.fetchedAt || nowIso();
   const diagnostics = makeDiagnostics();
@@ -282,6 +301,7 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
           players,
           teams: teamMappings.teams,
           positions: positionMappings.positions,
+          events: adaptFantasyBootstrapEvents(payload.events),
           diagnostics,
           cacheStatus: "live",
         }

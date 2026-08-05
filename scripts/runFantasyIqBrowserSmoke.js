@@ -2,11 +2,12 @@ const fs = require("fs");
 const WebSocket = require("ws");
 
 const chromeVersionUrl = "http://127.0.0.1:9222/json/version";
-const appUrl = "http://localhost:3000";
+const appUrl = process.env.FANTASY_IQ_SMOKE_APP_URL || "http://localhost:3000";
 const fixturePath = `${process.cwd()}/src/fantasyIq/fixtures/screenshot-import/mobile-portrait-full-squad.png`;
 const authKey = "pl_prediction_auth_v1";
 const playerDataKey = "predictionAddiction:fplPlayerData:v1";
 const squadKey = "predictionAddiction:fantasyIqSquad:v1:browser-smoke-user";
+const historyKey = "predictionAddiction:fantasyIqHistory:v1:browser-smoke-user";
 
 const players = [
   ["Raya", "ARS", "GK"], ["Gabriel", "ARS", "DEF"], ["Van Dijk", "LIV", "DEF"],
@@ -69,6 +70,10 @@ function makeDataset() {
       { id: 4, sourceId: 4, singularName: "Forward", pluralName: "Forwards", code: "FWD" },
     ],
     diagnostics: { validPlayerCount: players.length, rejectedPlayerCount: 0, warnings: [] },
+    events: [
+      { id: 1, gameweek: 1, name: "GW 1", deadline: "2026-08-01T10:30:00.000Z", finished: false, isCurrent: true, isNext: false },
+      { id: 2, gameweek: 2, name: "GW 2", deadline: "2026-08-08T10:30:00.000Z", finished: false, isCurrent: false, isNext: true },
+    ],
   };
 }
 
@@ -217,11 +222,12 @@ async function main() {
   await evaluate(cdp, sessionId, `
     Object.keys(localStorage).forEach((key) => {
       if (key.includes("fantasyIqSquad")) localStorage.removeItem(key);
+      if (key.includes("fantasyIqHistory")) localStorage.removeItem(key);
       if (key.includes("fantasyIqScreenshotFeedback")) localStorage.removeItem(key);
     });
     localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "browser-smoke-token", userId: "browser-smoke-user", username: "BrowserSmoke" }));
     localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
-    ${process.argv.includes("--transfer") || process.argv.includes("--lineup") ? `localStorage.setItem(${JSON.stringify(squadKey)}, ${JSON.stringify(JSON.stringify(makeSavedSquad()))});` : ""}
+    ${process.argv.includes("--transfer") || process.argv.includes("--lineup") || process.argv.includes("--history") ? `localStorage.setItem(${JSON.stringify(squadKey)}, ${JSON.stringify(JSON.stringify(makeSavedSquad()))});` : ""}
     localStorage.setItem("activeView", "fantasyHelp");
   `);
   await cdp.send("Page.navigate", { url: appUrl }, sessionId).catch(() => {});
@@ -230,6 +236,71 @@ async function main() {
     [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Fantasy IQ")?.click();
   `);
   await waitFor(cdp, sessionId, "document.body.innerText.includes('Analyse Your Fantasy Squad')", 10000);
+  const historyWorkflow = process.argv.includes("--history");
+  if (historyWorkflow) {
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Status: Ready for analysis')", 10000);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Fantasy IQ History') && document.body.innerText.includes('Save Gameweek Snapshot')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Save Gameweek Snapshot"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('GW 1 snapshot saved')", 10000);
+    await cdp.send("Page.reload", {}, sessionId).catch(() => {});
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('GW 1') && document.body.innerText.includes('Snapshot list')", 30000);
+    const persistedAfterRefresh = await evaluate(cdp, sessionId, `!!JSON.parse(localStorage.getItem(${JSON.stringify(historyKey)})).snapshots.length`);
+    await evaluate(cdp, sessionId, clickButtonExpression("Save Gameweek Snapshot"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('already exists for GW 1')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Update Snapshot"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('GW 1 snapshot updated')", 10000);
+    const updatedFirst = await evaluate(cdp, sessionId, `JSON.parse(localStorage.getItem(${JSON.stringify(historyKey)})).snapshots[0]`);
+    await evaluate(cdp, sessionId, `
+      const dataset = JSON.parse(localStorage.getItem(${JSON.stringify(playerDataKey)}));
+      dataset.events = dataset.events.map((event) => ({ ...event, isCurrent: event.id === 2, isNext: false }));
+      localStorage.setItem(${JSON.stringify(playerDataKey)}, JSON.stringify(dataset));
+      localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 2 }));
+    `);
+    await cdp.send("Page.reload", {}, sessionId).catch(() => {});
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Fantasy IQ History') && document.body.innerText.includes('GW 1')", 30000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Save Gameweek Snapshot"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('GW 2 snapshot saved')", 10000);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Change:') || document.body.innerText.includes('No meaningful change') || document.body.innerText.includes('improved by')", 10000);
+    const textAfterSecondSnapshot = await evaluate(cdp, sessionId, "document.body.innerText");
+    const detailsAlreadyOpen = await evaluate(cdp, sessionId, "document.body.innerText.includes('Saved model result') && document.body.innerText.includes('Starting XI')");
+    if (!detailsAlreadyOpen) await evaluate(cdp, sessionId, clickButtonExpression("View Details"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Saved model result') && document.body.innerText.includes('Starting XI')", 10000);
+    const detailsVisible = await evaluate(cdp, sessionId, "document.body.innerText.includes('Saved model result') && document.body.innerText.includes('Bench')");
+    await evaluate(cdp, sessionId, "window.confirm = () => true");
+    await evaluate(cdp, sessionId, clickButtonExpression("Delete"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('snapshot deleted')", 10000);
+    const squadAfterDelete = await evaluate(cdp, sessionId, `JSON.parse(localStorage.getItem(${JSON.stringify(squadKey)}))`);
+    await evaluate(cdp, sessionId, clickButtonExpression("Clear Fantasy IQ History"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Fantasy IQ history cleared')", 10000);
+    const squadAfterClear = await evaluate(cdp, sessionId, `JSON.parse(localStorage.getItem(${JSON.stringify(squadKey)}))`);
+    const historyStorage = await evaluate(cdp, sessionId, `localStorage.getItem(${JSON.stringify(historyKey)})`);
+    const storagePrivacySafe = !/data:image|base64|ocr|password|token/i.test(historyStorage || "");
+    const finalText = await evaluate(cdp, sessionId, "document.body.innerText");
+    const consoleEvents = cdp.events
+      .filter((event) => ["Runtime.consoleAPICalled", "Runtime.exceptionThrown", "Log.entryAdded"].includes(event.method))
+      .map((event) => ({
+        method: event.method,
+        text: event.params?.exceptionDetails?.text ||
+          event.params?.entry?.text ||
+          (event.params?.args || []).map((arg) => arg.value || arg.description || "").join(" "),
+      }));
+    await cdp.send("Target.closeTarget", { targetId: target.targetId });
+    cdp.ws.close();
+    console.log(JSON.stringify({
+      viewport,
+      historyVisible: finalText.includes("Fantasy IQ History"),
+      firstSnapshotPersisted: persistedAfterRefresh,
+      duplicateUpdatePreservedId: updatedFirst.id === "fantasy-iq-snapshot" || !!updatedFirst.id,
+      secondSnapshotSaved: textAfterSecondSnapshot.includes("GW 2"),
+      comparisonVisible: textAfterSecondSnapshot.includes("modelled three-gameweek squad outlook") || textAfterSecondSnapshot.includes("No meaningful change"),
+      detailsVisible,
+      deletePreservedSquad: squadAfterDelete.confirmed === true,
+      clearPreservedSquad: squadAfterClear.confirmed === true,
+      storagePrivacySafe,
+      consoleEvents: consoleEvents.slice(0, 10),
+    }, null, 2));
+    return;
+  }
   const lineupWorkflow = process.argv.includes("--lineup");
   if (lineupWorkflow) {
     await waitFor(cdp, sessionId, "document.body.innerText.includes('Status: Ready for analysis')", 10000);

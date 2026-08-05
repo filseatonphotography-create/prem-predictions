@@ -140,6 +140,19 @@ describe("Fantasy IQ player data adapter", () => {
     expect(fallback.players[0].temporary).toBe(true);
     expect(fallback.cacheStatus).toBe("fallback");
   });
+
+  test("preserves canonical FPL event data for gameweek history", () => {
+    const payload = clone(basePayload);
+    payload.events = [
+      { id: 5, name: "Gameweek 5", deadline_time: "2026-08-29T10:30:00Z", finished: false, is_current: true, is_next: false },
+      { id: 6, name: "Gameweek 6", deadline_time: "2026-09-12T10:30:00Z", finished: false, is_current: false, is_next: true },
+    ];
+    const result = adaptFantasyBootstrapPayload(payload);
+    expect(result.dataset.events).toEqual([
+      expect.objectContaining({ gameweek: 5, name: "Gameweek 5", deadline: "2026-08-29T10:30:00Z", isCurrent: true }),
+      expect.objectContaining({ gameweek: 6, name: "Gameweek 6", deadline: "2026-09-12T10:30:00Z", isNext: true }),
+    ]);
+  });
 });
 
 describe("Fantasy IQ name and team matching", () => {

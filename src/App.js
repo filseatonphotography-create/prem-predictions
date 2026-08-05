@@ -38,6 +38,32 @@ import {
   buildFantasyLineupSquadFromStarterIds,
   createFantasyLineupIqAnalysis,
 } from "./fantasyIq/lineupIq";
+import {
+  FANTASY_IQ_HISTORY_CATEGORY_KEYS,
+  FANTASY_IQ_HISTORY_CATEGORY_LABELS,
+  FANTASY_IQ_HISTORY_SCHEMA_VERSION,
+  FANTASY_IQ_HISTORY_VERSION,
+  FANTASY_IQ_MODEL_VERSION,
+  FANTASY_IQ_SCORE_CONFIG_VERSION,
+  buildFantasyIqTrendData,
+  buildFantasyIqTrendSummary,
+  clearFantasyIqHistory,
+  compareFantasyIqSnapshots,
+  createFantasyIqSnapshot,
+  deleteFantasyIqSnapshot,
+  exportFantasyIqHistory,
+  findFantasyIqDuplicateSnapshot,
+  formatFantasyIqSnapshotGameweek,
+  getFantasyIqHistoryStorageKey,
+  getLatestFantasyIqSnapshot,
+  getPreviousFantasyIqSnapshot,
+  loadFantasyIqHistory,
+  normaliseFantasyIqHistory,
+  orderFantasyIqSnapshots,
+  resolveFantasyIqSnapshotGameweek,
+  saveFantasyIqHistory,
+  upsertFantasyIqSnapshot,
+} from "./fantasyIq/history";
 const {
   getMatchScoreForPrediction,
   hasStartedMatchStatus,
@@ -4920,6 +4946,14 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyLineupIqState, setFantasyLineupIqState] = useState(null);
   const [fantasyLineupApplyMode, setFantasyLineupApplyMode] = useState(null);
   const [fantasyLineupManualMode, setFantasyLineupManualMode] = useState(false);
+  const [fantasyIqHistory, setFantasyIqHistory] = useState(() =>
+    loadFantasyIqHistory("guest")
+  );
+  const [fantasyIqHistoryDuplicate, setFantasyIqHistoryDuplicate] = useState(null);
+  const [fantasyIqHistoryExpandedId, setFantasyIqHistoryExpandedId] = useState(null);
+  const [fantasyIqHistoryTrendMetric, setFantasyIqHistoryTrendMetric] = useState("overallScore");
+  const [fantasyIqHistoryPrompt, setFantasyIqHistoryPrompt] = useState(null);
+  const [fantasyIqHistoryStatus, setFantasyIqHistoryStatus] = useState("");
   const fantasyScreenshotObjectUrlRef = useRef("");
   const fantasyScreenshotAbortRef = useRef(null);
   const fantasyScreenshotImportRunIdRef = useRef(0);
@@ -4994,6 +5028,15 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       setFantasyIqConfirmAttempted(false);
     }
   }, [fantasyIqUserIdentifier, fantasyIqBuilderOpen, fantasyPlayerData]);
+
+  useEffect(() => {
+    const loadedHistory = loadFantasyIqHistory(fantasyIqUserIdentifier);
+    setFantasyIqHistory(loadedHistory);
+    setFantasyIqHistoryDuplicate(null);
+    setFantasyIqHistoryExpandedId(null);
+    setFantasyIqHistoryPrompt(null);
+    setFantasyIqHistoryStatus("");
+  }, [fantasyIqUserIdentifier]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -5288,6 +5331,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqBuilderOpen(false);
     setFantasyIqSquadStatus("Screenshot squad imported and ready for Fantasy IQ analysis.");
     setFantasyScreenshotPostImportSummary(saveFantasyScreenshotFeedbackSummary(finalImportSummary));
+    queueFantasyIqHistoryPrompt("Your screenshot import changed your Fantasy IQ squad.");
     resetFantasyScreenshotImport("completed");
     setFantasyScreenshotImportOpen(false);
   };
@@ -5357,6 +5401,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqBuilderOpen(false);
     setFantasyIqUnsavedChanges(false);
     setFantasyIqSquadStatus("Your squad is ready for Fantasy IQ analysis.");
+    queueFantasyIqHistoryPrompt("Your manual squad edit changed your Fantasy IQ squad.");
   };
 
   const handleClearFantasyIqSquad = () => {
@@ -5371,6 +5416,80 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqUnsavedChanges(false);
     setFantasyIqConfirmAttempted(false);
     setFantasyIqSquadStatus("Squad cleared.");
+  };
+
+  const persistFantasyIqHistory = (history) => {
+    const saved = saveFantasyIqHistory(fantasyIqUserIdentifier, history);
+    setFantasyIqHistory(saved);
+    return saved;
+  };
+
+  const queueFantasyIqHistoryPrompt = (operationLabel = "Your Fantasy IQ squad has changed.") => {
+    const gameweekLabel = fantasyIqSnapshotGameweekContext?.label || "Unassigned";
+    setFantasyIqHistoryPrompt({
+      id: `history-prompt-${Date.now()}`,
+      message: fantasyIqCurrentDuplicate
+        ? `${operationLabel} Update your ${gameweekLabel} snapshot?`
+        : `${operationLabel} Save this as your ${gameweekLabel} Fantasy IQ snapshot?`,
+      duplicateSnapshotId: fantasyIqCurrentDuplicate?.id || null,
+    });
+  };
+
+  const handleSaveFantasyIqSnapshot = ({ mode = "insert" } = {}) => {
+    if (!currentFantasyIqSnapshotCandidate || currentFantasyIqSnapshotCandidate.report?.overallScore == null) {
+      setFantasyIqHistoryStatus("Confirm a scored Fantasy IQ squad before saving a snapshot.");
+      return;
+    }
+    const result = upsertFantasyIqSnapshot(fantasyIqHistory, currentFantasyIqSnapshotCandidate, { mode });
+    if (result.status === "duplicate") {
+      setFantasyIqHistoryDuplicate(result.duplicate);
+      setFantasyIqHistoryStatus(`A Fantasy IQ snapshot already exists for ${formatFantasyIqSnapshotGameweek(result.duplicate)}.`);
+      return;
+    }
+    if (result.status === "invalid") {
+      setFantasyIqHistoryStatus("This Fantasy IQ snapshot could not be saved.");
+      return;
+    }
+    persistFantasyIqHistory(result.history);
+    setFantasyIqHistoryDuplicate(null);
+    setFantasyIqHistoryPrompt(null);
+    setFantasyIqHistoryExpandedId(result.snapshot?.id || null);
+    setFantasyIqHistoryStatus(
+      result.status === "updated"
+        ? `${formatFantasyIqSnapshotGameweek(result.snapshot)} snapshot updated.`
+        : `${formatFantasyIqSnapshotGameweek(result.snapshot)} snapshot saved.`
+    );
+  };
+
+  const handleDeleteFantasyIqSnapshot = (snapshot) => {
+    if (!snapshot) return;
+    if (!window.confirm(`Delete the Fantasy IQ snapshot for ${formatFantasyIqSnapshotGameweek(snapshot)}?`)) return;
+    const nextHistory = deleteFantasyIqSnapshot(fantasyIqHistory, snapshot.id);
+    persistFantasyIqHistory(nextHistory);
+    if (fantasyIqHistoryExpandedId === snapshot.id) setFantasyIqHistoryExpandedId(null);
+    setFantasyIqHistoryDuplicate(null);
+    setFantasyIqHistoryStatus(`${formatFantasyIqSnapshotGameweek(snapshot)} snapshot deleted.`);
+  };
+
+  const handleClearFantasyIqHistory = () => {
+    if (!window.confirm("This will permanently remove all locally saved Fantasy IQ snapshots for this account on this device.")) return;
+    persistFantasyIqHistory(clearFantasyIqHistory());
+    setFantasyIqHistoryDuplicate(null);
+    setFantasyIqHistoryExpandedId(null);
+    setFantasyIqHistoryPrompt(null);
+    setFantasyIqHistoryStatus("Fantasy IQ history cleared.");
+  };
+
+  const handleExportFantasyIqHistory = () => {
+    const text = exportFantasyIqHistory(fantasyIqHistory);
+    const blob = new Blob([text], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `prediction-addiction-fantasy-iq-history-${new Date().getFullYear()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setFantasyIqHistoryStatus("Privacy-safe Fantasy IQ history export prepared.");
   };
 
   const resetFantasyTransferIq = () => {
@@ -5552,6 +5671,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqEditingSquad(saved);
     resetFantasyTransferIq();
     setFantasyIqSquadStatus("Transfer applied to your Fantasy IQ squad.");
+    queueFantasyIqHistoryPrompt("Your Transfer IQ apply changed your Fantasy IQ squad.");
   };
 
   const resetFantasyLineupIq = () => {
@@ -5650,6 +5770,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyLineupApplyMode(null);
     setFantasyLineupManualMode(false);
     setFantasyIqSquadStatus("Lineup applied to your Fantasy IQ squad.");
+    queueFantasyIqHistoryPrompt("Your Lineup IQ apply changed your Fantasy IQ squad.");
   };
 
 // Coins game state
@@ -9037,6 +9158,81 @@ const fantasyIqReport = useMemo(() => {
   selectedGameweek,
 ]);
 
+const fantasyIqSnapshotGameweekContext = useMemo(
+  () =>
+    resolveFantasyIqSnapshotGameweek({
+      events: fantasyPlayerData.events || [],
+      fixtures: activeFixtures,
+      selectedGameweek,
+      season: "2026/27",
+      currentDate: new Date(),
+    }),
+  [activeFixtures, fantasyPlayerData.events, selectedGameweek]
+);
+
+const currentFantasyIqSnapshotCandidate = useMemo(() => {
+  const report = fantasyIqReport.preparedFantasyIqReport;
+  if (!fantasyIqSquad?.confirmed || !report || report.overallScore == null) return null;
+  return createFantasyIqSnapshot({
+    squad: fantasyIqSquad,
+    report,
+    gameweekContext: fantasyIqSnapshotGameweekContext,
+    metadata: {
+      fantasyIqModelVersion: FANTASY_IQ_MODEL_VERSION,
+      lineupIqModelVersion: FANTASY_LINEUP_IQ_VERSION,
+      transferIqModelVersion: FANTASY_TRANSFER_IQ_VERSION,
+      fixtureModelVersion: PREMIER_LEAGUE_MODEL_CONFIG.version || "premier-fixture-model-v1",
+      scoreConfigVersion: FANTASY_IQ_SCORE_CONFIG_VERSION,
+      playerDataSource: fantasyPlayerData.source || fantasyPlayerData.cacheStatus || null,
+      playerDataUpdatedAt: fantasyPlayerData.fetchedAt || null,
+    },
+  });
+}, [fantasyIqReport.preparedFantasyIqReport, fantasyIqSnapshotGameweekContext, fantasyIqSquad, fantasyPlayerData.cacheStatus, fantasyPlayerData.fetchedAt, fantasyPlayerData.source]);
+
+const fantasyIqOrderedSnapshots = useMemo(
+  () => orderFantasyIqSnapshots(fantasyIqHistory.snapshots || []),
+  [fantasyIqHistory]
+);
+const fantasyIqLatestSnapshot = useMemo(
+  () => getLatestFantasyIqSnapshot(fantasyIqOrderedSnapshots),
+  [fantasyIqOrderedSnapshots]
+);
+const fantasyIqPreviousSnapshot = useMemo(
+  () => getPreviousFantasyIqSnapshot(fantasyIqOrderedSnapshots, fantasyIqLatestSnapshot),
+  [fantasyIqLatestSnapshot, fantasyIqOrderedSnapshots]
+);
+const fantasyIqLatestComparison = useMemo(
+  () => compareFantasyIqSnapshots(fantasyIqPreviousSnapshot, fantasyIqLatestSnapshot),
+  [fantasyIqPreviousSnapshot, fantasyIqLatestSnapshot]
+);
+const fantasyIqTrendData = useMemo(
+  () => buildFantasyIqTrendData(fantasyIqOrderedSnapshots),
+  [fantasyIqOrderedSnapshots]
+);
+const fantasyIqTrendSummary = useMemo(
+  () => buildFantasyIqTrendSummary(fantasyIqOrderedSnapshots),
+  [fantasyIqOrderedSnapshots]
+);
+const fantasyIqCurrentDuplicate = useMemo(
+  () => currentFantasyIqSnapshotCandidate ? findFantasyIqDuplicateSnapshot(fantasyIqHistory, currentFantasyIqSnapshotCandidate) : null,
+  [currentFantasyIqSnapshotCandidate, fantasyIqHistory]
+);
+const fantasyIqHistoryDiagnostics = useMemo(() => {
+  const normalised = normaliseFantasyIqHistory(fantasyIqHistory);
+  return {
+    ...normalised.diagnostics,
+    storageKey: getFantasyIqHistoryStorageKey(fantasyIqUserIdentifier),
+    schemaVersion: FANTASY_IQ_HISTORY_SCHEMA_VERSION,
+    historyVersion: FANTASY_IQ_HISTORY_VERSION,
+    snapshotCount: fantasyIqHistory.snapshots?.length || 0,
+    currentSeason: fantasyIqSnapshotGameweekContext.season,
+    modelVersionMismatches: (fantasyIqHistory.snapshots || []).filter(
+      (snapshot) => snapshot.metadata?.fantasyIqModelVersion && snapshot.metadata.fantasyIqModelVersion !== FANTASY_IQ_MODEL_VERSION
+    ).length,
+    byteSize: JSON.stringify({ snapshots: fantasyIqHistory.snapshots || [] }).length,
+  };
+}, [fantasyIqHistory, fantasyIqSnapshotGameweekContext.season, fantasyIqUserIdentifier]);
+
 const currentSeasonPredictionStats = useMemo(() => {
   if (isWorldCupMode) return { exactScores: 0, correctCaptains: 0 };
   const currentPredictions = predictions[currentPredictionKey] || {};
@@ -12173,6 +12369,277 @@ useEffect(() => {
         </div>
       );
     };
+    const formatFantasyIqHistoryDelta = (value) => {
+      if (value == null) return "Unavailable";
+      return value > 0 ? `+${value}` : String(value);
+    };
+    const renderFantasyIqHistoryTrendChart = () => {
+      const rows = (fantasyIqTrendData || []).filter((row) => row[fantasyIqHistoryTrendMetric] != null);
+      const width = 560;
+      const height = 160;
+      const padding = 24;
+      const points = rows.map((row, index) => {
+        const x = rows.length === 1 ? width / 2 : padding + (index / (rows.length - 1)) * (width - padding * 2);
+        const y = height - padding - (Number(row[fantasyIqHistoryTrendMetric]) / 100) * (height - padding * 2);
+        return { ...row, x, y };
+      });
+      return (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) 190px", gap: 8, alignItems: "center" }}>
+            <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>Fantasy IQ score by gameweek</div>
+            <select
+              aria-label="Fantasy IQ history trend metric"
+              value={fantasyIqHistoryTrendMetric}
+              onChange={(event) => setFantasyIqHistoryTrendMetric(event.target.value)}
+              style={{ ...probInput, padding: "8px 10px", fontSize: 12 }}
+            >
+              <option value="overallScore">Overall Fantasy IQ</option>
+              <option value="attackOutlook">Attack Outlook</option>
+              <option value="defenceOutlook">Defence Outlook</option>
+              <option value="fixtureOutlook">Fixture Outlook</option>
+              <option value="predictionAlignment">Prediction Alignment</option>
+            </select>
+          </div>
+          {points.length ? (
+            <svg role="img" aria-label="Fantasy IQ saved score trend" viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: 180, display: "block" }}>
+              <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke={theme.line} />
+              <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke={theme.line} />
+              <polyline
+                fill="none"
+                stroke={theme.accent2}
+                strokeWidth="3"
+                points={points.map((point) => `${point.x},${point.y}`).join(" ")}
+              />
+              {points.map((point) => (
+                <g key={point.id}>
+                  <circle cx={point.x} cy={point.y} r="5" fill={theme.accent2}>
+                    <title>{`${point.label}: ${point[fantasyIqHistoryTrendMetric]}/100`}</title>
+                  </circle>
+                  <text x={point.x} y={height - 6} textAnchor="middle" fill={theme.muted} fontSize="10" fontWeight="800">{point.label.replace("GW ", "")}</text>
+                </g>
+              ))}
+            </svg>
+          ) : (
+            <div style={{ color: theme.muted, fontSize: 12 }}>More snapshots are needed for a trend.</div>
+          )}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", color: theme.text, fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {["Gameweek", "Overall", "Fixture", "Attack", "Defence", "Prediction"].map((label) => (
+                    <th key={label} style={{ textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${theme.line}`, color: theme.muted }}>{label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(fantasyIqTrendData || []).map((row) => (
+                  <tr key={row.id}>
+                    <td style={{ padding: "6px 8px", borderBottom: `1px solid ${theme.line}` }}>{row.label}</td>
+                    <td style={{ padding: "6px 8px", borderBottom: `1px solid ${theme.line}` }}>{row.overallScore ?? "NA"}</td>
+                    <td style={{ padding: "6px 8px", borderBottom: `1px solid ${theme.line}` }}>{row.fixtureOutlook ?? "NA"}</td>
+                    <td style={{ padding: "6px 8px", borderBottom: `1px solid ${theme.line}` }}>{row.attackOutlook ?? "NA"}</td>
+                    <td style={{ padding: "6px 8px", borderBottom: `1px solid ${theme.line}` }}>{row.defenceOutlook ?? "NA"}</td>
+                    <td style={{ padding: "6px 8px", borderBottom: `1px solid ${theme.line}` }}>{row.predictionAlignment ?? "NA"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+    };
+    const renderFantasyIqSnapshotDetails = (snapshot) => {
+      const starters = (snapshot.squad?.players || []).filter((player) => player.squadRole === "starter");
+      const bench = (snapshot.squad?.players || []).filter((player) => player.squadRole === "bench");
+      const captain = (snapshot.squad?.players || []).find((player) => player.id === snapshot.squad?.captainPlayerId || player.isCaptain);
+      const vice = (snapshot.squad?.players || []).find((player) => player.id === snapshot.squad?.viceCaptainPlayerId || player.isViceCaptain);
+      return (
+        <div style={{ display: "grid", gap: 10, paddingTop: 8 }}>
+          <div style={{ color: theme.accent2, fontSize: 12, fontWeight: 950 }}>Saved model result</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+            {renderFantasyIqMetric("Score", formatFantasyIqScore(snapshot.report?.overallScore), theme.accent2)}
+            {renderFantasyIqMetric("Confidence", snapshot.report?.confidence || "NA", theme.accent)}
+            {renderFantasyIqMetric("Formation", snapshot.squad?.formation || "NA", theme.accent)}
+            {renderFantasyIqMetric("Priority", snapshot.report?.transferPriority || "NA", theme.warn)}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+            <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ color: theme.text, fontSize: 12, fontWeight: 950 }}>Starting XI</div>
+              {starters.map((player) => <div key={`starter-${snapshot.id}-${player.id}`} style={{ color: theme.muted, fontSize: 12 }}>{player.name} ({player.teamCode}, {player.position})</div>)}
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ color: theme.text, fontSize: 12, fontWeight: 950 }}>Bench</div>
+              {bench.map((player) => <div key={`bench-${snapshot.id}-${player.id}`} style={{ color: theme.muted, fontSize: 12 }}>{player.name} ({player.teamCode}, {player.position})</div>)}
+            </div>
+          </div>
+          <div style={{ color: theme.muted, fontSize: 12 }}>
+            Captain: {captain?.name || "NA"} · Vice-captain: {vice?.name || "NA"} · Source: {snapshot.squad?.source || "NA"}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+            {FANTASY_IQ_HISTORY_CATEGORY_KEYS.map((key) =>
+              renderFantasyIqMetric(FANTASY_IQ_HISTORY_CATEGORY_LABELS[key], formatFantasyIqScore(snapshot.report?.categories?.[key]), theme.muted)
+            )}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+            {renderFantasyIqNotes("Stored strengths", snapshot.report?.strengths, theme.accent2)}
+            {renderFantasyIqNotes("Stored concerns", snapshot.report?.concerns, theme.warn)}
+            {renderFantasyIqNotes("Stored conflicts", (snapshot.report?.predictionConflicts || []).map((item) => `${item.label}: ${item.detail}`), theme.accent)}
+          </div>
+          <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+            Model {snapshot.metadata?.fantasyIqModelVersion || "unknown"} · Lineup {snapshot.metadata?.lineupIqModelVersion || "NA"} · Transfer {snapshot.metadata?.transferIqModelVersion || "NA"} · Fixture {snapshot.metadata?.fixtureModelVersion || "NA"} · Score config {snapshot.metadata?.scoreConfigVersion || "NA"} · Updated {new Date(snapshot.updatedAt).toLocaleString()}
+          </div>
+        </div>
+      );
+    };
+    const renderFantasyIqHistory = () => (
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+          Fantasy IQ history is currently saved on this device.
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            disabled={!currentFantasyIqSnapshotCandidate}
+            onClick={() => handleSaveFantasyIqSnapshot()}
+            style={{ ...pillBtn(!!currentFantasyIqSnapshotCandidate), padding: "8px 10px", fontSize: 12 }}
+          >
+            Save Gameweek Snapshot
+          </button>
+          {!!fantasyIqCurrentDuplicate && (
+            <button type="button" onClick={() => handleSaveFantasyIqSnapshot({ mode: "update" })} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
+              Update Current Snapshot
+            </button>
+          )}
+          {!!fantasyIqOrderedSnapshots.length && (
+            <button type="button" onClick={handleExportFantasyIqHistory} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
+              Export Fantasy IQ History
+            </button>
+          )}
+          {!!fantasyIqOrderedSnapshots.length && (
+            <button type="button" onClick={handleClearFantasyIqHistory} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12, color: theme.danger }}>
+              Clear Fantasy IQ History
+            </button>
+          )}
+        </div>
+        {(fantasyIqHistoryDuplicate || fantasyIqHistoryPrompt) && (
+          <div role="status" aria-live="polite" style={{ background: "rgba(245,158,11,0.08)", border: `1px solid ${theme.warn}`, borderRadius: 10, padding: 10, display: "grid", gap: 8 }}>
+            <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+              {fantasyIqHistoryDuplicate
+                ? `A Fantasy IQ snapshot already exists for ${formatFantasyIqSnapshotGameweek(fantasyIqHistoryDuplicate)}.`
+                : fantasyIqHistoryPrompt.message}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={() => handleSaveFantasyIqSnapshot({ mode: "update" })} style={{ ...pillBtn(true), padding: "7px 9px", fontSize: 12 }}>
+                Update Snapshot
+              </button>
+              <button type="button" onClick={() => handleSaveFantasyIqSnapshot({ mode: "keep-existing" })} style={{ ...pillBtn(false), padding: "7px 9px", fontSize: 12 }}>
+                Keep Existing
+              </button>
+              <button type="button" onClick={() => { setFantasyIqHistoryDuplicate(null); setFantasyIqHistoryPrompt(null); }} style={{ ...pillBtn(false), padding: "7px 9px", fontSize: 12 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {fantasyIqHistoryStatus && (
+          <div style={{ color: fantasyIqHistoryStatus.includes("could not") ? theme.warn : theme.accent2, fontSize: 12, fontWeight: 850 }}>
+            {fantasyIqHistoryStatus}
+          </div>
+        )}
+        {!fantasyIqOrderedSnapshots.length ? (
+          <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+            No Fantasy IQ snapshots saved yet. Save a snapshot each gameweek to track your progress.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {fantasyIqLatestSnapshot && (
+              <div style={{ display: "grid", gap: 10, background: "rgba(255,255,255,0.04)", border: `1px solid ${theme.line}`, borderRadius: 10, padding: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                  {renderFantasyIqMetric(formatFantasyIqSnapshotGameweek(fantasyIqLatestSnapshot), formatFantasyIqScore(fantasyIqLatestSnapshot.report?.overallScore), theme.accent2)}
+                  {renderFantasyIqMetric("Confidence", fantasyIqLatestSnapshot.report?.confidence || "NA", theme.accent)}
+                  {renderFantasyIqMetric("Formation", fantasyIqLatestSnapshot.squad?.formation || "NA", theme.accent)}
+                  {renderFantasyIqMetric("Captain", (fantasyIqLatestSnapshot.squad?.players || []).find((player) => player.id === fantasyIqLatestSnapshot.squad?.captainPlayerId || player.isCaptain)?.name || "NA", theme.warn)}
+                </div>
+                <div style={{ color: theme.muted, fontSize: 12 }}>
+                  Saved {new Date(fantasyIqLatestSnapshot.createdAt).toLocaleDateString()} · {fantasyIqTrendSummary.snapshotCount === 1 ? "More snapshots are needed for a trend." : `Highest ${fantasyIqTrendSummary.highestScore}/100 · Lowest ${fantasyIqTrendSummary.lowestScore}/100 · Average ${fantasyIqTrendSummary.averageScore}/100 · From first ${formatFantasyIqHistoryDelta(fantasyIqTrendSummary.changeFromFirst)}`}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => setFantasyIqHistoryExpandedId((id) => id === fantasyIqLatestSnapshot.id ? null : fantasyIqLatestSnapshot.id)} style={{ ...pillBtn(false), padding: "7px 9px", fontSize: 12 }}>
+                    View Details
+                  </button>
+                  <button type="button" onClick={() => handleSaveFantasyIqSnapshot({ mode: "update" })} style={{ ...pillBtn(false), padding: "7px 9px", fontSize: 12 }}>
+                    Update
+                  </button>
+                  <button type="button" onClick={() => handleDeleteFantasyIqSnapshot(fantasyIqLatestSnapshot)} style={{ ...pillBtn(false), padding: "7px 9px", fontSize: 12, color: theme.danger }}>
+                    Delete
+                  </button>
+                </div>
+                {fantasyIqHistoryExpandedId === fantasyIqLatestSnapshot.id && renderFantasyIqSnapshotDetails(fantasyIqLatestSnapshot)}
+              </div>
+            )}
+            {fantasyIqLatestComparison && (
+              <div style={{ display: "grid", gap: 10, background: "rgba(34,197,94,0.08)", border: `1px solid ${theme.accent2}`, borderRadius: 10, padding: 10 }}>
+                <div style={{ color: theme.text, fontSize: 14, fontWeight: 950 }}>
+                  {fantasyIqLatestComparison.verdict}
+                </div>
+                <div style={{ color: theme.muted, fontSize: 12 }}>
+                  Your modelled three-gameweek squad outlook {fantasyIqLatestComparison.overallDelta >= 0 ? "improved" : "changed"} by {formatFantasyIqHistoryDelta(fantasyIqLatestComparison.overallDelta)} points.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+                  {renderFantasyIqMetric(formatFantasyIqSnapshotGameweek(fantasyIqPreviousSnapshot), fantasyIqPreviousSnapshot.report?.overallScore ?? "NA", theme.muted)}
+                  {renderFantasyIqMetric(formatFantasyIqSnapshotGameweek(fantasyIqLatestSnapshot), fantasyIqLatestSnapshot.report?.overallScore ?? "NA", theme.accent2)}
+                  {renderFantasyIqMetric("Change", formatFantasyIqHistoryDelta(fantasyIqLatestComparison.overallDelta), fantasyIqLatestComparison.overallDelta >= 0 ? theme.accent2 : theme.warn)}
+                  {renderFantasyIqMetric("Confidence", fantasyIqLatestComparison.confidenceChange.changed ? `${fantasyIqLatestComparison.confidenceChange.previous || "NA"} to ${fantasyIqLatestComparison.confidenceChange.current || "NA"}` : fantasyIqLatestComparison.confidenceChange.current || "NA", theme.accent)}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+                  {FANTASY_IQ_HISTORY_CATEGORY_KEYS.map((key) => (
+                    <div key={`delta-${key}`} style={{ color: theme.muted, fontSize: 12 }}>
+                      <strong style={{ color: theme.text }}>{FANTASY_IQ_HISTORY_CATEGORY_LABELS[key]}:</strong> {formatFantasyIqHistoryDelta(fantasyIqLatestComparison.categoryDeltas[key]?.delta)}
+                    </div>
+                  ))}
+                </div>
+                {(fantasyIqLatestComparison.explanations || []).slice(0, 4).map((line) => (
+                  <div key={line} style={{ color: theme.muted, fontSize: 12 }}>{line}</div>
+                ))}
+                {!!fantasyIqLatestComparison.clubExposureChanges.length && (
+                  <div style={{ color: theme.muted, fontSize: 12 }}>
+                    Club exposure changes: {fantasyIqLatestComparison.clubExposureChanges.map((row) => `${row.teamCode} ${row.previous} to ${row.current}`).join(", ")}
+                  </div>
+                )}
+              </div>
+            )}
+            {renderFantasyIqHistoryTrendChart()}
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>Snapshot list</div>
+              {fantasyIqOrderedSnapshots.slice().reverse().map((snapshot) => (
+                <div key={snapshot.id} style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${theme.line}`, borderRadius: 10, padding: 10, display: "grid", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto", gap: 8, alignItems: "center" }}>
+                    <div>
+                      <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>{formatFantasyIqSnapshotGameweek(snapshot)} · {formatFantasyIqScore(snapshot.report?.overallScore) || "NA"}</div>
+                      <div style={{ color: theme.muted, fontSize: 11 }}>Saved {new Date(snapshot.createdAt).toLocaleString()} · {snapshot.squad?.formation || "NA"} · {snapshot.report?.confidence || "NA"} confidence</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => setFantasyIqHistoryExpandedId((id) => id === snapshot.id ? null : snapshot.id)} style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11 }}>
+                        {fantasyIqHistoryExpandedId === snapshot.id ? "Hide Details" : "View Details"}
+                      </button>
+                      <button type="button" onClick={() => handleDeleteFantasyIqSnapshot(snapshot)} style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, color: theme.danger }}>
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                  {fantasyIqHistoryExpandedId === snapshot.id && renderFantasyIqSnapshotDetails(snapshot)}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {process.env.NODE_ENV === "development" && (
+          <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+            Debug: key {fantasyIqHistoryDiagnostics.storageKey} · schema {fantasyIqHistoryDiagnostics.schemaVersion} · version {fantasyIqHistoryDiagnostics.historyVersion} · snapshots {fantasyIqHistoryDiagnostics.snapshotCount} · valid {fantasyIqHistoryDiagnostics.validSnapshotCount} · rejected {fantasyIqHistoryDiagnostics.rejectedSnapshotCount} · duplicates repaired {fantasyIqHistoryDiagnostics.duplicateSnapshotCount} · season {fantasyIqHistoryDiagnostics.currentSeason} · model mismatches {fantasyIqHistoryDiagnostics.modelVersionMismatches} · bytes {fantasyIqHistoryDiagnostics.byteSize}
+          </div>
+        )}
+      </div>
+    );
     const renderFantasyScreenshotReviewSlot = (slot) => {
       const selectedPlayer = slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId);
       return (
@@ -12683,6 +13150,13 @@ useEffect(() => {
             : "Confirm your fantasy squad before comparing transfers.",
           renderFantasyTransferIq(),
           "#F59E0B"
+        )}
+
+        {renderFantasyIqSection(
+          "Fantasy IQ History",
+          "Track how your squad outlook changes throughout the season.",
+          renderFantasyIqHistory(),
+          theme.accent2
         )}
 
         {renderFantasyIqSection(
