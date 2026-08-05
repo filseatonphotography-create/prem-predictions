@@ -181,6 +181,50 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(normaliseOcrBlocks({ data: { text: "Bukayo Saka ARS MID" } })).toHaveLength(1);
   });
 
+  test("groups nearby OCR words into player-name candidates", () => {
+    const blocks = normaliseOcrBlocks({
+      data: {
+        words: [
+          { text: "Van", confidence: 91, bbox: { x0: 10, y0: 100, x1: 38, y1: 118 } },
+          { text: "Dijk", confidence: 92, bbox: { x0: 44, y0: 100, x1: 78, y1: 118 } },
+          { text: "Salah", confidence: 93, bbox: { x0: 180, y0: 100, x1: 230, y1: 118 } },
+          { text: "Joao", confidence: 90, bbox: { x0: 12, y0: 180, x1: 50, y1: 198 } },
+          { text: "Felix", confidence: 90, bbox: { x0: 57, y0: 180, x1: 95, y1: 198 } },
+        ],
+      },
+    });
+
+    expect(blocks.map((block) => block.text)).toEqual(["Van Dijk", "Salah", "Joao Felix"]);
+    expect(parseFantasyScreenshotCandidates(blocks, { imageHeight: 1000 }).map((candidate) => candidate.rawName)).toEqual(["Van Dijk", "Salah", "Joao Felix"]);
+  });
+
+  test("prefers grouped words over coarse OCR rows when they reveal more players", () => {
+    const blocks = normaliseOcrBlocks({
+      data: {
+        blocks: [
+          {
+            paragraphs: [
+              {
+                lines: [
+                  { text: "Raya Gabriel Van Dijk Trippier", confidence: 80, bbox: { x0: 0, y0: 100, x1: 300, y1: 120 } },
+                ],
+              },
+            ],
+          },
+        ],
+        words: [
+          { text: "Raya", confidence: 90, bbox: { x0: 10, y0: 100, x1: 48, y1: 118 } },
+          { text: "Gabriel", confidence: 91, bbox: { x0: 110, y0: 100, x1: 170, y1: 118 } },
+          { text: "Van", confidence: 91, bbox: { x0: 230, y0: 100, x1: 258, y1: 118 } },
+          { text: "Dijk", confidence: 92, bbox: { x0: 264, y0: 100, x1: 298, y1: 118 } },
+          { text: "Trippier", confidence: 91, bbox: { x0: 360, y0: 100, x1: 420, y1: 118 } },
+        ],
+      },
+    });
+
+    expect(blocks.map((block) => block.text)).toEqual(["Raya", "Gabriel", "Van Dijk", "Trippier"]);
+  });
+
   test("detects team-code OCR corrections", () => {
     expect(correctFantasyTeamCodeFromOcr("AR5").normalisedCode).toBe("ARS");
     expect(correctFantasyTeamCodeFromOcr("MC1").normalisedCode).toBe("MCI");
@@ -201,6 +245,17 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(candidates).toHaveLength(2);
     expect(candidates[0]).toMatchObject({ rawName: "Bukayo Saka", rawTeamCode: "ARS", rawPosition: "MID", rawSquadRole: "starter", rawCaptainMarker: "C" });
     expect(candidates[1].rawViceCaptainMarker).toBe("VC");
+  });
+
+  test("drops sponsor and venue OCR words instead of treating them as player names", () => {
+    const candidates = parseFantasyScreenshotCandidates([
+      { text: "EXPRESS", confidence: 0.9, boundingBox: { x: 0, y: 20, width: 120, height: 30 } },
+      { text: "AMERICAN EXPRESS", confidence: 0.9, boundingBox: { x: 0, y: 60, width: 180, height: 30 } },
+      { text: "EMIRATES", confidence: 0.9, boundingBox: { x: 0, y: 100, width: 120, height: 30 } },
+      { text: "Bukayo Saka ARS MID", confidence: 0.91, boundingBox: { x: 0, y: 140, width: 140, height: 30 } },
+    ]);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].rawName).toBe("Bukayo Saka");
   });
 
   test("infers bench role from lower image region", () => {

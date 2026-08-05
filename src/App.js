@@ -4901,6 +4901,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
   const [fantasyIqAnalysisPanel, setFantasyIqAnalysisPanel] = useState("team");
+  const [fantasyIqAnalysisMenuOpen, setFantasyIqAnalysisMenuOpen] = useState(false);
   const [fantasyInsightsScope, setFantasyInsightsScope] = useState("gameweek");
   const fantasyIqUserIdentifier = useMemo(
     () => currentUserId || currentPlayer || loginName || "guest",
@@ -11456,6 +11457,7 @@ useEffect(() => {
         );
       })
       .slice(0, 18);
+    const fantasyIqPlayerSearchActive = !!fantasyIqPlayerSearch.trim();
     const fantasyIqTeamFilterOptions = Array.from(
       new Set(fantasyIqAvailablePlayers.map((player) => player.teamCode))
     ).sort();
@@ -11691,8 +11693,9 @@ useEffect(() => {
             <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
               Availability information may change. Check official team news before the deadline.
             </div>
-            <div style={{ display: "grid", gap: 6, maxHeight: 310, overflowY: "auto" }}>
-              {filteredFantasyIqPlayers.length ? (
+            {fantasyIqPlayerSearchActive ? (
+              <div style={{ display: "grid", gap: 6, maxHeight: 310, overflowY: "auto" }}>
+                {filteredFantasyIqPlayers.length ? (
                 filteredFantasyIqPlayers.map((player) => {
                   const blocker = getFantasyIqPlayerAddBlocker(player);
                   return (
@@ -11728,9 +11731,14 @@ useEffect(() => {
                   );
                 })
               ) : (
-                <div style={{ color: theme.muted, fontSize: 12 }}>No players match those filters.</div>
-              )}
-            </div>
+                  <div style={{ color: theme.muted, fontSize: 12 }}>No players match that search.</div>
+                )}
+              </div>
+            ) : (
+              <div style={{ color: theme.muted, fontSize: 12, border: `1px dashed ${theme.line}`, borderRadius: 9, padding: 9 }}>
+                Search by player name or team code to add players.
+              </div>
+            )}
           </div>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -11765,17 +11773,6 @@ useEffect(() => {
         );
       })
       .slice(0, 10);
-    const getImportMatchLabel = (slot) =>
-      slot.status === "matched"
-        ? "Strong match"
-        : slot.status === "likely"
-        ? "Likely match"
-        : slot.status === "ambiguous"
-        ? "Needs review"
-        : "Not matched";
-    const fantasyScreenshotImportSummaryText = fantasyScreenshotImportSummary
-      ? `${fantasyScreenshotImportSummary.detectedCandidateCount} possible players detected. ${fantasyScreenshotImportSummary.exactMatchCount} strong matches. ${fantasyScreenshotImportSummary.likelyMatchCount} likely matches. ${fantasyScreenshotImportSummary.ambiguousCount} need review. ${fantasyScreenshotImportSummary.unmatchedCount} not matched.`
-      : "";
     const fantasyScreenshotReadySummaryText = fantasyScreenshotReviewValidation.isValid
       ? `15 players confirmed. Formation: ${fantasyScreenshotReviewSummary.formation || "Valid"}. Captain selected. Vice-captain selected. Ready to import.`
       : "";
@@ -12671,6 +12668,33 @@ useEffect(() => {
     );
     const renderFantasyScreenshotReviewSlot = (slot) => {
       const selectedPlayer = slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId);
+      const badgeSrc = selectedPlayer ? resolveTeamBadge(selectedPlayer.teamName || selectedPlayer.teamCode) : "";
+      const playerLabel = selectedPlayer?.displayName || selectedPlayer?.name || slot.extracted.rawName || "Choose a player";
+      const roleValue = slot.isCaptain ? "captain" : slot.isViceCaptain ? "vice" : slot.role === "starter" ? "starter" : "bench";
+      const setReviewSlotRoleControl = (value) => {
+        if (value === "captain") {
+          setFantasyScreenshotReviewCaptain(slot.id, "captain");
+          updateFantasyScreenshotReview((review) =>
+            updateFantasyScreenshotReviewSlot(review, slot.id, { role: "starter" }, fantasyIqAvailablePlayers)
+          );
+          return;
+        }
+        if (value === "vice") {
+          setFantasyScreenshotReviewCaptain(slot.id, "vice");
+          updateFantasyScreenshotReview((review) =>
+            updateFantasyScreenshotReviewSlot(review, slot.id, { role: "starter" }, fantasyIqAvailablePlayers)
+          );
+          return;
+        }
+        markFantasyScreenshotManualCorrection();
+        updateFantasyScreenshotReview((review) =>
+          updateFantasyScreenshotReviewSlot(review, slot.id, {
+            role: value,
+            isCaptain: false,
+            isViceCaptain: false,
+          }, fantasyIqAvailablePlayers)
+        );
+      };
       return (
         <div
           key={slot.id}
@@ -12683,16 +12707,33 @@ useEffect(() => {
             gap: 8,
           }}
         >
-          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto", gap: 8 }}>
-            <div>
-              <div style={{ color: theme.muted, fontSize: 10, fontWeight: 900 }}>OCR</div>
-              <div style={{ color: theme.text, fontSize: 13, fontWeight: 950, overflowWrap: "anywhere" }}>
-                {slot.extracted.rawName || "Unreadable player"}
-              </div>
-              <div style={{ color: theme.muted, fontSize: 11 }}>
-                {slot.extracted.rawTeamCode || "Team TBC"} · {slot.extracted.rawPosition || "Position TBC"} · {getImportMatchLabel(slot)}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "minmax(0, 1fr)" : "minmax(0, 1fr) 112px auto", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "30px minmax(0, 1fr)", gap: 8, alignItems: "center", minWidth: 0 }}>
+              {badgeSrc ? (
+                <img src={badgeSrc} alt="" aria-hidden="true" style={{ width: 26, height: 26, objectFit: "contain" }} />
+              ) : (
+                <div style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${theme.line}`, background: "rgba(255,255,255,0.04)" }} />
+              )}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: selectedPlayer ? theme.text : theme.warn, fontSize: 13, fontWeight: 950, overflowWrap: "anywhere" }}>
+                  {playerLabel}
+                </div>
+                <div style={{ color: theme.muted, fontSize: 11, fontWeight: 850 }}>
+                  {selectedPlayer?.position || slot.extracted.rawPosition || "Position TBC"}
+                </div>
               </div>
             </div>
+            <select
+              aria-label={`Set role for ${playerLabel}`}
+              value={roleValue}
+              onChange={(event) => setReviewSlotRoleControl(event.target.value)}
+              style={{ ...probInput, padding: "6px 8px", fontSize: 11 }}
+            >
+              <option value="starter">Starter</option>
+              <option value="bench">Bench</option>
+              <option value="captain">Captain</option>
+              <option value="vice">Vice</option>
+            </select>
             <button
               type="button"
               onClick={() => {
@@ -12704,41 +12745,12 @@ useEffect(() => {
               Remove
             </button>
           </div>
-          <div style={{ color: selectedPlayer ? theme.text : theme.warn, fontSize: 12, fontWeight: 850 }}>
-            Selected: {selectedPlayer ? `${selectedPlayer.displayName || selectedPlayer.name} (${selectedPlayer.teamCode}, ${selectedPlayer.position})` : "Choose a player"}
-          </div>
           {!!slot.issues?.length && (
             <div style={{ color: theme.warn, fontSize: 11, lineHeight: 1.35 }}>
               {slot.issues.slice(0, 2).join(" ")}
             </div>
           )}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={() => {
-                markFantasyScreenshotManualCorrection();
-                updateFantasyScreenshotReview((review) =>
-                  updateFantasyScreenshotReviewSlot(review, slot.id, { role: slot.role === "starter" ? "bench" : "starter" }, fantasyIqAvailablePlayers)
-                );
-              }}
-              style={{ ...pillBtn(slot.role === "starter"), padding: "5px 7px", fontSize: 11 }}
-            >
-              {slot.role === "starter" ? "Starter" : "Bench"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFantasyScreenshotReviewCaptain(slot.id, slot.isCaptain ? "none" : "captain")}
-              style={{ ...pillBtn(slot.isCaptain), padding: "5px 7px", fontSize: 11 }}
-            >
-              Captain
-            </button>
-            <button
-              type="button"
-              onClick={() => setFantasyScreenshotReviewCaptain(slot.id, slot.isViceCaptain ? "none" : "vice")}
-              style={{ ...pillBtn(slot.isViceCaptain), padding: "5px 7px", fontSize: 11 }}
-            >
-              Vice
-            </button>
             {(slot.matchResult?.candidates || []).slice(0, 3).map((candidate) => (
               <button
                 key={`${slot.id}-${candidate.id}`}
@@ -12769,24 +12781,6 @@ useEffect(() => {
           gap: 12,
         }}
       >
-        <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 8 }}>
-          {["Upload", "Analyse", "Review", "Confirm"].map((step, index) => (
-            <div
-              key={step}
-              style={{
-                background: "rgba(255,255,255,0.04)",
-                border: `1px solid ${theme.line}`,
-                borderRadius: 8,
-                padding: 8,
-                color: theme.text,
-                fontSize: 12,
-                fontWeight: 950,
-              }}
-            >
-              Step {index + 1}: {step}
-            </div>
-          ))}
-        </div>
         <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
           Upload a screenshot showing your starting XI and bench. Keep player names and three-letter team codes visible.
         </div>
@@ -12847,11 +12841,6 @@ useEffect(() => {
             <div style={{ color: theme.muted, fontSize: 11 }}>
               {fantasyScreenshotImageMetadata?.width}x{fantasyScreenshotImageMetadata?.height} · {Math.round((fantasyScreenshotImageMetadata?.size || 0) / 1024)} KB
             </div>
-          </div>
-        )}
-        {fantasyScreenshotImportSummaryText && (
-          <div style={{ color: theme.text, fontSize: 12, fontWeight: 850, lineHeight: 1.35 }}>
-            {fantasyScreenshotImportSummaryText}
           </div>
         )}
         <div aria-live="polite" style={{ color: fantasyScreenshotError ? theme.warn : theme.muted, fontSize: 12, lineHeight: 1.35 }}>
@@ -12988,38 +12977,73 @@ useEffect(() => {
     );
 
     const renderFantasyIqPanelSelector = () => (
-      <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
-        {[
-          ["prediction", "Prediction Analysis"],
-          ["team", "Team Analysis"],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            aria-expanded={fantasyIqAnalysisPanel === id}
-            onClick={() => setFantasyIqAnalysisPanel((current) => current === id ? "" : id)}
+      <div style={{ position: "relative", display: "grid", gap: 6, justifyItems: "start" }}>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={fantasyIqAnalysisMenuOpen}
+          onClick={() => setFantasyIqAnalysisMenuOpen((open) => !open)}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 10,
+            alignItems: "center",
+            minWidth: isMobile || compact ? "100%" : 260,
+            textAlign: "left",
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: `1px solid ${theme.accent}`,
+            background: "rgba(56,189,248,0.1)",
+            color: theme.text,
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: 950,
+          }}
+        >
+          <span>Analysis Type: {fantasyIqAnalysisPanel === "prediction" ? "Prediction Analysis" : "Team Analysis"}</span>
+          <span style={{ color: theme.accent }}>{fantasyIqAnalysisMenuOpen ? "▲" : "▼"}</span>
+        </button>
+        {fantasyIqAnalysisMenuOpen && (
+          <div
+            role="menu"
             style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(0, 1fr) auto",
-              gap: 8,
-              alignItems: "center",
-              textAlign: "left",
-              padding: "12px 14px",
+              width: isMobile || compact ? "100%" : 260,
+              background: theme.panelHi,
+              border: `1px solid ${theme.line}`,
               borderRadius: 8,
-              border: `1px solid ${fantasyIqAnalysisPanel === id ? theme.accent : theme.line}`,
-              background: fantasyIqAnalysisPanel === id ? "rgba(56,189,248,0.12)" : theme.panelHi,
-              color: theme.text,
-              cursor: "pointer",
-              fontSize: 14,
-              fontWeight: 950,
+              overflow: "hidden",
+              display: "grid",
             }}
           >
-            <span>{label}</span>
-            <span style={{ color: fantasyIqAnalysisPanel === id ? theme.accent : theme.muted }}>
-              {fantasyIqAnalysisPanel === id ? "▲" : "▼"}
-            </span>
-          </button>
-        ))}
+            {[
+              ["prediction", "Prediction Analysis"],
+              ["team", "Team Analysis"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setFantasyIqAnalysisPanel(id);
+                  setFantasyIqAnalysisMenuOpen(false);
+                }}
+                style={{
+                  padding: "9px 12px",
+                  border: "none",
+                  borderBottom: `1px solid ${theme.line}`,
+                  background: fantasyIqAnalysisPanel === id ? "rgba(56,189,248,0.12)" : "transparent",
+                  color: theme.text,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  fontSize: 13,
+                  fontWeight: 900,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
 

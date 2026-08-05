@@ -86,6 +86,12 @@ const OCR_CODE_CORRECTIONS = {
   "5": "S",
 };
 
+const SCREENSHOT_NON_PLAYER_WORDS = new Set([
+  "american",
+  "emirates",
+  "express",
+]);
+
 function safeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -178,6 +184,80 @@ export function correctFantasyTeamCodeFromOcr(rawCode, teams = []) {
 }
 
 export function normaliseOcrBlocks(rawResult = {}) {
+  const normaliseWord = (word, index) => {
+    const bbox = word.bbox || {};
+    const x0 = Number(bbox.x0 ?? bbox.left ?? word.left ?? 0);
+    const y0 = Number(bbox.y0 ?? bbox.top ?? word.top ?? 0);
+    const x1 = Number(bbox.x1 ?? x0 + Number(bbox.width || 0));
+    const y1 = Number(bbox.y1 ?? y0 + Number(bbox.height || 0));
+    return {
+      text: safeText(word.text),
+      confidence: Math.max(0, Math.min(1, Number(word.confidence ?? 0) / 100)),
+      boundingBox: {
+        x: x0,
+        y: y0,
+        width: Math.max(0, x1 - x0),
+        height: Math.max(0, y1 - y0),
+      },
+      lineIndex: Number(word.lineIndex ?? word.line?.baseline?.y0 ?? 0),
+      wordIndex: index,
+    };
+  };
+
+  const groupWordsIntoNearbyTextBlocks = (words = []) => {
+    const normalisedWords = words.map(normaliseWord).filter((word) => word.text);
+    if (!normalisedWords.length) return [];
+    const positionedWords = normalisedWords.filter((word) => word.boundingBox.width || word.boundingBox.height || word.boundingBox.x || word.boundingBox.y);
+    if (positionedWords.length < 2) return normalisedWords;
+    const averageHeight = positionedWords.reduce((sum, word) => sum + Math.max(1, Number(word.boundingBox.height || 0)), 0) / positionedWords.length;
+    const rowTolerance = Math.max(10, averageHeight * 0.75);
+    const rows = [];
+    positionedWords
+      .slice()
+      .sort((a, b) => (a.boundingBox.y + a.boundingBox.height / 2) - (b.boundingBox.y + b.boundingBox.height / 2) || a.boundingBox.x - b.boundingBox.x)
+      .forEach((word) => {
+        const centerY = word.boundingBox.y + word.boundingBox.height / 2;
+        const row = rows.find((item) => Math.abs(item.centerY - centerY) <= rowTolerance);
+        if (row) {
+          row.words.push(word);
+          row.centerY = row.words.reduce((sum, item) => sum + item.boundingBox.y + item.boundingBox.height / 2, 0) / row.words.length;
+        } else {
+          rows.push({ centerY, words: [word] });
+        }
+      });
+
+    return rows.flatMap((row, rowIndex) => {
+      const sorted = row.words.slice().sort((a, b) => a.boundingBox.x - b.boundingBox.x);
+      const groups = [];
+      let current = [];
+      sorted.forEach((word) => {
+        const previous = current[current.length - 1];
+        const gap = previous ? word.boundingBox.x - (previous.boundingBox.x + previous.boundingBox.width) : 0;
+        const joinGap = Math.max(12, Math.min(38, averageHeight * 1.45));
+        if (previous && gap > joinGap) {
+          groups.push(current);
+          current = [word];
+          return;
+        }
+        current.push(word);
+      });
+      if (current.length) groups.push(current);
+      return groups.map((group, groupIndex) => {
+        const x0 = Math.min(...group.map((word) => word.boundingBox.x));
+        const y0 = Math.min(...group.map((word) => word.boundingBox.y));
+        const x1 = Math.max(...group.map((word) => word.boundingBox.x + word.boundingBox.width));
+        const y1 = Math.max(...group.map((word) => word.boundingBox.y + word.boundingBox.height));
+        return {
+          text: group.map((word) => word.text).join(" "),
+          confidence: group.reduce((sum, word) => sum + word.confidence, 0) / group.length,
+          boundingBox: { x: x0, y: y0, width: x1 - x0, height: y1 - y0 },
+          lineIndex: rowIndex,
+          wordIndex: groupIndex,
+        };
+      });
+    });
+  };
+
   const structuredBlocks = rawResult?.data?.blocks || rawResult?.blocks || [];
   if (Array.isArray(structuredBlocks) && structuredBlocks.length) {
     const lines = [];
@@ -190,7 +270,7 @@ export function normaliseOcrBlocks(rawResult = {}) {
       });
     });
     if (lines.length) {
-      return lines.map((line, index) => {
+      const lineBlocks = lines.map((line, index) => {
         const words = line.words || [];
         const text = safeText(line.text || words.map((word) => word.text).join(" "));
         const bbox = line.bbox || words.reduce((box, word) => {
@@ -223,32 +303,14 @@ export function normaliseOcrBlocks(rawResult = {}) {
           wordIndex: 0,
         };
       }).filter((line) => line.text);
+      const wordBlocks = groupWordsIntoNearbyTextBlocks(rawResult?.data?.words || rawResult?.words || []);
+      return wordBlocks.length >= lineBlocks.length + 3 ? wordBlocks : lineBlocks;
     }
   }
 
   const words = rawResult?.data?.words || rawResult?.words || [];
   if (Array.isArray(words) && words.length) {
-    return words
-      .map((word, index) => {
-        const bbox = word.bbox || {};
-        const x0 = Number(bbox.x0 ?? bbox.left ?? word.left ?? 0);
-        const y0 = Number(bbox.y0 ?? bbox.top ?? word.top ?? 0);
-        const x1 = Number(bbox.x1 ?? x0 + Number(bbox.width || 0));
-        const y1 = Number(bbox.y1 ?? y0 + Number(bbox.height || 0));
-        return {
-          text: safeText(word.text),
-          confidence: Math.max(0, Math.min(1, Number(word.confidence ?? 0) / 100)),
-          boundingBox: {
-            x: x0,
-            y: y0,
-            width: Math.max(0, x1 - x0),
-            height: Math.max(0, y1 - y0),
-          },
-          lineIndex: Number(word.lineIndex ?? word.line?.baseline?.y0 ?? 0),
-          wordIndex: index,
-        };
-      })
-      .filter((word) => word.text);
+    return groupWordsIntoNearbyTextBlocks(words);
   }
 
   const text = safeText(rawResult?.data?.text || rawResult?.text);
@@ -327,6 +389,8 @@ function detectCaptainMarker(text = "") {
 
 function stripNonNameTokens(tokens = []) {
   return tokens.filter((token) => {
+    const normalisedToken = normaliseFantasyPlayerName(token);
+    if (SCREENSHOT_NON_PLAYER_WORDS.has(normalisedToken)) return false;
     const code = correctFantasyTeamCodeFromOcr(token);
     if (code.normalisedCode) return false;
     if (inferPositionFromText(token)) return false;
@@ -393,6 +457,7 @@ function sortReviewSlotsByPosition(a = {}, b = {}) {
 
 const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "addiction",
+  "american",
   "analyse",
   "bench",
   "captain",
@@ -401,6 +466,8 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "confirm",
   "confirmed",
   "difficulty",
+  "emirates",
+  "express",
   "fantasy",
   "fixture",
   "gameweek",
