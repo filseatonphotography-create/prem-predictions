@@ -16,6 +16,8 @@ export {
   tokeniseFantasyPlayerName,
 };
 
+/* global globalThis */
+
 export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 1;
 export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v1";
 export const FANTASY_PLAYER_DATA_SOURCE = "official-fpl-bootstrap";

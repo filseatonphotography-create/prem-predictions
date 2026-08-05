@@ -2,18 +2,34 @@ import {
   addFantasyScreenshotReviewPlayer,
   buildFantasyScreenshotReview,
   calculateFantasyScreenshotImportConfidence,
+  createFantasyScreenshotFeedbackSummary,
+  createFantasyScreenshotImportSummary,
   convertFantasyScreenshotReviewToSquad,
   correctFantasyTeamCodeFromOcr,
   decodeFantasyScreenshotImage,
   getFantasyScreenshotCombinedConfidence,
+  getFantasyScreenshotTesseractOptions,
+  hasExternalTesseractAssetPaths,
   mergeDuplicateFantasyScreenshotCandidates,
   normaliseOcrBlocks,
   parseFantasyScreenshotCandidates,
   removeFantasyScreenshotReviewSlot,
+  runFantasyScreenshotOcr,
+  selectBestFantasyScreenshotOcrAttempt,
+  scoreFantasyScreenshotOcrQuality,
   updateFantasyScreenshotReviewSlot,
   validateFantasyScreenshotDimensions,
   validateFantasyScreenshotFile,
 } from "./screenshotImport";
+
+const mockTerminate = jest.fn();
+const mockRecognize = jest.fn();
+const mockSetParameters = jest.fn();
+const mockCreateWorker = jest.fn();
+
+jest.mock("tesseract.js", () => ({
+  createWorker: (...args) => mockCreateWorker(...args),
+}));
 
 const players = [
   {
@@ -81,6 +97,28 @@ const players = [
 function makeFile({ name = "squad.png", type = "image/png", size = 1200 } = {}) {
   return { name, type, size };
 }
+
+beforeEach(() => {
+  mockTerminate.mockReset().mockResolvedValue(undefined);
+  mockSetParameters.mockReset().mockResolvedValue(undefined);
+  mockRecognize.mockReset().mockResolvedValue({
+    data: {
+      text: "Bukayo Saka ARS MID",
+      confidence: 88,
+      words: [
+        { text: "Bukayo", confidence: 90, bbox: { x0: 0, y0: 0, x1: 40, y1: 20 } },
+        { text: "Saka", confidence: 90, bbox: { x0: 45, y0: 0, x1: 80, y1: 20 } },
+        { text: "ARS", confidence: 90, bbox: { x0: 85, y0: 0, x1: 115, y1: 20 } },
+        { text: "MID", confidence: 90, bbox: { x0: 120, y0: 0, x1: 150, y1: 20 } },
+      ],
+    },
+  });
+  mockCreateWorker.mockReset().mockResolvedValue({
+    setParameters: mockSetParameters,
+    recognize: mockRecognize,
+    terminate: mockTerminate,
+  });
+});
 
 describe("Fantasy screenshot file and image validation", () => {
   test("accepts supported image files", () => {
@@ -239,6 +277,14 @@ describe("Fantasy screenshot review and import conversion", () => {
     expect(review.extractedSlots[0].selectedPlayerId).toBeNull();
   });
 
+  test("unique exact name-only matches become likely review selections", () => {
+    const review = buildFantasyScreenshotReview({
+      extractedSlots: [{ ...extracted[0], rawTeamCode: "", rawPosition: "" }],
+      players,
+    });
+    expect(review.extractedSlots[0]).toMatchObject({ status: "likely", selectedPlayerId: "fpl:101" });
+  });
+
   test("unmatched players remain unresolved", () => {
     const review = buildFantasyScreenshotReview({ extractedSlots: [extracted[2]], players });
     expect(review.extractedSlots[0].status).toBe("unmatched");
@@ -317,5 +363,129 @@ describe("Fantasy screenshot review and import conversion", () => {
     const confidence = calculateFantasyScreenshotImportConfidence([]);
     expect(confidence.score).toBe(0);
     expect(Number.isFinite(confidence.score)).toBe(true);
+  });
+});
+
+describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
+  test("local Tesseract asset paths are configured without external CDN URLs", () => {
+    const options = getFantasyScreenshotTesseractOptions();
+    expect(options.workerPath).toBe("/vendor/tesseract/7.0.0/worker/worker.min.js");
+    expect(options.corePath).toBe("/vendor/tesseract/7.0.0/core");
+    expect(options.langPath).toBe("/vendor/tesseract/7.0.0/lang/eng/4.0.0_best_int");
+    expect(options.workerBlobURL).toBe(false);
+    expect(hasExternalTesseractAssetPaths(options)).toBe(false);
+  });
+
+  test("external Tesseract paths are detected", () => {
+    expect(hasExternalTesseractAssetPaths({ workerPath: "https://cdn.example/worker.js" })).toBe(true);
+  });
+
+  test("OCR worker uses local asset options and remains lazily created", async () => {
+    expect(mockCreateWorker).not.toHaveBeenCalled();
+    await runFantasyScreenshotOcr("data:image/png;base64,test");
+    expect(mockCreateWorker).toHaveBeenCalledWith("eng", 1, expect.objectContaining({
+      workerPath: "/vendor/tesseract/7.0.0/worker/worker.min.js",
+      corePath: "/vendor/tesseract/7.0.0/core",
+      langPath: "/vendor/tesseract/7.0.0/lang/eng/4.0.0_best_int",
+      workerBlobURL: false,
+    }));
+  });
+
+  test("worker terminates after successful OCR", async () => {
+    await runFantasyScreenshotOcr("fixture.png");
+    expect(mockSetParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_pageseg_mode: "11" }));
+    expect(mockRecognize).toHaveBeenCalledWith("fixture.png", {}, { text: true, blocks: true });
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+  });
+
+  test("worker terminates after OCR failure", async () => {
+    mockRecognize.mockRejectedValueOnce(new Error("language data failed"));
+    await expect(runFantasyScreenshotOcr("fixture.png")).rejects.toThrow(/language data failed/);
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+  });
+
+  test("worker terminates after cancellation", async () => {
+    const controller = new AbortController();
+    mockRecognize.mockImplementationOnce(() => {
+      controller.abort();
+      return Promise.resolve({ data: { text: "", words: [] } });
+    });
+    await expect(runFantasyScreenshotOcr("fixture.png", { signal: controller.signal })).rejects.toThrow(/OCR cancelled/);
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+  });
+
+  test("quality scoring uses matched-player evidence", () => {
+    const review = buildFantasyScreenshotReview({
+      extractedSlots: [
+        { rawName: "Bukayo Saka", rawTeamCode: "ARS", rawPosition: "MID", extractionConfidence: 0.9 },
+        { rawName: "Mohamed Salah", rawTeamCode: "LIV", rawPosition: "MID", extractionConfidence: 0.9 },
+      ],
+      players,
+    });
+    const quality = scoreFantasyScreenshotOcrQuality({
+      blocks: [{ confidence: 0.9 }, { confidence: 0.8 }],
+      candidates: review.extractedSlots.map((slot) => slot.extracted),
+      review,
+    });
+    expect(quality.matchedPlayerCount).toBe(2);
+    expect(quality.score).toBeGreaterThan(0);
+  });
+
+  test("best OCR variant selection is deterministic and prefers matched players", () => {
+    const best = selectBestFantasyScreenshotOcrAttempt([
+      { variant: "primary", quality: { score: 80, candidateCount: 12, matchedPlayerCount: 3 } },
+      { variant: "fallback", quality: { score: 60, candidateCount: 10, matchedPlayerCount: 8 } },
+    ]);
+    expect(best.variant).toBe("fallback");
+  });
+
+  test("primary quality below threshold requests fallback", () => {
+    const quality = scoreFantasyScreenshotOcrQuality({ blocks: [], candidates: [], review: { extractedSlots: [] } });
+    expect(quality.needsFallback).toBe(true);
+  });
+
+  test("debug summary excludes screenshot data, OCR text and player contents", () => {
+    const review = buildFantasyScreenshotReview({ extractedSlots: [{ rawName: "Bukayo Saka", rawTeamCode: "ARS", rawPosition: "MID", extractionConfidence: 0.9 }], players });
+    const summary = createFantasyScreenshotImportSummary({
+      imageMetadata: { width: 1200, height: 1800, source: "data:image/png;base64,secret" },
+      processingDurationMs: 1234.4,
+      review,
+      manuallyCorrectedCount: 2,
+      finalValidSquad: true,
+    });
+    const serialised = JSON.stringify(summary);
+    expect(summary).toMatchObject({
+      importVersion: "chunk-5.5-local-ocr-v1",
+      imageWidth: 1200,
+      imageHeight: 1800,
+      processingDurationMs: 1234,
+      detectedCandidateCount: 1,
+      manuallyCorrectedCount: 2,
+      finalValidSquad: true,
+    });
+    expect(serialised).not.toMatch(/data:image|base64|Bukayo|OCR|secret/);
+  });
+
+  test("feedback summary excludes screenshot data and raw OCR text", () => {
+    const feedback = createFantasyScreenshotFeedbackSummary({
+      rating: "I corrected 1-2 players",
+      note: "OCR read a team code incorrectly data:image/png;base64,secret",
+      importSummary: {
+        importVersion: "chunk-5.5-local-ocr-v1",
+        processingDurationMs: 123,
+        detectedCandidateCount: 14,
+        exactMatchCount: 10,
+        likelyMatchCount: 2,
+        ambiguousCount: 1,
+        unmatchedCount: 1,
+        manuallyCorrectedCount: 2,
+        finalValidSquad: true,
+        errorCode: null,
+        ocrText: "raw player text",
+      },
+    });
+    const serialised = JSON.stringify(feedback);
+    expect(feedback.importSummary.detectedCandidateCount).toBe(14);
+    expect(serialised).not.toMatch(/raw player text|data:image|base64|secret/);
   });
 });

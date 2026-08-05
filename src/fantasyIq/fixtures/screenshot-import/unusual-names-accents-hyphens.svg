@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1500" viewBox="0 0 1000 1500">
+  <defs><filter id="softBlur"><feGaussianBlur stdDeviation="1.4"/></filter></defs>
+  <rect width="100%" height="100%" fill="#e0f2fe"/>
+  <text x="60" y="70" font-family="Arial, Helvetica, sans-serif" font-size="34" font-weight="800" fill="#111827">Fantasy IQ Mock Squad</text>
+  
+    <g >
+      <rect x="60" y="120" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="156" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Raya</text>
+      <text x="750" y="156" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">ARS</text>
+      <text x="824" y="156" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">GK</text>
+      <text x="890" y="156" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="172" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="202" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="238" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Gabriel</text>
+      <text x="750" y="238" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">ARS</text>
+      <text x="824" y="238" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">DEF</text>
+      <text x="890" y="238" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="254" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="284" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="320" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Van Dijk</text>
+      <text x="750" y="320" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">LIV</text>
+      <text x="824" y="320" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">DEF</text>
+      <text x="890" y="320" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="336" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="366" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="402" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Trippier</text>
+      <text x="750" y="402" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">NEW</text>
+      <text x="824" y="402" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">DEF</text>
+      <text x="890" y="402" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="418" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="448" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="484" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Saka</text>
+      <text x="750" y="484" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">ARS</text>
+      <text x="824" y="484" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">MID</text>
+      <text x="890" y="484" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444">C</text>
+      <text x="78" y="500" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="530" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="566" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Salah</text>
+      <text x="750" y="566" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">LIV</text>
+      <text x="824" y="566" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">MID</text>
+      <text x="890" y="566" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444">VC</text>
+      <text x="78" y="582" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="612" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="648" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Foden</text>
+      <text x="750" y="648" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">MCI</text>
+      <text x="824" y="648" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">MID</text>
+      <text x="890" y="648" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="664" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="694" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="730" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Gordon</text>
+      <text x="750" y="730" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">NEW</text>
+      <text x="824" y="730" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">MID</text>
+      <text x="890" y="730" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="746" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="776" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="812" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Haaland</text>
+      <text x="750" y="812" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">MCI</text>
+      <text x="824" y="812" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">FWD</text>
+      <text x="890" y="812" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="828" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="858" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="894" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Watkins</text>
+      <text x="750" y="894" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">AVL</text>
+      <text x="824" y="894" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">FWD</text>
+      <text x="890" y="894" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="910" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="940" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="976" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Jo&#227;o F&#233;lix</text>
+      <text x="750" y="976" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">CHE</text>
+      <text x="824" y="976" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">FWD</text>
+      <text x="890" y="976" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="992" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">XI</text>
+    </g>
+
+    <g >
+      <rect x="60" y="1022" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="1058" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Areola</text>
+      <text x="750" y="1058" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">EVE</text>
+      <text x="824" y="1058" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">GK</text>
+      <text x="890" y="1058" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="1074" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">BENCH</text>
+    </g>
+
+    <g >
+      <rect x="60" y="1104" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="1140" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Smith-Rowe</text>
+      <text x="750" y="1140" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">FUL</text>
+      <text x="824" y="1140" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">MID</text>
+      <text x="890" y="1140" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="1156" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">BENCH</text>
+    </g>
+
+    <g >
+      <rect x="60" y="1186" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="1222" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Senesi</text>
+      <text x="750" y="1222" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">BOU</text>
+      <text x="824" y="1222" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">DEF</text>
+      <text x="890" y="1222" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="1238" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">BENCH</text>
+    </g>
+
+    <g >
+      <rect x="60" y="1268" width="880" height="58" rx="6" fill="#ffffff" stroke="#0f766e" />
+      <text x="78" y="1304" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#111827">Damsgaard</text>
+      <text x="750" y="1304" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f766e">BRE</text>
+      <text x="824" y="1304" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#92400e">DEF</text>
+      <text x="890" y="1304" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#ef4444"></text>
+      <text x="78" y="1320" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#64748b">BENCH</text>
+    </g>
+</svg>

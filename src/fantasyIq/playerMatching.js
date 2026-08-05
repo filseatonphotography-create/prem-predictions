@@ -253,7 +253,8 @@ export function matchFantasyPlayerCandidate({
   }
 
   const highConfidence =
-    best.confidence >= FANTASY_PLAYER_MATCH_CONFIG.highConfidenceThreshold &&
+    (best.confidence >= FANTASY_PLAYER_MATCH_CONFIG.highConfidenceThreshold ||
+      (!runnerUp && (best.nameScore.exactDisplay || best.nameScore.exactWeb || best.nameScore.exactSurname))) &&
     (!teamCode || best.teamCode === teamCode) &&
     (!position || best.position === position);
   return {

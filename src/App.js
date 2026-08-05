@@ -15,13 +15,12 @@ import {
 import {
   FANTASY_SCREENSHOT_IMPORT_CONFIG,
   addFantasyScreenshotReviewPlayer,
-  buildFantasyScreenshotReview,
+  createFantasyScreenshotFeedbackSummary,
+  createFantasyScreenshotImportSummary,
   convertFantasyScreenshotReviewToSquad,
   decodeFantasyScreenshotImage,
-  parseFantasyScreenshotCandidates,
-  preprocessFantasyScreenshotImage,
   removeFantasyScreenshotReviewSlot,
-  runFantasyScreenshotOcr,
+  runFantasyScreenshotOcrWithFallback,
   updateFantasyScreenshotReviewSlot,
   validateFantasyScreenshotDimensions,
   validateFantasyScreenshotFile,
@@ -93,6 +92,7 @@ const BACKEND_BASE =
     : "https://prem-predictions-1.onrender.com");
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
+const FANTASY_SCREENSHOT_FEEDBACK_STORAGE_KEY = "predictionAddiction:fantasyIqScreenshotFeedback:v1";
 const WELCOME_PENDING_STORAGE_KEY = "prediction_welcome_pending_user_v1";
 const WELCOME_SEEN_STORAGE_KEY = "prediction_welcome_seen_users_v1";
 const WELCOME_VIDEO_SRC = "/welcome-video.mp4";
@@ -1325,6 +1325,22 @@ function saveFantasyIqSquad(userIdentifier, squad) {
     })
   );
   return normalised;
+}
+
+function loadFantasyScreenshotFeedbackSummary() {
+  try {
+    const saved = localStorage.getItem(FANTASY_SCREENSHOT_FEEDBACK_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveFantasyScreenshotFeedbackSummary(summary) {
+  if (!summary) return null;
+  const safeSummary = createFantasyScreenshotFeedbackSummary({ importSummary: summary });
+  localStorage.setItem(FANTASY_SCREENSHOT_FEEDBACK_STORAGE_KEY, JSON.stringify(safeSummary.importSummary));
+  return safeSummary.importSummary;
 }
 
 function clampFantasyIqScore(value) {
@@ -4875,8 +4891,15 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyScreenshotReviewSearch, setFantasyScreenshotReviewSearch] = useState("");
   const [fantasyScreenshotReviewTeamFilter, setFantasyScreenshotReviewTeamFilter] = useState("ALL");
   const [fantasyScreenshotReviewPositionFilter, setFantasyScreenshotReviewPositionFilter] = useState("ALL");
+  const [fantasyScreenshotImportSummary, setFantasyScreenshotImportSummary] = useState(null);
+  const [fantasyScreenshotFeedbackRating, setFantasyScreenshotFeedbackRating] = useState("");
+  const [fantasyScreenshotFeedbackNote, setFantasyScreenshotFeedbackNote] = useState("");
+  const [fantasyScreenshotPostImportSummary, setFantasyScreenshotPostImportSummary] = useState(() => loadFantasyScreenshotFeedbackSummary());
+  const [fantasyScreenshotPreviewCollapsed, setFantasyScreenshotPreviewCollapsed] = useState(false);
   const fantasyScreenshotObjectUrlRef = useRef("");
   const fantasyScreenshotAbortRef = useRef(null);
+  const fantasyScreenshotImportRunIdRef = useRef(0);
+  const fantasyScreenshotManualCorrectionCountRef = useRef(0);
   const [fantasyPlayerData, setFantasyPlayerData] = useState(() => ({
     ...FANTASY_IQ_FALLBACK_PLAYER_DATASET,
     status: "loading",
@@ -4974,6 +4997,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   }, []);
 
   const resetFantasyScreenshotImport = (state = "idle") => {
+    fantasyScreenshotImportRunIdRef.current += 1;
     fantasyScreenshotAbortRef.current?.abort?.();
     fantasyScreenshotAbortRef.current = null;
     if (fantasyScreenshotObjectUrlRef.current) {
@@ -4990,6 +5014,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyScreenshotReviewSearch("");
     setFantasyScreenshotReviewTeamFilter("ALL");
     setFantasyScreenshotReviewPositionFilter("ALL");
+    setFantasyScreenshotImportSummary(null);
+    setFantasyScreenshotFeedbackRating("");
+    setFantasyScreenshotFeedbackNote("");
+    setFantasyScreenshotPreviewCollapsed(false);
+    fantasyScreenshotManualCorrectionCountRef.current = 0;
     setFantasyScreenshotImportState(state);
   };
 
@@ -5056,71 +5085,115 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       setFantasyScreenshotError("Select a screenshot before analysis.");
       return;
     }
+    fantasyScreenshotAbortRef.current?.abort?.();
+    const runId = fantasyScreenshotImportRunIdRef.current + 1;
+    fantasyScreenshotImportRunIdRef.current = runId;
     const controller = new AbortController();
     fantasyScreenshotAbortRef.current = controller;
     const startedAt = performance.now();
+    let decoded = null;
     try {
       setFantasyScreenshotError("");
+      setFantasyScreenshotReview(null);
+      setFantasyScreenshotImportSummary(null);
       setFantasyScreenshotImportState("preprocessing");
       setFantasyScreenshotStatusText("Preparing image");
-      const decoded = await decodeFantasyScreenshotImage(fantasyScreenshotFile);
-      decoded.revoke();
+      decoded = await decodeFantasyScreenshotImage(fantasyScreenshotFile);
+      if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
       setFantasyScreenshotImportState("extracting text");
-      const preprocessed = await preprocessFantasyScreenshotImage({
+      const ocrAttempt = await runFantasyScreenshotOcrWithFallback({
         ...decoded,
         url: fantasyScreenshotPreviewUrl,
-      });
-      const ocr = await runFantasyScreenshotOcr(preprocessed.source || fantasyScreenshotPreviewUrl, {
+      }, {
+        players: fantasyPlayerData.players || [],
+        teams: fantasyPlayerData.teams || [],
+        imageMetadata: fantasyScreenshotImageMetadata,
         signal: controller.signal,
         onStatus: (status) => setFantasyScreenshotStatusText(status || "Reading player names"),
       });
+      if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
       setFantasyScreenshotImportState("matching players");
       setFantasyScreenshotStatusText("Matching clubs and positions");
-      const extracted = parseFantasyScreenshotCandidates(ocr.blocks, {
-        teams: fantasyPlayerData.teams || [],
-        imageHeight: fantasyScreenshotImageMetadata?.height,
-      });
-      const review = buildFantasyScreenshotReview({
-        extractedSlots: extracted,
-        players: fantasyPlayerData.players || [],
-        teams: fantasyPlayerData.teams || [],
+      const review = {
+        ...ocrAttempt.review,
         imageMetadata: {
-          ...fantasyScreenshotImageMetadata,
-          preprocessingVariant: preprocessed.variant,
+          ...ocrAttempt.review.imageMetadata,
           ocrDurationMs: Math.round(performance.now() - startedAt),
-          ocrTextBlockCount: ocr.blocks.length,
-          ocrDebug: ocr.raw,
+          fallbackAttempted: ocrAttempt.variant !== FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
+          quality: ocrAttempt.quality,
         },
+      };
+      const importSummary = createFantasyScreenshotImportSummary({
+        imageMetadata: fantasyScreenshotImageMetadata,
+        processingDurationMs: performance.now() - startedAt,
+        review,
+        manuallyCorrectedCount: fantasyScreenshotManualCorrectionCountRef.current,
+        finalValidSquad: false,
+        errorCode: review.extractedSlots.length ? null : "NO_CANDIDATES",
       });
       if (!review.extractedSlots.length) {
         setFantasyScreenshotError("We could not read enough player information from this screenshot.");
+      } else if (review.extractedSlots.length < 5) {
+        setFantasyScreenshotError("Only a few players were detected. You can continue to review partial results or replace the screenshot.");
+      } else if ((review.diagnostics?.recognisedTeamCodes || []).length === 0) {
+        setFantasyScreenshotError("No team codes were detected. Check each match before importing.");
       }
       setFantasyScreenshotReview(review);
+      setFantasyScreenshotImportSummary(importSummary);
       setFantasyScreenshotImportState(review.extractedSlots.length ? "needs review" : "failed");
       setFantasyScreenshotStatusText(review.extractedSlots.length ? "Ready for review" : "Try a sharper full-squad screenshot or use manual entry.");
     } catch (error) {
+      if (runId !== fantasyScreenshotImportRunIdRef.current) return;
+      const errorCode = error?.name === "AbortError" ? "CANCELLED" : "OCR_FAILED";
+      setFantasyScreenshotImportSummary(createFantasyScreenshotImportSummary({
+        imageMetadata: fantasyScreenshotImageMetadata,
+        processingDurationMs: performance.now() - startedAt,
+        errorCode,
+      }));
       if (error?.name === "AbortError") {
         setFantasyScreenshotImportState("cancelled");
-        setFantasyScreenshotStatusText("Analysis cancelled");
+        setFantasyScreenshotStatusText("Analysis cancelled. Replace the screenshot or retry.");
       } else {
         setFantasyScreenshotImportState("failed");
         setFantasyScreenshotError(error?.message || "Screenshot analysis failed.");
         setFantasyScreenshotStatusText("Try again or use manual entry.");
       }
     } finally {
-      fantasyScreenshotAbortRef.current = null;
+      decoded?.revoke?.();
+      if (runId === fantasyScreenshotImportRunIdRef.current) {
+        fantasyScreenshotAbortRef.current = null;
+      }
     }
   };
 
   const updateFantasyScreenshotReview = (updater) => {
     setFantasyScreenshotReview((current) => {
       if (!current) return current;
-      return typeof updater === "function" ? updater(current) : updater;
+      const next = typeof updater === "function" ? updater(current) : updater;
+      setFantasyScreenshotImportSummary((summary) =>
+        summary
+          ? createFantasyScreenshotImportSummary({
+              ...summary,
+              imageMetadata: next.imageMetadata || fantasyScreenshotImageMetadata,
+              processingDurationMs: summary.processingDurationMs,
+              review: next,
+              manuallyCorrectedCount: fantasyScreenshotManualCorrectionCountRef.current,
+              finalValidSquad: validateFantasyIqSquad(getFantasyScreenshotReviewSquad(next)).isValid,
+              errorCode: null,
+            })
+          : summary
+      );
+      return next;
     });
     setFantasyScreenshotImportState("needs review");
   };
 
+  const markFantasyScreenshotManualCorrection = () => {
+    fantasyScreenshotManualCorrectionCountRef.current += 1;
+  };
+
   const setFantasyScreenshotReviewCaptain = (slotId, marker) => {
+    markFantasyScreenshotManualCorrection();
     updateFantasyScreenshotReview((review) => ({
       ...review,
       extractedSlots: review.extractedSlots.map((slot) => ({
@@ -5147,11 +5220,21 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     if (!validation.isValid) {
       setFantasyScreenshotError(validation.errors.slice(0, 3).join(" "));
       setFantasyScreenshotImportState("needs review");
+      setFantasyScreenshotImportSummary((summary) =>
+        summary
+          ? { ...summary, finalValidSquad: false, errorCode: "VALIDATION_FAILED" }
+          : summary
+      );
       return;
     }
     if (unresolvedCanonicalPlayers.length) {
       setFantasyScreenshotError("Every imported player must be matched to the player list before confirming.");
       setFantasyScreenshotImportState("needs review");
+      setFantasyScreenshotImportSummary((summary) =>
+        summary
+          ? { ...summary, finalValidSquad: false, errorCode: "UNMATCHED_PLAYERS" }
+          : summary
+      );
       return;
     }
     if (fantasyIqSquad?.confirmed && !fantasyScreenshotReplacePending) {
@@ -5160,6 +5243,15 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       return;
     }
     setFantasyScreenshotImportState("importing");
+    const finalImportSummary = createFantasyScreenshotImportSummary({
+      ...(fantasyScreenshotImportSummary || {}),
+      imageMetadata: fantasyScreenshotReview.imageMetadata || fantasyScreenshotImageMetadata,
+      processingDurationMs: fantasyScreenshotImportSummary?.processingDurationMs || 0,
+      review: fantasyScreenshotReview,
+      manuallyCorrectedCount: fantasyScreenshotManualCorrectionCountRef.current,
+      finalValidSquad: true,
+      errorCode: null,
+    });
     const saved = saveFantasyIqSquad(fantasyIqUserIdentifier, {
       ...squad,
       confirmed: true,
@@ -5171,6 +5263,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqEditingSquad(saved);
     setFantasyIqBuilderOpen(false);
     setFantasyIqSquadStatus("Screenshot squad imported and ready for Fantasy IQ analysis.");
+    setFantasyScreenshotPostImportSummary(saveFantasyScreenshotFeedbackSummary(finalImportSummary));
     resetFantasyScreenshotImport("completed");
     setFantasyScreenshotImportOpen(false);
   };
@@ -11157,6 +11250,19 @@ useEffect(() => {
         : slot.status === "ambiguous"
         ? "Needs review"
         : "Not matched";
+    const fantasyScreenshotImportSummaryText = fantasyScreenshotImportSummary
+      ? `${fantasyScreenshotImportSummary.detectedCandidateCount} possible players detected. ${fantasyScreenshotImportSummary.exactMatchCount} strong matches. ${fantasyScreenshotImportSummary.likelyMatchCount} likely matches. ${fantasyScreenshotImportSummary.ambiguousCount} need review. ${fantasyScreenshotImportSummary.unmatchedCount} not matched.`
+      : "";
+    const fantasyScreenshotReadySummaryText = fantasyScreenshotReviewValidation.isValid
+      ? `15 players confirmed. Formation: ${fantasyScreenshotReviewSummary.formation || "Valid"}. Captain selected. Vice-captain selected. Ready to import.`
+      : "";
+    const fantasyScreenshotFeedbackSummary = fantasyScreenshotPostImportSummary
+      ? createFantasyScreenshotFeedbackSummary({
+          rating: fantasyScreenshotFeedbackRating,
+          note: fantasyScreenshotFeedbackNote,
+          importSummary: fantasyScreenshotPostImportSummary,
+        })
+      : null;
     const renderFantasyScreenshotReviewSlot = (slot) => {
       const selectedPlayer = slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId);
       return (
@@ -11183,7 +11289,10 @@ useEffect(() => {
             </div>
             <button
               type="button"
-              onClick={() => updateFantasyScreenshotReview((review) => removeFantasyScreenshotReviewSlot(review, slot.id))}
+              onClick={() => {
+                markFantasyScreenshotManualCorrection();
+                updateFantasyScreenshotReview((review) => removeFantasyScreenshotReviewSlot(review, slot.id));
+              }}
               style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, color: theme.danger }}
             >
               Remove
@@ -11200,11 +11309,12 @@ useEffect(() => {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
+                markFantasyScreenshotManualCorrection();
                 updateFantasyScreenshotReview((review) =>
                   updateFantasyScreenshotReviewSlot(review, slot.id, { role: slot.role === "starter" ? "bench" : "starter" }, fantasyIqAvailablePlayers)
-                )
-              }
+                );
+              }}
               style={{ ...pillBtn(slot.role === "starter"), padding: "5px 7px", fontSize: 11 }}
             >
               {slot.role === "starter" ? "Starter" : "Bench"}
@@ -11227,11 +11337,12 @@ useEffect(() => {
               <button
                 key={`${slot.id}-${candidate.id}`}
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  markFantasyScreenshotManualCorrection();
                   updateFantasyScreenshotReview((review) =>
                     updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: candidate.id }, fantasyIqAvailablePlayers)
-                  )
-                }
+                  );
+                }}
                 style={{ ...pillBtn(slot.selectedPlayerId === candidate.id), padding: "5px 7px", fontSize: 11 }}
               >
                 {candidate.webName || candidate.displayName}
@@ -11274,7 +11385,7 @@ useEffect(() => {
           Upload a screenshot showing your starting XI and bench. Keep player names and three-letter team codes visible.
         </div>
         <div style={{ color: theme.accent2, fontSize: 11, lineHeight: 1.35 }}>
-          Your screenshot is analysed on this device and is not saved with your squad.
+          Your screenshot is processed on this device and is not uploaded or saved. OCR runtime files load from this app.
         </div>
         <label
           onDragOver={(event) => event.preventDefault()}
@@ -11313,14 +11424,28 @@ useEffect(() => {
         </label>
         {fantasyScreenshotPreviewUrl && (
           <div style={{ display: "grid", gap: 8 }}>
-            <img
-              src={fantasyScreenshotPreviewUrl}
-              alt="Selected fantasy squad screenshot preview"
-              style={{ width: "100%", maxHeight: 360, objectFit: "contain", borderRadius: 10, border: `1px solid ${theme.line}` }}
-            />
+            <button
+              type="button"
+              onClick={() => setFantasyScreenshotPreviewCollapsed((value) => !value)}
+              style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, justifySelf: "start" }}
+            >
+              {fantasyScreenshotPreviewCollapsed ? "Show Preview" : "Hide Preview"}
+            </button>
+            {!fantasyScreenshotPreviewCollapsed && (
+              <img
+                src={fantasyScreenshotPreviewUrl}
+                alt="Selected fantasy squad screenshot preview"
+                style={{ width: "100%", maxHeight: isMobile || compact ? 220 : 360, objectFit: "contain", borderRadius: 10, border: `1px solid ${theme.line}` }}
+              />
+            )}
             <div style={{ color: theme.muted, fontSize: 11 }}>
               {fantasyScreenshotImageMetadata?.width}x{fantasyScreenshotImageMetadata?.height} · {Math.round((fantasyScreenshotImageMetadata?.size || 0) / 1024)} KB
             </div>
+          </div>
+        )}
+        {fantasyScreenshotImportSummaryText && (
+          <div style={{ color: theme.text, fontSize: 12, fontWeight: 850, lineHeight: 1.35 }}>
+            {fantasyScreenshotImportSummaryText}
           </div>
         )}
         <div aria-live="polite" style={{ color: fantasyScreenshotError ? theme.warn : theme.muted, fontSize: 12, lineHeight: 1.35 }}>
@@ -11365,6 +11490,11 @@ useEffect(() => {
                   {fantasyScreenshotReviewValidation.errors.slice(0, 3).join(" ")}
                 </div>
               )}
+              {fantasyScreenshotReadySummaryText && (
+                <div style={{ color: theme.accent2, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
+                  {fantasyScreenshotReadySummaryText}
+                </div>
+              )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
               <input
@@ -11401,7 +11531,10 @@ useEffect(() => {
                 <button
                   key={`add-review-${player.id}`}
                   type="button"
-                  onClick={() => updateFantasyScreenshotReview((review) => addFantasyScreenshotReviewPlayer(review, player, "unknown"))}
+                  onClick={() => {
+                    markFantasyScreenshotManualCorrection();
+                    updateFantasyScreenshotReview((review) => addFantasyScreenshotReviewPlayer(review, player, "unknown"));
+                  }}
                   style={{
                     textAlign: "left",
                     border: `1px solid ${theme.line}`,
@@ -11671,7 +11804,7 @@ useEffect(() => {
                 </div>
               )}
               <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
-                Screenshot import is coming next. Your detected players will always be shown for confirmation before analysis.
+                Screenshot import and manual entry both require squad confirmation before analysis.
               </div>
             </div>
 
@@ -11738,6 +11871,53 @@ useEffect(() => {
                 </button>
               )}
             </div>
+
+            {fantasyScreenshotPostImportSummary && (
+              <div
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 10,
+                  padding: 10,
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+                  How accurate was the screenshot import?
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {["Everything was correct", "I corrected 1-2 players", "I corrected several players", "It did not work"].map((rating) => (
+                    <button
+                      key={rating}
+                      type="button"
+                      onClick={() => setFantasyScreenshotFeedbackRating(rating)}
+                      style={{ ...pillBtn(fantasyScreenshotFeedbackRating === rating), padding: "6px 8px", fontSize: 11 }}
+                    >
+                      {rating}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  value={fantasyScreenshotFeedbackNote}
+                  onChange={(event) => setFantasyScreenshotFeedbackNote(event.target.value)}
+                  placeholder="What went wrong?"
+                  style={{ ...probInput, textAlign: "left", padding: "8px 10px", fontSize: 12 }}
+                />
+                <textarea
+                  readOnly
+                  value={JSON.stringify(fantasyScreenshotFeedbackSummary, null, 2)}
+                  style={{
+                    ...probInput,
+                    minHeight: 110,
+                    textAlign: "left",
+                    fontFamily: "monospace",
+                    fontSize: 11,
+                    resize: "vertical",
+                  }}
+                />
+              </div>
+            )}
 
             {fantasyIqBuilderOpen && renderFantasyIqSquadBuilder()}
             {fantasyScreenshotImportOpen && renderFantasyScreenshotImport()}

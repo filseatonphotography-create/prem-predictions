@@ -16,6 +16,14 @@ export const FANTASY_SCREENSHOT_IMPORT_CONFIG = {
     maxCanvasWidth: 1800,
     contrast: 1.18,
     grayscale: true,
+    primaryVariant: "grayscale-contrast",
+    fallbackVariant: "threshold-sharpened",
+  },
+  qualityThresholds: {
+    minimumTeamCodes: 3,
+    minimumCandidates: 5,
+    minimumMatchedPlayers: 7,
+    minimumScoreForSinglePass: 54,
   },
   confidenceWeights: {
     extraction: 0.4,
@@ -26,6 +34,14 @@ export const FANTASY_SCREENSHOT_IMPORT_CONFIG = {
     medium: 52,
   },
 };
+
+export const FANTASY_SCREENSHOT_TESSERACT_ASSETS = {
+  workerPath: "/vendor/tesseract/7.0.0/worker/worker.min.js",
+  corePath: "/vendor/tesseract/7.0.0/core",
+  langPath: "/vendor/tesseract/7.0.0/lang/eng/4.0.0_best_int",
+};
+
+export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.5-local-ocr-v1";
 
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
   idle: "idle",
@@ -41,6 +57,20 @@ export const FANTASY_SCREENSHOT_IMPORT_STATES = {
   cancelled: "cancelled",
   failed: "failed",
 };
+
+export function getFantasyScreenshotTesseractOptions(overrides = {}) {
+  return {
+    ...FANTASY_SCREENSHOT_TESSERACT_ASSETS,
+    workerBlobURL: false,
+    gzip: true,
+    cacheMethod: "write",
+    ...overrides,
+  };
+}
+
+export function hasExternalTesseractAssetPaths(options = getFantasyScreenshotTesseractOptions()) {
+  return ["workerPath", "corePath", "langPath"].some((key) => /^https?:\/\//i.test(String(options[key] || "")));
+}
 
 const POSITION_WORDS = {
   GK: ["gk", "gkp", "goalkeeper", "keeper"],
@@ -58,6 +88,12 @@ const OCR_CODE_CORRECTIONS = {
 
 function safeText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function scrubScreenshotLikeContent(value) {
+  return safeText(value)
+    .replace(/data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=._-]+/gi, "[image data removed]")
+    .replace(/\bbase64\b/gi, "[encoded data removed]");
 }
 
 function getFileExtension(name = "") {
@@ -142,6 +178,54 @@ export function correctFantasyTeamCodeFromOcr(rawCode, teams = []) {
 }
 
 export function normaliseOcrBlocks(rawResult = {}) {
+  const structuredBlocks = rawResult?.data?.blocks || rawResult?.blocks || [];
+  if (Array.isArray(structuredBlocks) && structuredBlocks.length) {
+    const lines = [];
+    structuredBlocks.forEach((block) => {
+      (block.paragraphs || block.lines ? [block] : []).forEach((blockLike) => {
+        const paragraphs = blockLike.paragraphs || [blockLike];
+        paragraphs.forEach((paragraph) => {
+          (paragraph.lines || []).forEach((line) => lines.push(line));
+        });
+      });
+    });
+    if (lines.length) {
+      return lines.map((line, index) => {
+        const words = line.words || [];
+        const text = safeText(line.text || words.map((word) => word.text).join(" "));
+        const bbox = line.bbox || words.reduce((box, word) => {
+          const wordBox = word.bbox || {};
+          const x0 = Number(wordBox.x0 ?? wordBox.left ?? word.left ?? 0);
+          const y0 = Number(wordBox.y0 ?? wordBox.top ?? word.top ?? 0);
+          const x1 = Number(wordBox.x1 ?? x0 + Number(wordBox.width || 0));
+          const y1 = Number(wordBox.y1 ?? y0 + Number(wordBox.height || 0));
+          return {
+            x0: Math.min(box.x0, x0),
+            y0: Math.min(box.y0, y0),
+            x1: Math.max(box.x1, x1),
+            y1: Math.max(box.y1, y1),
+          };
+        }, { x0: Infinity, y0: Infinity, x1: 0, y1: 0 });
+        const x0 = Number.isFinite(Number(bbox.x0)) ? Number(bbox.x0) : 0;
+        const y0 = Number.isFinite(Number(bbox.y0)) ? Number(bbox.y0) : 0;
+        const x1 = Number.isFinite(Number(bbox.x1)) ? Number(bbox.x1) : x0;
+        const y1 = Number.isFinite(Number(bbox.y1)) ? Number(bbox.y1) : y0;
+        return {
+          text,
+          confidence: Math.max(0, Math.min(1, Number(line.confidence ?? 50) / 100)),
+          boundingBox: {
+            x: x0,
+            y: y0,
+            width: Math.max(0, x1 - x0),
+            height: Math.max(0, y1 - y0),
+          },
+          lineIndex: index,
+          wordIndex: 0,
+        };
+      }).filter((line) => line.text);
+    }
+  }
+
   const words = rawResult?.data?.words || rawResult?.words || [];
   if (Array.isArray(words) && words.length) {
     return words
@@ -177,6 +261,43 @@ export function normaliseOcrBlocks(rawResult = {}) {
         wordIndex: 0,
       }))
     : [];
+}
+
+export function scoreFantasyScreenshotOcrQuality({ blocks = [], candidates = [], review = null } = {}) {
+  const recognisedTeamCodes = new Set((candidates || []).map((candidate) => candidate.rawTeamCode).filter(Boolean));
+  const matchedPlayers = review?.extractedSlots?.filter((slot) => slot.selectedPlayerId && ["matched", "likely"].includes(slot.status)).length || 0;
+  const likelyCandidates = review?.extractedSlots?.filter((slot) => ["matched", "likely", "ambiguous"].includes(slot.status)).length || candidates.length;
+  const averageOcrConfidence = blocks.length
+    ? blocks.reduce((sum, block) => sum + Math.max(0, Math.min(1, Number(block.confidence) || 0)), 0) / blocks.length
+    : 0;
+  const thresholds = FANTASY_SCREENSHOT_IMPORT_CONFIG.qualityThresholds;
+  const score = Math.round(
+    Math.min(100,
+      recognisedTeamCodes.size * 10 +
+        Math.min(15, likelyCandidates) * 3 +
+        matchedPlayers * 4 +
+        averageOcrConfidence * 15
+    )
+  );
+  const needsFallback =
+    score < thresholds.minimumScoreForSinglePass ||
+    recognisedTeamCodes.size < thresholds.minimumTeamCodes ||
+    candidates.length < thresholds.minimumCandidates ||
+    matchedPlayers < thresholds.minimumMatchedPlayers;
+  return {
+    score,
+    needsFallback,
+    recognisedTeamCodeCount: recognisedTeamCodes.size,
+    candidateCount: candidates.length,
+    likelyCandidateCount: likelyCandidates,
+    matchedPlayerCount: matchedPlayers,
+    averageOcrConfidence: Number(averageOcrConfidence.toFixed(3)),
+    reasons: [
+      recognisedTeamCodes.size < thresholds.minimumTeamCodes ? "Few team codes detected." : "",
+      candidates.length < thresholds.minimumCandidates ? "Few player candidates detected." : "",
+      matchedPlayers < thresholds.minimumMatchedPlayers ? "Few players matched confidently." : "",
+    ].filter(Boolean),
+  };
 }
 
 function inferPositionFromText(text = "") {
@@ -551,7 +672,7 @@ export async function decodeFantasyScreenshotImage(file) {
   }
 }
 
-export async function preprocessFantasyScreenshotImage(decoded) {
+function getPreparedScreenshotCanvas(decoded) {
   if (!decoded?.image || typeof document === "undefined") return { source: decoded?.url, variant: "original" };
   const canvas = document.createElement("canvas");
   const scale = Math.min(1, FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.maxCanvasWidth / decoded.width);
@@ -560,9 +681,17 @@ export async function preprocessFantasyScreenshotImage(decoded) {
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return { source: decoded.url, variant: "original" };
   context.drawImage(decoded.image, 0, 0, canvas.width, canvas.height);
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  return { canvas, context };
+}
+
+function disposeCanvas(canvas) {
+  if (!canvas) return;
+  canvas.width = 1;
+  canvas.height = 1;
+}
+
+function applyGrayscaleContrast(imageData, contrast = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.contrast) {
   const data = imageData.data;
-  const contrast = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.contrast;
   for (let index = 0; index < data.length; index += 4) {
     const grey = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
     const adjusted = Math.max(0, Math.min(255, (grey - 128) * contrast + 128));
@@ -570,22 +699,54 @@ export async function preprocessFantasyScreenshotImage(decoded) {
     data[index + 1] = adjusted;
     data[index + 2] = adjusted;
   }
-  context.putImageData(imageData, 0, 0);
+  return imageData;
+}
+
+function applyThresholdSharpen(imageData, contrast = 1.35) {
+  const data = imageData.data;
+  for (let index = 0; index < data.length; index += 4) {
+    const grey = data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114;
+    const contrasted = Math.max(0, Math.min(255, (grey - 128) * contrast + 128));
+    const thresholded = contrasted > 148 ? 255 : contrasted < 96 ? 0 : contrasted;
+    data[index] = thresholded;
+    data[index + 1] = thresholded;
+    data[index + 2] = thresholded;
+  }
+  return imageData;
+}
+
+export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant) {
+  const prepared = getPreparedScreenshotCanvas(decoded);
+  if (!prepared?.canvas || !prepared?.context) return { source: decoded?.url, variant: "original", cleanup: () => {} };
+  const { canvas, context } = prepared;
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const processed = variant === "threshold-sharpened"
+    ? applyThresholdSharpen(imageData)
+    : variant === "original-resized"
+    ? imageData
+    : applyGrayscaleContrast(imageData);
+  context.putImageData(processed, 0, 0);
   return {
     source: canvas.toDataURL("image/png"),
-    variant: "grayscale-contrast",
+    variant,
     width: canvas.width,
     height: canvas.height,
+    cleanup: () => disposeCanvas(canvas),
   };
 }
 
-export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}, signal } = {}) {
+export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}, signal, tesseractOptions = {} } = {}) {
   onStatus("Loading OCR worker");
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("eng", 1, {
+    ...getFantasyScreenshotTesseractOptions(tesseractOptions),
     logger: (message) => {
       if (message?.status) onStatus(message.status);
     },
+  });
+  await worker.setParameters?.({
+    tessedit_pageseg_mode: "11",
+    preserve_interword_spaces: "1",
   });
   let terminated = false;
   const terminateWorker = async () => {
@@ -603,7 +764,7 @@ export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}
   }
   try {
     onStatus("Reading player names");
-    const result = await worker.recognize(imageSource);
+    const result = await worker.recognize(imageSource, {}, { text: true, blocks: true });
     if (signal?.aborted) throw new DOMException("OCR cancelled", "AbortError");
     return {
       blocks: normaliseOcrBlocks(result),
@@ -620,4 +781,117 @@ export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}
     onStatus("Stopping OCR worker");
     await terminateWorker();
   }
+}
+
+export async function runFantasyScreenshotOcrWithFallback(decoded, {
+  players = [],
+  teams = [],
+  imageMetadata = null,
+  onStatus = () => {},
+  signal,
+  ocrRunner = runFantasyScreenshotOcr,
+} = {}) {
+  const variants = [
+    FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
+    FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant,
+  ];
+  const attempts = [];
+  for (let index = 0; index < variants.length; index += 1) {
+    const variant = variants[index];
+    const preprocessed = await preprocessFantasyScreenshotImage(decoded, variant);
+    try {
+      onStatus(index === 0 ? "Reading player names" : "Trying fallback image cleanup");
+      const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal });
+      const candidates = parseFantasyScreenshotCandidates(ocr.blocks, {
+        teams,
+        imageHeight: imageMetadata?.height || decoded?.height,
+      });
+      const review = buildFantasyScreenshotReview({
+        extractedSlots: candidates,
+        players,
+        teams,
+        imageMetadata: {
+          ...imageMetadata,
+          preprocessingVariant: preprocessed.variant,
+          ocrTextBlockCount: ocr.blocks.length,
+          ocrDebug: ocr.raw,
+        },
+      });
+      const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
+      const attempt = { variant: preprocessed.variant, ocr, candidates, review, quality };
+      attempts.push(attempt);
+      if (!quality.needsFallback || index === variants.length - 1) {
+        return selectBestFantasyScreenshotOcrAttempt(attempts);
+      }
+    } finally {
+      preprocessed.cleanup?.();
+    }
+  }
+  return selectBestFantasyScreenshotOcrAttempt(attempts);
+}
+
+export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {
+  return [...attempts].sort((a, b) => {
+    const aMatched = a.quality?.matchedPlayerCount || 0;
+    const bMatched = b.quality?.matchedPlayerCount || 0;
+    if (bMatched !== aMatched) return bMatched - aMatched;
+    const aCandidates = a.quality?.candidateCount || 0;
+    const bCandidates = b.quality?.candidateCount || 0;
+    if (bCandidates !== aCandidates) return bCandidates - aCandidates;
+    return (b.quality?.score || 0) - (a.quality?.score || 0);
+  })[0] || null;
+}
+
+export function createFantasyScreenshotImportSummary({
+  appVersion = process.env.REACT_APP_VERSION || "local",
+  timestamp = new Date().toISOString(),
+  imageMetadata = {},
+  processingDurationMs = 0,
+  review = null,
+  manuallyCorrectedCount = 0,
+  finalValidSquad = false,
+  errorCode = null,
+} = {}) {
+  const slots = review?.extractedSlots || [];
+  return {
+    appVersion,
+    importVersion: FANTASY_SCREENSHOT_IMPORT_VERSION,
+    timestamp,
+    imageWidth: Number(imageMetadata?.width || 0),
+    imageHeight: Number(imageMetadata?.height || 0),
+    processingDurationMs: Math.max(0, Math.round(Number(processingDurationMs) || 0)),
+    detectedCandidateCount: slots.length,
+    exactMatchCount: slots.filter((slot) => slot.status === "matched").length,
+    likelyMatchCount: slots.filter((slot) => slot.status === "likely").length,
+    ambiguousCount: slots.filter((slot) => slot.status === "ambiguous").length,
+    unmatchedCount: slots.filter((slot) => slot.status === "unmatched").length,
+    manuallyCorrectedCount: Math.max(0, Number(manuallyCorrectedCount) || 0),
+    finalValidSquad: !!finalValidSquad,
+    errorCode: errorCode || null,
+  };
+}
+
+export function createFantasyScreenshotFeedbackSummary({
+  rating = "",
+  note = "",
+  importSummary = null,
+} = {}) {
+  return {
+    rating: scrubScreenshotLikeContent(rating).slice(0, 80),
+    note: scrubScreenshotLikeContent(note).slice(0, 300),
+    importSummary: importSummary
+      ? {
+          importVersion: importSummary.importVersion,
+          processingDurationMs: importSummary.processingDurationMs,
+          detectedCandidateCount: importSummary.detectedCandidateCount,
+          exactMatchCount: importSummary.exactMatchCount,
+          likelyMatchCount: importSummary.likelyMatchCount,
+          ambiguousCount: importSummary.ambiguousCount,
+          unmatchedCount: importSummary.unmatchedCount,
+          manuallyCorrectedCount: importSummary.manuallyCorrectedCount,
+          finalValidSquad: importSummary.finalValidSquad,
+          errorCode: importSummary.errorCode,
+        }
+      : null,
+  };
 }
