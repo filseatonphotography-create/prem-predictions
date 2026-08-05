@@ -14,6 +14,7 @@ import {
 } from "./fantasyIq/playerData";
 import {
   FANTASY_SCREENSHOT_IMPORT_CONFIG,
+  addFantasyScreenshotReviewPlayer,
   createFantasyScreenshotFeedbackSummary,
   createFantasyScreenshotImportSummary,
   convertFantasyScreenshotReviewToSquad,
@@ -11755,6 +11756,13 @@ useEffect(() => {
     const fantasyScreenshotSelectedCount = fantasyScreenshotReview
       ? (fantasyScreenshotReview.extractedSlots || []).filter((slot) => slot.selectedPlayerId).length
       : 0;
+    const fantasyScreenshotReviewSlots = fantasyScreenshotReview?.extractedSlots || [];
+    const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
+      .map((slot) => slot.selectedPlayerId)
+      .filter(Boolean));
+    const fantasyScreenshotMissingPlayerCount = Math.max(0, 15 - fantasyScreenshotReviewSlots.length);
+    const fantasyScreenshotVisibleStarterCount = fantasyScreenshotReviewSlots.filter((slot) => slot.role === "starter").length;
+    const fantasyScreenshotMissingStarterCount = Math.max(0, 11 - fantasyScreenshotVisibleStarterCount);
     const fantasyScreenshotPartialSummaryText = fantasyScreenshotReview && fantasyScreenshotSelectedCount >= 11 && fantasyScreenshotSelectedCount < 15
       ? `Starting XI detected. Add ${15 - fantasyScreenshotSelectedCount} bench players before importing a full Fantasy IQ squad.`
       : "";
@@ -12797,6 +12805,76 @@ useEffect(() => {
         </div>
       );
     };
+    const renderFantasyScreenshotMissingPlayerSlot = (index) => {
+      const slotId = `missing-review-slot-${index}`;
+      const role = index < fantasyScreenshotMissingStarterCount ? "starter" : "bench";
+      const slotSearch = fantasyScreenshotSlotSearch[slotId] || "";
+      const normalisedSlotSearch = normaliseFantasyPlayerName(slotSearch);
+      const searchedPlayers = normalisedSlotSearch
+        ? fantasyIqAvailablePlayers
+            .filter((player) => !fantasyScreenshotSelectedPlayerIds.has(player.id))
+            .filter((player) =>
+              normaliseFantasyPlayerName(player.displayName || player.name).includes(normalisedSlotSearch) ||
+              normaliseFantasyPlayerName(player.webName).includes(normalisedSlotSearch) ||
+              String(player.teamCode || "").toLowerCase().includes(slotSearch.toLowerCase())
+            )
+            .slice(0, 6)
+        : [];
+      return (
+        <div
+          key={slotId}
+          style={{
+            background: "rgba(255,255,255,0.035)",
+            border: `1px dashed ${theme.warn}`,
+            borderRadius: 10,
+            padding: 10,
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: "30px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
+            <div style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${theme.line}`, background: "rgba(255,255,255,0.04)" }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: theme.warn, fontSize: 13, fontWeight: 950 }}>
+                Missing {role === "starter" ? "starter" : "bench player"}
+              </div>
+              <div style={{ color: theme.muted, fontSize: 11, fontWeight: 850 }}>
+                Search to add manually
+              </div>
+            </div>
+          </div>
+          <input
+            value={slotSearch}
+            onChange={(event) => setFantasyScreenshotSlotSearch((current) => ({
+              ...current,
+              [slotId]: event.target.value,
+            }))}
+            placeholder="Search player"
+            style={{ ...probInput, textAlign: "left", padding: "7px 9px", fontSize: 12 }}
+          />
+          {!!normalisedSlotSearch && (
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 6 }}>
+              {searchedPlayers.length ? searchedPlayers.map((player) => (
+                <button
+                  key={`${slotId}-search-${player.id}`}
+                  type="button"
+                  onClick={() => {
+                    markFantasyScreenshotManualCorrection();
+                    updateFantasyScreenshotReview((review) => addFantasyScreenshotReviewPlayer(review, player, role));
+                    setFantasyScreenshotSlotSearch((current) => ({ ...current, [slotId]: "" }));
+                  }}
+                  style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, textAlign: "left" }}
+                >
+                  {player.displayName || player.name} · {player.teamCode} · {player.position}
+                </button>
+              )) : (
+                <div style={{ color: theme.muted, fontSize: 11 }}>No players match that search.</div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
     const renderFantasyScreenshotImport = () => (
       <div
         style={{
@@ -12925,6 +13003,9 @@ useEffect(() => {
             </div>
             <div style={{ display: "grid", gap: 8 }}>
               {(fantasyScreenshotReview.extractedSlots || []).map(renderFantasyScreenshotReviewSlot)}
+              {Array.from({ length: fantasyScreenshotMissingPlayerCount }, (_, index) =>
+                renderFantasyScreenshotMissingPlayerSlot(index)
+              )}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
