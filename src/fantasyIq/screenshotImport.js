@@ -1025,26 +1025,10 @@ function applyThresholdSharpen(imageData, contrast = 1.35) {
   return imageData;
 }
 
-export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, crop = null) {
+export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant) {
   const prepared = getPreparedScreenshotCanvas(decoded);
   if (!prepared?.canvas || !prepared?.context) return { source: decoded?.url, variant: "original", cleanup: () => {} };
-  let { canvas, context } = prepared;
-  if (crop) {
-    const cropCanvas = document.createElement("canvas");
-    const sx = Math.max(0, Math.round(canvas.width * Number(crop.x || 0)));
-    const sy = Math.max(0, Math.round(canvas.height * Number(crop.y || 0)));
-    const sw = Math.max(1, Math.min(canvas.width - sx, Math.round(canvas.width * Number(crop.width || 1))));
-    const sh = Math.max(1, Math.min(canvas.height - sy, Math.round(canvas.height * Number(crop.height || 1))));
-    cropCanvas.width = sw;
-    cropCanvas.height = sh;
-    const cropContext = cropCanvas.getContext("2d", { willReadFrequently: true });
-    if (cropContext) {
-      cropContext.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
-      disposeCanvas(canvas);
-      canvas = cropCanvas;
-      context = cropContext;
-    }
-  }
+  const { canvas, context } = prepared;
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const processed = variant === "threshold-sharpened"
     ? applyThresholdSharpen(imageData)
@@ -1055,14 +1039,13 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
   return {
     source: canvas.toDataURL("image/png"),
     variant,
-    crop,
     width: canvas.width,
     height: canvas.height,
     cleanup: () => disposeCanvas(canvas),
   };
 }
 
-export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}, signal, tesseractOptions = {}, pageSegMode = "11" } = {}) {
+export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}, signal, tesseractOptions = {} } = {}) {
   onStatus("Loading OCR worker");
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("eng", 1, {
@@ -1072,7 +1055,7 @@ export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}
     },
   });
   await worker.setParameters?.({
-    tessedit_pageseg_mode: String(pageSegMode || "11"),
+    tessedit_pageseg_mode: "11",
     preserve_interword_spaces: "1",
   });
   let terminated = false;
@@ -1118,50 +1101,21 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
   signal,
   ocrRunner = runFantasyScreenshotOcr,
 } = {}) {
-  const attemptPlans = [
-    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, region: "full", pageSegMode: "11" },
-    { variant: "original-resized", region: "full", pageSegMode: "6" },
-    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, region: "squad-area", pageSegMode: "11", crop: { x: 0, y: 0.12, width: 1, height: 0.62 } },
-    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "bench-area", pageSegMode: "6", crop: { x: 0, y: 0.62, width: 1, height: 0.38 } },
-    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "full", pageSegMode: "11" },
+  const variants = [
+    FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
+    FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant,
   ];
   const attempts = [];
-  const makeCombinedAttempt = () => {
-    const combinedCandidates = mergeDuplicateFantasyScreenshotCandidates(
-      attempts.flatMap((item) => item.candidates || [])
-    ).candidates;
-    const combinedReview = buildFantasyScreenshotReview({
-      extractedSlots: combinedCandidates,
-      players,
-      teams,
-      imageMetadata: {
-        ...imageMetadata,
-        preprocessingVariant: "combined",
-        ocrTextBlockCount: attempts.reduce((sum, item) => sum + (item.ocr?.blocks?.length || 0), 0),
-        ocrDebug: null,
-      },
-    });
-    const combinedQuality = scoreFantasyScreenshotOcrQuality({ blocks: attempts.flatMap((item) => item.ocr?.blocks || []), candidates: combinedCandidates, review: combinedReview });
-    return {
-      variant: "combined",
-      region: "merged",
-      ocr: null,
-      candidates: combinedCandidates,
-      review: combinedReview,
-      quality: combinedQuality,
-    };
-  };
-
-  for (let index = 0; index < attemptPlans.length; index += 1) {
-    const plan = attemptPlans[index];
-    const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop);
+  for (let index = 0; index < variants.length; index += 1) {
+    const variant = variants[index];
+    const preprocessed = await preprocessFantasyScreenshotImage(decoded, variant);
     try {
-      onStatus(index === 0 ? "Reading player names" : `Trying ${plan.region} cleanup`);
-      const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal, pageSegMode: plan.pageSegMode });
+      onStatus(index === 0 ? "Reading player names" : "Trying fallback image cleanup");
+      const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal });
       const candidates = parseFantasyScreenshotCandidates(ocr.blocks, {
         players,
         teams,
-        imageHeight: preprocessed.height || imageMetadata?.height || decoded?.height,
+        imageHeight: imageMetadata?.height || decoded?.height,
       });
       const review = buildFantasyScreenshotReview({
         extractedSlots: candidates,
@@ -1170,24 +1124,21 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         imageMetadata: {
           ...imageMetadata,
           preprocessingVariant: preprocessed.variant,
-          ocrRegion: plan.region,
-          pageSegMode: plan.pageSegMode,
           ocrTextBlockCount: ocr.blocks.length,
           ocrDebug: ocr.raw,
         },
       });
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
-      const attempt = { variant: preprocessed.variant, region: plan.region, ocr, candidates, review, quality };
+      const attempt = { variant: preprocessed.variant, ocr, candidates, review, quality };
       attempts.push(attempt);
-      const combinedAttempt = makeCombinedAttempt();
-      if (combinedAttempt.quality?.matchedPlayerCount >= 15 || (!quality.needsFallback && index >= 1)) {
-        return selectBestFantasyScreenshotOcrAttempt([...attempts, combinedAttempt]);
+      if (!quality.needsFallback || index === variants.length - 1) {
+        return selectBestFantasyScreenshotOcrAttempt(attempts);
       }
     } finally {
       preprocessed.cleanup?.();
     }
   }
-  return selectBestFantasyScreenshotOcrAttempt([...attempts, makeCombinedAttempt()]);
+  return selectBestFantasyScreenshotOcrAttempt(attempts);
 }
 
 export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {

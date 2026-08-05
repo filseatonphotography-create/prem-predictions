@@ -15,7 +15,6 @@ import {
   parseFantasyScreenshotCandidates,
   removeFantasyScreenshotReviewSlot,
   runFantasyScreenshotOcr,
-  runFantasyScreenshotOcrWithFallback,
   selectBestFantasyScreenshotOcrAttempt,
   scoreFantasyScreenshotOcrQuality,
   updateFantasyScreenshotReviewSlot,
@@ -735,55 +734,6 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
   test("primary quality below threshold requests fallback", () => {
     const quality = scoreFantasyScreenshotOcrQuality({ blocks: [], candidates: [], review: { extractedSlots: [] } });
     expect(quality.needsFallback).toBe(true);
-  });
-
-  test("fallback OCR attempts merge different detected players into one review", async () => {
-    const names = [
-      "Raya",
-      "Gabriel",
-      "Van Dijk",
-      "Trippier",
-      "Saka",
-      "Salah",
-      "Haaland",
-      "Watkins",
-    ];
-    const fixturePlayers = names.map((name, index) => ({
-      id: `merge:${index + 1}`,
-      sourceId: index + 1,
-      firstName: name,
-      lastName: "",
-      displayName: name,
-      name,
-      webName: name,
-      normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
-      teamCode: ["ARS", "LIV", "MCI", "NEW"][index % 4],
-      teamName: "Test",
-      position: index === 0 ? "GK" : index < 4 ? "DEF" : index < 6 ? "MID" : "FWD",
-      positionId: index === 0 ? 1 : index < 4 ? 2 : index < 6 ? 3 : 4,
-      dataSource: "test",
-    }));
-    const ocrRunner = jest.fn()
-      .mockResolvedValueOnce({
-        blocks: names.slice(0, 4).map((name, index) => ({ text: name, confidence: 0.9, boundingBox: { x: index * 80, y: 100, width: 50, height: 20 } })),
-        raw: null,
-      })
-      .mockResolvedValueOnce({
-        blocks: names.slice(4).map((name, index) => ({ text: name, confidence: 0.9, boundingBox: { x: index * 80, y: 220, width: 50, height: 20 } })),
-        raw: null,
-      })
-      .mockResolvedValue({
-        blocks: [],
-        raw: null,
-      });
-
-    const best = await runFantasyScreenshotOcrWithFallback(
-      { url: "fixture.png", width: 1200, height: 1800 },
-      { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
-    );
-
-    expect(best.variant).toBe("combined");
-    expect(best.review.extractedSlots.filter((slot) => slot.selectedPlayerId)).toHaveLength(8);
   });
 
   test("debug summary excludes screenshot data, OCR text and player contents", () => {
