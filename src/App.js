@@ -92,6 +92,7 @@ const DEFAULT_PUSH_PREFS = {
 };
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
+const FANTASY_IQ_VIEW_ID = "fantasyHelp";
 const PREMIER_TABLE_CURRENT_VIEW = "current-2026-27";
 const PREMIER_TABLE_HISTORY_VIEW = "history-2025-26";
 const MAX_USERNAME_LENGTH = 11;
@@ -812,6 +813,947 @@ const PREMIER_LEAGUE_TEAMS = Array.from(
     )
   )
 ).sort((a, b) => a.localeCompare(b));
+
+const FANTASY_IQ_SCORE_CONFIG = {
+  fixtureOutlook: 0.25,
+  attackOutlook: 0.2,
+  defenceOutlook: 0.2,
+  captaincyOutlook: 0.1,
+  squadBalance: 0.1,
+  predictionAlignment: 0.1,
+  benchStrength: 0.05,
+  expectedGoalsRange: { min: 0.4, max: 2.6 },
+  clubFixtureWeights: {
+    overallExpectedPoints: 0.6,
+    overallDifficulty: 0.4,
+    attackExpectedGoals: 0.5,
+    attackScoreTwoPlus: 0.3,
+    attackDifficulty: 0.2,
+    defenceCleanSheet: 0.6,
+    defenceDifficulty: 0.4,
+  },
+  positionOutlookWeights: {
+    GK: { defence: 0.85, overall: 0.15 },
+    DEF: { defence: 0.75, attack: 0.1, overall: 0.15 },
+    MID: { attack: 0.75, overall: 0.25 },
+    FWD: { attack: 0.85, overall: 0.15 },
+  },
+  squadContributionWeights: {
+    starter: 1,
+    benchOutfield: 0.25,
+    benchGoalkeeper: 0.2,
+  },
+  fixtureOutlookWeights: {
+    playerAverage: 0.75,
+    uniqueClubAverage: 0.25,
+  },
+  captaincyWeights: {
+    captain: 0.85,
+    viceCaptain: 0.15,
+  },
+  squadBalanceWeights: {
+    formation: 0.35,
+    clubDiversification: 0.3,
+    starterCoverage: 0.2,
+    benchCover: 0.15,
+  },
+  predictionAlignmentWeights: {
+    starters: 0.5,
+    captains: 0.3,
+    squad: 0.2,
+  },
+  benchStrengthWeights: {
+    benchOutlook: 0.75,
+    benchCoverage: 0.25,
+  },
+  userPredictionMappings: {
+    predictedGoals: [0, 40, 70, 88, 100],
+    predictedConceded: [100, 55, 25, 0],
+    win: 92,
+    draw: 58,
+    loss: 22,
+  },
+};
+
+const FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION = {
+  maxSquadSize: 15,
+  starters: 11,
+  bench: 4,
+  maxPlayersPerClub: 3,
+  positions: {
+    GK: 2,
+    DEF: 5,
+    MID: 5,
+    FWD: 3,
+  },
+};
+
+const FANTASY_IQ_POSITIONS = Object.keys(FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions);
+const FANTASY_IQ_SQUAD_ROLES = ["starter", "bench"];
+const FANTASY_IQ_STORAGE_SCHEMA_VERSION = 1;
+const FANTASY_IQ_TEMP_PLAYER_DATA_NOTICE =
+  "Temporary development player list in use. It is incomplete and not official FPL data.";
+
+const FANTASY_IQ_TEMP_PLAYERS = PREMIER_LEAGUE_TEAMS.flatMap((team) => {
+  const code = getTeamCode(team);
+  const baseName = team.replace(/\s*(FC|AFC)$/i, "").trim();
+  return FANTASY_IQ_POSITIONS.map((position) => ({
+    id: `tmp-${code.toLowerCase()}-${position.toLowerCase()}`,
+    name: `${baseName} ${position}`,
+    teamCode: code,
+    position,
+    temporary: true,
+  }));
+});
+
+function validateFantasyIqScoreConfig(config = FANTASY_IQ_SCORE_CONFIG) {
+  const categoryKeys = Object.keys(createEmptyFantasyIqReport().categories);
+  const totalWeight = categoryKeys.reduce((sum, key) => sum + Number(config[key] || 0), 0);
+  return Math.abs(totalWeight - 1) < 0.000001;
+}
+
+function createEmptyFantasyIqSquad() {
+  return {
+    source: null,
+    formation: null,
+    gameweek: null,
+    players: [],
+    captainPlayerId: null,
+    viceCaptainPlayerId: null,
+    importedAt: null,
+    confirmed: false,
+  };
+}
+
+function createEmptyFantasyIqReport() {
+  return {
+    overallScore: null,
+    confidence: null,
+    categories: {
+      fixtureOutlook: null,
+      attackOutlook: null,
+      defenceOutlook: null,
+      captaincyOutlook: null,
+      squadBalance: null,
+      predictionAlignment: null,
+      benchStrength: null,
+    },
+    strengths: [],
+    concerns: [],
+    recommendations: [],
+    predictionConflicts: [],
+    transferPriority: null,
+  };
+}
+
+function countFantasyIqPlayersByPosition(players = []) {
+  return FANTASY_IQ_POSITIONS.reduce((out, position) => {
+    out[position] = players.filter((player) => String(player?.position || "").toUpperCase() === position).length;
+    return out;
+  }, {});
+}
+
+function countFantasyIqPlayersByClub(players = []) {
+  return players.reduce((out, player) => {
+    const code = String(player?.teamCode || "").trim().toUpperCase();
+    if (!code) return out;
+    out[code] = (out[code] || 0) + 1;
+    return out;
+  }, {});
+}
+
+function deriveFantasyIqFormation(squad = createEmptyFantasyIqSquad()) {
+  const starters = (Array.isArray(squad.players) ? squad.players : []).filter(
+    (player) => String(player?.squadRole || "").toLowerCase() === "starter"
+  );
+  const counts = countFantasyIqPlayersByPosition(starters);
+  if (!starters.length) return null;
+  return {
+    label: `${counts.DEF || 0}-${counts.MID || 0}-${counts.FWD || 0}`,
+    counts,
+  };
+}
+
+function isRecognisedPremierLeagueTeamCode(teamCode) {
+  const normalisedCode = String(teamCode || "").trim().toUpperCase();
+  if (!normalisedCode) return false;
+  return PREMIER_LEAGUE_TEAMS.some((team) => getTeamCode(team) === normalisedCode);
+}
+
+function isRecognisedFantasyIqPosition(position) {
+  return FANTASY_IQ_POSITIONS.includes(String(position || "").trim().toUpperCase());
+}
+
+function isRecognisedFantasyIqSquadRole(role) {
+  return FANTASY_IQ_SQUAD_ROLES.includes(String(role || "").trim().toLowerCase());
+}
+
+function findDuplicateFantasyIqPlayers(players = []) {
+  const seen = new Set();
+  const duplicates = new Set();
+  players.forEach((player) => {
+    const key = String(player?.id || player?.name || "").trim().toLowerCase();
+    if (!key) return;
+    if (seen.has(key)) duplicates.add(key);
+    seen.add(key);
+  });
+  return Array.from(duplicates);
+}
+
+function normaliseFantasyIqSquad(rawSquad = createEmptyFantasyIqSquad()) {
+  const input = rawSquad && typeof rawSquad === "object" ? rawSquad : {};
+  const players = Array.isArray(input.players) ? input.players : [];
+  const normalisedPlayers = players
+    .map((player, index) => {
+      const name = String(player?.name || "").trim();
+      const teamCode = String(player?.teamCode || "").trim().toUpperCase();
+      const position = String(player?.position || "").trim().toUpperCase();
+      const squadRole = String(player?.squadRole || "bench").trim().toLowerCase();
+      const id = String(player?.id || `manual-${index}-${name || position || "player"}`).trim();
+      if (!name && !teamCode && !position) return null;
+      return {
+        id,
+        name,
+        teamCode,
+        position,
+        squadRole: isRecognisedFantasyIqSquadRole(squadRole) ? squadRole : "bench",
+        isCaptain: !!player?.isCaptain,
+        isViceCaptain: !!player?.isViceCaptain,
+        confidence: clampNumber(player?.confidence ?? 1, 0, 1),
+        manuallyConfirmed: !!player?.manuallyConfirmed,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxSquadSize);
+  const captainPlayer = normalisedPlayers.find((player) => player.isCaptain);
+  const viceCaptainPlayer = normalisedPlayers.find((player) => player.isViceCaptain);
+  const captainPlayerId = input.captainPlayerId || captainPlayer?.id || null;
+  const viceCaptainPlayerId = input.viceCaptainPlayerId || viceCaptainPlayer?.id || null;
+  const squad = {
+    source: ["screenshot", "manual"].includes(input.source) ? input.source : null,
+    formation: null,
+    gameweek: Number.isFinite(Number(input.gameweek)) ? Number(input.gameweek) : null,
+    players: normalisedPlayers.map((player) => ({
+      ...player,
+      isCaptain: captainPlayerId ? player.id === captainPlayerId : !!player.isCaptain,
+      isViceCaptain: viceCaptainPlayerId ? player.id === viceCaptainPlayerId : !!player.isViceCaptain,
+    })),
+    captainPlayerId,
+    viceCaptainPlayerId,
+    importedAt: input.importedAt || null,
+    updatedAt: input.updatedAt || null,
+    confirmed: !!input.confirmed,
+    schemaVersion: Number(input.schemaVersion) || FANTASY_IQ_STORAGE_SCHEMA_VERSION,
+  };
+  const formation = deriveFantasyIqFormation(squad);
+  return {
+    ...squad,
+    formation: formation?.label || null,
+  };
+}
+
+function validateFantasyIqSquad(squad = createEmptyFantasyIqSquad()) {
+  const normalisedSquad = normaliseFantasyIqSquad(squad);
+  const players = normalisedSquad.players;
+  const errors = [];
+  const warnings = [];
+  const starters = players.filter((player) => player.squadRole === "starter");
+  const bench = players.filter((player) => player.squadRole === "bench");
+  const positionCounts = countFantasyIqPlayersByPosition(players);
+  const starterPositionCounts = countFantasyIqPlayersByPosition(starters);
+  const clubCounts = countFantasyIqPlayersByClub(players);
+  const formation = deriveFantasyIqFormation(normalisedSquad);
+
+  if (players.length !== FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxSquadSize) {
+    errors.push("Squad must contain 15 players.");
+  }
+
+  const duplicatePlayers = findDuplicateFantasyIqPlayers(players);
+  if (duplicatePlayers.length) errors.push("Duplicate player selected.");
+
+  if (starters.length !== FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.starters) {
+    errors.push("Starting XI must contain 11 players.");
+  }
+  if (bench.length !== FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.bench) {
+    errors.push("Bench must contain 4 players.");
+  }
+
+  FANTASY_IQ_POSITIONS.forEach((position) => {
+    const expected = FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[position];
+    const actual = positionCounts[position] || 0;
+    if (actual !== expected) {
+      const label = position === "GK" ? "goalkeepers" : position === "DEF" ? "defenders" : position === "MID" ? "midfielders" : "forwards";
+      errors.push(`Squad must contain ${expected} ${label}.`);
+    }
+  });
+
+  Object.entries(clubCounts).forEach(([clubCode, count]) => {
+    if (count > FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxPlayersPerClub) {
+      errors.push(`No more than 3 players from one club (${clubCode}).`);
+    }
+  });
+
+  players.forEach((player) => {
+    if (!player.name || !player.teamCode || !player.position) {
+      warnings.push("Incomplete player metadata.");
+    }
+    if (player.teamCode && !isRecognisedPremierLeagueTeamCode(player.teamCode)) {
+      errors.push(`${player.name || "A player"} has an unrecognised team code.`);
+    }
+    if (player.position && !isRecognisedFantasyIqPosition(player.position)) {
+      errors.push(`${player.name || "A player"} has an unrecognised position.`);
+    }
+    if (player.squadRole && !isRecognisedFantasyIqSquadRole(player.squadRole)) {
+      errors.push(`${player.name || "A player"} has an unrecognised squad role.`);
+    }
+  });
+
+  if (starters.length === FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.starters) {
+    if ((starterPositionCounts.GK || 0) !== 1) errors.push("Starting XI must contain exactly 1 goalkeeper.");
+    if ((starterPositionCounts.DEF || 0) < 3) errors.push("Starting XI must contain at least 3 defenders.");
+    if ((starterPositionCounts.MID || 0) < 2) errors.push("Starting XI must contain at least 2 midfielders.");
+    if ((starterPositionCounts.FWD || 0) < 1) errors.push("Starting XI must contain at least 1 forward.");
+  }
+
+  const captain = players.find((player) => player.id === normalisedSquad.captainPlayerId || player.isCaptain);
+  const viceCaptain = players.find((player) => player.id === normalisedSquad.viceCaptainPlayerId || player.isViceCaptain);
+  const captainIds = new Set(players.filter((player) => player.isCaptain).map((player) => player.id).filter(Boolean));
+  const viceCaptainIds = new Set(players.filter((player) => player.isViceCaptain).map((player) => player.id).filter(Boolean));
+  if (normalisedSquad.captainPlayerId) captainIds.add(normalisedSquad.captainPlayerId);
+  if (normalisedSquad.viceCaptainPlayerId) viceCaptainIds.add(normalisedSquad.viceCaptainPlayerId);
+  if (captainIds.size > 1) errors.push("Squad has more than one captain.");
+  if (viceCaptainIds.size > 1) errors.push("Squad has more than one vice captain.");
+  if (!captain) errors.push("Captain missing.");
+  if (!viceCaptain) errors.push("Vice-captain missing.");
+  if (captain && viceCaptain && captain.id === viceCaptain.id) {
+    errors.push("Captain and vice-captain cannot be the same player.");
+  }
+  if (captain && captain.squadRole !== "starter") {
+    errors.push("Captain must be a starter.");
+  }
+  if (viceCaptain && viceCaptain.squadRole !== "starter") {
+    errors.push("Vice-captain must be a starter.");
+  }
+  if (players.length < FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxSquadSize) warnings.push("Incomplete squad while editing.");
+  if (FANTASY_IQ_TEMP_PLAYERS.some((player) => player.temporary)) warnings.push("Temporary player dataset in use.");
+
+  return {
+    isValid: errors.length === 0,
+    valid: errors.length === 0,
+    errors,
+    messages: errors,
+    warnings,
+    summary: {
+      totalPlayers: players.length,
+      starters: starters.length,
+      bench: bench.length,
+      formation: formation?.label || null,
+      clubCounts,
+      positionCounts,
+      starterPositionCounts,
+      hasCaptain: !!captain,
+      hasViceCaptain: !!viceCaptain,
+    },
+  };
+}
+
+function addFantasyIqSquadPlayer(squad, player) {
+  const current = normaliseFantasyIqSquad(squad);
+  if (!player || current.players.some((item) => item.id === player.id)) return current;
+  if (current.players.length >= FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxSquadSize) return current;
+  const positionCount = current.players.filter((item) => item.position === player.position).length;
+  const expectedPositionCount = FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[player.position] || 0;
+  const squadRole = positionCount < Math.max(1, expectedPositionCount - 1) ? "starter" : "bench";
+  const next = {
+    ...current,
+    source: current.source || "manual",
+    confirmed: false,
+    players: [
+      ...current.players,
+      {
+        id: player.id,
+        name: player.name,
+        teamCode: player.teamCode,
+        position: player.position,
+        squadRole,
+        isCaptain: false,
+        isViceCaptain: false,
+        confidence: 1,
+        manuallyConfirmed: true,
+      },
+    ],
+  };
+  return normaliseFantasyIqSquad(next);
+}
+
+function removeFantasyIqSquadPlayer(squad, playerId) {
+  const current = normaliseFantasyIqSquad(squad);
+  const nextPlayers = current.players.filter((player) => player.id !== playerId);
+  return normaliseFantasyIqSquad({
+    ...current,
+    players: nextPlayers,
+    captainPlayerId: current.captainPlayerId === playerId ? null : current.captainPlayerId,
+    viceCaptainPlayerId: current.viceCaptainPlayerId === playerId ? null : current.viceCaptainPlayerId,
+    confirmed: false,
+  });
+}
+
+function updateFantasyIqSquadPlayerRole(squad, playerId, squadRole) {
+  const current = normaliseFantasyIqSquad(squad);
+  return normaliseFantasyIqSquad({
+    ...current,
+    players: current.players.map((player) =>
+      player.id === playerId ? { ...player, squadRole, isCaptain: player.isCaptain, isViceCaptain: player.isViceCaptain } : player
+    ),
+    confirmed: false,
+  });
+}
+
+function setFantasyIqCaptain(squad, playerId) {
+  const current = normaliseFantasyIqSquad(squad);
+  return normaliseFantasyIqSquad({
+    ...current,
+    captainPlayerId: playerId,
+    viceCaptainPlayerId: current.viceCaptainPlayerId === playerId ? null : current.viceCaptainPlayerId,
+    players: current.players.map((player) => ({
+      ...player,
+      isCaptain: player.id === playerId,
+      isViceCaptain: player.id === playerId ? false : player.isViceCaptain,
+    })),
+    confirmed: false,
+  });
+}
+
+function setFantasyIqViceCaptain(squad, playerId) {
+  const current = normaliseFantasyIqSquad(squad);
+  return normaliseFantasyIqSquad({
+    ...current,
+    captainPlayerId: current.captainPlayerId === playerId ? null : current.captainPlayerId,
+    viceCaptainPlayerId: playerId,
+    players: current.players.map((player) => ({
+      ...player,
+      isCaptain: player.id === playerId ? false : player.isCaptain,
+      isViceCaptain: player.id === playerId,
+    })),
+    confirmed: false,
+  });
+}
+
+function getFantasyIqSquadStorageKey(userIdentifier) {
+  const identifier = String(userIdentifier || "anonymous").trim() || "anonymous";
+  return `predictionAddiction:fantasyIqSquad:v1:${identifier}`;
+}
+
+function loadFantasyIqSquad(userIdentifier) {
+  try {
+    const saved = localStorage.getItem(getFantasyIqSquadStorageKey(userIdentifier));
+    if (!saved) return createEmptyFantasyIqSquad();
+    return normaliseFantasyIqSquad(JSON.parse(saved));
+  } catch {
+    return createEmptyFantasyIqSquad();
+  }
+}
+
+function saveFantasyIqSquad(userIdentifier, squad) {
+  const normalised = normaliseFantasyIqSquad(squad);
+  localStorage.setItem(
+    getFantasyIqSquadStorageKey(userIdentifier),
+    JSON.stringify({
+      schemaVersion: FANTASY_IQ_STORAGE_SCHEMA_VERSION,
+      ...normalised,
+    })
+  );
+  return normalised;
+}
+
+function clampFantasyIqScore(value) {
+  return Math.round(clampNumber(value, 0, 100));
+}
+
+function formatFantasyIqScore(value) {
+  return value == null ? null : `${clampFantasyIqScore(value)}/100`;
+}
+
+function fantasyIqDifficultyToScore(difficultyScore) {
+  const difficulty = clampNumber(difficultyScore, 1, 5);
+  return ((5 - difficulty) / 4) * 100;
+}
+
+function fantasyIqExpectedPointsToScore(expectedPoints) {
+  return (clampNumber(expectedPoints, 0, 3) / 3) * 100;
+}
+
+function fantasyIqExpectedGoalsToScore(expectedGoals) {
+  const range = FANTASY_IQ_SCORE_CONFIG.expectedGoalsRange;
+  return ((clampNumber(expectedGoals, range.min, range.max) - range.min) / (range.max - range.min)) * 100;
+}
+
+function fantasyIqProbabilityToScore(probability) {
+  return clampNumber(probability, 0, 1) * 100;
+}
+
+function getFantasyIqWeightedAverage(items = [], selector = (item) => item, weightSelector = () => 1) {
+  const validItems = (items || [])
+    .map((item, index) => ({
+      value: Number(selector(item, index)),
+      weight: Math.max(0, Number(weightSelector(item, index)) || 0),
+    }))
+    .filter((item) => Number.isFinite(item.value) && item.weight > 0);
+  const totalWeight = validItems.reduce((sum, item) => sum + item.weight, 0);
+  if (!validItems.length || totalWeight <= 0) return null;
+  return validItems.reduce((sum, item) => sum + item.value * (item.weight / totalWeight), 0);
+}
+
+function getFantasyIqTeamByCode(teamCode) {
+  const code = String(teamCode || "").trim().toUpperCase();
+  return PREMIER_LEAGUE_TEAMS.find((team) => getTeamCode(team) === code) || "";
+}
+
+function getFantasyIqPlayerContributionWeight(player) {
+  if (player?.squadRole === "starter") return FANTASY_IQ_SCORE_CONFIG.squadContributionWeights.starter;
+  if (player?.position === "GK") return FANTASY_IQ_SCORE_CONFIG.squadContributionWeights.benchGoalkeeper;
+  return FANTASY_IQ_SCORE_CONFIG.squadContributionWeights.benchOutfield;
+}
+
+function getFantasyIqPredictionGoalScore(goals, attacking = true) {
+  const mapping = attacking
+    ? FANTASY_IQ_SCORE_CONFIG.userPredictionMappings.predictedGoals
+    : FANTASY_IQ_SCORE_CONFIG.userPredictionMappings.predictedConceded;
+  const index = Math.min(mapping.length - 1, Math.max(0, Math.floor(Number(goals) || 0)));
+  return mapping[index];
+}
+
+function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context = {}) {
+  return PREMIER_LEAGUE_TEAMS.reduce((out, team) => {
+    const teamCode = getTeamCode(team);
+    const normalizedTeam = normalizeTeamName(team);
+    const upcoming = (fixtures || [])
+      .filter((fixture) => {
+        const isTeamFixture =
+          normalizeTeamName(fixture.homeTeam) === normalizedTeam ||
+          normalizeTeamName(fixture.awayTeam) === normalizedTeam;
+        return isTeamFixture && !isFixtureCompleted(fixture, results);
+      })
+      .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff))
+      .slice(0, 3)
+      .map((fixture) => {
+        const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
+        const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
+        const model = buildFixtureModel(fixture, context);
+        const expectedPoints = isHome ? model.homeExpectedPoints : model.awayExpectedPoints;
+        const winProbability = isHome ? model.homeProb : model.awayProb;
+        const lossProbability = isHome ? model.awayProb : model.homeProb;
+        const expectedGoals = isHome ? model.homeExpectedGoals : model.awayExpectedGoals;
+        const cleanSheetProbability = isHome ? model.homeCleanSheetProb : model.awayCleanSheetProb;
+        const scoreTwoPlusProbability = isHome ? model.homeScoreTwoPlusProb : model.awayScoreTwoPlusProb;
+        const difficultyScore = isHome ? model.homeDifficultyScore : model.awayDifficultyScore;
+        const attackDifficultyScore = isHome ? model.homeAttackDifficultyScore : model.awayAttackDifficultyScore;
+        const defenceDifficultyScore = isHome ? model.homeDefenceDifficultyScore : model.awayDefenceDifficultyScore;
+
+        return {
+          fixtureId: fixture.id,
+          gameweek: fixture.gameweek,
+          venue: isHome ? "H" : "A",
+          opponent,
+          opponentCode: getTeamCode(opponent),
+          expectedPoints,
+          winProbability,
+          drawProbability: model.drawProb,
+          lossProbability,
+          expectedGoals,
+          cleanSheetProbability,
+          scoreTwoPlusProbability,
+          difficultyScore,
+          attackDifficultyScore,
+          defenceDifficultyScore,
+          confidence: model.confidence,
+          confidenceScore: model.confidenceScore,
+          overallScore:
+            fantasyIqExpectedPointsToScore(expectedPoints) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.overallExpectedPoints +
+            fantasyIqDifficultyToScore(difficultyScore) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.overallDifficulty,
+          attackScore:
+            fantasyIqExpectedGoalsToScore(expectedGoals) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.attackExpectedGoals +
+            fantasyIqProbabilityToScore(scoreTwoPlusProbability) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.attackScoreTwoPlus +
+            fantasyIqDifficultyToScore(attackDifficultyScore) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.attackDifficulty,
+          defenceScore:
+            fantasyIqProbabilityToScore(cleanSheetProbability) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.defenceCleanSheet +
+            fantasyIqDifficultyToScore(defenceDifficultyScore) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.defenceDifficulty,
+        };
+      });
+    const weights = PREMIER_LEAGUE_MODEL_CONFIG.nextThreeFixtureWeights.slice(0, upcoming.length);
+    const fixtureWeight = (_, index) => weights[index] || 0;
+
+    out[teamCode] = {
+      team,
+      teamCode,
+      fixtures: upcoming,
+      fixtureCount: upcoming.length,
+      overallScore: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.overallScore, fixtureWeight),
+      attackScore: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.attackScore, fixtureWeight),
+      defenceScore: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.defenceScore, fixtureWeight),
+      expectedGoals: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.expectedGoals, fixtureWeight),
+      cleanSheetProbability: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.cleanSheetProbability, fixtureWeight),
+      scoreTwoPlusProbability: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.scoreTwoPlusProbability, fixtureWeight),
+      winProbability: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.winProbability, fixtureWeight),
+      confidenceScore: getFantasyIqWeightedAverage(upcoming, (fixture) => fixture.confidenceScore, fixtureWeight),
+    };
+    return out;
+  }, {});
+}
+
+function buildFantasyIqPredictionOutlooks(fixtures = [], predictions = {}, selectedGameweek = null) {
+  const getPred = (fixtureId) =>
+    predictions[String(fixtureId)] !== undefined ? predictions[String(fixtureId)] : predictions[fixtureId];
+  const teamRows = {};
+  PREMIER_LEAGUE_TEAMS.forEach((team) => {
+    teamRows[getTeamCode(team)] = {
+      team,
+      teamCode: getTeamCode(team),
+      fixtures: [],
+      predictionCount: 0,
+      attackScore: null,
+      defenceScore: null,
+      resultScore: null,
+      overallScore: null,
+    };
+  });
+
+  const upcomingFixtures = (fixtures || [])
+    .filter((fixture) => !selectedGameweek || fixture.gameweek >= selectedGameweek)
+    .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff));
+
+  upcomingFixtures.forEach((fixture) => {
+    const pred = getPred(fixture.id);
+    if (!pred) return;
+    const homeGoals = Number(pred.homeGoals);
+    const awayGoals = Number(pred.awayGoals);
+    if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return;
+
+    [
+      { team: fixture.homeTeam, forGoals: homeGoals, againstGoals: awayGoals },
+      { team: fixture.awayTeam, forGoals: awayGoals, againstGoals: homeGoals },
+    ].forEach((row) => {
+      const teamCode = getTeamCode(row.team);
+      const target = teamRows[teamCode];
+      if (!target || target.fixtures.length >= 3) return;
+      const resultScore =
+        row.forGoals > row.againstGoals
+          ? FANTASY_IQ_SCORE_CONFIG.userPredictionMappings.win
+          : row.forGoals === row.againstGoals
+          ? FANTASY_IQ_SCORE_CONFIG.userPredictionMappings.draw
+          : FANTASY_IQ_SCORE_CONFIG.userPredictionMappings.loss;
+      target.fixtures.push({
+        fixtureId: fixture.id,
+        gameweek: fixture.gameweek,
+        predictedFor: row.forGoals,
+        predictedAgainst: row.againstGoals,
+        attackScore: getFantasyIqPredictionGoalScore(row.forGoals, true),
+        defenceScore: getFantasyIqPredictionGoalScore(row.againstGoals, false),
+        resultScore,
+      });
+    });
+  });
+
+  Object.values(teamRows).forEach((row) => {
+    const weights = PREMIER_LEAGUE_MODEL_CONFIG.nextThreeFixtureWeights.slice(0, row.fixtures.length);
+    const fixtureWeight = (_, index) => weights[index] || 0;
+    row.predictionCount = row.fixtures.length;
+    row.attackScore = getFantasyIqWeightedAverage(row.fixtures, (fixture) => fixture.attackScore, fixtureWeight);
+    row.defenceScore = getFantasyIqWeightedAverage(row.fixtures, (fixture) => fixture.defenceScore, fixtureWeight);
+    row.resultScore = getFantasyIqWeightedAverage(row.fixtures, (fixture) => fixture.resultScore, fixtureWeight);
+    row.overallScore = getFantasyIqWeightedAverage(
+      [row.attackScore, row.defenceScore, row.resultScore].filter((value) => value != null),
+      (value) => value
+    );
+  });
+
+  return teamRows;
+}
+
+function getFantasyIqPlayerOutlook(player, clubOutlook) {
+  const weights = FANTASY_IQ_SCORE_CONFIG.positionOutlookWeights[player?.position] || { overall: 1 };
+  const weightedScores = Object.entries(weights).map(([key, weight]) => ({
+    weight,
+    value:
+      key === "attack"
+        ? clubOutlook?.attackScore
+        : key === "defence"
+        ? clubOutlook?.defenceScore
+        : clubOutlook?.overallScore,
+  }));
+  const score = getFantasyIqWeightedAverage(weightedScores, (item) => item.value, (item) => item.weight);
+  return {
+    score,
+    overallScore: clubOutlook?.overallScore ?? null,
+    attackScore: clubOutlook?.attackScore ?? null,
+    defenceScore: clubOutlook?.defenceScore ?? null,
+    nextFixture: clubOutlook?.fixtures?.[0] || null,
+  };
+}
+
+function buildFantasyIqScoredReport({
+  squad = createEmptyFantasyIqSquad(),
+  validation = validateFantasyIqSquad(squad),
+  clubOutlooks = {},
+  predictionOutlooks = {},
+} = {}) {
+  const report = createEmptyFantasyIqReport();
+  const normalisedSquad = normaliseFantasyIqSquad(squad);
+  const players = normalisedSquad.players || [];
+
+  if (!normalisedSquad.confirmed) {
+    report.confidence = "locked";
+    report.recommendations.push("Confirm a valid 15-player squad to unlock model-based Fantasy IQ scoring.");
+    return report;
+  }
+  if (!validation?.isValid) {
+    report.confidence = "locked";
+    report.concerns = validation?.errors || [];
+    report.recommendations.push("Fix the squad validation issues before using Fantasy IQ scoring.");
+    return report;
+  }
+
+  const enrichedPlayers = players.map((player) => {
+    const clubOutlook = clubOutlooks[player.teamCode] || {};
+    const predictionOutlook = predictionOutlooks[player.teamCode] || {};
+    const playerOutlook = getFantasyIqPlayerOutlook(player, clubOutlook);
+    return {
+      ...player,
+      clubOutlook,
+      predictionOutlook,
+      fantasyIqScore: playerOutlook.score,
+      fantasyIqOverallScore: playerOutlook.overallScore,
+      fantasyIqAttackScore: playerOutlook.attackScore,
+      fantasyIqDefenceScore: playerOutlook.defenceScore,
+      nextFixture: playerOutlook.nextFixture,
+      contributionWeight: getFantasyIqPlayerContributionWeight(player),
+    };
+  });
+  const starters = enrichedPlayers.filter((player) => player.squadRole === "starter");
+  const bench = enrichedPlayers.filter((player) => player.squadRole === "bench");
+  const attackers = starters.filter((player) => ["MID", "FWD"].includes(player.position));
+  const defenders = starters.filter((player) => ["GK", "DEF"].includes(player.position));
+  const captain = enrichedPlayers.find((player) => player.id === normalisedSquad.captainPlayerId || player.isCaptain);
+  const viceCaptain = enrichedPlayers.find((player) => player.id === normalisedSquad.viceCaptainPlayerId || player.isViceCaptain);
+  const selectedClubCodes = Array.from(new Set(enrichedPlayers.map((player) => player.teamCode).filter(Boolean)));
+  const uniqueClubOutlooks = selectedClubCodes.map((teamCode) => clubOutlooks[teamCode]).filter(Boolean);
+
+  const playerFixtureAverage = getFantasyIqWeightedAverage(
+    enrichedPlayers,
+    (player) => player.fantasyIqScore,
+    (player) => player.contributionWeight
+  );
+  const uniqueClubFixtureAverage = getFantasyIqWeightedAverage(uniqueClubOutlooks, (outlook) => outlook.overallScore);
+  report.categories.fixtureOutlook = clampFantasyIqScore(
+    (playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.playerAverage +
+      (uniqueClubFixtureAverage || playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.uniqueClubAverage
+  );
+
+  report.categories.attackOutlook = clampFantasyIqScore(
+    getFantasyIqWeightedAverage(
+      attackers,
+      (player) => {
+        const positionBoost = player.position === "FWD" ? 1.05 : 1;
+        return ((player.fantasyIqAttackScore ?? player.fantasyIqScore) || 0) * positionBoost;
+      },
+      (player) => player.contributionWeight
+    )
+  );
+
+  report.categories.defenceOutlook = clampFantasyIqScore(
+    getFantasyIqWeightedAverage(
+      defenders,
+      (player) => player.fantasyIqDefenceScore ?? player.fantasyIqScore,
+      (player) => player.contributionWeight
+    )
+  );
+
+  const captainScore = captain
+    ? getFantasyIqWeightedAverage(
+        [
+          { value: captain.fantasyIqScore, weight: 0.65 },
+          { value: captain.fantasyIqAttackScore, weight: ["MID", "FWD"].includes(captain.position) ? 0.25 : 0.1 },
+          { value: captain.predictionOutlook?.overallScore, weight: 0.1 },
+        ],
+        (item) => item.value,
+        (item) => item.weight
+      )
+    : null;
+  const viceCaptainScore = viceCaptain
+    ? getFantasyIqWeightedAverage(
+        [
+          { value: viceCaptain.fantasyIqScore, weight: 0.75 },
+          { value: viceCaptain.predictionOutlook?.overallScore, weight: 0.25 },
+        ],
+        (item) => item.value,
+        (item) => item.weight
+      )
+    : null;
+  report.categories.captaincyOutlook = clampFantasyIqScore(
+    getFantasyIqWeightedAverage(
+      [
+        { value: captainScore, weight: FANTASY_IQ_SCORE_CONFIG.captaincyWeights.captain },
+        { value: viceCaptainScore, weight: FANTASY_IQ_SCORE_CONFIG.captaincyWeights.viceCaptain },
+      ],
+      (item) => item.value,
+      (item) => item.weight
+    )
+  );
+
+  const starterPositionCounts = validation.summary?.starterPositionCounts || {};
+  const formationScore =
+    (starterPositionCounts.GK || 0) === 1 &&
+    (starterPositionCounts.DEF || 0) >= 3 &&
+    (starterPositionCounts.MID || 0) >= 2 &&
+    (starterPositionCounts.FWD || 0) >= 1
+      ? 100
+      : 45;
+  const clubCounts = validation.summary?.clubCounts || {};
+  const overStackPenalty = Object.values(clubCounts).reduce(
+    (sum, count) => sum + Math.max(0, Number(count || 0) - 2) * 10,
+    0
+  );
+  const starterClubCount = new Set(starters.map((player) => player.teamCode).filter(Boolean)).size;
+  const clubDiversificationScore = clampFantasyIqScore(70 + starterClubCount * 3 - overStackPenalty);
+  const starterCoverageScore = clampFantasyIqScore((starters.length / FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.starters) * 100);
+  const benchCoverScore = clampFantasyIqScore(
+    (new Set(bench.map((player) => player.position).filter(Boolean)).size / Math.min(4, FANTASY_IQ_POSITIONS.length)) * 100
+  );
+  report.categories.squadBalance = clampFantasyIqScore(
+    formationScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.formation +
+      clubDiversificationScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.clubDiversification +
+      starterCoverageScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.starterCoverage +
+      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.benchCover
+  );
+
+  const predictedPlayers = enrichedPlayers.filter((player) => player.predictionOutlook?.predictionCount);
+  if (predictedPlayers.length) {
+    const starterPredictionScore = getFantasyIqWeightedAverage(
+      starters.filter((player) => player.predictionOutlook?.predictionCount),
+      (player) => {
+        if (["GK", "DEF"].includes(player.position)) return player.predictionOutlook.defenceScore;
+        return player.predictionOutlook.attackScore;
+      },
+      (player) => player.contributionWeight
+    );
+    const captainPredictionScore = getFantasyIqWeightedAverage(
+      [captain, viceCaptain].filter((player) => player?.predictionOutlook?.predictionCount),
+      (player) => player.predictionOutlook.overallScore,
+      (player) => (player?.id === captain?.id ? 0.75 : 0.25)
+    );
+    const squadPredictionScore = getFantasyIqWeightedAverage(
+      predictedPlayers,
+      (player) => player.predictionOutlook.overallScore,
+      (player) => player.contributionWeight
+    );
+    report.categories.predictionAlignment = clampFantasyIqScore(
+      (starterPredictionScore || squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.starters +
+        (captainPredictionScore || squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.captains +
+        (squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.squad
+    );
+  }
+
+  const benchOutlookScore = getFantasyIqWeightedAverage(
+    bench,
+    (player) => player.fantasyIqScore,
+    (player) => (player.position === "GK" ? 0.75 : 1)
+  );
+  report.categories.benchStrength = clampFantasyIqScore(
+    (benchOutlookScore || 0) * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchOutlook +
+      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchCoverage
+  );
+
+  const availableCategoryEntries = Object.entries(report.categories).filter(([, value]) => value != null);
+  const availableWeightTotal = availableCategoryEntries.reduce(
+    (sum, [key]) => sum + Number(FANTASY_IQ_SCORE_CONFIG[key] || 0),
+    0
+  );
+  report.overallScore = clampFantasyIqScore(
+    availableCategoryEntries.reduce(
+      (sum, [key, value]) => sum + Number(value || 0) * (Number(FANTASY_IQ_SCORE_CONFIG[key] || 0) / availableWeightTotal),
+      0
+    )
+  );
+
+  const modelConfidenceAverage = getFantasyIqWeightedAverage(uniqueClubOutlooks, (outlook) => outlook.confidenceScore);
+  report.confidence =
+    (modelConfidenceAverage || 0) >= 70 && report.categories.predictionAlignment != null
+      ? "high"
+      : (modelConfidenceAverage || 0) >= 45
+      ? "medium"
+      : "low";
+
+  const bestStarters = [...starters]
+    .filter((player) => player.fantasyIqScore != null)
+    .sort((a, b) => b.fantasyIqScore - a.fantasyIqScore)
+    .slice(0, 2);
+  const weakestStarters = [...starters]
+    .filter((player) => player.fantasyIqScore != null)
+    .sort((a, b) => a.fantasyIqScore - b.fantasyIqScore)
+    .slice(0, 2);
+  const benchUpside = bench.filter((player) => Number(player.fantasyIqScore || 0) >= 70);
+
+  if (bestStarters.length) {
+    report.strengths.push(
+      `Strongest starter outlook: ${bestStarters
+        .map((player) => `${player.name} (${player.teamCode}, ${clampFantasyIqScore(player.fantasyIqScore)})`)
+        .join(", ")}.`
+    );
+  }
+  if (captain && captainScore != null) {
+    report.strengths.push(
+      `Captaincy model score: ${captain.name} ${clampFantasyIqScore(captainScore)}/100; vice ${viceCaptain?.name || "not set"} ${
+        viceCaptainScore == null ? "NA" : `${clampFantasyIqScore(viceCaptainScore)}/100`
+      }.`
+    );
+  }
+  if (weakestStarters.length) {
+    report.concerns.push(
+      `Lower starter outlook: ${weakestStarters
+        .map((player) => `${player.name} (${player.teamCode}, ${clampFantasyIqScore(player.fantasyIqScore)})`)
+        .join(", ")}.`
+    );
+  }
+  if (report.categories.predictionAlignment == null) {
+    report.concerns.push("Prediction alignment is locked until upcoming score predictions exist for your squad's clubs.");
+  }
+  if (benchUpside.length) {
+    report.recommendations.push(
+      `Review bench order: ${benchUpside
+        .slice(0, 2)
+        .map((player) => `${player.name} (${player.teamCode})`)
+        .join(", ")} have favourable club/position outlooks.`
+    );
+  }
+  if (weakestStarters.length) {
+    report.recommendations.push("Use the lower starter outlook list as your first manual review queue before making transfers.");
+  }
+
+  report.transferPriority =
+    report.overallScore >= 75
+      ? "Low priority"
+      : report.overallScore >= 60
+      ? "Medium priority"
+      : "High priority";
+  report.predictionConflicts = enrichedPlayers
+    .filter((player) => player.predictionOutlook?.predictionCount && player.fantasyIqScore != null)
+    .filter((player) => Math.abs(Number(player.predictionOutlook.overallScore || 0) - Number(player.fantasyIqScore || 0)) >= 28)
+    .slice(0, 3)
+    .map((player) => ({
+      playerId: player.id,
+      label: `${player.name} (${player.teamCode})`,
+      detail: "Your predicted scorelines and the model fixture outlook are pointing in different directions.",
+    }));
+  report.players = enrichedPlayers;
+  report.diagnostics = {
+    selectedClubs: selectedClubCodes.length,
+    scoredPlayers: enrichedPlayers.filter((player) => player.fantasyIqScore != null).length,
+    predictionPlayers: predictedPlayers.length,
+    modelConfidenceAverage: modelConfidenceAverage == null ? null : clampFantasyIqScore(modelConfidenceAverage),
+  };
+
+  return report;
+}
 
 // --- TEAM NAME NORMALISATION (kept from your version) ---
 export function normalizeTeamName(name) {
@@ -3825,6 +4767,31 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
   const [fantasyInsightsScope, setFantasyInsightsScope] = useState("gameweek");
+  const fantasyIqUserIdentifier = useMemo(
+    () => currentUserId || currentPlayer || loginName || "guest",
+    [currentUserId, currentPlayer, loginName]
+  );
+  const [fantasyIqSquad, setFantasyIqSquad] = useState(() =>
+    loadFantasyIqSquad("guest")
+  );
+  const [fantasyIqEditingSquad, setFantasyIqEditingSquad] = useState(() =>
+    createEmptyFantasyIqSquad()
+  );
+  const [fantasyIqBuilderOpen, setFantasyIqBuilderOpen] = useState(false);
+  const [fantasyIqUnsavedChanges, setFantasyIqUnsavedChanges] = useState(false);
+  const [fantasyIqConfirmAttempted, setFantasyIqConfirmAttempted] = useState(false);
+  const [fantasyIqSquadStatus, setFantasyIqSquadStatus] = useState("");
+  const [fantasyIqPlayerSearch, setFantasyIqPlayerSearch] = useState("");
+  const [fantasyIqPositionFilter, setFantasyIqPositionFilter] = useState("ALL");
+  const [fantasyIqTeamFilter, setFantasyIqTeamFilter] = useState("ALL");
+  const fantasyIqSquadValidation = useMemo(
+    () => validateFantasyIqSquad(fantasyIqSquad),
+    [fantasyIqSquad]
+  );
+  const fantasyIqEditingValidation = useMemo(
+    () => validateFantasyIqSquad(fantasyIqEditingSquad),
+    [fantasyIqEditingSquad]
+  );
   const [showPredictionIqModal, setShowPredictionIqModal] = useState(false);
   const [predictionIqPendingAfterWinner, setPredictionIqPendingAfterWinner] = useState(false);
   const [predictionIqDemo, setPredictionIqDemo] = useState(false);
@@ -3832,6 +4799,93 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const badgeHistorySaveSignatureRef = useRef("");
   const swipeStartRef = useRef(null);
   const winnerAudioRef = useRef(null);
+
+  useEffect(() => {
+    const savedSquad = loadFantasyIqSquad(fantasyIqUserIdentifier);
+    setFantasyIqSquad(savedSquad);
+    if (!fantasyIqBuilderOpen) {
+      setFantasyIqEditingSquad(savedSquad);
+      setFantasyIqUnsavedChanges(false);
+      setFantasyIqConfirmAttempted(false);
+    }
+  }, [fantasyIqUserIdentifier, fantasyIqBuilderOpen]);
+
+  const openFantasyIqBuilder = (squad = fantasyIqSquad) => {
+    setFantasyIqEditingSquad(normaliseFantasyIqSquad(squad));
+    setFantasyIqBuilderOpen(true);
+    setFantasyIqUnsavedChanges(false);
+    setFantasyIqConfirmAttempted(false);
+    setFantasyIqSquadStatus("");
+  };
+
+  const closeFantasyIqBuilder = () => {
+    if (fantasyIqUnsavedChanges && !window.confirm("Discard unsaved squad changes?")) return;
+    setFantasyIqBuilderOpen(false);
+    setFantasyIqEditingSquad(fantasyIqSquad);
+    setFantasyIqUnsavedChanges(false);
+    setFantasyIqConfirmAttempted(false);
+  };
+
+  const updateFantasyIqEditingSquad = (updater) => {
+    setFantasyIqEditingSquad((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      return normaliseFantasyIqSquad(next);
+    });
+    setFantasyIqUnsavedChanges(true);
+    setFantasyIqSquadStatus("");
+  };
+
+  const handleSaveFantasyIqDraft = () => {
+    const draft = normaliseFantasyIqSquad({
+      ...fantasyIqEditingSquad,
+      confirmed: false,
+      updatedAt: new Date().toISOString(),
+      gameweek: selectedGameweek,
+    });
+    const saved = saveFantasyIqSquad(fantasyIqUserIdentifier, draft);
+    setFantasyIqSquad(saved);
+    setFantasyIqEditingSquad(saved);
+    setFantasyIqUnsavedChanges(false);
+    setFantasyIqConfirmAttempted(false);
+    setFantasyIqSquadStatus("Draft saved.");
+  };
+
+  const handleConfirmFantasyIqSquad = () => {
+    const validation = validateFantasyIqSquad(fantasyIqEditingSquad);
+    setFantasyIqConfirmAttempted(true);
+    if (!validation.isValid) {
+      setFantasyIqSquadStatus("Fix the highlighted squad issues before confirming.");
+      return;
+    }
+    const confirmed = normaliseFantasyIqSquad({
+      ...fantasyIqEditingSquad,
+      confirmed: true,
+      source: fantasyIqEditingSquad.source || "manual",
+      updatedAt: new Date().toISOString(),
+      importedAt: fantasyIqEditingSquad.importedAt || new Date().toISOString(),
+      gameweek: selectedGameweek,
+    });
+    const saved = saveFantasyIqSquad(fantasyIqUserIdentifier, confirmed);
+    setFantasyIqSquad(saved);
+    setFantasyIqEditingSquad(saved);
+    setFantasyIqBuilderOpen(false);
+    setFantasyIqUnsavedChanges(false);
+    setFantasyIqSquadStatus("Your squad is ready for Fantasy IQ analysis.");
+  };
+
+  const handleClearFantasyIqSquad = () => {
+    if (!window.confirm("Clear your saved Fantasy IQ squad?")) return;
+    const emptySquad = createEmptyFantasyIqSquad();
+    try {
+      localStorage.removeItem(getFantasyIqSquadStorageKey(fantasyIqUserIdentifier));
+    } catch {}
+    setFantasyIqSquad(emptySquad);
+    setFantasyIqEditingSquad(emptySquad);
+    setFantasyIqBuilderOpen(false);
+    setFantasyIqUnsavedChanges(false);
+    setFantasyIqConfirmAttempted(false);
+    setFantasyIqSquadStatus("Squad cleared.");
+  };
 
 // Coins game state
 const [coinsState, setCoinsState] = useState({
@@ -6581,7 +7635,7 @@ const predictionIqDemoReport = useMemo(
   [selectedGameweek]
 );
 
-const fantasyHelpReport = useMemo(() => {
+const fantasyIqReport = useMemo(() => {
   const emptyReport = {
     gameweek: selectedGameweek,
     predictedGoals: 0,
@@ -6612,6 +7666,15 @@ const fantasyHelpReport = useMemo(() => {
     formAttackRows: [],
     dataRiskRows: [],
     adviceRows: [],
+    overallFixtureRows: [],
+    attackFixtureRows: [],
+    defenceFixtureRows: [],
+    predictionSignalRows: [],
+    predictionConflicts: [],
+    preparedFantasyIqReport: createEmptyFantasyIqReport(),
+    squad: fantasyIqSquad,
+    squadValidation: fantasyIqSquadValidation,
+    scoringConfigValid: validateFantasyIqScoreConfig(),
     completedResults: 0,
     submittedPredictions: 0,
     missingPredictions: 0,
@@ -6928,6 +7991,16 @@ const fantasyHelpReport = useMemo(() => {
         a.cleanSheetProbability - b.cleanSheetProbability
     )
     .slice(0, 3);
+  const overallFixtureRows = [...fixtureDifficultyRows]
+    .sort((a, b) => a.averageDifficulty - b.averageDifficulty || b.easyCount - a.easyCount)
+    .slice(0, 3);
+  const defenceFixtureRows = [...fixtureDifficultyRows]
+    .sort(
+      (a, b) =>
+        a.defenceDifficulty - b.defenceDifficulty ||
+        b.cleanSheetProbability - a.cleanSheetProbability
+    )
+    .slice(0, 3);
   const dataRiskRows = fixtureHardRows;
   const bestCleanSheetRun = [...teamRows].sort(
     (a, b) => b.cleanSheetStreak - a.cleanSheetStreak || b.defenceScore - a.defenceScore
@@ -6957,6 +8030,69 @@ const fantasyHelpReport = useMemo(() => {
     .map((row) => row.team);
   const predictionHardTeam =
     predictionHardTeams[0] || emptyReport.avoidTeam;
+  const predictionSignalRows = [
+    {
+      label: "Expected goals",
+      value: topAttackTeams.length ? topAttackTeams.map((team) => getTeamCode(team, gameMode)).join(", ") : "No standout yet",
+      detail: topAttackTeams.length ? "Teams your predictions favour for attacking interest." : "Submit predictions to surface attacking signals.",
+      color: "#22C55E",
+    },
+    {
+      label: "Clean sheets",
+      value: topDefenceTeams.length ? topDefenceTeams.map((team) => getTeamCode(team, gameMode)).join(", ") : "No standout yet",
+      detail: topDefenceTeams.length ? "Teams you have backed for defensive returns." : "Clean-sheet signals appear after predicted scorelines.",
+      color: "#38BDF8",
+    },
+    {
+      label: "Struggle risk",
+      value: predictionHardTeams.length ? predictionHardTeams.map((team) => getTeamCode(team, gameMode)).join(", ") : "No standout yet",
+      detail: predictionHardTeams.length ? "Teams your predictions treat as higher risk." : "No cautious prediction signal yet.",
+      color: "#EF4444",
+    },
+  ];
+  const predictionConflicts = selectedFixtures
+    .map((fixture) => {
+      const pred = getPred(fixture.id);
+      if (!hasPredictionScore(pred)) return null;
+      const model = buildFixtureModel(fixture, leaguePerformanceContext);
+      const homeGoals = Number(pred.homeGoals);
+      const awayGoals = Number(pred.awayGoals);
+      const userSide = homeGoals > awayGoals ? "home" : homeGoals < awayGoals ? "away" : "draw";
+      const modelSide =
+        model.homeProb >= model.awayProb && model.homeProb >= model.drawProb
+          ? "home"
+          : model.awayProb >= model.homeProb && model.awayProb >= model.drawProb
+          ? "away"
+          : "draw";
+      const goalGap = Math.abs((homeGoals - awayGoals) - (model.homeExpectedGoals - model.awayExpectedGoals));
+      if (userSide === modelSide && goalGap < 2.25) return null;
+      return {
+        fixtureId: fixture.id,
+        label: `${getTeamCode(fixture.homeTeam, gameMode)} ${homeGoals}-${awayGoals} ${getTeamCode(fixture.awayTeam, gameMode)}`,
+        detail:
+          userSide !== modelSide
+            ? "Your predicted outcome differs from the model view."
+            : "Your scoreline is more assertive than the model goal estimate.",
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+  const fantasyIqClubOutlooks = buildFantasyIqClubOutlooks(
+    activeFixtures,
+    results,
+    leaguePerformanceContext
+  );
+  const fantasyIqPredictionOutlooks = buildFantasyIqPredictionOutlooks(
+    activeFixtures,
+    currentPredictions,
+    selectedGameweek
+  );
+  const preparedFantasyIqReport = buildFantasyIqScoredReport({
+    squad: fantasyIqSquad,
+    validation: fantasyIqSquadValidation,
+    clubOutlooks: fantasyIqClubOutlooks,
+    predictionOutlooks: fantasyIqPredictionOutlooks,
+  });
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
   const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
   const actualCleanSheets = teamRows.reduce((sum, row) => sum + row.actualCleanSheets, 0);
@@ -7096,10 +8232,19 @@ const fantasyHelpReport = useMemo(() => {
     predictionDefenceRows,
     avoidRows,
     fixtureRows,
+    overallFixtureRows,
+    attackFixtureRows: fixtureRows,
+    defenceFixtureRows,
     fixtureHardRows,
     formAttackRows,
     dataRiskRows,
     adviceRows,
+    predictionSignalRows,
+    predictionConflicts: [...predictionConflicts, ...(preparedFantasyIqReport.predictionConflicts || [])].slice(0, 6),
+    preparedFantasyIqReport,
+    squad: fantasyIqSquad,
+    squadValidation: fantasyIqSquadValidation,
+    scoringConfigValid: validateFantasyIqScoreConfig(),
     completedResults,
     submittedPredictions: insightSubmittedPredictions,
     missingPredictions: Math.max(0, insightFixtures.length - insightSubmittedPredictions),
@@ -7111,6 +8256,8 @@ const fantasyHelpReport = useMemo(() => {
   coinsState,
   currentPredictionKey,
   fantasyInsightsScope,
+  fantasyIqSquad,
+  fantasyIqSquadValidation,
   isWorldCupMode,
   leaguePerformanceContext,
   predictions,
@@ -8860,9 +10007,9 @@ useEffect(() => {
     );
   };
 
-  const renderFantasyHelpReport = (options = {}) => {
+  const renderFantasyIqReport = (options = {}) => {
     const compact = !!options.compact;
-    const report = options.report || fantasyHelpReport;
+    const report = options.report || fantasyIqReport;
     const predictionDenominator = Math.max(
       report.submittedPredictions + report.missingPredictions,
       report.submittedPredictions,
@@ -9117,45 +10264,458 @@ useEffect(() => {
         </div>
       );
     };
+    const renderFantasyIqSection = (title, subtitle, children, borderColor = theme.line) => (
+      <div
+        style={{
+          background: theme.panelHi,
+          border: `1px solid ${borderColor}`,
+          borderRadius: 12,
+          padding: 14,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 17, color: borderColor, fontWeight: 950 }}>
+            {title}
+          </div>
+          {subtitle && (
+            <div style={{ marginTop: 3, fontSize: 12, color: theme.muted, lineHeight: 1.35 }}>
+              {subtitle}
+            </div>
+          )}
+        </div>
+        {children}
+      </div>
+    );
+    const renderFantasyIqMetric = (label, value, color = theme.accent) => (
+      <div
+        key={label}
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${theme.line}`,
+          borderRadius: 10,
+          padding: "10px 9px",
+          display: "grid",
+          gap: 5,
+          minWidth: 0,
+        }}
+      >
+        <div style={{ fontSize: 11, color, fontWeight: 950 }}>{label}</div>
+        <div style={{ fontSize: 15, color: value == null ? theme.muted : theme.text, fontWeight: 900, overflowWrap: "anywhere" }}>
+          {value == null ? "Locked" : value}
+        </div>
+      </div>
+    );
+    const renderPredictionSignalRow = (item) => (
+      <div
+        key={item.label}
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${theme.line}`,
+          borderRadius: 10,
+          padding: "9px 10px",
+          display: "grid",
+          gap: 4,
+        }}
+      >
+        <div style={{ color: item.color || theme.accent, fontSize: 12, fontWeight: 950 }}>
+          {item.label}
+        </div>
+        <div style={{ color: theme.text, fontSize: 15, fontWeight: 950 }}>
+          {item.value}
+        </div>
+        <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+          {item.detail}
+        </div>
+      </div>
+    );
+    const renderFantasyIqCategoryDetail = (item) => (
+      <div
+        key={item.label}
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${theme.line}`,
+          borderRadius: 10,
+          padding: "9px 10px",
+          display: "grid",
+          gap: 5,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <div style={{ color: item.color || theme.accent, fontSize: 12, fontWeight: 950 }}>
+            {item.label}
+          </div>
+          <div style={{ color: item.value == null ? theme.muted : theme.text, fontSize: 13, fontWeight: 950 }}>
+            {formatFantasyIqScore(item.value) || "Locked"}
+          </div>
+        </div>
+        <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+          {item.detail}
+        </div>
+      </div>
+    );
+    const renderFantasyIqNotes = (title, rows, color) =>
+      (rows || []).length ? (
+        <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ color, fontSize: 12, fontWeight: 950 }}>{title}</div>
+          {(rows || []).slice(0, 3).map((row) => (
+            <div
+              key={row}
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: `1px solid ${theme.line}`,
+                borderRadius: 8,
+                padding: "8px 9px",
+                color: theme.text,
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              {row}
+            </div>
+          ))}
+        </div>
+      ) : null;
+    const preparedReport = report.preparedFantasyIqReport || createEmptyFantasyIqReport();
+    const overviewMetrics = [
+      { label: "Overall Fantasy IQ", value: formatFantasyIqScore(preparedReport.overallScore) },
+      { label: "Fixture Outlook", value: formatFantasyIqScore(preparedReport.categories?.fixtureOutlook) },
+      { label: "Attack Outlook", value: formatFantasyIqScore(preparedReport.categories?.attackOutlook) },
+      { label: "Defence Outlook", value: formatFantasyIqScore(preparedReport.categories?.defenceOutlook) },
+      { label: "Prediction Alignment", value: formatFantasyIqScore(preparedReport.categories?.predictionAlignment) },
+      { label: "Transfer Priority", value: preparedReport.transferPriority },
+    ];
+    const categoryDetailRows = [
+      {
+        label: "Fixture Outlook",
+        value: preparedReport.categories?.fixtureOutlook,
+        detail: "Weighted club and role outlook across the next three Premier League fixtures.",
+        color: "#22C55E",
+      },
+      {
+        label: "Attack Outlook",
+        value: preparedReport.categories?.attackOutlook,
+        detail: "Midfielder and forward suitability from expected goals, two-plus-goal probability and attacking difficulty.",
+        color: "#A78BFA",
+      },
+      {
+        label: "Defence Outlook",
+        value: preparedReport.categories?.defenceOutlook,
+        detail: "Goalkeeper and defender suitability from clean-sheet probability and defensive fixture difficulty.",
+        color: "#38BDF8",
+      },
+      {
+        label: "Captaincy Outlook",
+        value: preparedReport.categories?.captaincyOutlook,
+        detail: "Captain and vice-captain club/position outlook, with submitted predictions included when available.",
+        color: "#F59E0B",
+      },
+      {
+        label: "Squad Balance",
+        value: preparedReport.categories?.squadBalance,
+        detail: "Formation validity, club spread, starter coverage and bench position coverage.",
+        color: "#14B8A6",
+      },
+      {
+        label: "Prediction Alignment",
+        value: preparedReport.categories?.predictionAlignment,
+        detail: "How your submitted scorelines support or contradict the squad's club and position exposure.",
+        color: "#F97316",
+      },
+      {
+        label: "Bench Strength",
+        value: preparedReport.categories?.benchStrength,
+        detail: "Bench club/position outlook and coverage for rotation decisions.",
+        color: "#94A3B8",
+      },
+    ];
+    const squadPlayerCount = Array.isArray(report.squad?.players) ? report.squad.players.length : 0;
+    const squadMessages = [
+      ...(report.squadValidation?.messages || []),
+      ...(report.squadValidation?.warnings || []),
+    ];
+    const editingSquad = fantasyIqEditingSquad;
+    const editingValidation = fantasyIqEditingValidation;
+    const editingPlayers = Array.isArray(editingSquad.players) ? editingSquad.players : [];
+    const selectedPlayerIds = new Set(editingPlayers.map((player) => player.id));
+    const editingPositionCounts = countFantasyIqPlayersByPosition(editingPlayers);
+    const editingClubCounts = countFantasyIqPlayersByClub(editingPlayers);
+    const filteredFantasyIqPlayers = FANTASY_IQ_TEMP_PLAYERS
+      .filter((player) => !selectedPlayerIds.has(player.id))
+      .filter((player) => fantasyIqPositionFilter === "ALL" || player.position === fantasyIqPositionFilter)
+      .filter((player) => fantasyIqTeamFilter === "ALL" || player.teamCode === fantasyIqTeamFilter)
+      .filter((player) => {
+        const search = fantasyIqPlayerSearch.trim().toLowerCase();
+        if (!search) return true;
+        return (
+          player.name.toLowerCase().includes(search) ||
+          player.teamCode.toLowerCase().includes(search)
+        );
+      })
+      .slice(0, 18);
+    const fantasyIqTeamFilterOptions = Array.from(
+      new Set(FANTASY_IQ_TEMP_PLAYERS.map((player) => player.teamCode))
+    ).sort();
+    const getFantasyIqPlayerAddBlocker = (player) => {
+      if (selectedPlayerIds.has(player.id)) return "Already selected";
+      if (editingPlayers.length >= FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxSquadSize) return "Squad already has 15 players";
+      if ((editingPositionCounts[player.position] || 0) >= FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[player.position]) {
+        return `Too many ${player.position}`;
+      }
+      if ((editingClubCounts[player.teamCode] || 0) >= FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxPlayersPerClub) {
+        return "Maximum 3 from this club";
+      }
+      return "";
+    };
+    const renderSquadPlayerCard = (player) => {
+      const isStarter = player.squadRole === "starter";
+      const isCaptain = player.id === editingSquad.captainPlayerId || player.isCaptain;
+      const isViceCaptain = player.id === editingSquad.viceCaptainPlayerId || player.isViceCaptain;
+      return (
+        <div
+          key={player.id}
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            border: `1px solid ${isCaptain ? theme.warn : isViceCaptain ? theme.accent : theme.line}`,
+            borderRadius: 9,
+            padding: "8px 8px",
+            display: "grid",
+            gap: 6,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+            <span style={{ color: theme.text, fontSize: 12, fontWeight: 950, overflowWrap: "anywhere" }}>
+              {player.name || "Unnamed player"}
+            </span>
+            {isCaptain && <span aria-label="Captain" style={{ color: theme.warn, fontWeight: 950 }}>C</span>}
+            {isViceCaptain && <span aria-label="Vice captain" style={{ color: theme.accent, fontWeight: 950 }}>V</span>}
+          </div>
+          <div style={{ color: theme.muted, fontSize: 10, fontWeight: 850 }}>
+            {player.teamCode || "TBC"} · {player.position || "POS"} · {isStarter ? "Starter" : "Bench"}
+          </div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => updateFantasyIqEditingSquad((squad) =>
+                updateFantasyIqSquadPlayerRole(squad, player.id, isStarter ? "bench" : "starter")
+              )}
+              style={{ ...pillBtn(false), padding: "4px 7px", fontSize: 10 }}
+            >
+              {isStarter ? "Bench" : "Start"}
+            </button>
+            <button
+              type="button"
+              aria-label={`Make ${player.name} captain`}
+              onClick={() => updateFantasyIqEditingSquad((squad) => setFantasyIqCaptain(squad, player.id))}
+              style={{ ...pillBtn(isCaptain), padding: "4px 7px", fontSize: 10 }}
+            >
+              C
+            </button>
+            <button
+              type="button"
+              aria-label={`Make ${player.name} vice captain`}
+              onClick={() => updateFantasyIqEditingSquad((squad) => setFantasyIqViceCaptain(squad, player.id))}
+              style={{ ...pillBtn(isViceCaptain), padding: "4px 7px", fontSize: 10 }}
+            >
+              V
+            </button>
+            <button
+              type="button"
+              onClick={() => updateFantasyIqEditingSquad((squad) => removeFantasyIqSquadPlayer(squad, player.id))}
+              style={{ ...pillBtn(false), padding: "4px 7px", fontSize: 10, color: theme.danger }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      );
+    };
+    const renderSquadPositionRow = (title, position, players) => (
+      <div key={title} style={{ display: "grid", gap: 6 }}>
+        <div style={{ color: theme.muted, fontSize: 11, fontWeight: 950 }}>{title}</div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile || compact ? "1fr" : `repeat(${Math.max(1, Math.min(5, players.length || 1))}, minmax(0, 1fr))`,
+            gap: 8,
+          }}
+        >
+          {players.length ? (
+            players.map(renderSquadPlayerCard)
+          ) : (
+            <div style={{ color: theme.muted, fontSize: 12, border: `1px dashed ${theme.line}`, borderRadius: 9, padding: 9 }}>
+              Add {position} players
+            </div>
+          )}
+        </div>
+      </div>
+    );
+    const renderFantasyIqSquadBuilder = () => {
+      const starters = editingPlayers.filter((player) => player.squadRole === "starter");
+      const benchPlayers = editingPlayers.filter((player) => player.squadRole === "bench");
+      const starterGroups = FANTASY_IQ_POSITIONS.map((position) => ({
+        position,
+        title: position === "GK" ? "Goalkeeper" : position === "DEF" ? "Defenders" : position === "MID" ? "Midfielders" : "Forwards",
+        players: starters.filter((player) => player.position === position),
+      }));
+      const summary = editingValidation.summary || {};
+      const blockingErrors = fantasyIqConfirmAttempted ? editingValidation.errors : editingValidation.errors.slice(0, 3);
+
+      return (
+        <div style={{ display: "grid", gap: 12 }}>
+          <div
+            style={{
+              background: "rgba(34,197,94,0.08)",
+              border: `1px solid ${theme.accent2}`,
+              borderRadius: 10,
+              padding: 10,
+              display: "grid",
+              gap: 6,
+            }}
+          >
+            <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+              Squad progress: {summary.totalPlayers || 0}/15 · Starters {summary.starters || 0}/11 · Bench {summary.bench || 0}/4
+            </div>
+            <div style={{ color: theme.muted, fontSize: 11 }}>
+              Formation: {summary.formation || "Incomplete"} · GK {summary.positionCounts?.GK || 0}/2 · DEF {summary.positionCounts?.DEF || 0}/5 · MID {summary.positionCounts?.MID || 0}/5 · FWD {summary.positionCounts?.FWD || 0}/3
+            </div>
+            <div style={{ color: editingValidation.isValid ? theme.accent2 : theme.warn, fontSize: 11, fontWeight: 850 }}>
+              {editingValidation.isValid ? "Squad is valid and ready to confirm." : "Draft can be saved while incomplete."}
+            </div>
+          </div>
+
+          {!!blockingErrors.length && (
+            <div style={{ display: "grid", gap: 4 }} role="alert">
+              {blockingErrors.map((error) => (
+                <div key={error} style={{ color: theme.warn, fontSize: 12 }}>
+                  {error}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div
+            style={{
+              background: "linear-gradient(180deg, rgba(34,197,94,0.12), rgba(15,23,42,0.88))",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 12,
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            {starterGroups.map((group) => renderSquadPositionRow(group.title, group.position, group.players))}
+            {renderSquadPositionRow("Bench", "bench", benchPlayers)}
+          </div>
+
+          <div
+            style={{
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 12,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <label style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+              Search temporary player list
+              <input
+                value={fantasyIqPlayerSearch}
+                onChange={(event) => setFantasyIqPlayerSearch(event.target.value)}
+                placeholder="Search name or team code"
+                style={{ ...probInput, marginTop: 6, textAlign: "left" }}
+              />
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "1fr 1fr", gap: 8 }}>
+              <select
+                aria-label="Filter by position"
+                value={fantasyIqPositionFilter}
+                onChange={(event) => setFantasyIqPositionFilter(event.target.value)}
+                style={{ ...probInput, padding: "8px 10px", fontSize: 13 }}
+              >
+                <option value="ALL">All positions</option>
+                {FANTASY_IQ_POSITIONS.map((position) => (
+                  <option key={position} value={position}>{position}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Filter by team"
+                value={fantasyIqTeamFilter}
+                onChange={(event) => setFantasyIqTeamFilter(event.target.value)}
+                style={{ ...probInput, padding: "8px 10px", fontSize: 13 }}
+              >
+                <option value="ALL">All teams</option>
+                {fantasyIqTeamFilterOptions.map((teamCode) => (
+                  <option key={teamCode} value={teamCode}>{teamCode}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ color: theme.warn, fontSize: 11, lineHeight: 1.35 }}>
+              {FANTASY_IQ_TEMP_PLAYER_DATA_NOTICE}
+            </div>
+            <div style={{ display: "grid", gap: 6, maxHeight: 310, overflowY: "auto" }}>
+              {filteredFantasyIqPlayers.length ? (
+                filteredFantasyIqPlayers.map((player) => {
+                  const blocker = getFantasyIqPlayerAddBlocker(player);
+                  return (
+                    <button
+                      key={player.id}
+                      type="button"
+                      disabled={!!blocker}
+                      title={blocker || `Add ${player.name}`}
+                      onClick={() => updateFantasyIqEditingSquad((squad) => addFantasyIqSquadPlayer(squad, player))}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "minmax(0, 1fr) auto",
+                        gap: 8,
+                        alignItems: "center",
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${blocker ? theme.line : theme.accent}`,
+                        background: blocker ? "rgba(255,255,255,0.03)" : "rgba(56,189,248,0.08)",
+                        color: blocker ? theme.muted : theme.text,
+                        cursor: blocker ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 900, overflowWrap: "anywhere" }}>
+                        {player.name}
+                      </span>
+                      <span style={{ fontSize: 11, fontWeight: 950 }}>
+                        {player.teamCode} · {player.position}{blocker ? ` · ${blocker}` : ""}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : (
+                <div style={{ color: theme.muted, fontSize: 12 }}>No players match those filters.</div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" onClick={handleSaveFantasyIqDraft} style={{ ...pillBtn(false), padding: "8px 10px" }}>
+              Save Draft
+            </button>
+            <button type="button" onClick={handleConfirmFantasyIqSquad} style={{ ...pillBtn(editingValidation.isValid), padding: "8px 10px" }}>
+              Confirm Squad
+            </button>
+            <button type="button" onClick={closeFantasyIqBuilder} style={{ ...pillBtn(false), padding: "8px 10px" }}>
+              Close Builder
+            </button>
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
-        <div
-          style={{
-            background: "linear-gradient(180deg, rgba(34,197,94,0.08), rgba(11,18,32,0.94))",
-            border: `2px solid ${theme.accent2}`,
-            borderRadius: 12,
-            padding: 14,
-            display: "grid",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto",
-              gap: 10,
-              alignItems: "center",
-            }}
-          >
-            <div style={{ fontSize: 18, color: theme.accent2, fontWeight: 950, textAlign: isMobile || compact ? "center" : "left" }}>
-              {fantasyInsightsScope === "season" ? "Season Insights" : "Gameweek Insights"}
-            </div>
-            <select
-              value={fantasyInsightsScope}
-              onChange={(event) => setFantasyInsightsScope(event.target.value)}
-              style={{
-                ...probInput,
-                width: isMobile || compact ? "100%" : 190,
-                padding: "8px 10px",
-                fontSize: 13,
-                fontWeight: 850,
-              }}
-            >
-              <option value="gameweek">Gameweek Insights</option>
-              <option value="season">Season Insights</option>
-            </select>
-          </div>
+        {renderFantasyIqSection(
+          "Fantasy IQ Overview",
+          "Add your fantasy squad to unlock your complete Fantasy IQ score.",
           <div
             style={{
               background: "rgba(255,255,255,0.04)",
@@ -9166,49 +10726,92 @@ useEffect(() => {
               gap: 10,
             }}
           >
-            <div style={{ fontSize: 15, color: theme.text, fontWeight: 950, textAlign: "center" }}>
-              You Predicted
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {overviewMetrics.map((item) => renderFantasyIqMetric(item.label, item.value, theme.accent2))}
+            </div>
+            <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35, textAlign: "center" }}>
+              Model-based squad analysis only. This is not predicted FPL points and does not include player minutes, prices, injuries, ownership or transfers.
+            </div>
+          </div>,
+          theme.accent2
+        )}
+
+        {renderFantasyIqSection(
+          "Squad Score Breakdown",
+          "Scores are based on confirmed squad roles, club fixture outlook, player position and your submitted predictions where available.",
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {categoryDetailRows.map(renderFantasyIqCategoryDetail)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {renderFantasyIqNotes("Strengths", preparedReport.strengths, theme.accent2)}
+              {renderFantasyIqNotes("Concerns", preparedReport.concerns, theme.warn)}
+              {renderFantasyIqNotes("Review Queue", preparedReport.recommendations, theme.accent)}
+            </div>
+            <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+              Players from the same club and position receive the same model treatment until official player-level data is added.
+            </div>
+          </div>,
+          "#14B8A6"
+        )}
+
+        {renderFantasyIqSection(
+          "Your Prediction Signals",
+          fantasyInsightsScope === "season" ? "Season-level signals from your submitted predictions." : "Gameweek signals from your submitted predictions.",
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <select
+                value={fantasyInsightsScope}
+                onChange={(event) => setFantasyInsightsScope(event.target.value)}
+                style={{
+                  ...probInput,
+                  width: isMobile || compact ? "100%" : 190,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  fontWeight: 850,
+                }}
+              >
+                <option value="gameweek">Gameweek Insights</option>
+                <option value="season">Season Insights</option>
+              </select>
+              <div style={{ color: theme.muted, fontSize: 12, textAlign: isMobile || compact ? "left" : "right" }}>
+                {report.submittedPredictions} predictions entered, {report.missingPredictions} still missing.
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
               {insightItems.map(renderInsightCard)}
             </div>
-            {!!report.missingPredictions && (
-              <div style={{ fontSize: 12, color: theme.muted, textAlign: "center" }}>
-                {report.submittedPredictions} predictions entered, {report.missingPredictions} still missing.
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {(report.predictionSignalRows || []).map(renderPredictionSignalRow)}
+            </div>
+            {(report.predictionConflicts || []).length > 0 && (
+              <div style={{ display: "grid", gap: 6 }}>
+                {(report.predictionConflicts || []).map((conflict) => (
+                  <div key={conflict.fixtureId} style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+                    <strong style={{ color: theme.warn }}>{conflict.label}:</strong> {conflict.detail}
+                  </div>
+                ))}
               </div>
             )}
-          </div>
-        </div>
+          </div>,
+          theme.accent2
+        )}
 
-        <div
-          style={{
-            background: "linear-gradient(180deg, rgba(56,189,248,0.08), rgba(11,18,32,0.94))",
-            border: `2px solid ${theme.accent}`,
-            borderRadius: 12,
-            padding: 14,
-            display: "grid",
-            gap: 12,
-          }}
-        >
-          <div style={{ fontSize: 18, color: theme.accent, fontWeight: 950, textAlign: "center" }}>
-            Advice
-          </div>
-          <div
-            style={{
-              background: theme.panelHi,
-              border: `1px solid ${theme.line}`,
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
-            <div style={{ padding: "10px 12px", color: theme.accent, fontSize: 15, fontWeight: 950 }}>
-              Prediction advice v data advice
-            </div>
-            {(report.adviceRows || []).map(renderAdviceComparisonRow)}
-          </div>
-          <div style={{ color: "#A78BFA", fontSize: 15, fontWeight: 950 }}>
-            Fixture difficulty guide
-          </div>
+        {renderFantasyIqSection(
+          "Model Fixture Outlook",
+          "Fantasy IQ analyses attacking potential, clean-sheet outlook and fixture difficulty over the next three gameweeks.",
           <div
             style={{
               display: "grid",
@@ -9217,19 +10820,187 @@ useEffect(() => {
             }}
           >
             {renderFixtureDifficultyPanel(
-              "Easy fixtures",
-              report.fixtureRows,
+              "Overall fixture outlook",
+              report.overallFixtureRows,
               "#22C55E",
               "NA"
             )}
             {renderFixtureDifficultyPanel(
-              "Hard fixtures",
+              "Attacking outlook",
+              report.attackFixtureRows || report.fixtureRows,
+              "#A78BFA",
+              "NA"
+            )}
+            {renderFixtureDifficultyPanel(
+              "Defensive outlook",
+              report.defenceFixtureRows,
+              "#38BDF8",
+              "NA"
+            )}
+            {renderFixtureDifficultyPanel(
+              "Higher-risk schedules",
               report.fixtureHardRows,
               "#EF4444",
               "NA"
             )}
-          </div>
-        </div>
+          </div>,
+          theme.accent
+        )}
+
+        {renderFantasyIqSection(
+          "Teams to Consider",
+          "Team-level fantasy interest only. Individual player recommendations will come after squad data exists.",
+          <div
+            style={{
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            {(report.adviceRows || [])
+              .filter((item) =>
+                ["Transfer in", "Defence/GK", "Formation"].includes(item.label) ||
+                (item.label === "Fixture difficulty" && item.data !== "Consider avoiding")
+              )
+              .slice(0, 5)
+              .map(renderAdviceComparisonRow)}
+          </div>,
+          "#22C55E"
+        )}
+
+        {renderFantasyIqSection(
+          "Teams to Approach with Caution",
+          "Uses difficult attacking fixtures, low clean-sheet outlook, poor recent form and adverse three-gameweek schedules.",
+          <div
+            style={{
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            {(report.adviceRows || [])
+              .filter((item) => ["Bench", "Transfer out"].includes(item.label) || (item.label === "Fixture difficulty" && item.data === "Consider avoiding"))
+              .map(renderAdviceComparisonRow)}
+          </div>,
+          "#EF4444"
+        )}
+
+        {renderFantasyIqSection(
+          "Analyse Your Fantasy Squad",
+          "Upload a screenshot or enter your squad manually to receive a personalised three-gameweek Fantasy IQ score.",
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                border: `1px solid ${theme.line}`,
+                borderRadius: 10,
+                padding: 10,
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+                {report.squad?.confirmed
+                  ? "Status: Ready for analysis"
+                  : squadPlayerCount
+                  ? "Status: Draft squad"
+                  : "Status: No squad entered yet"}
+              </div>
+              <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+                {squadPlayerCount
+                  ? `${squadPlayerCount}/15 players selected · Formation ${report.squadValidation?.summary?.formation || "Incomplete"}`
+                  : "Add your fantasy squad to unlock your complete Fantasy IQ score."}
+              </div>
+              {report.squad?.confirmed && (
+                <div style={{ color: theme.accent2, fontSize: 12, fontWeight: 850 }}>
+                  Your squad is ready for Fantasy IQ analysis.
+                </div>
+              )}
+              {report.squad?.updatedAt && (
+                <div style={{ color: theme.muted, fontSize: 11 }}>
+                  Last updated {new Date(report.squad.updatedAt).toLocaleString()}
+                </div>
+              )}
+              {!!squadPlayerCount && !!squadMessages.length && !report.squad?.confirmed && (
+                <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+                  {squadMessages.slice(0, 2).join(" ")}
+                </div>
+              )}
+              <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+                You’ll be able to review and correct every detected player before analysis.
+              </div>
+            </div>
+
+            {fantasyIqSquadStatus && (
+              <div style={{ color: fantasyIqSquadStatus.includes("Fix") ? theme.warn : theme.accent2, fontSize: 12, fontWeight: 850 }}>
+                {fantasyIqSquadStatus}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                disabled
+                title="Screenshot import coming soon."
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: "rgba(255,255,255,0.04)",
+                  color: theme.muted,
+                  cursor: "not-allowed",
+                  fontSize: 12,
+                  fontWeight: 850,
+                }}
+              >
+                Upload Squad Screenshot
+              </button>
+              <button
+                type="button"
+                onClick={() => openFantasyIqBuilder(report.squad)}
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.accent}`,
+                  background: "rgba(56,189,248,0.1)",
+                  color: theme.text,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: 850,
+                }}
+              >
+                {squadPlayerCount && !report.squad?.confirmed
+                  ? "Continue Building Squad"
+                  : squadPlayerCount
+                  ? "View/Edit Squad"
+                  : "Enter Squad Manually"}
+              </button>
+              {!!squadPlayerCount && (
+                <button
+                  type="button"
+                  onClick={handleClearFantasyIqSquad}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${theme.danger}`,
+                    background: "rgba(255,255,255,0.04)",
+                    color: theme.danger,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 850,
+                  }}
+                >
+                  Clear Squad
+                </button>
+              )}
+            </div>
+
+            {fantasyIqBuilderOpen && renderFantasyIqSquadBuilder()}
+          </div>,
+          "#A78BFA"
+        )}
 
         <div
           style={{
@@ -10816,7 +12587,7 @@ if (!isLoggedIn) {
               <button
                 type="button"
                 onClick={() => {
-                  setActiveView(activeView === "predictionIq" ? "fantasyHelp" : "predictionIq");
+                  setActiveView(activeView === "predictionIq" ? FANTASY_IQ_VIEW_ID : "predictionIq");
                   setShowMobileMenu(false);
                   setShowLeaguesMenu(false);
                 }}
@@ -10827,8 +12598,8 @@ if (!isLoggedIn) {
                   padding: isMobile ? "5px 4px" : "6px 8px",
                   borderRadius: 999,
                   border: `1px solid ${theme.accent}`,
-                  background: activeView === "predictionIq" || activeView === "fantasyHelp" ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.08)",
-                  color: activeView === "predictionIq" || activeView === "fantasyHelp" ? theme.text : theme.accent,
+                  background: activeView === "predictionIq" || activeView === FANTASY_IQ_VIEW_ID ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.08)",
+                  color: activeView === "predictionIq" || activeView === FANTASY_IQ_VIEW_ID ? theme.text : theme.accent,
                   fontSize: isMobile ? 11 : 12,
                   fontWeight: 900,
                   cursor: isWorldCupMode ? "default" : "pointer",
@@ -10838,7 +12609,7 @@ if (!isLoggedIn) {
                   boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
                 }}
               >
-                {activeView === "predictionIq" ? "Fantasy" : "IQ Report"}
+                {activeView === "predictionIq" ? "Fantasy IQ" : "IQ Report"}
               </button>
               <button
                 type="button"
@@ -11296,7 +13067,7 @@ const TABS = [
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
-  ...(!isWorldCupMode ? [{ id: "fantasyHelp", label: "Fantasy help" }] : []),
+  ...(!isWorldCupMode ? [{ id: FANTASY_IQ_VIEW_ID, label: "Fantasy IQ" }] : []),
   { id: "badges", label: "Badges" },
   { id: "history", label: isWorldCupMode ? "WC History" : "History" },
   { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
@@ -13133,7 +14904,7 @@ const TABS = [
           </section>
         )}
 
-        {activeView === "fantasyHelp" && !isWorldCupMode && (
+        {activeView === FANTASY_IQ_VIEW_ID && !isWorldCupMode && (
           <section style={cardStyle}>
             <div
               style={{
@@ -13142,13 +14913,13 @@ const TABS = [
               }}
             >
               <h2 style={{ margin: 0, fontSize: 18 }}>
-                Fantasy Help
+                Fantasy IQ
               </h2>
               <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                Fantasy football advice from {currentPlayer || "your"} predictions and recent results
+                Turn your predictions, team form and upcoming fixtures into personalised Fantasy Premier League insights.
               </div>
             </div>
-            {renderFantasyHelpReport()}
+            {renderFantasyIqReport()}
           </section>
         )}
 
