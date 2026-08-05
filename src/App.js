@@ -33,6 +33,11 @@ import {
   getFantasyTransferLegalBlocker,
   requiresFantasyTransferAvailabilityAcknowledgement,
 } from "./fantasyIq/transferIq";
+import {
+  FANTASY_LINEUP_IQ_VERSION,
+  buildFantasyLineupSquadFromStarterIds,
+  createFantasyLineupIqAnalysis,
+} from "./fantasyIq/lineupIq";
 const {
   getMatchScoreForPrediction,
   hasStartedMatchStatus,
@@ -1078,7 +1083,7 @@ function normaliseFantasyIqSquad(rawSquad = createEmptyFantasyIqSquad()) {
   const captainPlayerId = input.captainPlayerId || captainPlayer?.id || null;
   const viceCaptainPlayerId = input.viceCaptainPlayerId || viceCaptainPlayer?.id || null;
   const squad = {
-    source: ["screenshot", "manual", "transfer-iq"].includes(input.source) ? input.source : null,
+    source: ["screenshot", "manual", "transfer-iq", "lineup-iq"].includes(input.source) ? input.source : null,
     formation: null,
     gameweek: Number.isFinite(Number(input.gameweek)) ? Number(input.gameweek) : null,
     players: normalisedPlayers.map((player) => ({
@@ -4912,6 +4917,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyTransferInTeamFilter, setFantasyTransferInTeamFilter] = useState("ALL");
   const [fantasyTransferShowAllCategories, setFantasyTransferShowAllCategories] = useState(false);
   const [fantasyTransferApplyPending, setFantasyTransferApplyPending] = useState(false);
+  const [fantasyLineupIqState, setFantasyLineupIqState] = useState(null);
+  const [fantasyLineupApplyMode, setFantasyLineupApplyMode] = useState(null);
+  const [fantasyLineupManualMode, setFantasyLineupManualMode] = useState(false);
   const fantasyScreenshotObjectUrlRef = useRef("");
   const fantasyScreenshotAbortRef = useRef(null);
   const fantasyScreenshotImportRunIdRef = useRef(0);
@@ -5286,7 +5294,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   const openFantasyIqBuilder = (squad = fantasyIqSquad) => {
     if (fantasyTransferIqState && !window.confirm("Discard unsaved transfer comparison?")) return;
+    if (fantasyLineupIqState?.status === "ready" && !window.confirm("Discard unsaved lineup analysis?")) return;
     resetFantasyTransferIq();
+    resetFantasyLineupIq();
     setFantasyIqEditingSquad(normaliseFantasyIqSquad(squad));
     setFantasyIqBuilderOpen(true);
     setFantasyIqUnsavedChanges(false);
@@ -5542,6 +5552,104 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqEditingSquad(saved);
     resetFantasyTransferIq();
     setFantasyIqSquadStatus("Transfer applied to your Fantasy IQ squad.");
+  };
+
+  const resetFantasyLineupIq = () => {
+    setFantasyLineupIqState(null);
+    setFantasyLineupApplyMode(null);
+    setFantasyLineupManualMode(false);
+  };
+
+  const analyseFantasyLineupIq = () => {
+    if (!fantasyIqSquad?.confirmed) {
+      setFantasyIqSquadStatus("Confirm your fantasy squad before analysing your lineup.");
+      return;
+    }
+    const currentPredictions = predictions[currentPredictionKey] || {};
+    const analysis = createFantasyLineupIqAnalysis({
+      squad: fantasyIqSquad,
+      clubOutlooks: buildFantasyIqClubOutlooks(activeFixtures, results, leaguePerformanceContext),
+      predictionOutlooks: buildFantasyIqPredictionOutlooks(activeFixtures, currentPredictions, selectedGameweek),
+      normaliseSquad: normaliseFantasyIqSquad,
+      validateSquad: validateFantasyIqSquad,
+      playerDataStatus: fantasyPlayerData,
+    });
+    setFantasyLineupIqState(analysis);
+    setFantasyLineupApplyMode(null);
+    setFantasyLineupManualMode(false);
+    setFantasyIqSquadStatus("");
+  };
+
+  const updateFantasyLineupEditableSquad = ({ starterIds, captainPlayerId, viceCaptainPlayerId }) => {
+    setFantasyLineupIqState((current) => {
+      if (!current?.currentSquad) return current;
+      const editable = current.editableSquad || current.suggestedSquad || current.currentSquad;
+      const built = buildFantasyLineupSquadFromStarterIds({
+        squad: current.currentSquad,
+        starterIds: starterIds || (editable.players || []).filter((player) => player.squadRole === "starter").map((player) => player.id),
+        captainPlayerId: captainPlayerId || editable.captainPlayerId,
+        viceCaptainPlayerId: viceCaptainPlayerId || editable.viceCaptainPlayerId,
+        normaliseSquad: normaliseFantasyIqSquad,
+        validateSquad: validateFantasyIqSquad,
+      });
+      return {
+        ...current,
+        editableSquad: built.squad,
+        editableValidation: built.validation,
+        status: "ready",
+      };
+    });
+    setFantasyLineupApplyMode(null);
+  };
+
+  const setFantasyLineupPlayerRole = (playerId, squadRole) => {
+    const editable = fantasyLineupIqState?.editableSquad || fantasyLineupIqState?.suggestedSquad;
+    if (!editable) return;
+    const starterIds = (editable.players || [])
+      .filter((player) => (player.id === playerId ? squadRole === "starter" : player.squadRole === "starter"))
+      .map((player) => player.id);
+    updateFantasyLineupEditableSquad({ starterIds });
+  };
+
+  const setFantasyLineupCaptain = (type, playerId) => {
+    const editable = fantasyLineupIqState?.editableSquad || fantasyLineupIqState?.suggestedSquad;
+    if (!editable) return;
+    updateFantasyLineupEditableSquad({
+      captainPlayerId: type === "captain" ? playerId : editable.captainPlayerId,
+      viceCaptainPlayerId: type === "vice" ? playerId : editable.viceCaptainPlayerId,
+    });
+  };
+
+  const handleApplyFantasyLineup = (mode) => {
+    if (!fantasyLineupIqState?.suggestedSquad) return;
+    const target =
+      mode === "minimal"
+        ? fantasyLineupIqState.minimalChange?.squad
+        : mode === "manual"
+        ? fantasyLineupIqState.editableSquad
+        : fantasyLineupIqState.suggestedSquad;
+    const validation = validateFantasyIqSquad(target);
+    if (!validation.isValid) {
+      setFantasyIqSquadStatus(`Fix the lineup validation issues before applying. ${validation.errors.slice(0, 2).join(" ")}`);
+      return;
+    }
+    if (fantasyLineupApplyMode !== mode) {
+      setFantasyLineupApplyMode(mode);
+      setFantasyIqSquadStatus("Apply this starting XI, captain and vice-captain to your saved Fantasy IQ squad? This only updates your squad inside Prediction Addiction.");
+      return;
+    }
+    const saved = saveFantasyIqSquad(fantasyIqUserIdentifier, {
+      ...target,
+      confirmed: true,
+      source: "lineup-iq",
+      updatedAt: new Date().toISOString(),
+    });
+    setFantasyIqSquad(saved);
+    setFantasyIqEditingSquad(saved);
+    setFantasyLineupIqState((current) => current ? { ...current, status: "applied" } : current);
+    setFantasyLineupApplyMode(null);
+    setFantasyLineupManualMode(false);
+    setFantasyIqSquadStatus("Lineup applied to your Fantasy IQ squad.");
   };
 
 // Coins game state
@@ -11591,6 +11699,244 @@ useEffect(() => {
         )}
       </div>
     );
+    const formatFantasyLineupScore = (value) => value == null ? "NA" : `${Math.round(Number(value))}`;
+    const formatFantasyLineupDelta = (value) =>
+      value == null ? "NA" : Number(value) > 0 ? `+${Math.round(Number(value))}` : `${Math.round(Number(value))}`;
+    const getFantasyLineupPlayer = (playerId, squad = fantasyLineupIqState?.suggestedSquad) =>
+      (squad?.players || []).find((player) => player.id === playerId) || null;
+    const renderFantasyLineupPlayerCard = (player, options = {}) => {
+      const decision = (fantasyLineupIqState?.playerDecisions || []).find((item) => item.playerId === player?.id);
+      const isCaptain = player?.id === options.squad?.captainPlayerId || player?.isCaptain;
+      const isVice = player?.id === options.squad?.viceCaptainPlayerId || player?.isViceCaptain;
+      const changed = decision && decision.currentRole !== decision.suggestedRole;
+      return (
+        <div
+          key={`${options.prefix || "lineup"}-${player?.id}`}
+          style={{
+            background: changed ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.04)",
+            border: `1px solid ${isCaptain ? theme.warn : isVice ? theme.accent : changed ? "#F59E0B" : theme.line}`,
+            borderRadius: 8,
+            padding: "7px 8px",
+            display: "grid",
+            gap: 4,
+            minWidth: 0,
+          }}
+        >
+          <div style={{ color: theme.text, fontSize: 12, fontWeight: 950, overflowWrap: "anywhere" }}>
+            {player?.displayName || player?.name || "Unknown"}
+            {isCaptain ? " C" : ""}
+            {isVice ? " V" : ""}
+          </div>
+          <div style={{ color: theme.muted, fontSize: 10, fontWeight: 850 }}>
+            {player?.teamCode || "TBC"} · {player?.position || "POS"} · Lineup {formatFantasyLineupScore(decision?.lineupScore)}
+          </div>
+          <div style={{ color: changed ? theme.warn : theme.muted, fontSize: 10 }}>
+            {changed ? (decision.suggestedRole === "starter" ? "Consider starting" : "Consider benching") : "Unchanged"}
+            {decision?.closeCall ? " · Close call" : ""}
+          </div>
+        </div>
+      );
+    };
+    const renderFantasyLineupSquadLayout = (squad, title) => {
+      const starters = (squad?.players || []).filter((player) => player.squadRole === "starter");
+      const groups = FANTASY_IQ_POSITIONS.map((position) => ({
+        position,
+        players: starters.filter((player) => player.position === position),
+      }));
+      return (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>{title}</div>
+          <div
+            style={{
+              background: "linear-gradient(180deg, rgba(20,184,166,0.12), rgba(15,23,42,0.88))",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 10,
+              padding: 10,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            {groups.map((group) => (
+              <div key={`lineup-row-${group.position}`} style={{ display: "grid", gap: 5 }}>
+                <div style={{ color: theme.muted, fontSize: 10, fontWeight: 950 }}>{group.position}</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`, gap: 6 }}>
+                  {group.players.map((player) => renderFantasyLineupPlayerCard(player, { squad, prefix: title }))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+    const renderFantasyLineupManualControls = () => {
+      const editable = fantasyLineupIqState?.editableSquad || fantasyLineupIqState?.suggestedSquad;
+      const validation = fantasyLineupIqState?.editableValidation || validateFantasyIqSquad(editable);
+      if (!editable) return null;
+      const starters = editable.players.filter((player) => player.squadRole === "starter");
+      return (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ color: validation.isValid ? theme.accent2 : theme.warn, fontSize: 12, fontWeight: 850 }}>
+            {validation.isValid ? `Manual lineup is valid. Formation ${validation.summary?.formation || editable.formation || "valid"}.` : validation.errors.slice(0, 2).join(" ")}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+            {(editable.players || []).map((player) => {
+              const isStarter = player.squadRole === "starter";
+              return (
+                <div key={`manual-lineup-${player.id}`} style={{ border: `1px solid ${theme.line}`, borderRadius: 8, padding: 8, display: "grid", gap: 6 }}>
+                  <div style={{ color: theme.text, fontSize: 12, fontWeight: 950, overflowWrap: "anywhere" }}>
+                    {player.displayName || player.name}
+                  </div>
+                  <div style={{ color: theme.muted, fontSize: 10 }}>{player.teamCode} · {player.position}</div>
+                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    <button type="button" onClick={() => setFantasyLineupPlayerRole(player.id, isStarter ? "bench" : "starter")} style={{ ...pillBtn(isStarter), padding: "4px 7px", fontSize: 10 }}>
+                      {isStarter ? "Starter" : "Bench"}
+                    </button>
+                    <button type="button" disabled={!isStarter} onClick={() => setFantasyLineupCaptain("captain", player.id)} style={{ ...pillBtn(player.id === editable.captainPlayerId), padding: "4px 7px", fontSize: 10 }}>
+                      C
+                    </button>
+                    <button type="button" disabled={!isStarter} onClick={() => setFantasyLineupCaptain("vice", player.id)} style={{ ...pillBtn(player.id === editable.viceCaptainPlayerId), padding: "4px 7px", fontSize: 10 }}>
+                      V
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ color: theme.muted, fontSize: 11 }}>
+            Starters {starters.length}/11. Manual changes are validated before saving.
+          </div>
+        </div>
+      );
+    };
+    const renderFantasyLineupIq = () => {
+      const analysis = fantasyLineupIqState;
+      const currentCaptain = getFantasyLineupPlayer(analysis?.currentCaptainId, analysis?.currentSquad);
+      const suggestedCaptain = getFantasyLineupPlayer(analysis?.suggestedCaptainId, analysis?.suggestedSquad);
+      const currentVice = getFantasyLineupPlayer(analysis?.currentViceCaptainId, analysis?.currentSquad);
+      const suggestedVice = getFantasyLineupPlayer(analysis?.suggestedViceCaptainId, analysis?.suggestedSquad);
+      const movedToStart = (analysis?.playerDecisions || []).filter((decision) => decision.currentRole === "bench" && decision.suggestedRole === "starter");
+      const movedToBench = (analysis?.playerDecisions || []).filter((decision) => decision.currentRole === "starter" && decision.suggestedRole === "bench");
+      return (
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+            Lineup IQ compares your current starting XI with fixture-based lineups from your existing squad. It does not make changes to your official Fantasy Premier League team.
+          </div>
+          {!report.squad?.confirmed ? (
+            <div style={{ color: theme.warn, fontSize: 13, fontWeight: 850 }}>
+              Confirm your fantasy squad before analysing your lineup.
+            </div>
+          ) : !analysis || analysis.status === "applied" ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+                Compare your current starting XI with the strongest fixture-based lineup from your existing squad.
+              </div>
+              <button type="button" onClick={analyseFantasyLineupIq} style={{ ...pillBtn(true), padding: "8px 10px", fontSize: 12 }}>
+                Analyse My Lineup
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              <div style={{ background: "rgba(20,184,166,0.1)", border: `1px solid #14B8A6`, borderRadius: 10, padding: 12, display: "grid", gap: 6, textAlign: "center" }}>
+                <div style={{ color: theme.muted, fontSize: 11, fontWeight: 950 }}>Lineup IQ</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+                  <div><div style={{ color: theme.muted, fontSize: 11 }}>Current</div><div style={{ color: theme.text, fontSize: 22, fontWeight: 950 }}>{formatFantasyLineupScore(analysis.currentLineupScore)}</div></div>
+                  <div><div style={{ color: theme.muted, fontSize: 11 }}>Suggested</div><div style={{ color: theme.text, fontSize: 22, fontWeight: 950 }}>{formatFantasyLineupScore(analysis.suggestedLineupScore)}</div></div>
+                  <div><div style={{ color: theme.muted, fontSize: 11 }}>Potential improvement</div><div style={{ color: Number(analysis.improvement) > 0 ? theme.accent2 : theme.muted, fontSize: 22, fontWeight: 950 }}>{formatFantasyLineupDelta(analysis.improvement)}</div></div>
+                </div>
+                <div style={{ color: theme.text, fontSize: 14, fontWeight: 950 }}>{analysis.verdict}</div>
+                <div style={{ color: theme.muted, fontSize: 12 }}>Model confidence: {analysis.confidence?.confidence || "NA"} ({formatFantasyLineupScore(analysis.confidence?.confidenceScore)})</div>
+              </div>
+
+              <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+                Formation: {analysis.currentFormation || "NA"} → {analysis.suggestedFormation || "NA"}
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ color: theme.accent2, fontSize: 12, fontWeight: 950 }}>Consider Starting</div>
+                  {movedToStart.length ? movedToStart.map((decision) => <div key={`start-${decision.playerId}`} style={{ color: theme.text, fontSize: 12 }}>{decision.player.displayName || decision.player.name}: {decision.reason}</div>) : <div style={{ color: theme.muted, fontSize: 12 }}>No starter changes suggested.</div>}
+                </div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ color: theme.warn, fontSize: 12, fontWeight: 950 }}>Consider Benching</div>
+                  {movedToBench.length ? movedToBench.map((decision) => <div key={`bench-${decision.playerId}`} style={{ color: theme.text, fontSize: 12 }}>{decision.player.displayName || decision.player.name}: {decision.reason}</div>) : <div style={{ color: theme.muted, fontSize: 12 }}>No bench changes suggested.</div>}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+                <div style={{ color: theme.text, fontSize: 12 }}>
+                  Captain: {currentCaptain?.displayName || currentCaptain?.name || "NA"} → {suggestedCaptain?.displayName || suggestedCaptain?.name || "NA"}
+                  <div style={{ color: theme.muted, marginTop: 4 }}>{analysis.captain?.reasons?.[0] || "Captain and vice-captain suggestions are fixture-based, not guarantees."}</div>
+                </div>
+                <div style={{ color: theme.text, fontSize: 12 }}>
+                  Vice-captain: {currentVice?.displayName || currentVice?.name || "NA"} → {suggestedVice?.displayName || suggestedVice?.name || "NA"}
+                  <div style={{ color: theme.muted, marginTop: 4 }}>Vice-captain must be a different starter.</div>
+                </div>
+              </div>
+
+              {renderFantasyLineupSquadLayout(analysis.suggestedSquad, "Suggested XI")}
+
+              <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+                <div style={{ display: "grid", gap: 5 }}>
+                  <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>Bench Order</div>
+                  {(analysis.benchOrder?.outfield || []).map((player, index) => (
+                    <div key={`bench-order-${player.id}`} style={{ color: theme.text, fontSize: 12 }}>{index + 1}. {player.displayName || player.name} ({player.teamCode})</div>
+                  ))}
+                  <div style={{ color: theme.muted, fontSize: 12 }}>Goalkeeper bench: {analysis.benchOrder?.goalkeeper?.displayName || analysis.benchOrder?.goalkeeper?.name || "NA"}</div>
+                  <div style={{ color: theme.muted, fontSize: 11 }}>Substitutes cannot create an invalid formation: at least 3 DEF, 2 MID and 1 FWD must remain.</div>
+                </div>
+                <div style={{ display: "grid", gap: 5 }}>
+                  <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>Alternative Lineups</div>
+                  {(analysis.alternatives || []).length ? analysis.alternatives.map((item) => (
+                    <div key={`lineup-alt-${item.formation}-${item.idOrder}`} style={{ color: theme.text, fontSize: 12 }}>
+                      {item.label}: {item.formation} — {formatFantasyLineupScore(item.lineupScore)}
+                    </div>
+                  )) : <div style={{ color: theme.muted, fontSize: 12 }}>No close alternative lineups found.</div>}
+                  {analysis.minimalChange && (
+                    <div style={{ color: theme.muted, fontSize: 12 }}>
+                      Minimal-change option: {analysis.minimalChange.swaps} swap{analysis.minimalChange.swaps === 1 ? "" : "s"} for {formatFantasyLineupDelta(analysis.minimalChange.improvement)} Lineup IQ.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {!!analysis.warnings?.length && (
+                <div style={{ display: "grid", gap: 4 }}>
+                  {analysis.warnings.slice(0, 4).map((warning) => <div key={warning} style={{ color: warning.includes("Close call") ? theme.warn : theme.muted, fontSize: 11 }}>{warning}</div>)}
+                </div>
+              )}
+
+              {fantasyLineupManualMode && renderFantasyLineupManualControls()}
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => handleApplyFantasyLineup("suggested")} style={{ ...pillBtn(true), padding: "8px 10px", fontSize: 12 }}>
+                  {fantasyLineupApplyMode === "suggested" ? "Confirm Apply Suggested Lineup" : "Apply Suggested Lineup"}
+                </button>
+                <button type="button" onClick={() => handleApplyFantasyLineup("minimal")} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
+                  {fantasyLineupApplyMode === "minimal" ? "Confirm Apply Minimal-Change Lineup" : "Apply Minimal-Change Lineup"}
+                </button>
+                <button type="button" onClick={() => { setFantasyLineupIqState(null); setFantasyLineupApplyMode(null); setFantasyIqSquadStatus("Current lineup kept."); }} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
+                  Keep Current Lineup
+                </button>
+                <button type="button" onClick={() => setFantasyLineupManualMode((value) => !value)} style={{ ...pillBtn(fantasyLineupManualMode), padding: "8px 10px", fontSize: 12 }}>
+                  Edit Suggested Lineup
+                </button>
+                {fantasyLineupManualMode && (
+                  <button type="button" onClick={() => handleApplyFantasyLineup("manual")} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
+                    {fantasyLineupApplyMode === "manual" ? "Confirm Apply Manual Lineup" : "Apply Manual Lineup"}
+                  </button>
+                )}
+              </div>
+
+              {process.env.NODE_ENV === "development" && (
+                <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+                  Debug: legal {analysis.diagnostics?.evaluatedLegalLineupCount || 0} · current {analysis.diagnostics?.currentLineupScore ?? "NA"} · best {analysis.diagnostics?.bestLineupScore ?? "NA"} · minimal {analysis.diagnostics?.minimalChangeScore ?? "NA"} · threshold {analysis.diagnostics?.closeDecisionThreshold} · version {FANTASY_LINEUP_IQ_VERSION}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    };
     const renderFantasyTransferIq = () => {
       const comparison = fantasyTransferIqState;
       const impact = comparison?.impact;
@@ -12319,6 +12665,15 @@ useEffect(() => {
               .map(renderAdviceComparisonRow)}
           </div>,
           "#EF4444"
+        )}
+
+        {renderFantasyIqSection(
+          "Lineup IQ",
+          report.squad?.confirmed
+            ? "Compare your current starting XI with the strongest fixture-based lineup from your existing squad."
+            : "Confirm your fantasy squad before analysing your lineup.",
+          renderFantasyLineupIq(),
+          "#14B8A6"
         )}
 
         {renderFantasyIqSection(

@@ -177,12 +177,19 @@ async function evaluate(cdp, sessionId, expression) {
 
 function clickButtonExpression(text) {
   return `
-    {
-      const button = [...document.querySelectorAll("button")].find((item) => item.textContent.includes(${JSON.stringify(text)}));
-      if (!button) throw new Error("Missing button: " + ${JSON.stringify(text)});
-      button.click();
-      true;
-    }
+    (async () => {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const button = [...document.querySelectorAll("button")].find((item) => (item.textContent || item.innerText || "").includes(${JSON.stringify(text)}));
+        const nested = button || [...document.querySelectorAll("*")]
+          .find((item) => (item.textContent || item.innerText || "").includes(${JSON.stringify(text)}))?.closest?.("button");
+        if (nested) {
+          nested.click();
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      throw new Error("Missing button: " + ${JSON.stringify(text)} + " from " + [...document.querySelectorAll("button")].map((item) => item.innerText || item.textContent).join(" | "));
+    })()
   `;
 }
 
@@ -214,15 +221,81 @@ async function main() {
     });
     localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "browser-smoke-token", userId: "browser-smoke-user", username: "BrowserSmoke" }));
     localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
-    ${process.argv.includes("--transfer") ? `localStorage.setItem(${JSON.stringify(squadKey)}, ${JSON.stringify(JSON.stringify(makeSavedSquad()))});` : ""}
+    ${process.argv.includes("--transfer") || process.argv.includes("--lineup") ? `localStorage.setItem(${JSON.stringify(squadKey)}, ${JSON.stringify(JSON.stringify(makeSavedSquad()))});` : ""}
     localStorage.setItem("activeView", "fantasyHelp");
   `);
-  await cdp.send("Page.reload", {}, sessionId).catch(() => {});
+  await cdp.send("Page.navigate", { url: appUrl }, sessionId).catch(() => {});
   await waitFor(cdp, sessionId, "document.body && document.body.innerText.includes('Fantasy IQ')", 30000);
   await evaluate(cdp, sessionId, `
     [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Fantasy IQ")?.click();
   `);
   await waitFor(cdp, sessionId, "document.body.innerText.includes('Analyse Your Fantasy Squad')", 10000);
+  const lineupWorkflow = process.argv.includes("--lineup");
+  if (lineupWorkflow) {
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Status: Ready for analysis')", 10000);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Lineup IQ') && document.body.innerText.includes('Analyse My Lineup')", 10000);
+    await waitFor(cdp, sessionId, `[...document.querySelectorAll("button")].some((button) => (button.innerText || button.textContent || "").includes("Analyse My Lineup"))`, 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Analyse My Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Suggested XI') && document.body.innerText.includes('Bench Order') && document.body.innerText.includes('Captain:')", 15000);
+    const firstSummary = await evaluate(cdp, sessionId, "document.body.innerText");
+    await evaluate(cdp, sessionId, clickButtonExpression("Apply Suggested Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Apply this starting XI')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Confirm Apply Suggested Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Lineup applied to your Fantasy IQ squad')", 10000);
+    await cdp.send("Page.reload", {}, sessionId).catch(() => {});
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Status: Ready for analysis')", 30000);
+    const savedAfterApply = await evaluate(cdp, sessionId, `JSON.parse(localStorage.getItem(${JSON.stringify(squadKey)}))`);
+    await evaluate(cdp, sessionId, clickButtonExpression("Analyse My Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Minimal-change option')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Apply Minimal-Change Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Apply this starting XI')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Keep Current Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Current lineup kept') && document.body.innerText.includes('Analyse My Lineup')", 10000);
+    const savedAfterKeep = await evaluate(cdp, sessionId, `JSON.parse(localStorage.getItem(${JSON.stringify(squadKey)}))`);
+    await evaluate(cdp, sessionId, clickButtonExpression("Analyse My Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Suggested XI')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Edit Suggested Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Manual lineup is valid') || document.body.innerText.includes('Manual changes are validated')", 10000);
+    await evaluate(cdp, sessionId, `
+      {
+        const benchButton = [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Bench");
+        if (!benchButton) throw new Error("Missing manual bench button");
+        benchButton.click();
+      }
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Starting XI must contain 11 players') || document.body.innerText.includes('Starters 10/11')", 10000);
+    const manualInvalidated = await evaluate(cdp, sessionId, "document.body.innerText.includes('Starting XI must contain 11 players') || document.body.innerText.includes('Starters 10/11')");
+    await evaluate(cdp, sessionId, clickButtonExpression("Keep Current Lineup"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Analyse My Lineup')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Compare a Transfer"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Choose a player to compare')", 10000);
+    const finalText = await evaluate(cdp, sessionId, "document.body.innerText");
+    const consoleEvents = cdp.events
+      .filter((event) => ["Runtime.consoleAPICalled", "Runtime.exceptionThrown", "Log.entryAdded"].includes(event.method))
+      .map((event) => ({
+        method: event.method,
+        text: event.params?.exceptionDetails?.text ||
+          event.params?.entry?.text ||
+          (event.params?.args || []).map((arg) => arg.value || arg.description || "").join(" "),
+      }));
+    await cdp.send("Target.closeTarget", { targetId: target.targetId });
+    cdp.ws.close();
+    console.log(JSON.stringify({
+      viewport,
+      lineupIqVisible: firstSummary.includes("Lineup IQ"),
+      suggestedLineupGenerated: firstSummary.includes("Suggested XI") && firstSummary.includes("Bench Order"),
+      formationComparisonVisible: firstSummary.includes("Formation:") && firstSummary.includes("→"),
+      captainViceVisible: firstSummary.includes("Captain:") && firstSummary.includes("Vice-captain:"),
+      noPredictionsHandled: firstSummary.includes("No immediate predictions found") || firstSummary.includes("Model confidence"),
+      appliedLineupPersisted: savedAfterApply.source === "lineup-iq" && savedAfterApply.confirmed === true,
+      keepCurrentLeftSquadUnchanged: JSON.stringify(savedAfterKeep) === JSON.stringify(savedAfterApply),
+      manualAdjustmentInvalidated: manualInvalidated,
+      transferIqStillOpens: finalText.includes("Choose a player to compare"),
+      officialFplCopyVisible: firstSummary.includes("does not make changes to your official Fantasy Premier League team"),
+      consoleEvents: consoleEvents.slice(0, 10),
+    }, null, 2));
+    return;
+  }
   const transferWorkflow = process.argv.includes("--transfer");
   if (transferWorkflow) {
     await waitFor(cdp, sessionId, "document.body.innerText.includes('Status: Ready for analysis')", 10000);
