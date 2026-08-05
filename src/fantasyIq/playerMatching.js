@@ -137,10 +137,14 @@ function getPlayerNameScore(rawName, player) {
   const webName = normaliseFantasyPlayerName(player?.webName);
   const surname = getFantasyPlayerSurname(player);
 
-  if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false };
-  if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false };
-  if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false };
-  if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true };
+  if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: false };
+  if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false, prefixName: false };
+  if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false };
+  if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true, prefixName: false };
+  const prefixName = normalisedRaw.length >= 7 && [displayName, webName, surname]
+    .filter(Boolean)
+    .some((name) => name.startsWith(normalisedRaw));
+  if (prefixName) return { score: 0.88, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: true };
 
   const displaySimilarity = getNameSimilarity(normalisedRaw, displayName);
   const webSimilarity = getNameSimilarity(normalisedRaw, webName);
@@ -150,6 +154,7 @@ function getPlayerNameScore(rawName, player) {
     exactDisplay: false,
     exactWeb: false,
     exactSurname: false,
+    prefixName: false,
   };
 }
 
@@ -254,7 +259,7 @@ export function matchFantasyPlayerCandidate({
 
   const highConfidence =
     (best.confidence >= FANTASY_PLAYER_MATCH_CONFIG.highConfidenceThreshold ||
-      (!runnerUp && (best.nameScore.exactDisplay || best.nameScore.exactWeb || best.nameScore.exactSurname))) &&
+      (!runnerUp && (best.nameScore.exactDisplay || best.nameScore.exactWeb || best.nameScore.exactSurname || best.nameScore.prefixName))) &&
     (!teamCode || best.teamCode === teamCode) &&
     (!position || best.position === position);
   return {

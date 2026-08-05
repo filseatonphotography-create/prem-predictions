@@ -92,8 +92,11 @@ const SCREENSHOT_NON_PLAYER_WORDS = new Set([
   "hybeer",
   "aybeiter",
   "ohnoosed",
+  "seee see",
+  "seeesee",
   "snapdragon",
   "snopdragon",
+  "substitutes",
 ]);
 
 function safeText(value) {
@@ -511,12 +514,15 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "score",
   "select",
   "selected",
+  "seee",
+  "seeesee",
   "snapdragon",
   "snopdragon",
   "squad",
   "starter",
   "starters",
   "subs",
+  "substitutes",
   "tap",
   "team",
   "to",

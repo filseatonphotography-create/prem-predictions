@@ -266,6 +266,8 @@ describe("Fantasy screenshot OCR parsing", () => {
       { text: "HYBEER", confidence: 0.84, boundingBox: { x: 0, y: 140, width: 120, height: 30 } },
       { text: "OHNOOSED", confidence: 0.8, boundingBox: { x: 0, y: 160, width: 120, height: 30 } },
       { text: "AYBEITER", confidence: 0.8, boundingBox: { x: 0, y: 170, width: 120, height: 30 } },
+      { text: "SEEESEE", confidence: 0.8, boundingBox: { x: 0, y: 175, width: 120, height: 30 } },
+      { text: "Substitutes", confidence: 0.9, boundingBox: { x: 0, y: 176, width: 120, height: 30 } },
       { text: "1.MID", confidence: 0.82, boundingBox: { x: 0, y: 180, width: 80, height: 30 } },
       { text: "2.DEF", confidence: 0.82, boundingBox: { x: 0, y: 220, width: 80, height: 30 } },
       { text: "Erling Haaland MCI FWD", confidence: 0.93, boundingBox: { x: 0, y: 260, width: 150, height: 30 } },
@@ -298,6 +300,31 @@ describe("Fantasy screenshot OCR parsing", () => {
       players: fixturePlayers,
     });
     expect(review.extractedSlots[0]).toMatchObject({ selectedPlayerId: "fpl:999", status: "likely" });
+  });
+
+  test("matches truncated hyphenated player names from screenshots", () => {
+    const fixturePlayers = [
+      {
+        id: "fpl:998",
+        sourceId: 998,
+        firstName: "Dominic",
+        lastName: "Calvert-Lewin",
+        displayName: "Dominic Calvert-Lewin",
+        name: "Dominic Calvert-Lewin",
+        webName: "Calvert-Lewin",
+        normalisedName: "dominic calvert lewin",
+        teamCode: "LEE",
+        teamName: "Leeds United",
+        position: "FWD",
+        positionId: 4,
+        dataSource: "test",
+      },
+    ];
+    const review = buildFantasyScreenshotReview({
+      extractedSlots: [{ rawName: "Calvert-L", rawTeamCode: "", rawPosition: "", extractionConfidence: 0.78 }],
+      players: fixturePlayers,
+    });
+    expect(review.extractedSlots[0]).toMatchObject({ selectedPlayerId: "fpl:998", status: "likely" });
   });
 
   test("infers bench role from lower image region", () => {
