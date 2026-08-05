@@ -11760,6 +11760,21 @@ useEffect(() => {
     const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
+    const fantasyScreenshotVisiblePositionCounts = fantasyScreenshotReviewSlots.reduce((out, slot) => {
+      const position = slot.selectedPlayer?.position || slot.extracted?.rawPosition;
+      if (FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[position]) {
+        out[position] = (out[position] || 0) + 1;
+      }
+      return out;
+    }, {});
+    const fantasyScreenshotMissingPositionSlots = FANTASY_IQ_POSITIONS.flatMap((position) => {
+      const expected = FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[position] || 0;
+      const current = fantasyScreenshotVisiblePositionCounts[position] || 0;
+      return Array.from({ length: Math.max(0, expected - current) }, (_, index) => ({
+        position,
+        number: current + index + 1,
+      }));
+    });
     const fantasyScreenshotMissingPlayerCount = Math.max(0, 15 - fantasyScreenshotReviewSlots.length);
     const fantasyScreenshotVisibleStarterCount = fantasyScreenshotReviewSlots.filter((slot) => slot.role === "starter").length;
     const fantasyScreenshotMissingStarterCount = Math.max(0, 11 - fantasyScreenshotVisibleStarterCount);
@@ -12808,11 +12823,23 @@ useEffect(() => {
     const renderFantasyScreenshotMissingPlayerSlot = (index) => {
       const slotId = `missing-review-slot-${index}`;
       const role = index < fantasyScreenshotMissingStarterCount ? "starter" : "bench";
+      const positionSlot = fantasyScreenshotMissingPositionSlots[index] || {};
+      const positionLabel =
+        positionSlot.position === "GK"
+          ? "Goalkeeper"
+          : positionSlot.position === "DEF"
+          ? "Defender"
+          : positionSlot.position === "MID"
+          ? "Midfielder"
+          : positionSlot.position === "FWD"
+          ? "Forward"
+          : "Player";
       const slotSearch = fantasyScreenshotSlotSearch[slotId] || "";
       const normalisedSlotSearch = normaliseFantasyPlayerName(slotSearch);
       const searchedPlayers = normalisedSlotSearch
         ? fantasyIqAvailablePlayers
             .filter((player) => !fantasyScreenshotSelectedPlayerIds.has(player.id))
+            .filter((player) => !positionSlot.position || player.position === positionSlot.position)
             .filter((player) =>
               normaliseFantasyPlayerName(player.displayName || player.name).includes(normalisedSlotSearch) ||
               normaliseFantasyPlayerName(player.webName).includes(normalisedSlotSearch) ||
@@ -12836,10 +12863,10 @@ useEffect(() => {
             <div style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${theme.line}`, background: "rgba(255,255,255,0.04)" }} />
             <div style={{ minWidth: 0 }}>
               <div style={{ color: theme.warn, fontSize: 13, fontWeight: 950 }}>
-                Missing {role === "starter" ? "starter" : "bench player"}
+                {positionLabel} {positionSlot.number || index + 1}
               </div>
               <div style={{ color: theme.muted, fontSize: 11, fontWeight: 850 }}>
-                Search to add manually
+                {role === "starter" ? "Starter" : "Bench"} · Search to add manually
               </div>
             </div>
           </div>

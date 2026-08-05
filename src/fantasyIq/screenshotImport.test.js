@@ -225,6 +225,34 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(blocks.map((block) => block.text)).toEqual(["Raya", "Gabriel", "Van Dijk", "Trippier"]);
   });
 
+  test("expands combined OCR rows into known player candidates", () => {
+    const fixturePlayers = [
+      ["Raya", "ARS", "GK"],
+      ["Gabriel", "ARS", "DEF"],
+      ["Van Dijk", "LIV", "DEF"],
+      ["Trippier", "NEW", "DEF"],
+    ].map(([name, teamCode, position], index) => ({
+      id: `combined:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: "",
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      teamCode,
+      teamName: teamCode,
+      position,
+      positionId: position === "GK" ? 1 : 2,
+      dataSource: "test",
+    }));
+    const candidates = parseFantasyScreenshotCandidates([
+      { text: "Raya Gabriel Van Dijk Trippier", confidence: 0.82, boundingBox: { x: 10, y: 120, width: 420, height: 24 } },
+    ], { players: fixturePlayers, imageHeight: 1000 });
+
+    expect(candidates.map((candidate) => candidate.rawName)).toEqual(["Raya", "Gabriel", "Van Dijk", "Trippier"]);
+  });
+
   test("detects team-code OCR corrections", () => {
     expect(correctFantasyTeamCodeFromOcr("AR5").normalisedCode).toBe("ARS");
     expect(correctFantasyTeamCodeFromOcr("MC1").normalisedCode).toBe("MCI");

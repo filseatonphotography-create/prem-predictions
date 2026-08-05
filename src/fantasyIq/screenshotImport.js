@@ -419,12 +419,66 @@ function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false
   return true;
 }
 
+function normalisedContainsTokenSequence(textTokens = [], searchTokens = []) {
+  if (!textTokens.length || !searchTokens.length || searchTokens.length > textTokens.length) return false;
+  for (let index = 0; index <= textTokens.length - searchTokens.length; index += 1) {
+    if (searchTokens.every((token, tokenIndex) => textTokens[index + tokenIndex] === token)) return true;
+  }
+  return false;
+}
+
+function getPlayerMentionTokens(player = {}) {
+  return [
+    normaliseFantasyPlayerName(player.webName),
+    normaliseFantasyPlayerName(player.displayName || player.name),
+  ]
+    .map((name) => name.split(/\s+/).filter(Boolean))
+    .filter((tokens) => tokens.length && tokens.join("").length >= 4);
+}
+
+function findKnownFantasyPlayerMentions(block = {}, players = [], imageHeight = 0) {
+  const normalisedText = normaliseFantasyPlayerName(block.text);
+  const textTokens = normalisedText.split(/\s+/).filter(Boolean);
+  if (!textTokens.length || !Array.isArray(players) || !players.length) return [];
+  const matches = [];
+  players.forEach((player) => {
+    const mentionTokens = getPlayerMentionTokens(player);
+    if (mentionTokens.some((tokens) => normalisedContainsTokenSequence(textTokens, tokens))) {
+      matches.push(player);
+    }
+  });
+  return matches.slice(0, 15).map((player, index) => {
+    const box = block.boundingBox || {};
+    const width = Number(box.width || 0);
+    const segmentWidth = matches.length ? width / matches.length : width;
+    return {
+      rawName: player.webName || player.displayName || player.name,
+      rawTeamCode: "",
+      rawPosition: player.position || "",
+      rawSquadRole: inferRoleFromBlock(block, imageHeight),
+      rawCaptainMarker: "",
+      rawViceCaptainMarker: "",
+      sourceRegion: {
+        id: `known-player-${index}`,
+        boundingBox: {
+          ...box,
+          x: Number(box.x || 0) + segmentWidth * index,
+          width: segmentWidth || Number(box.width || 0),
+        },
+        textPreview: safeText(block.text).slice(0, 80),
+      },
+      extractionConfidence: Math.max(0.45, Math.min(1, Number(block.confidence || 0.6) * 0.92)),
+      issues: ["Player name recovered from a combined OCR row."],
+    };
+  });
+}
+
 export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
   const imageHeight = Number(options.imageHeight || 0);
   return (ocrBlocks || [])
-    .map((block, index) => {
+    .flatMap((block, index) => {
       const text = safeText(block.text);
-      if (!text) return null;
+      if (!text) return [];
       const tokens = text.split(/\s+/).filter(Boolean);
       const teamCodeResult = tokens
         .map((token) => correctFantasyTeamCodeFromOcr(token, options.teams || []))
@@ -433,11 +487,11 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
       const role = inferRoleFromBlock(block, imageHeight);
       const marker = detectCaptainMarker(text);
       const name = stripNonNameTokens(tokens).join(" ");
-      if (!isLikelyFantasyScreenshotPlayerName(name, {
+      const knownPlayerMentions = findKnownFantasyPlayerMentions(block, options.players || [], imageHeight);
+      const baseCandidate = isLikelyFantasyScreenshotPlayerName(name, {
         hasTeamCode: !!teamCodeResult?.normalisedCode,
         hasPosition: !!rawPosition,
-      })) return null;
-      return {
+      }) ? {
         rawName: name,
         rawTeamCode: teamCodeResult?.normalisedCode || "",
         rawPosition,
@@ -450,7 +504,9 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
           textPreview: text.slice(0, 80),
         },
         extractionConfidence: Number.isFinite(Number(block.confidence)) ? Number(block.confidence) : 0.5,
-      };
+      } : null;
+      if (knownPlayerMentions.length > 1) return knownPlayerMentions;
+      return [baseCandidate, ...knownPlayerMentions].filter(Boolean);
     })
     .filter(Boolean);
 }
@@ -1057,6 +1113,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       onStatus(index === 0 ? "Reading player names" : "Trying fallback image cleanup");
       const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal });
       const candidates = parseFantasyScreenshotCandidates(ocr.blocks, {
+        players,
         teams,
         imageHeight: imageMetadata?.height || decoded?.height,
       });
