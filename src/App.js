@@ -11774,6 +11774,9 @@ useEffect(() => {
     const fantasyScreenshotSelectedCount = fantasyScreenshotReview
       ? (fantasyScreenshotReview.extractedSlots || []).filter((slot) => slot.selectedPlayerId).length
       : 0;
+    const fantasyScreenshotPartialSummaryText = fantasyScreenshotReview && fantasyScreenshotSelectedCount >= 11 && fantasyScreenshotSelectedCount < 15
+      ? `Starting XI detected. Add ${15 - fantasyScreenshotSelectedCount} bench players before importing a full Fantasy IQ squad.`
+      : "";
     const fantasyScreenshotReviewIssueCount = fantasyScreenshotReview
       ? Math.max(
           fantasyScreenshotReview.unresolvedCount || 0,
@@ -12887,6 +12890,11 @@ useEffect(() => {
               {fantasyScreenshotReadySummaryText && (
                 <div style={{ color: theme.accent2, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
                   {fantasyScreenshotReadySummaryText}
+                </div>
+              )}
+              {fantasyScreenshotPartialSummaryText && (
+                <div style={{ color: theme.warn, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
+                  {fantasyScreenshotPartialSummaryText}
                 </div>
               )}
             </div>

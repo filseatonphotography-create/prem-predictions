@@ -347,6 +347,90 @@ describe("Fantasy screenshot review and import conversion", () => {
     expect(squad.players.filter((player) => player.squadRole === "bench")).toHaveLength(4);
   });
 
+  test("cleans crowded starting-XI screenshots without keeping UI fragments", () => {
+    const names = [
+      ["Raya", "ARS", "GK"],
+      ["Gabriel", "ARS", "DEF"],
+      ["Van Dijk", "LIV", "DEF"],
+      ["Trippier", "NEW", "DEF"],
+      ["Saka", "ARS", "MID"],
+      ["Salah", "LIV", "MID"],
+      ["Foden", "MCI", "MID"],
+      ["Gordon", "NEW", "MID"],
+      ["Haaland", "MCI", "FWD"],
+      ["Watkins", "AVL", "FWD"],
+      ["Isak", "NEW", "FWD"],
+    ];
+    const fixturePlayers = names.map(([name, teamCode, position], index) => ({
+      id: `xi:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: "",
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      teamCode,
+      teamName: teamCode,
+      position,
+      positionId: position === "GK" ? 1 : position === "DEF" ? 2 : position === "MID" ? 3 : 4,
+      dataSource: "test",
+    }));
+    const noiseNames = [
+      "Fantasy Mock Squad",
+      "Prediction Addiction",
+      "Gameweek Points",
+      "Possible Players",
+      "Strong Matches",
+      "Need Review",
+      "Not Matched",
+      "Bench",
+      "Captain Vice",
+      "Select Team",
+      "Save Squad",
+      "Fixture Difficulty",
+      "Total Score",
+      "Confirmed Players",
+      "League",
+      "Club",
+      "gw",
+      "11",
+      "C",
+      "VC",
+      "vs",
+      "Tap to choose",
+      "Import Screenshot",
+    ];
+    const extractedSlots = [
+      ...names.map(([name], index) => ({
+        rawName: name,
+        rawTeamCode: "",
+        rawPosition: "",
+        rawSquadRole: index > 8 ? "bench" : "starter",
+        extractionConfidence: 0.84,
+        sourceRegion: { boundingBox: { y: 120 + index * 44 } },
+      })),
+      ...noiseNames.map((name, index) => ({
+        rawName: name,
+        rawTeamCode: "",
+        rawPosition: "",
+        rawSquadRole: "starter",
+        extractionConfidence: index % 3 === 0 ? 0.68 : 0.82,
+        sourceRegion: { boundingBox: { y: 20 + index * 18 } },
+      })),
+    ];
+
+    const review = buildFantasyScreenshotReview({ extractedSlots, players: fixturePlayers });
+    const squad = convertFantasyScreenshotReviewToSquad(review);
+    expect(review.diagnostics.rawPlayerCandidateCount).toBe(34);
+    expect(review.extractedSlots).toHaveLength(11);
+    expect(review.extractedSlots.every((slot) => slot.selectedPlayerId)).toBe(true);
+    expect(review.extractedSlots.every((slot) => slot.role === "starter")).toBe(true);
+    expect(review.extractedSlots.some((slot) => /Fantasy|Prediction|Possible|Review/i.test(slot.extracted.rawName))).toBe(false);
+    expect(squad.players).toHaveLength(11);
+    expect(squad.players.filter((player) => player.squadRole === "starter")).toHaveLength(11);
+  });
+
   test("combined confidence calculation is weighted", () => {
     expect(getFantasyScreenshotCombinedConfidence(0.5, 1)).toBe(80);
   });

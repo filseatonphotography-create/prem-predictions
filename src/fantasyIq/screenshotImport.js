@@ -380,6 +380,97 @@ function getReviewSlotQuality(slot = {}) {
   return statusWeight * 100 + Number(slot.combinedConfidence || 0);
 }
 
+function getReviewSlotY(slot = {}) {
+  return Number(slot.extracted?.sourceRegion?.boundingBox?.y ?? 0);
+}
+
+function sortReviewSlotsByPosition(a = {}, b = {}) {
+  const ay = getReviewSlotY(a);
+  const by = getReviewSlotY(b);
+  if (ay !== by) return ay - by;
+  return String(a.id).localeCompare(String(b.id));
+}
+
+const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
+  "addiction",
+  "analyse",
+  "bench",
+  "captain",
+  "club",
+  "clubs",
+  "confirm",
+  "confirmed",
+  "difficulty",
+  "fantasy",
+  "fixture",
+  "gameweek",
+  "gw",
+  "help",
+  "import",
+  "league",
+  "matched",
+  "matches",
+  "mock",
+  "not",
+  "points",
+  "possible",
+  "prediction",
+  "predictions",
+  "review",
+  "save",
+  "score",
+  "select",
+  "selected",
+  "squad",
+  "starter",
+  "starters",
+  "subs",
+  "tap",
+  "team",
+  "to",
+  "total",
+  "vice",
+]);
+
+function isCrowdedOcrNoiseSlot(slot = {}) {
+  if (slot.selectedPlayerId || slot.status === "ambiguous") return false;
+  if ((slot.matchResult?.candidates || []).length) return false;
+  const extracted = slot.extracted || {};
+  if (extracted.rawTeamCode || extracted.rawPosition) return false;
+  const normalisedName = normaliseFantasyPlayerName(extracted.rawName);
+  if (!normalisedName) return true;
+  const words = normalisedName.split(/\s+/).filter(Boolean);
+  if (words.some((word) => FANTASY_SCREENSHOT_NOISE_WORDS.has(word))) return true;
+  if (words.length > 4) return true;
+  if (normalisedName.length < 3) return true;
+  const rawName = safeText(extracted.rawName);
+  const letterCount = (rawName.match(/[a-z]/gi) || []).length;
+  const nonLetterCount = (rawName.match(/[^a-z\s'-]/gi) || []).length;
+  if (letterCount > 0 && nonLetterCount > letterCount) return true;
+  return words.length === 1 && normalisedName.length <= 4 && Number(extracted.extractionConfidence || 0) < 0.72;
+}
+
+function filterCrowdedScreenshotNoiseSlots(slots = []) {
+  const usefulSlots = slots.filter((slot) =>
+    slot.selectedPlayerId ||
+    slot.status === "ambiguous" ||
+    (slot.matchResult?.candidates || []).length ||
+    slot.extracted?.rawTeamCode ||
+    slot.extracted?.rawPosition
+  );
+  const noisyCount = slots.filter(isCrowdedOcrNoiseSlot).length;
+  const shouldTrim = slots.length > Math.max(18, usefulSlots.length + 8) && usefulSlots.length >= 4 && noisyCount >= 6;
+  if (!shouldTrim) return slots;
+
+  const usefulIds = new Set(usefulSlots.map((slot) => slot.id));
+  const retainedUnmatched = slots
+    .filter((slot) => !usefulIds.has(slot.id) && !isCrowdedOcrNoiseSlot(slot))
+    .sort((a, b) => getReviewSlotQuality(b) - getReviewSlotQuality(a))
+    .slice(0, Math.max(0, 15 - usefulSlots.length));
+
+  return [...usefulSlots, ...retainedUnmatched].sort(sortReviewSlotsByPosition);
+}
+
 function recoverLikelySingleCandidateSlot(slot = {}) {
   const candidate = slot.matchResult?.candidates?.length === 1 ? slot.matchResult.candidates[0] : null;
   if (!candidate || slot.selectedPlayerId || Number(slot.matchResult?.confidence || 0) < 0.62) return slot;
@@ -393,7 +484,7 @@ function recoverLikelySingleCandidateSlot(slot = {}) {
 }
 
 function trimScreenshotNoiseSlots(slots = []) {
-  const recovered = slots.map(recoverLikelySingleCandidateSlot);
+  const recovered = filterCrowdedScreenshotNoiseSlots(slots.map(recoverLikelySingleCandidateSlot));
   const selected = recovered.filter((slot) => slot.selectedPlayerId);
   if (selected.length < 15) return recovered;
 
@@ -403,25 +494,21 @@ function trimScreenshotNoiseSlots(slots = []) {
     .map((slot) => slot.id));
   return recovered
     .filter((slot) => selectedKeys.has(slot.id))
-    .sort((a, b) => {
-      const ay = Number(a.extracted?.sourceRegion?.boundingBox?.y ?? 0);
-      const by = Number(b.extracted?.sourceRegion?.boundingBox?.y ?? 0);
-      if (ay !== by) return ay - by;
-      return String(a.id).localeCompare(String(b.id));
-    });
+    .sort(sortReviewSlotsByPosition);
 }
 
 function rebalanceScreenshotRoles(slots = []) {
   const selected = slots.filter((slot) => slot.selectedPlayerId);
-  if (selected.length !== 15) return slots;
+  if (selected.length !== 11 && selected.length !== 15) return slots;
   const starterCount = selected.filter((slot) => slot.role === "starter").length;
   const benchCount = selected.filter((slot) => slot.role === "bench").length;
+  if (selected.length === 11 && starterCount === 11 && benchCount === 0) return slots;
   if (starterCount === 11 && benchCount === 4) return slots;
 
   let selectedIndex = 0;
   return slots.map((slot) => {
     if (!slot.selectedPlayerId) return slot;
-    const nextRole = selectedIndex < 11 ? "starter" : "bench";
+    const nextRole = selected.length === 11 || selectedIndex < 11 ? "starter" : "bench";
     selectedIndex += 1;
     if (slot.role === nextRole) return slot;
     return {
