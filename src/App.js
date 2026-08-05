@@ -14724,6 +14724,27 @@ const TABS = [
               away: model.awayProb * 100,
             }
           : computeProbabilities(o);
+        const hasPremierModelDetails = model
+          && Number.isFinite(Number(model.homeExpectedGoals))
+          && Number.isFinite(Number(model.awayExpectedGoals));
+        const homeModelDetails = hasPremierModelDetails
+          ? {
+              xg: Number(model.homeExpectedGoals).toFixed(1),
+              cleanSheet: Math.round(Number(model.homeCleanSheetProb || 0) * 100),
+              difficulty: model.homeDifficultyScore,
+              attack: model.homeAttackDifficultyScore,
+              defence: model.homeDefenceDifficultyScore,
+            }
+          : null;
+        const awayModelDetails = hasPremierModelDetails
+          ? {
+              xg: Number(model.awayExpectedGoals).toFixed(1),
+              cleanSheet: Math.round(Number(model.awayCleanSheetProb || 0) * 100),
+              difficulty: model.awayDifficultyScore,
+              attack: model.awayAttackDifficultyScore,
+              defence: model.awayDefenceDifficultyScore,
+            }
+          : null;
 
         return (
           <div
@@ -14857,6 +14878,65 @@ const TABS = [
                 <div style={{ gridColumn: "1 / -1", color: theme.muted }}>-</div>
               )}
             </div>
+
+            {hasPremierModelDetails && (
+              <div
+                style={{
+                  borderTop: `1px solid ${theme.line}`,
+                  paddingTop: 8,
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto 1fr",
+                  gap: 8,
+                  alignItems: "stretch",
+                }}
+              >
+                {[homeModelDetails, awayModelDetails].map((details, index) => (
+                  <div
+                    key={index === 0 ? "home-model-details" : "away-model-details"}
+                    style={{
+                      minWidth: 0,
+                      border: `1px solid ${theme.line}`,
+                      borderRadius: 8,
+                      padding: "7px 8px",
+                      display: "grid",
+                      gap: 4,
+                      fontSize: 11,
+                      color: theme.muted,
+                    }}
+                  >
+                    <div style={{ color: theme.text, fontWeight: 900 }}>
+                      {index === 0 ? getTeamCode(fixture.homeTeam, gameMode) : getTeamCode(fixture.awayTeam, gameMode)}
+                    </div>
+                    <div>Est goals {details.xg}</div>
+                    <div>Clean sheet {details.cleanSheet}%</div>
+                    <div>
+                      Diff {details.difficulty} · Atk {details.attack} · Def {details.defence}
+                    </div>
+                  </div>
+                )).reduce((items, item, index) => {
+                  if (index === 1) {
+                    items.push(
+                      <div
+                        key="model-confidence"
+                        title={`Model confidence ${model.confidenceScore || 0}/100`}
+                        style={{
+                          alignSelf: "center",
+                          color: theme.muted,
+                          fontSize: 10,
+                          fontWeight: 800,
+                          textAlign: "center",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {model.confidence || "low"}
+                      </div>
+                    );
+                  }
+                  items.push(item);
+                  return items;
+                }, [])}
+              </div>
+            )}
           </div>
         );
       })}
