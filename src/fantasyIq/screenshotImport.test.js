@@ -15,6 +15,7 @@ import {
   parseFantasyScreenshotCandidates,
   removeFantasyScreenshotReviewSlot,
   runFantasyScreenshotOcr,
+  runFantasyScreenshotOcrWithFallback,
   selectBestFantasyScreenshotOcrAttempt,
   scoreFantasyScreenshotOcrQuality,
   updateFantasyScreenshotReviewSlot,
@@ -223,34 +224,6 @@ describe("Fantasy screenshot OCR parsing", () => {
     });
 
     expect(blocks.map((block) => block.text)).toEqual(["Raya", "Gabriel", "Van Dijk", "Trippier"]);
-  });
-
-  test("expands combined OCR rows into known player candidates", () => {
-    const fixturePlayers = [
-      ["Raya", "ARS", "GK"],
-      ["Gabriel", "ARS", "DEF"],
-      ["Van Dijk", "LIV", "DEF"],
-      ["Trippier", "NEW", "DEF"],
-    ].map(([name, teamCode, position], index) => ({
-      id: `combined:${index + 1}`,
-      sourceId: index + 1,
-      firstName: name,
-      lastName: "",
-      displayName: name,
-      name,
-      webName: name,
-      normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
-      teamCode,
-      teamName: teamCode,
-      position,
-      positionId: position === "GK" ? 1 : 2,
-      dataSource: "test",
-    }));
-    const candidates = parseFantasyScreenshotCandidates([
-      { text: "Raya Gabriel Van Dijk Trippier", confidence: 0.82, boundingBox: { x: 10, y: 120, width: 420, height: 24 } },
-    ], { players: fixturePlayers, imageHeight: 1000 });
-
-    expect(candidates.map((candidate) => candidate.rawName)).toEqual(["Raya", "Gabriel", "Van Dijk", "Trippier"]);
   });
 
   test("detects team-code OCR corrections", () => {
@@ -731,9 +704,67 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.variant).toBe("fallback");
   });
 
+  test("best OCR variant prefers fewer unmatched rows when matched count ties", () => {
+    const best = selectBestFantasyScreenshotOcrAttempt([
+      { variant: "noisy", quality: { score: 80, candidateCount: 12, matchedPlayerCount: 7 }, review: { extractedSlots: [{}, {}, {}] } },
+      { variant: "clean", quality: { score: 70, candidateCount: 7, matchedPlayerCount: 7 }, review: { extractedSlots: [] } },
+    ]);
+    expect(best.variant).toBe("clean");
+  });
+
   test("primary quality below threshold requests fallback", () => {
     const quality = scoreFantasyScreenshotOcrQuality({ blocks: [], candidates: [], review: { extractedSlots: [] } });
     expect(quality.needsFallback).toBe(true);
+  });
+
+  test("layout OCR attempts can select a cleaner crop without merging names", async () => {
+    const fixturePlayers = [
+      "Raya",
+      "Gabriel",
+      "Van Dijk",
+      "Trippier",
+      "Saka",
+      "Salah",
+      "Haaland",
+      "Watkins",
+    ].map((name, index) => ({
+      id: `layout:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: "",
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      teamCode: ["ARS", "LIV", "MCI", "NEW"][index % 4],
+      teamName: "Test",
+      position: index === 0 ? "GK" : index < 4 ? "DEF" : index < 6 ? "MID" : "FWD",
+      positionId: index === 0 ? 1 : index < 4 ? 2 : index < 6 ? 3 : 4,
+      dataSource: "test",
+    }));
+    const ocrRunner = jest.fn()
+      .mockResolvedValueOnce({ blocks: [{ text: "Raya Gabriel Van Dijk", confidence: 0.7, boundingBox: { y: 100 } }], raw: null })
+      .mockResolvedValueOnce({ blocks: [], raw: null })
+      .mockResolvedValueOnce({ blocks: [], raw: null })
+      .mockResolvedValueOnce({
+        blocks: fixturePlayers.map((player, index) => ({
+          text: player.displayName,
+          confidence: 0.9,
+          boundingBox: { x: index * 80, y: 100, width: 50, height: 20 },
+        })),
+        raw: null,
+      })
+      .mockResolvedValue({ blocks: [], raw: null });
+
+    const best = await runFantasyScreenshotOcrWithFallback(
+      { url: "fixture.png", width: 1200, height: 1800 },
+      { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
+    );
+
+    expect(ocrRunner).toHaveBeenCalledTimes(5);
+    expect(best.region).toBe("squad-area");
+    expect(best.review.extractedSlots.filter((slot) => slot.selectedPlayerId)).toHaveLength(8);
+    expect(best.review.extractedSlots.some((slot) => slot.extracted.rawName === "Raya Gabriel Van Dijk")).toBe(false);
   });
 
   test("debug summary excludes screenshot data, OCR text and player contents", () => {

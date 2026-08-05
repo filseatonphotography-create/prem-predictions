@@ -419,66 +419,12 @@ function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false
   return true;
 }
 
-function normalisedContainsTokenSequence(textTokens = [], searchTokens = []) {
-  if (!textTokens.length || !searchTokens.length || searchTokens.length > textTokens.length) return false;
-  for (let index = 0; index <= textTokens.length - searchTokens.length; index += 1) {
-    if (searchTokens.every((token, tokenIndex) => textTokens[index + tokenIndex] === token)) return true;
-  }
-  return false;
-}
-
-function getPlayerMentionTokens(player = {}) {
-  return [
-    normaliseFantasyPlayerName(player.webName),
-    normaliseFantasyPlayerName(player.displayName || player.name),
-  ]
-    .map((name) => name.split(/\s+/).filter(Boolean))
-    .filter((tokens) => tokens.length && tokens.join("").length >= 4);
-}
-
-function findKnownFantasyPlayerMentions(block = {}, players = [], imageHeight = 0) {
-  const normalisedText = normaliseFantasyPlayerName(block.text);
-  const textTokens = normalisedText.split(/\s+/).filter(Boolean);
-  if (!textTokens.length || !Array.isArray(players) || !players.length) return [];
-  const matches = [];
-  players.forEach((player) => {
-    const mentionTokens = getPlayerMentionTokens(player);
-    if (mentionTokens.some((tokens) => normalisedContainsTokenSequence(textTokens, tokens))) {
-      matches.push(player);
-    }
-  });
-  return matches.slice(0, 15).map((player, index) => {
-    const box = block.boundingBox || {};
-    const width = Number(box.width || 0);
-    const segmentWidth = matches.length ? width / matches.length : width;
-    return {
-      rawName: player.webName || player.displayName || player.name,
-      rawTeamCode: "",
-      rawPosition: player.position || "",
-      rawSquadRole: inferRoleFromBlock(block, imageHeight),
-      rawCaptainMarker: "",
-      rawViceCaptainMarker: "",
-      sourceRegion: {
-        id: `known-player-${index}`,
-        boundingBox: {
-          ...box,
-          x: Number(box.x || 0) + segmentWidth * index,
-          width: segmentWidth || Number(box.width || 0),
-        },
-        textPreview: safeText(block.text).slice(0, 80),
-      },
-      extractionConfidence: Math.max(0.45, Math.min(1, Number(block.confidence || 0.6) * 0.92)),
-      issues: ["Player name recovered from a combined OCR row."],
-    };
-  });
-}
-
 export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
   const imageHeight = Number(options.imageHeight || 0);
   return (ocrBlocks || [])
-    .flatMap((block, index) => {
+    .map((block, index) => {
       const text = safeText(block.text);
-      if (!text) return [];
+      if (!text) return null;
       const tokens = text.split(/\s+/).filter(Boolean);
       const teamCodeResult = tokens
         .map((token) => correctFantasyTeamCodeFromOcr(token, options.teams || []))
@@ -487,11 +433,11 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
       const role = inferRoleFromBlock(block, imageHeight);
       const marker = detectCaptainMarker(text);
       const name = stripNonNameTokens(tokens).join(" ");
-      const knownPlayerMentions = findKnownFantasyPlayerMentions(block, options.players || [], imageHeight);
-      const baseCandidate = isLikelyFantasyScreenshotPlayerName(name, {
+      if (!isLikelyFantasyScreenshotPlayerName(name, {
         hasTeamCode: !!teamCodeResult?.normalisedCode,
         hasPosition: !!rawPosition,
-      }) ? {
+      })) return null;
+      return {
         rawName: name,
         rawTeamCode: teamCodeResult?.normalisedCode || "",
         rawPosition,
@@ -504,9 +450,7 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
           textPreview: text.slice(0, 80),
         },
         extractionConfidence: Number.isFinite(Number(block.confidence)) ? Number(block.confidence) : 0.5,
-      } : null;
-      if (knownPlayerMentions.length > 1) return knownPlayerMentions;
-      return [baseCandidate, ...knownPlayerMentions].filter(Boolean);
+      };
     })
     .filter(Boolean);
 }
@@ -1025,10 +969,26 @@ function applyThresholdSharpen(imageData, contrast = 1.35) {
   return imageData;
 }
 
-export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant) {
+export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, crop = null) {
   const prepared = getPreparedScreenshotCanvas(decoded);
   if (!prepared?.canvas || !prepared?.context) return { source: decoded?.url, variant: "original", cleanup: () => {} };
-  const { canvas, context } = prepared;
+  let { canvas, context } = prepared;
+  if (crop && typeof document !== "undefined") {
+    const cropCanvas = document.createElement("canvas");
+    const sx = Math.max(0, Math.round(canvas.width * Number(crop.x || 0)));
+    const sy = Math.max(0, Math.round(canvas.height * Number(crop.y || 0)));
+    const sw = Math.max(1, Math.min(canvas.width - sx, Math.round(canvas.width * Number(crop.width || 1))));
+    const sh = Math.max(1, Math.min(canvas.height - sy, Math.round(canvas.height * Number(crop.height || 1))));
+    cropCanvas.width = sw;
+    cropCanvas.height = sh;
+    const cropContext = cropCanvas.getContext("2d", { willReadFrequently: true });
+    if (cropContext) {
+      cropContext.drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      disposeCanvas(canvas);
+      canvas = cropCanvas;
+      context = cropContext;
+    }
+  }
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const processed = variant === "threshold-sharpened"
     ? applyThresholdSharpen(imageData)
@@ -1039,13 +999,14 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
   return {
     source: canvas.toDataURL("image/png"),
     variant,
+    crop,
     width: canvas.width,
     height: canvas.height,
     cleanup: () => disposeCanvas(canvas),
   };
 }
 
-export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}, signal, tesseractOptions = {} } = {}) {
+export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}, signal, tesseractOptions = {}, pageSegMode = "11" } = {}) {
   onStatus("Loading OCR worker");
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("eng", 1, {
@@ -1055,7 +1016,7 @@ export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}
     },
   });
   await worker.setParameters?.({
-    tessedit_pageseg_mode: "11",
+    tessedit_pageseg_mode: String(pageSegMode || "11"),
     preserve_interword_spaces: "1",
   });
   let terminated = false;
@@ -1101,21 +1062,24 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
   signal,
   ocrRunner = runFantasyScreenshotOcr,
 } = {}) {
-  const variants = [
-    FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
-    FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant,
+  const attemptPlans = [
+    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, region: "full", pageSegMode: "11" },
+    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "full", pageSegMode: "11" },
+    { variant: "original-resized", region: "full", pageSegMode: "6" },
+    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, region: "squad-area", pageSegMode: "11", crop: { x: 0, y: 0.08, width: 1, height: 0.66 } },
+    { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "bench-area", pageSegMode: "6", crop: { x: 0, y: 0.58, width: 1, height: 0.42 } },
   ];
   const attempts = [];
-  for (let index = 0; index < variants.length; index += 1) {
-    const variant = variants[index];
-    const preprocessed = await preprocessFantasyScreenshotImage(decoded, variant);
+  for (let index = 0; index < attemptPlans.length; index += 1) {
+    const plan = attemptPlans[index];
+    const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop);
     try {
-      onStatus(index === 0 ? "Reading player names" : "Trying fallback image cleanup");
-      const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal });
+      onStatus(index === 0 ? "Reading player names" : `Trying ${plan.region} image cleanup`);
+      const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal, pageSegMode: plan.pageSegMode });
       const candidates = parseFantasyScreenshotCandidates(ocr.blocks, {
         players,
         teams,
-        imageHeight: imageMetadata?.height || decoded?.height,
+        imageHeight: preprocessed.height || imageMetadata?.height || decoded?.height,
       });
       const review = buildFantasyScreenshotReview({
         extractedSlots: candidates,
@@ -1124,14 +1088,16 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         imageMetadata: {
           ...imageMetadata,
           preprocessingVariant: preprocessed.variant,
+          ocrRegion: plan.region,
+          pageSegMode: plan.pageSegMode,
           ocrTextBlockCount: ocr.blocks.length,
           ocrDebug: ocr.raw,
         },
       });
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
-      const attempt = { variant: preprocessed.variant, ocr, candidates, review, quality };
+      const attempt = { variant: preprocessed.variant, region: plan.region, ocr, candidates, review, quality };
       attempts.push(attempt);
-      if (!quality.needsFallback || index === variants.length - 1) {
+      if (!quality.needsFallback && quality.matchedPlayerCount >= 11) {
         return selectBestFantasyScreenshotOcrAttempt(attempts);
       }
     } finally {
@@ -1146,6 +1112,9 @@ export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {
     const aMatched = a.quality?.matchedPlayerCount || 0;
     const bMatched = b.quality?.matchedPlayerCount || 0;
     if (bMatched !== aMatched) return bMatched - aMatched;
+    const aUnmatched = a.review?.extractedSlots?.filter((slot) => !slot.selectedPlayerId).length || 0;
+    const bUnmatched = b.review?.extractedSlots?.filter((slot) => !slot.selectedPlayerId).length || 0;
+    if (aUnmatched !== bUnmatched) return aUnmatched - bUnmatched;
     const aCandidates = a.quality?.candidateCount || 0;
     const bCandidates = b.quality?.candidateCount || 0;
     if (bCandidates !== aCandidates) return bCandidates - aCandidates;
