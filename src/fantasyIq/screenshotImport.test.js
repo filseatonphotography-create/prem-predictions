@@ -291,6 +291,62 @@ describe("Fantasy screenshot review and import conversion", () => {
     expect(review.unresolvedCount).toBe(1);
   });
 
+  test("cleans noisy OCR review into fifteen ordered squad selections", () => {
+    const names = [
+      ["Raya", "ARS", "GK"],
+      ["Gabriel", "ARS", "DEF"],
+      ["Van Dijk", "LIV", "DEF"],
+      ["Trippier", "NEW", "DEF"],
+      ["Saka", "ARS", "MID"],
+      ["Salah", "LIV", "MID"],
+      ["Foden", "MCI", "MID"],
+      ["Gordon", "NEW", "MID"],
+      ["Haaland", "MCI", "FWD"],
+      ["Watkins", "AVL", "FWD"],
+      ["Joao Felix", "CHE", "FWD"],
+      ["Areola", "EVE", "GK"],
+      ["Smith-Rowe", "FUL", "MID"],
+      ["Senesi", "BOU", "DEF"],
+      ["Damsgaard", "BRE", "DEF"],
+    ];
+    const fixturePlayers = names.map(([name, teamCode, position], index) => ({
+      id: `fpl:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: "",
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
+      teamCode,
+      teamName: teamCode,
+      position,
+      positionId: position === "GK" ? 1 : position === "DEF" ? 2 : position === "MID" ? 3 : 4,
+      dataSource: "test",
+    }));
+    const extractedSlots = [
+      { rawName: "Fantasy Mock Squad", rawTeamCode: "IPS", rawPosition: "", rawSquadRole: "starter", extractionConfidence: 0.8, sourceRegion: { boundingBox: { y: 10 } } },
+      ...names.map(([name], index) => ({
+        rawName: name === "Joao Felix" ? "Jodo Félix" : name,
+        rawTeamCode: "",
+        rawPosition: "",
+        rawSquadRole: index < 13 ? "starter" : "bench",
+        extractionConfidence: 0.86,
+        sourceRegion: { boundingBox: { y: 100 + index * 40 } },
+      })),
+      { rawName: "ve", rawTeamCode: "", rawPosition: "", rawSquadRole: "starter", extractionConfidence: 0.7, sourceRegion: { boundingBox: { y: 300 } } },
+    ];
+    const review = buildFantasyScreenshotReview({ extractedSlots, players: fixturePlayers });
+    const squad = convertFantasyScreenshotReviewToSquad(review);
+    expect(review.extractedSlots).toHaveLength(15);
+    expect(review.extractedSlots.some((slot) => slot.extracted.rawName === "Fantasy Mock Squad")).toBe(false);
+    expect(review.extractedSlots.some((slot) => slot.extracted.rawName === "ve")).toBe(false);
+    expect(review.extractedSlots.find((slot) => slot.extracted.rawName === "Jodo Félix")).toMatchObject({ selectedPlayerId: "fpl:11", status: "likely" });
+    expect(squad.players).toHaveLength(15);
+    expect(squad.players.filter((player) => player.squadRole === "starter")).toHaveLength(11);
+    expect(squad.players.filter((player) => player.squadRole === "bench")).toHaveLength(4);
+  });
+
   test("combined confidence calculation is weighted", () => {
     expect(getFantasyScreenshotCombinedConfidence(0.5, 1)).toBe(80);
   });

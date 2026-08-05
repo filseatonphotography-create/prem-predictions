@@ -368,6 +368,74 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
     .filter(Boolean);
 }
 
+function getReviewSlotQuality(slot = {}) {
+  const statusWeight =
+    slot.status === "matched"
+      ? 4
+      : slot.status === "likely"
+      ? 3
+      : slot.status === "ambiguous"
+      ? 2
+      : 0;
+  return statusWeight * 100 + Number(slot.combinedConfidence || 0);
+}
+
+function recoverLikelySingleCandidateSlot(slot = {}) {
+  const candidate = slot.matchResult?.candidates?.length === 1 ? slot.matchResult.candidates[0] : null;
+  if (!candidate || slot.selectedPlayerId || Number(slot.matchResult?.confidence || 0) < 0.62) return slot;
+  return {
+    ...slot,
+    selectedPlayerId: candidate.id,
+    selectedPlayer: candidate,
+    status: "likely",
+    issues: [...(slot.issues || []).filter((issue) => !/Player match needs review/i.test(issue)), "Recovered from a noisy OCR name. Check this player before importing."],
+  };
+}
+
+function trimScreenshotNoiseSlots(slots = []) {
+  const recovered = slots.map(recoverLikelySingleCandidateSlot);
+  const selected = recovered.filter((slot) => slot.selectedPlayerId);
+  if (selected.length < 15) return recovered;
+
+  const selectedKeys = new Set(selected
+    .sort((a, b) => getReviewSlotQuality(b) - getReviewSlotQuality(a))
+    .slice(0, 15)
+    .map((slot) => slot.id));
+  return recovered
+    .filter((slot) => selectedKeys.has(slot.id))
+    .sort((a, b) => {
+      const ay = Number(a.extracted?.sourceRegion?.boundingBox?.y ?? 0);
+      const by = Number(b.extracted?.sourceRegion?.boundingBox?.y ?? 0);
+      if (ay !== by) return ay - by;
+      return String(a.id).localeCompare(String(b.id));
+    });
+}
+
+function rebalanceScreenshotRoles(slots = []) {
+  const selected = slots.filter((slot) => slot.selectedPlayerId);
+  if (selected.length !== 15) return slots;
+  const starterCount = selected.filter((slot) => slot.role === "starter").length;
+  const benchCount = selected.filter((slot) => slot.role === "bench").length;
+  if (starterCount === 11 && benchCount === 4) return slots;
+
+  let selectedIndex = 0;
+  return slots.map((slot) => {
+    if (!slot.selectedPlayerId) return slot;
+    const nextRole = selectedIndex < 11 ? "starter" : "bench";
+    selectedIndex += 1;
+    if (slot.role === nextRole) return slot;
+    return {
+      ...slot,
+      role: nextRole,
+      issues: [...(slot.issues || []), "Starter/bench role inferred from screenshot order."],
+    };
+  });
+}
+
+function normaliseFantasyScreenshotReviewSlots(slots = []) {
+  return rebalanceScreenshotRoles(trimScreenshotNoiseSlots(slots));
+}
+
 function boxesOverlap(a = {}, b = {}) {
   const ax1 = Number(a.x || 0);
   const ay1 = Number(a.y || 0);
@@ -420,7 +488,7 @@ export function buildFantasyScreenshotReview({
   imageMetadata = null,
 } = {}) {
   const merged = mergeDuplicateFantasyScreenshotCandidates(extractedSlots);
-  const slots = merged.candidates.map((extracted, index) => {
+  const rawSlots = merged.candidates.map((extracted, index) => {
     const matchResult = matchFantasyPlayerCandidate({
       rawName: extracted.rawName,
       rawTeamCode: extracted.rawTeamCode,
@@ -458,6 +526,7 @@ export function buildFantasyScreenshotReview({
       ],
     };
   });
+  const slots = normaliseFantasyScreenshotReviewSlots(rawSlots);
   const matchStatusCounts = slots.reduce((out, slot) => {
     out[slot.status] = (out[slot.status] || 0) + 1;
     return out;

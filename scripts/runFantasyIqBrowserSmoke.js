@@ -489,9 +489,7 @@ async function main() {
       }
       tryClickInCard("Fantasy Mock Squad", "Remove");
       tryClickInCard("ve", "Remove");
-      clickInCard("Jodo Félix", "Joao Felix");
-      clickInCard("Areola", "Starter");
-      clickInCard("Smith-Rowe", "Starter");
+      tryClickInCard("Jodo Félix", "Joao Felix");
       clickInCard("Saka", "Captain");
       clickInCard("Salah", "Vice");
     `);

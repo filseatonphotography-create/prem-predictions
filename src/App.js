@@ -5198,17 +5198,25 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         finalValidSquad: false,
         errorCode: review.extractedSlots.length ? null : "NO_CANDIDATES",
       });
+      const selectedReviewCount = review.extractedSlots.filter((slot) => slot.selectedPlayerId).length;
+      const missingTeamCodes = (review.diagnostics?.recognisedTeamCodes || []).length === 0;
       if (!review.extractedSlots.length) {
         setFantasyScreenshotError("We could not read enough player information from this screenshot.");
       } else if (review.extractedSlots.length < 5) {
         setFantasyScreenshotError("Only a few players were detected. You can continue to review partial results or replace the screenshot.");
-      } else if ((review.diagnostics?.recognisedTeamCodes || []).length === 0) {
+      } else if (missingTeamCodes && selectedReviewCount < 11) {
         setFantasyScreenshotError("No team codes were detected. Check each match before importing.");
       }
       setFantasyScreenshotReview(review);
       setFantasyScreenshotImportSummary(importSummary);
       setFantasyScreenshotImportState(review.extractedSlots.length ? "needs review" : "failed");
-      setFantasyScreenshotStatusText(review.extractedSlots.length ? "Ready for review" : "Try a sharper full-squad screenshot or use manual entry.");
+      setFantasyScreenshotStatusText(
+        review.extractedSlots.length
+          ? missingTeamCodes
+            ? "Ready for review. Team codes were not detected, so check player matches before importing."
+            : "Ready for review"
+          : "Try a sharper full-squad screenshot or use manual entry."
+      );
     } catch (error) {
       if (runId !== fantasyScreenshotImportRunIdRef.current) return;
       const errorCode = error?.name === "AbortError" ? "CANCELLED" : "OCR_FAILED";
@@ -11763,6 +11771,15 @@ useEffect(() => {
     const fantasyScreenshotReadySummaryText = fantasyScreenshotReviewValidation.isValid
       ? `15 players confirmed. Formation: ${fantasyScreenshotReviewSummary.formation || "Valid"}. Captain selected. Vice-captain selected. Ready to import.`
       : "";
+    const fantasyScreenshotSelectedCount = fantasyScreenshotReview
+      ? (fantasyScreenshotReview.extractedSlots || []).filter((slot) => slot.selectedPlayerId).length
+      : 0;
+    const fantasyScreenshotReviewIssueCount = fantasyScreenshotReview
+      ? Math.max(
+          fantasyScreenshotReview.unresolvedCount || 0,
+          fantasyScreenshotReviewValidation.errors.filter((error) => !/Captain|Vice-captain/i.test(error)).length
+        )
+      : 0;
     const fantasyScreenshotFeedbackSummary = fantasyScreenshotPostImportSummary
       ? createFantasyScreenshotFeedbackSummary({
           rating: fantasyScreenshotFeedbackRating,
@@ -12857,7 +12874,7 @@ useEffect(() => {
               }}
             >
               <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
-                {fantasyScreenshotReview.confirmedCount} of 15 players confirmed. {fantasyScreenshotReview.unresolvedCount} need review.
+                {fantasyScreenshotSelectedCount} of 15 players selected. {fantasyScreenshotReviewIssueCount} need player review.
               </div>
               <div style={{ color: theme.muted, fontSize: 11 }}>
                 Starters {fantasyScreenshotReviewSummary.starters || 0}/11 · Bench {fantasyScreenshotReviewSummary.bench || 0}/4 · Formation {fantasyScreenshotReviewSummary.formation || "Incomplete"} · Import confidence {fantasyScreenshotReview.confidence?.label || "low"}
