@@ -5197,23 +5197,17 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         finalValidSquad: false,
         errorCode: review.extractedSlots.length ? null : "NO_CANDIDATES",
       });
-      const selectedReviewCount = review.extractedSlots.filter((slot) => slot.selectedPlayerId).length;
-      const missingTeamCodes = (review.diagnostics?.recognisedTeamCodes || []).length === 0;
       if (!review.extractedSlots.length) {
         setFantasyScreenshotError("We could not read enough player information from this screenshot.");
       } else if (review.extractedSlots.length < 5) {
         setFantasyScreenshotError("Only a few players were detected. You can continue to review partial results or replace the screenshot.");
-      } else if (missingTeamCodes && selectedReviewCount < 11) {
-        setFantasyScreenshotError("No team codes were detected. Check each match before importing.");
       }
       setFantasyScreenshotReview(review);
       setFantasyScreenshotImportSummary(importSummary);
       setFantasyScreenshotImportState(review.extractedSlots.length ? "needs review" : "failed");
       setFantasyScreenshotStatusText(
         review.extractedSlots.length
-          ? missingTeamCodes
-            ? "Ready for review. Team codes were not detected, so check player matches before importing."
-            : "Ready for review"
+          ? "Ready for review"
           : "Try a sharper full-squad screenshot or use manual entry."
       );
     } catch (error) {

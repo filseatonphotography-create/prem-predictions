@@ -264,12 +264,40 @@ describe("Fantasy screenshot OCR parsing", () => {
       { text: "Snapdragon", confidence: 0.9, boundingBox: { x: 0, y: 60, width: 120, height: 30 } },
       { text: "Snopdragon", confidence: 0.87, boundingBox: { x: 0, y: 100, width: 120, height: 30 } },
       { text: "HYBEER", confidence: 0.84, boundingBox: { x: 0, y: 140, width: 120, height: 30 } },
+      { text: "OHNOOSED", confidence: 0.8, boundingBox: { x: 0, y: 160, width: 120, height: 30 } },
+      { text: "AYBEITER", confidence: 0.8, boundingBox: { x: 0, y: 170, width: 120, height: 30 } },
       { text: "1.MID", confidence: 0.82, boundingBox: { x: 0, y: 180, width: 80, height: 30 } },
       { text: "2.DEF", confidence: 0.82, boundingBox: { x: 0, y: 220, width: 80, height: 30 } },
       { text: "Erling Haaland MCI FWD", confidence: 0.93, boundingBox: { x: 0, y: 260, width: 150, height: 30 } },
     ]);
     expect(candidates).toHaveLength(1);
     expect(candidates[0].rawName).toBe("Erling Haaland");
+  });
+
+  test("matches screenshot names without treating fixture codes as player clubs", () => {
+    const fixturePlayers = [
+      ...players,
+      {
+        id: "fpl:999",
+        sourceId: 999,
+        firstName: "Erling",
+        lastName: "Haaland",
+        displayName: "Erling Haaland",
+        name: "Erling Haaland",
+        webName: "Haaland",
+        normalisedName: "erling haaland",
+        teamCode: "MCI",
+        teamName: "Manchester City",
+        position: "FWD",
+        positionId: 4,
+        dataSource: "test",
+      },
+    ];
+    const review = buildFantasyScreenshotReview({
+      extractedSlots: [{ rawName: "Erling Haaland", rawTeamCode: "ARS", rawPosition: "FWD", extractionConfidence: 0.92 }],
+      players: fixturePlayers,
+    });
+    expect(review.extractedSlots[0]).toMatchObject({ selectedPlayerId: "fpl:999", status: "likely" });
   });
 
   test("infers bench role from lower image region", () => {
@@ -334,10 +362,10 @@ describe("Fantasy screenshot review and import conversion", () => {
     },
   ];
 
-  test("exact player matching appears on mandatory review", () => {
+  test("name and position matching appears on mandatory review", () => {
     const review = buildFantasyScreenshotReview({ extractedSlots: [extracted[0]], players });
     expect(review.status).toBe("needs-review");
-    expect(review.extractedSlots[0]).toMatchObject({ status: "matched", selectedPlayerId: "fpl:101" });
+    expect(review.extractedSlots[0]).toMatchObject({ status: "likely", selectedPlayerId: "fpl:101" });
   });
 
   test("ambiguous matching is retained for review", () => {

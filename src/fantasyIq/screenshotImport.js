@@ -20,7 +20,6 @@ export const FANTASY_SCREENSHOT_IMPORT_CONFIG = {
     fallbackVariant: "threshold-sharpened",
   },
   qualityThresholds: {
-    minimumTeamCodes: 3,
     minimumCandidates: 5,
     minimumMatchedPlayers: 7,
     minimumScoreForSinglePass: 54,
@@ -91,6 +90,8 @@ const SCREENSHOT_NON_PLAYER_WORDS = new Set([
   "emirates",
   "express",
   "hybeer",
+  "aybeiter",
+  "ohnoosed",
   "snapdragon",
   "snopdragon",
 ]);
@@ -338,15 +339,13 @@ export function scoreFantasyScreenshotOcrQuality({ blocks = [], candidates = [],
   const thresholds = FANTASY_SCREENSHOT_IMPORT_CONFIG.qualityThresholds;
   const score = Math.round(
     Math.min(100,
-      recognisedTeamCodes.size * 10 +
-        Math.min(15, likelyCandidates) * 3 +
+      Math.min(15, likelyCandidates) * 3 +
         matchedPlayers * 4 +
         averageOcrConfidence * 15
     )
   );
   const needsFallback =
     score < thresholds.minimumScoreForSinglePass ||
-    recognisedTeamCodes.size < thresholds.minimumTeamCodes ||
     candidates.length < thresholds.minimumCandidates ||
     matchedPlayers < thresholds.minimumMatchedPlayers;
   return {
@@ -358,7 +357,6 @@ export function scoreFantasyScreenshotOcrQuality({ blocks = [], candidates = [],
     matchedPlayerCount: matchedPlayers,
     averageOcrConfidence: Number(averageOcrConfidence.toFixed(3)),
     reasons: [
-      recognisedTeamCodes.size < thresholds.minimumTeamCodes ? "Few team codes detected." : "",
       candidates.length < thresholds.minimumCandidates ? "Few player candidates detected." : "",
       matchedPlayers < thresholds.minimumMatchedPlayers ? "Few players matched confidently." : "",
     ].filter(Boolean),
@@ -481,6 +479,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "addiction",
   "american",
   "analyse",
+  "aybeiter",
   "bench",
   "captain",
   "club",
@@ -502,6 +501,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "matches",
   "mock",
   "not",
+  "ohnoosed",
   "points",
   "possible",
   "prediction",
@@ -670,7 +670,7 @@ export function buildFantasyScreenshotReview({
   const rawSlots = merged.candidates.map((extracted, index) => {
     const matchResult = matchFantasyPlayerCandidate({
       rawName: extracted.rawName,
-      rawTeamCode: extracted.rawTeamCode,
+      rawTeamCode: "",
       rawPosition: extracted.rawPosition,
       players,
     });
