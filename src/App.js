@@ -14,7 +14,6 @@ import {
 } from "./fantasyIq/playerData";
 import {
   FANTASY_SCREENSHOT_IMPORT_CONFIG,
-  addFantasyScreenshotReviewPlayer,
   createFantasyScreenshotFeedbackSummary,
   createFantasyScreenshotImportSummary,
   convertFantasyScreenshotReviewToSquad,
@@ -4929,9 +4928,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyScreenshotError, setFantasyScreenshotError] = useState("");
   const [fantasyScreenshotStatusText, setFantasyScreenshotStatusText] = useState("");
   const [fantasyScreenshotReplacePending, setFantasyScreenshotReplacePending] = useState(false);
-  const [fantasyScreenshotReviewSearch, setFantasyScreenshotReviewSearch] = useState("");
-  const [fantasyScreenshotReviewTeamFilter, setFantasyScreenshotReviewTeamFilter] = useState("ALL");
-  const [fantasyScreenshotReviewPositionFilter, setFantasyScreenshotReviewPositionFilter] = useState("ALL");
+  const [fantasyScreenshotSlotSearch, setFantasyScreenshotSlotSearch] = useState({});
   const [fantasyScreenshotImportSummary, setFantasyScreenshotImportSummary] = useState(null);
   const [fantasyScreenshotFeedbackRating, setFantasyScreenshotFeedbackRating] = useState("");
   const [fantasyScreenshotFeedbackNote, setFantasyScreenshotFeedbackNote] = useState("");
@@ -5080,9 +5077,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyScreenshotError("");
     setFantasyScreenshotStatusText("");
     setFantasyScreenshotReplacePending(false);
-    setFantasyScreenshotReviewSearch("");
-    setFantasyScreenshotReviewTeamFilter("ALL");
-    setFantasyScreenshotReviewPositionFilter("ALL");
+    setFantasyScreenshotSlotSearch({});
     setFantasyScreenshotImportSummary(null);
     setFantasyScreenshotFeedbackRating("");
     setFantasyScreenshotFeedbackNote("");
@@ -11760,19 +11755,6 @@ useEffect(() => {
       : createEmptyFantasyIqSquad();
     const fantasyScreenshotReviewValidation = validateFantasyIqSquad(fantasyScreenshotReviewSquad);
     const fantasyScreenshotReviewSummary = fantasyScreenshotReviewValidation.summary || {};
-    const filteredFantasyScreenshotReviewPlayers = fantasyIqAvailablePlayers
-      .filter((player) => fantasyScreenshotReviewTeamFilter === "ALL" || player.teamCode === fantasyScreenshotReviewTeamFilter)
-      .filter((player) => fantasyScreenshotReviewPositionFilter === "ALL" || player.position === fantasyScreenshotReviewPositionFilter)
-      .filter((player) => {
-        const search = normaliseFantasyPlayerName(fantasyScreenshotReviewSearch);
-        if (!search) return true;
-        return (
-          normaliseFantasyPlayerName(player.displayName || player.name).includes(search) ||
-          normaliseFantasyPlayerName(player.webName).includes(search) ||
-          String(player.teamCode || "").toLowerCase().includes(fantasyScreenshotReviewSearch.toLowerCase())
-        );
-      })
-      .slice(0, 10);
     const fantasyScreenshotReadySummaryText = fantasyScreenshotReviewValidation.isValid
       ? `15 players confirmed. Formation: ${fantasyScreenshotReviewSummary.formation || "Valid"}. Captain selected. Vice-captain selected. Ready to import.`
       : "";
@@ -12671,6 +12653,20 @@ useEffect(() => {
       const badgeSrc = selectedPlayer ? resolveTeamBadge(selectedPlayer.teamName || selectedPlayer.teamCode) : "";
       const playerLabel = selectedPlayer?.displayName || selectedPlayer?.name || slot.extracted.rawName || "Choose a player";
       const roleValue = slot.isCaptain ? "captain" : slot.isViceCaptain ? "vice" : slot.role === "starter" ? "starter" : "bench";
+      const slotSearch = fantasyScreenshotSlotSearch[slot.id] || "";
+      const normalisedSlotSearch = normaliseFantasyPlayerName(slotSearch);
+      const candidateChoices = (slot.matchResult?.candidates || [])
+        .filter((candidate) => candidate.id !== selectedPlayer?.id)
+        .slice(0, 3);
+      const searchedPlayers = !selectedPlayer && normalisedSlotSearch
+        ? fantasyIqAvailablePlayers
+            .filter((player) =>
+              normaliseFantasyPlayerName(player.displayName || player.name).includes(normalisedSlotSearch) ||
+              normaliseFantasyPlayerName(player.webName).includes(normalisedSlotSearch) ||
+              String(player.teamCode || "").toLowerCase().includes(slotSearch.toLowerCase())
+            )
+            .slice(0, 6)
+        : [];
       const setReviewSlotRoleControl = (value) => {
         if (value === "captain") {
           setFantasyScreenshotReviewCaptain(slot.id, "captain");
@@ -12750,23 +12746,60 @@ useEffect(() => {
               {slot.issues.slice(0, 2).join(" ")}
             </div>
           )}
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {(slot.matchResult?.candidates || []).slice(0, 3).map((candidate) => (
-              <button
-                key={`${slot.id}-${candidate.id}`}
-                type="button"
-                onClick={() => {
-                  markFantasyScreenshotManualCorrection();
-                  updateFantasyScreenshotReview((review) =>
-                    updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: candidate.id }, fantasyIqAvailablePlayers)
-                  );
-                }}
-                style={{ ...pillBtn(slot.selectedPlayerId === candidate.id), padding: "5px 7px", fontSize: 11 }}
-              >
-                {candidate.webName || candidate.displayName}
-              </button>
-            ))}
-          </div>
+          {!!candidateChoices.length && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {candidateChoices.map((candidate) => (
+                <button
+                  key={`${slot.id}-${candidate.id}`}
+                  type="button"
+                  onClick={() => {
+                    markFantasyScreenshotManualCorrection();
+                    updateFantasyScreenshotReview((review) =>
+                      updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: candidate.id }, fantasyIqAvailablePlayers)
+                    );
+                  }}
+                  style={{ ...pillBtn(false), padding: "5px 7px", fontSize: 11 }}
+                >
+                  {candidate.webName || candidate.displayName}
+                </button>
+              ))}
+            </div>
+          )}
+          {!selectedPlayer && (
+            <div style={{ display: "grid", gap: 6 }}>
+              <input
+                value={slotSearch}
+                onChange={(event) => setFantasyScreenshotSlotSearch((current) => ({
+                  ...current,
+                  [slot.id]: event.target.value,
+                }))}
+                placeholder="Search player"
+                style={{ ...probInput, textAlign: "left", padding: "7px 9px", fontSize: 12 }}
+              />
+              {!!normalisedSlotSearch && (
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 6 }}>
+                  {searchedPlayers.length ? searchedPlayers.map((player) => (
+                    <button
+                      key={`${slot.id}-search-${player.id}`}
+                      type="button"
+                      onClick={() => {
+                        markFantasyScreenshotManualCorrection();
+                        updateFantasyScreenshotReview((review) =>
+                          updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: player.id }, fantasyIqAvailablePlayers)
+                        );
+                        setFantasyScreenshotSlotSearch((current) => ({ ...current, [slot.id]: "" }));
+                      }}
+                      style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, textAlign: "left" }}
+                    >
+                      {player.displayName || player.name} · {player.teamCode} · {player.position}
+                    </button>
+                  )) : (
+                    <div style={{ color: theme.muted, fontSize: 11 }}>No players match that search.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       );
     };
@@ -12895,60 +12928,6 @@ useEffect(() => {
                   {fantasyScreenshotPartialSummaryText}
                 </div>
               )}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
-              <input
-                value={fantasyScreenshotReviewSearch}
-                onChange={(event) => setFantasyScreenshotReviewSearch(event.target.value)}
-                placeholder="Search players to add or replace"
-                style={{ ...probInput, textAlign: "left", padding: "8px 10px", fontSize: 13 }}
-              />
-              <select
-                aria-label="Review team filter"
-                value={fantasyScreenshotReviewTeamFilter}
-                onChange={(event) => setFantasyScreenshotReviewTeamFilter(event.target.value)}
-                style={{ ...probInput, padding: "8px 10px", fontSize: 13 }}
-              >
-                <option value="ALL">All teams</option>
-                {fantasyIqTeamFilterOptions.map((teamCode) => (
-                  <option key={`review-${teamCode}`} value={teamCode}>{teamCode}</option>
-                ))}
-              </select>
-              <select
-                aria-label="Review position filter"
-                value={fantasyScreenshotReviewPositionFilter}
-                onChange={(event) => setFantasyScreenshotReviewPositionFilter(event.target.value)}
-                style={{ ...probInput, padding: "8px 10px", fontSize: 13 }}
-              >
-                <option value="ALL">All positions</option>
-                {FANTASY_IQ_POSITIONS.map((position) => (
-                  <option key={`review-${position}`} value={position}>{position}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 6 }}>
-              {filteredFantasyScreenshotReviewPlayers.map((player) => (
-                <button
-                  key={`add-review-${player.id}`}
-                  type="button"
-                  onClick={() => {
-                    markFantasyScreenshotManualCorrection();
-                    updateFantasyScreenshotReview((review) => addFantasyScreenshotReviewPlayer(review, player, "unknown"));
-                  }}
-                  style={{
-                    textAlign: "left",
-                    border: `1px solid ${theme.line}`,
-                    borderRadius: 8,
-                    background: "rgba(255,255,255,0.04)",
-                    color: theme.text,
-                    padding: "7px 9px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  {player.displayName || player.name} · {player.teamCode} · {player.position}
-                </button>
-              ))}
             </div>
             <div style={{ display: "grid", gap: 8 }}>
               {(fantasyScreenshotReview.extractedSlots || []).map(renderFantasyScreenshotReviewSlot)}
