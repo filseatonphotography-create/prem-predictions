@@ -6,6 +6,7 @@ const appUrl = "http://localhost:3000";
 const fixturePath = `${process.cwd()}/src/fantasyIq/fixtures/screenshot-import/mobile-portrait-full-squad.png`;
 const authKey = "pl_prediction_auth_v1";
 const playerDataKey = "predictionAddiction:fplPlayerData:v1";
+const squadKey = "predictionAddiction:fantasyIqSquad:v1:browser-smoke-user";
 
 const players = [
   ["Raya", "ARS", "GK"], ["Gabriel", "ARS", "DEF"], ["Van Dijk", "LIV", "DEF"],
@@ -13,6 +14,9 @@ const players = [
   ["Foden", "MCI", "MID"], ["Gordon", "NEW", "MID"], ["Haaland", "MCI", "FWD"],
   ["Watkins", "AVL", "FWD"], ["Joao Felix", "CHE", "FWD"], ["Areola", "EVE", "GK"],
   ["Smith-Rowe", "FUL", "MID"], ["Senesi", "BOU", "DEF"], ["Damsgaard", "BRE", "DEF"],
+  ["Palmer", "CHE", "MID"], ["Bruno Fernandes", "MUN", "MID"], ["Odegaard", "ARS", "MID"],
+  ["Pickford", "EVE", "GK"], ["Tarkowski", "EVE", "DEF"], ["Isak", "NEW", "FWD"],
+  ["Semenyo", "BOU", "MID"], ["Kerkez", "LIV", "DEF"],
 ];
 
 function normaliseName(value) {
@@ -68,6 +72,44 @@ function makeDataset() {
   };
 }
 
+function makeSavedSquad() {
+  const starters = new Set(["Raya", "Gabriel", "Van Dijk", "Trippier", "Damsgaard", "Saka", "Salah", "Foden", "Gordon", "Haaland", "Watkins"]);
+  const squadPlayers = players.slice(0, 15).map(([name, teamCode, position], index) => ({
+    id: `fpl:${index + 1}`,
+    sourceId: index + 1,
+    name,
+    displayName: name,
+    webName: name,
+    normalisedName: normaliseName(name),
+    teamCode,
+    teamName: teamCode,
+    position,
+    squadRole: starters.has(name) ? "starter" : "bench",
+    isCaptain: name === "Saka",
+    isViceCaptain: name === "Salah",
+    confidence: 1,
+    manuallyConfirmed: true,
+    active: true,
+    availabilityStatus: "available",
+    dataSource: "browser-smoke-fixture",
+    canonicalPlayerId: `fpl:${index + 1}`,
+    reconciliationStatus: "matched",
+    reconciliationConfidence: 1,
+  }));
+  return {
+    schemaVersion: 1,
+    source: "manual",
+    formation: "5-4-2",
+    gameweek: 1,
+    players: squadPlayers,
+    captainPlayerId: "fpl:5",
+    viceCaptainPlayerId: "fpl:6",
+    importedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    confirmed: true,
+  };
+}
+
 async function getJson(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url} failed with ${res.status}`);
@@ -85,7 +127,8 @@ class Cdp {
       if (message.id && this.pending.has(message.id)) {
         const { resolve, reject } = this.pending.get(message.id);
         this.pending.delete(message.id);
-        if (message.error) reject(new Error(message.error.message));
+        if (message.error?.message === "Inspected target navigated or closed") resolve({});
+        else if (message.error) reject(new Error(message.error.message));
         else resolve(message.result || {});
       } else if (message.method) {
         this.events.push(message);
@@ -132,6 +175,17 @@ async function evaluate(cdp, sessionId, expression) {
   return result.result?.value;
 }
 
+function clickButtonExpression(text) {
+  return `
+    {
+      const button = [...document.querySelectorAll("button")].find((item) => item.textContent.includes(${JSON.stringify(text)}));
+      if (!button) throw new Error("Missing button: " + ${JSON.stringify(text)});
+      button.click();
+      true;
+    }
+  `;
+}
+
 async function main() {
   const viewport = process.argv.includes("--mobile")
     ? { width: 390, height: 844, mobile: true, deviceScaleFactor: 2 }
@@ -160,6 +214,7 @@ async function main() {
     });
     localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "browser-smoke-token", userId: "browser-smoke-user", username: "BrowserSmoke" }));
     localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
+    ${process.argv.includes("--transfer") ? `localStorage.setItem(${JSON.stringify(squadKey)}, ${JSON.stringify(JSON.stringify(makeSavedSquad()))});` : ""}
     localStorage.setItem("activeView", "fantasyHelp");
   `);
   await cdp.send("Page.reload", {}, sessionId).catch(() => {});
@@ -168,6 +223,95 @@ async function main() {
     [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Fantasy IQ")?.click();
   `);
   await waitFor(cdp, sessionId, "document.body.innerText.includes('Analyse Your Fantasy Squad')", 10000);
+  const transferWorkflow = process.argv.includes("--transfer");
+  if (transferWorkflow) {
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Status: Ready for analysis')", 10000);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Transfer IQ') && document.body.innerText.includes('Compare a Transfer')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Compare a Transfer"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Choose a player to compare')", 10000);
+    const arsenalCandidateVisible = await evaluate(cdp, sessionId, `
+      [...document.querySelectorAll("button")].some((button) => button.innerText.includes("Odegaard"))
+    `);
+    await evaluate(cdp, sessionId, `
+      [...document.querySelectorAll("button")].find((button) => button.innerText.includes("Foden") && button.innerText.includes("MCI"))?.click();
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Choose a MID replacement')", 10000);
+    const fourthClubHidden = await evaluate(cdp, sessionId, `
+      ![...document.querySelectorAll("button")].some((button) => button.innerText.includes("Odegaard") && button.innerText.includes("ARS"))
+    `);
+    await evaluate(cdp, sessionId, `
+      [...document.querySelectorAll("button")].find((button) => button.innerText.includes("Palmer") && button.innerText.includes("CHE"))?.click();
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Apply to Fantasy IQ squad') && document.body.innerText.includes('Fantasy IQ') && document.body.innerText.includes('Palmer')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Apply to Fantasy IQ squad"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Apply this change to your saved Fantasy IQ squad')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Confirm Apply to Fantasy IQ squad"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Transfer applied to your Fantasy IQ squad')", 10000);
+    await cdp.send("Page.reload", {}, sessionId).catch(() => {});
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Palmer') && document.body.innerText.includes('Status: Ready for analysis')", 30000);
+    await waitFor(cdp, sessionId, `[...document.querySelectorAll("button")].some((button) => button.textContent.includes("Compare a Transfer"))`, 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Compare a Transfer"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Choose a player to compare')", 10000);
+    await evaluate(cdp, sessionId, `
+      [...document.querySelectorAll("button")].find((button) => button.innerText.includes("Smith-Rowe") && button.innerText.includes("Bench"))?.click();
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Choose a MID replacement')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Discard Comparison"));
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Compare a Transfer')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Compare a Transfer"));
+    await evaluate(cdp, sessionId, `
+      [...document.querySelectorAll("button")].find((button) => button.innerText.includes("Saka") && button.innerText.includes(" C"))?.click();
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Choose a MID replacement')", 10000);
+    await evaluate(cdp, sessionId, `
+      [...document.querySelectorAll("button")].find((button) => button.innerText.includes("Bruno Fernandes"))?.click();
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Hypothetical captaincy')", 10000);
+    await evaluate(cdp, sessionId, `
+      {
+      const select = [...document.querySelectorAll("select")].find((item) => item.getAttribute("aria-label") === "Replacement captain");
+      select.value = "fpl:6";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Captain and vice-captain must be different')", 10000);
+    await evaluate(cdp, sessionId, `
+      {
+      const select = [...document.querySelectorAll("select")].find((item) => item.getAttribute("aria-label") === "Replacement captain");
+      select.value = "fpl:9";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    `);
+    await waitFor(cdp, sessionId, "document.body.innerText.includes('Bruno Fernandes') && document.body.innerText.includes('Apply to Fantasy IQ squad')", 10000);
+    await evaluate(cdp, sessionId, clickButtonExpression("Discard Comparison"));
+    const finalStorage = await evaluate(cdp, sessionId, `localStorage.getItem(${JSON.stringify(squadKey)})`);
+    const parsedFinalSquad = JSON.parse(finalStorage);
+    const summaryText = await evaluate(cdp, sessionId, "document.body.innerText");
+    const consoleEvents = cdp.events
+      .filter((event) => ["Runtime.consoleAPICalled", "Runtime.exceptionThrown", "Log.entryAdded"].includes(event.method))
+      .map((event) => ({
+        method: event.method,
+        text: event.params?.exceptionDetails?.text ||
+          event.params?.entry?.text ||
+          (event.params?.args || []).map((arg) => arg.value || arg.description || "").join(" "),
+      }));
+    await cdp.send("Target.closeTarget", { targetId: target.targetId });
+    cdp.ws.close();
+    console.log(JSON.stringify({
+      viewport,
+      transferIqVisible: summaryText.includes("Transfer IQ"),
+      starterTransferApplied: parsedFinalSquad.players.some((player) => player.name === "Palmer"),
+      replacedPlayerRemoved: !parsedFinalSquad.players.some((player) => player.name === "Foden"),
+      persistedAfterRefresh: summaryText.includes("Palmer"),
+      benchDiscardLeftSquadUnchanged: parsedFinalSquad.players.some((player) => player.name === "Smith-Rowe"),
+      captainComparisonExercised: summaryText.includes("Compare a Transfer"),
+      invalidFourthClubCandidateHidden: fourthClubHidden && !arsenalCandidateVisible,
+      officialFplCopyVisible: summaryText.includes("does not make changes to your official Fantasy Premier League team"),
+      fantasyIqScoreVisible: summaryText.includes("Overall Fantasy IQ"),
+      consoleEvents: consoleEvents.slice(0, 10),
+    }, null, 2));
+    return;
+  }
   await evaluate(cdp, sessionId, `
     [...document.querySelectorAll("button")].find((button) => button.textContent.includes("Import Squad Screenshot"))?.click();
   `);
