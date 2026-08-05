@@ -4900,6 +4900,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
+  const [fantasyIqAnalysisPanel, setFantasyIqAnalysisPanel] = useState("team");
   const [fantasyInsightsScope, setFantasyInsightsScope] = useState("gameweek");
   const fantasyIqUserIdentifier = useMemo(
     () => currentUserId || currentPlayer || loginName || "guest",
@@ -5091,6 +5092,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   const openFantasyScreenshotImport = () => {
     resetFantasyScreenshotImport("idle");
+    setFantasyIqBuilderOpen(false);
+    setFantasyIqAnalysisPanel("team");
     setFantasyScreenshotImportOpen(true);
   };
 
@@ -5349,6 +5352,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     if (fantasyLineupIqState?.status === "ready" && !window.confirm("Discard unsaved lineup analysis?")) return;
     resetFantasyTransferIq();
     resetFantasyLineupIq();
+    if (fantasyScreenshotImportOpen) {
+      resetFantasyScreenshotImport("cancelled");
+      setFantasyScreenshotImportOpen(false);
+    }
+    setFantasyIqAnalysisPanel("team");
     setFantasyIqEditingSquad(normaliseFantasyIqSquad(squad));
     setFantasyIqBuilderOpen(true);
     setFantasyIqUnsavedChanges(false);
@@ -11777,6 +11785,7 @@ useEffect(() => {
     const fantasyScreenshotPartialSummaryText = fantasyScreenshotReview && fantasyScreenshotSelectedCount >= 11 && fantasyScreenshotSelectedCount < 15
       ? `Starting XI detected. Add ${15 - fantasyScreenshotSelectedCount} bench players before importing a full Fantasy IQ squad.`
       : "";
+    const fantasyIqTeamWorkflowActive = fantasyIqBuilderOpen || fantasyScreenshotImportOpen;
     const fantasyScreenshotReviewIssueCount = fantasyScreenshotReview
       ? Math.max(
           fantasyScreenshotReview.unresolvedCount || 0,
@@ -12978,216 +12987,50 @@ useEffect(() => {
       </div>
     );
 
-    return (
-      <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
-        {renderFantasyIqSection(
-          "Fantasy IQ Overview",
-          "Add your fantasy squad to unlock your complete Fantasy IQ score.",
-          <div
-            style={{
-              background: "rgba(255,255,255,0.04)",
-              border: `1px solid ${theme.line}`,
-              borderRadius: 12,
-              padding: 14,
-              display: "grid",
-              gap: 10,
-            }}
-          >
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-              {overviewMetrics.map((item) => renderFantasyIqMetric(item.label, item.value, theme.accent2))}
-            </div>
-            <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35, textAlign: "center" }}>
-              Model-based squad analysis only. This is not predicted FPL points and does not include player minutes, prices, injuries, ownership or transfers.
-            </div>
-          </div>,
-          theme.accent2
-        )}
-
-        {renderFantasyIqSection(
-          "Squad Score Breakdown",
-          "Scores are based on confirmed squad roles, club fixture outlook, player position and your submitted predictions where available.",
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-              {categoryDetailRows.map(renderFantasyIqCategoryDetail)}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-              {renderFantasyIqNotes("Strengths", preparedReport.strengths, theme.accent2)}
-              {renderFantasyIqNotes("Concerns", preparedReport.concerns, theme.warn)}
-              {renderFantasyIqNotes("Review Queue", preparedReport.recommendations, theme.accent)}
-            </div>
-            <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
-              Players from the same club and position receive the same model treatment until official player-level data is added.
-            </div>
-            {!!(preparedReport.confidenceReasons || []).length && (
-              <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
-                Confidence: {(preparedReport.confidenceReasons || []).join(" ")}
-              </div>
-            )}
-          </div>,
-          "#14B8A6"
-        )}
-
-        {renderFantasyIqSection(
-          "Your Prediction Signals",
-          fantasyInsightsScope === "season" ? "Season-level signals from your submitted predictions." : "Gameweek signals from your submitted predictions.",
-          <div
+    const renderFantasyIqPanelSelector = () => (
+      <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 10 }}>
+        {[
+          ["prediction", "Prediction Analysis"],
+          ["team", "Team Analysis"],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-expanded={fantasyIqAnalysisPanel === id}
+            onClick={() => setFantasyIqAnalysisPanel((current) => current === id ? "" : id)}
             style={{
               display: "grid",
-              gap: 10,
+              gridTemplateColumns: "minmax(0, 1fr) auto",
+              gap: 8,
+              alignItems: "center",
+              textAlign: "left",
+              padding: "12px 14px",
+              borderRadius: 8,
+              border: `1px solid ${fantasyIqAnalysisPanel === id ? theme.accent : theme.line}`,
+              background: fantasyIqAnalysisPanel === id ? "rgba(56,189,248,0.12)" : theme.panelHi,
+              color: theme.text,
+              cursor: "pointer",
+              fontSize: 14,
+              fontWeight: 950,
             }}
           >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto",
-                gap: 10,
-                alignItems: "center",
-              }}
-            >
-              <select
-                value={fantasyInsightsScope}
-                onChange={(event) => setFantasyInsightsScope(event.target.value)}
-                style={{
-                  ...probInput,
-                  width: isMobile || compact ? "100%" : 190,
-                  padding: "8px 10px",
-                  fontSize: 13,
-                  fontWeight: 850,
-                }}
-              >
-                <option value="gameweek">Gameweek Insights</option>
-                <option value="season">Season Insights</option>
-              </select>
-              <div style={{ color: theme.muted, fontSize: 12, textAlign: isMobile || compact ? "left" : "right" }}>
-                {report.submittedPredictions} predictions entered, {report.missingPredictions} still missing.
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
-              {insightItems.map(renderInsightCard)}
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-              {(report.predictionSignalRows || []).map(renderPredictionSignalRow)}
-            </div>
-            {(report.predictionConflicts || []).length > 0 && (
-              <div style={{ display: "grid", gap: 6 }}>
-                {(report.predictionConflicts || []).map((conflict) => (
-                  <div key={conflict.fixtureId} style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
-                    <strong style={{ color: theme.warn }}>{conflict.label}:</strong> {conflict.detail}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>,
-          theme.accent2
-        )}
+            <span>{label}</span>
+            <span style={{ color: fantasyIqAnalysisPanel === id ? theme.accent : theme.muted }}>
+              {fantasyIqAnalysisPanel === id ? "▲" : "▼"}
+            </span>
+          </button>
+        ))}
+      </div>
+    );
 
-        {renderFantasyIqSection(
-          "Model Fixture Outlook",
-          "Fantasy IQ analyses attacking potential, clean-sheet outlook and fixture difficulty over the next three gameweeks.",
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              gap: 10,
-            }}
-          >
-            {renderFixtureDifficultyPanel(
-              "Overall fixture outlook",
-              report.overallFixtureRows,
-              "#22C55E",
-              "NA"
-            )}
-            {renderFixtureDifficultyPanel(
-              "Attacking outlook",
-              report.attackFixtureRows || report.fixtureRows,
-              "#A78BFA",
-              "NA"
-            )}
-            {renderFixtureDifficultyPanel(
-              "Defensive outlook",
-              report.defenceFixtureRows,
-              "#38BDF8",
-              "NA"
-            )}
-            {renderFixtureDifficultyPanel(
-              "Higher-risk schedules",
-              report.fixtureHardRows,
-              "#EF4444",
-              "NA"
-            )}
-          </div>,
-          theme.accent
-        )}
-
-        {renderFantasyIqSection(
-          "Teams to Consider",
-          "Team-level fantasy interest only. Individual player recommendations will come after squad data exists.",
-          <div
-            style={{
-              background: theme.panel,
-              border: `1px solid ${theme.line}`,
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
-            {(report.adviceRows || [])
-              .filter((item) =>
-                ["Transfer in", "Defence/GK", "Formation"].includes(item.label) ||
-                (item.label === "Fixture difficulty" && item.data !== "Consider avoiding")
-              )
-              .slice(0, 5)
-              .map(renderAdviceComparisonRow)}
-          </div>,
-          "#22C55E"
-        )}
-
-        {renderFantasyIqSection(
-          "Teams to Approach with Caution",
-          "Uses difficult attacking fixtures, low clean-sheet outlook, poor recent form and adverse three-gameweek schedules.",
-          <div
-            style={{
-              background: theme.panel,
-              border: `1px solid ${theme.line}`,
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
-            {(report.adviceRows || [])
-              .filter((item) => ["Bench", "Transfer out"].includes(item.label) || (item.label === "Fixture difficulty" && item.data === "Consider avoiding"))
-              .map(renderAdviceComparisonRow)}
-          </div>,
-          "#EF4444"
-        )}
-
-        {renderFantasyIqSection(
-          "Lineup IQ",
-          report.squad?.confirmed
-            ? "Compare your current starting XI with the strongest fixture-based lineup from your existing squad."
-            : "Confirm your fantasy squad before analysing your lineup.",
-          renderFantasyLineupIq(),
-          "#14B8A6"
-        )}
-
-        {renderFantasyIqSection(
-          "Transfer IQ",
-          report.squad?.confirmed
-            ? "See how one player change could affect your Fantasy IQ over the next three gameweeks."
-            : "Confirm your fantasy squad before comparing transfers.",
-          renderFantasyTransferIq(),
-          "#F59E0B"
-        )}
-
-        {renderFantasyIqSection(
-          "Fantasy IQ History",
-          "Track how your squad outlook changes throughout the season.",
-          renderFantasyIqHistory(),
-          theme.accent2
-        )}
-
-        {renderFantasyIqSection(
-          "Analyse Your Fantasy Squad",
-          "Upload a screenshot or enter your squad manually to receive a personalised three-gameweek Fantasy IQ score.",
-          <div style={{ display: "grid", gap: 10 }}>
+    const renderFantasyIqSquadEntrySection = () => renderFantasyIqSection(
+      "Analyse Your Fantasy Squad",
+      fantasyIqTeamWorkflowActive
+        ? ""
+        : "Upload a screenshot or enter your squad manually to receive a personalised three-gameweek Fantasy IQ score.",
+      <div style={{ display: "grid", gap: 10 }}>
+        {!fantasyIqTeamWorkflowActive && (
+          <>
             <div
               style={{
                 background: "rgba(255,255,255,0.04)",
@@ -13230,9 +13073,6 @@ useEffect(() => {
                   {squadMessages.slice(0, 2).join(" ")}
                 </div>
               )}
-              <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
-                Screenshot import and manual entry both require squad confirmation before analysis.
-              </div>
             </div>
 
             {fantasyIqSquadStatus && (
@@ -13241,7 +13081,7 @@ useEffect(() => {
               </div>
             )}
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, auto))", gap: 8, alignItems: "center", justifyContent: "start" }}>
               <button
                 type="button"
                 onClick={openFantasyScreenshotImport}
@@ -13298,58 +13138,270 @@ useEffect(() => {
                 </button>
               )}
             </div>
+          </>
+        )}
 
-            {fantasyScreenshotPostImportSummary && (
-              <div
+        {fantasyScreenshotPostImportSummary && !fantasyIqTeamWorkflowActive && (
+          <div
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 10,
+              padding: 10,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+              How accurate was the screenshot import?
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {["Everything was correct", "I corrected 1-2 players", "I corrected several players", "It did not work"].map((rating) => (
+                <button
+                  key={rating}
+                  type="button"
+                  onClick={() => setFantasyScreenshotFeedbackRating(rating)}
+                  style={{ ...pillBtn(fantasyScreenshotFeedbackRating === rating), padding: "6px 8px", fontSize: 11 }}
+                >
+                  {rating}
+                </button>
+              ))}
+            </div>
+            <input
+              value={fantasyScreenshotFeedbackNote}
+              onChange={(event) => setFantasyScreenshotFeedbackNote(event.target.value)}
+              placeholder="What went wrong?"
+              style={{ ...probInput, textAlign: "left", padding: "8px 10px", fontSize: 12 }}
+            />
+            <textarea
+              readOnly
+              value={JSON.stringify(fantasyScreenshotFeedbackSummary, null, 2)}
+              style={{
+                ...probInput,
+                minHeight: 110,
+                textAlign: "left",
+                fontFamily: "monospace",
+                fontSize: 11,
+                resize: "vertical",
+              }}
+            />
+          </div>
+        )}
+
+        {fantasyIqBuilderOpen && renderFantasyIqSquadBuilder()}
+        {fantasyScreenshotImportOpen && renderFantasyScreenshotImport()}
+      </div>,
+      "#A78BFA"
+    );
+
+    return (
+      <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
+        {renderFantasyIqPanelSelector()}
+
+        {fantasyIqAnalysisPanel === "prediction" && renderFantasyIqSection(
+          "Your Prediction Signals",
+          fantasyInsightsScope === "season" ? "Season-level signals from your submitted predictions." : "Gameweek signals from your submitted predictions.",
+          <div
+            style={{
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <select
+                value={fantasyInsightsScope}
+                onChange={(event) => setFantasyInsightsScope(event.target.value)}
                 style={{
-                  background: "rgba(255,255,255,0.04)",
-                  border: `1px solid ${theme.line}`,
-                  borderRadius: 10,
-                  padding: 10,
-                  display: "grid",
-                  gap: 8,
+                  ...probInput,
+                  width: isMobile || compact ? "100%" : 190,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  fontWeight: 850,
                 }}
               >
-                <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
-                  How accurate was the screenshot import?
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {["Everything was correct", "I corrected 1-2 players", "I corrected several players", "It did not work"].map((rating) => (
-                    <button
-                      key={rating}
-                      type="button"
-                      onClick={() => setFantasyScreenshotFeedbackRating(rating)}
-                      style={{ ...pillBtn(fantasyScreenshotFeedbackRating === rating), padding: "6px 8px", fontSize: 11 }}
-                    >
-                      {rating}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  value={fantasyScreenshotFeedbackNote}
-                  onChange={(event) => setFantasyScreenshotFeedbackNote(event.target.value)}
-                  placeholder="What went wrong?"
-                  style={{ ...probInput, textAlign: "left", padding: "8px 10px", fontSize: 12 }}
-                />
-                <textarea
-                  readOnly
-                  value={JSON.stringify(fantasyScreenshotFeedbackSummary, null, 2)}
-                  style={{
-                    ...probInput,
-                    minHeight: 110,
-                    textAlign: "left",
-                    fontFamily: "monospace",
-                    fontSize: 11,
-                    resize: "vertical",
-                  }}
-                />
+                <option value="gameweek">Gameweek Insights</option>
+                <option value="season">Season Insights</option>
+              </select>
+              <div style={{ color: theme.muted, fontSize: 12, textAlign: isMobile || compact ? "left" : "right" }}>
+                {report.submittedPredictions} predictions entered, {report.missingPredictions} still missing.
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+              {insightItems.map(renderInsightCard)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {(report.predictionSignalRows || []).map(renderPredictionSignalRow)}
+            </div>
+            {(report.predictionConflicts || []).length > 0 && (
+              <div style={{ display: "grid", gap: 6 }}>
+                {(report.predictionConflicts || []).map((conflict) => (
+                  <div key={conflict.fixtureId} style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+                    <strong style={{ color: theme.warn }}>{conflict.label}:</strong> {conflict.detail}
+                  </div>
+                ))}
               </div>
             )}
-
-            {fantasyIqBuilderOpen && renderFantasyIqSquadBuilder()}
-            {fantasyScreenshotImportOpen && renderFantasyScreenshotImport()}
           </div>,
-          "#A78BFA"
+          theme.accent2
+        )}
+
+        {fantasyIqAnalysisPanel === "prediction" && renderFantasyIqSection(
+          "Model Fixture Outlook",
+          "Fantasy IQ analyses attacking potential, clean-sheet outlook and fixture difficulty over the next three gameweeks.",
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
+              gap: 10,
+            }}
+          >
+            {renderFixtureDifficultyPanel(
+              "Overall fixture outlook",
+              report.overallFixtureRows,
+              "#22C55E",
+              "NA"
+            )}
+            {renderFixtureDifficultyPanel(
+              "Attacking outlook",
+              report.attackFixtureRows || report.fixtureRows,
+              "#A78BFA",
+              "NA"
+            )}
+            {renderFixtureDifficultyPanel(
+              "Defensive outlook",
+              report.defenceFixtureRows,
+              "#38BDF8",
+              "NA"
+            )}
+            {renderFixtureDifficultyPanel(
+              "Higher-risk schedules",
+              report.fixtureHardRows,
+              "#EF4444",
+              "NA"
+            )}
+          </div>,
+          theme.accent
+        )}
+
+        {fantasyIqAnalysisPanel === "prediction" && renderFantasyIqSection(
+          "Teams to Consider",
+          "Team-level fantasy interest only. Individual player recommendations will come after squad data exists.",
+          <div
+            style={{
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            {(report.adviceRows || [])
+              .filter((item) =>
+                ["Transfer in", "Defence/GK", "Formation"].includes(item.label) ||
+                (item.label === "Fixture difficulty" && item.data !== "Consider avoiding")
+              )
+              .slice(0, 5)
+              .map(renderAdviceComparisonRow)}
+          </div>,
+          "#22C55E"
+        )}
+
+        {fantasyIqAnalysisPanel === "prediction" && renderFantasyIqSection(
+          "Teams to Approach with Caution",
+          "Uses difficult attacking fixtures, low clean-sheet outlook, poor recent form and adverse three-gameweek schedules.",
+          <div
+            style={{
+              background: theme.panel,
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
+            {(report.adviceRows || [])
+              .filter((item) => ["Bench", "Transfer out"].includes(item.label) || (item.label === "Fixture difficulty" && item.data === "Consider avoiding"))
+              .map(renderAdviceComparisonRow)}
+          </div>,
+          "#EF4444"
+        )}
+
+        {fantasyIqAnalysisPanel === "team" && renderFantasyIqSquadEntrySection()}
+
+        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
+          "Fantasy IQ Overview",
+          "Add your fantasy squad to unlock your complete Fantasy IQ score.",
+          <div
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 12,
+              padding: 14,
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {overviewMetrics.map((item) => renderFantasyIqMetric(item.label, item.value, theme.accent2))}
+            </div>
+            <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35, textAlign: "center" }}>
+              Model-based squad analysis only. This is not predicted FPL points and does not include player minutes, prices, injuries, ownership or transfers.
+            </div>
+          </div>,
+          theme.accent2
+        )}
+
+        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
+          "Squad Score Breakdown",
+          "Scores are based on confirmed squad roles, club fixture outlook, player position and your submitted predictions where available.",
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {categoryDetailRows.map(renderFantasyIqCategoryDetail)}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+              {renderFantasyIqNotes("Strengths", preparedReport.strengths, theme.accent2)}
+              {renderFantasyIqNotes("Concerns", preparedReport.concerns, theme.warn)}
+              {renderFantasyIqNotes("Review Queue", preparedReport.recommendations, theme.accent)}
+            </div>
+            <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+              Players from the same club and position receive the same model treatment until official player-level data is added.
+            </div>
+            {!!(preparedReport.confidenceReasons || []).length && (
+              <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+                Confidence: {(preparedReport.confidenceReasons || []).join(" ")}
+              </div>
+            )}
+          </div>,
+          "#14B8A6"
+        )}
+
+        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
+          "Lineup IQ",
+          report.squad?.confirmed
+            ? "Compare your current starting XI with the strongest fixture-based lineup from your existing squad."
+            : "Confirm your fantasy squad before analysing your lineup.",
+          renderFantasyLineupIq(),
+          "#14B8A6"
+        )}
+
+        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
+          "Transfer IQ",
+          report.squad?.confirmed
+            ? "See how one player change could affect your Fantasy IQ over the next three gameweeks."
+            : "Confirm your fantasy squad before comparing transfers.",
+          renderFantasyTransferIq(),
+          "#F59E0B"
+        )}
+
+        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
+          "Fantasy IQ History",
+          "Track how your squad outlook changes throughout the season.",
+          renderFantasyIqHistory(),
+          theme.accent2
         )}
 
         {process.env.NODE_ENV === "development" && renderFantasyIqSection(
