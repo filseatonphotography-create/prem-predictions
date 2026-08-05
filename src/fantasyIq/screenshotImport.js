@@ -90,6 +90,9 @@ const SCREENSHOT_NON_PLAYER_WORDS = new Set([
   "american",
   "emirates",
   "express",
+  "hybeer",
+  "snapdragon",
+  "snopdragon",
 ]);
 
 function safeText(value) {
@@ -391,12 +394,28 @@ function stripNonNameTokens(tokens = []) {
   return tokens.filter((token) => {
     const normalisedToken = normaliseFantasyPlayerName(token);
     if (SCREENSHOT_NON_PLAYER_WORDS.has(normalisedToken)) return false;
+    if (/^\d+\s*[\W_]*(GK|GKP|DEF|MID|FWD|FOR)$/i.test(token)) return false;
     const code = correctFantasyTeamCodeFromOcr(token);
     if (code.normalisedCode) return false;
     if (inferPositionFromText(token)) return false;
     if (/^(C|VC|CAP|VICE|BENCH|SUB|START|XI)$/i.test(token)) return false;
     return /[a-zA-Z]/.test(token);
   });
+}
+
+function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false, hasPosition = false } = {}) {
+  const normalised = normaliseFantasyPlayerName(rawName);
+  if (!normalised || normalised.length < 2) return false;
+  const tokens = normalised.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return false;
+  if (tokens.some((token) => SCREENSHOT_NON_PLAYER_WORDS.has(token))) return false;
+  if (/\b\d+\s*(gk|gkp|def|mid|fwd|for)\b/i.test(normalised)) return false;
+  if (!hasTeamCode && !hasPosition) {
+    const repeatedLetterTokens = tokens.filter((token) => /^([a-z])\1{1,}$/.test(token));
+    if (tokens.length >= 2 && repeatedLetterTokens.length >= Math.ceil(tokens.length / 2)) return false;
+    if (tokens.length >= 3 && tokens.filter((token) => token.length <= 2).length >= tokens.length - 1) return false;
+  }
+  return true;
 }
 
 export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
@@ -413,7 +432,10 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
       const role = inferRoleFromBlock(block, imageHeight);
       const marker = detectCaptainMarker(text);
       const name = stripNonNameTokens(tokens).join(" ");
-      if (!name || normaliseFantasyPlayerName(name).length < 2) return null;
+      if (!isLikelyFantasyScreenshotPlayerName(name, {
+        hasTeamCode: !!teamCodeResult?.normalisedCode,
+        hasPosition: !!rawPosition,
+      })) return null;
       return {
         rawName: name,
         rawTeamCode: teamCodeResult?.normalisedCode || "",
@@ -473,6 +495,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "gameweek",
   "gw",
   "help",
+  "hybeer",
   "import",
   "league",
   "matched",
@@ -488,6 +511,8 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "score",
   "select",
   "selected",
+  "snapdragon",
+  "snopdragon",
   "squad",
   "starter",
   "starters",

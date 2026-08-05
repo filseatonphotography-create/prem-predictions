@@ -258,6 +258,20 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(candidates[0].rawName).toBe("Bukayo Saka");
   });
 
+  test("drops noisy sponsor, letter and numbered-position OCR fragments", () => {
+    const candidates = parseFantasyScreenshotCandidates([
+      { text: "LAA LL LL", confidence: 0.52, boundingBox: { x: 0, y: 20, width: 120, height: 30 } },
+      { text: "Snapdragon", confidence: 0.9, boundingBox: { x: 0, y: 60, width: 120, height: 30 } },
+      { text: "Snopdragon", confidence: 0.87, boundingBox: { x: 0, y: 100, width: 120, height: 30 } },
+      { text: "HYBEER", confidence: 0.84, boundingBox: { x: 0, y: 140, width: 120, height: 30 } },
+      { text: "1.MID", confidence: 0.82, boundingBox: { x: 0, y: 180, width: 80, height: 30 } },
+      { text: "2.DEF", confidence: 0.82, boundingBox: { x: 0, y: 220, width: 80, height: 30 } },
+      { text: "Erling Haaland MCI FWD", confidence: 0.93, boundingBox: { x: 0, y: 260, width: 150, height: 30 } },
+    ]);
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].rawName).toBe("Erling Haaland");
+  });
+
   test("infers bench role from lower image region", () => {
     const candidates = parseFantasyScreenshotCandidates([
       { text: "Gabriel ARS DEF", confidence: 0.8, boundingBox: { x: 0, y: 900, width: 120, height: 30 } },
