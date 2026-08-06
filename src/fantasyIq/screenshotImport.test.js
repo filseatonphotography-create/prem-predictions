@@ -712,6 +712,14 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.variant).toBe("clean");
   });
 
+  test("usable fixed-layout OCR beats noisier broad fallback matches", () => {
+    const best = selectBestFantasyScreenshotOcrAttempt([
+      { variant: "layout", layout: "fpl-pitch", quality: { score: 50, candidateCount: 7, matchedPlayerCount: 7 }, review: { extractedSlots: [] } },
+      { variant: "full", layout: null, quality: { score: 70, candidateCount: 10, matchedPlayerCount: 9 }, review: { extractedSlots: [] } },
+    ]);
+    expect(best.variant).toBe("layout");
+  });
+
   test("primary quality below threshold requests fallback", () => {
     const quality = scoreFantasyScreenshotOcrQuality({ blocks: [], candidates: [], review: { extractedSlots: [] } });
     expect(quality.needsFallback).toBe(true);
@@ -831,6 +839,33 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.review.extractedSlots.some((slot) => slot.selectedPlayerId === "layout:enzo")).toBe(false);
     expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["Szoboszlai", "B.Fernandes"]));
     expect(best.review.extractedSlots.filter((slot) => slot.role === "bench")).toHaveLength(4);
+  });
+
+  test("duplicate selected players are not kept in multiple screenshot slots", () => {
+    const fixturePlayers = [{
+      id: "layout:hughes",
+      sourceId: 1,
+      firstName: "Will",
+      lastName: "Hughes",
+      displayName: "Will Hughes",
+      name: "Will Hughes",
+      webName: "Hughes",
+      normalisedName: "will hughes",
+      teamCode: "CRY",
+      teamName: "Test",
+      position: "MID",
+      positionId: 3,
+      dataSource: "test",
+    }];
+    const review = buildFantasyScreenshotReview({
+      extractedSlots: [
+        { rawName: "Hughes", rawPosition: "MID", rawSquadRole: "bench", extractionConfidence: 0.9, sourceRegion: { boundingBox: { y: 100 } } },
+        { rawName: "Will Hughes", rawPosition: "MID", rawSquadRole: "bench", extractionConfidence: 0.85, sourceRegion: { boundingBox: { y: 160 } } },
+      ],
+      players: fixturePlayers,
+    });
+    expect(review.extractedSlots.filter((slot) => slot.selectedPlayerId === "layout:hughes")).toHaveLength(1);
+    expect(review.extractedSlots.filter((slot) => !slot.selectedPlayerId)).toHaveLength(1);
   });
 
   test("debug summary excludes screenshot data, OCR text and player contents", () => {

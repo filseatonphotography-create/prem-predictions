@@ -873,6 +873,29 @@ function trimScreenshotNoiseSlots(slots = []) {
     .sort(sortReviewSlotsByPosition);
 }
 
+function dedupeSelectedScreenshotPlayers(slots = []) {
+  const bestSlotByPlayerId = new Map();
+  (slots || []).forEach((slot) => {
+    if (!slot.selectedPlayerId) return;
+    const existing = bestSlotByPlayerId.get(slot.selectedPlayerId);
+    if (!existing || getReviewSlotQuality(slot) > getReviewSlotQuality(existing)) {
+      bestSlotByPlayerId.set(slot.selectedPlayerId, slot);
+    }
+  });
+  const retainedSlotIds = new Set(Array.from(bestSlotByPlayerId.values()).map((slot) => slot.id));
+  return (slots || []).map((slot) => {
+    if (!slot.selectedPlayerId || retainedSlotIds.has(slot.id)) return slot;
+    return {
+      ...slot,
+      selectedPlayerId: null,
+      selectedPlayer: null,
+      status: "unmatched",
+      combinedConfidence: 0,
+      issues: [...(slot.issues || []), "Duplicate player detection ignored. Search this slot manually."],
+    };
+  });
+}
+
 function rebalanceScreenshotRoles(slots = []) {
   const selected = slots.filter((slot) => slot.selectedPlayerId);
   if (selected.length !== 11 && selected.length !== 15) return slots;
@@ -896,7 +919,7 @@ function rebalanceScreenshotRoles(slots = []) {
 }
 
 function normaliseFantasyScreenshotReviewSlots(slots = []) {
-  return rebalanceScreenshotRoles(trimScreenshotNoiseSlots(slots));
+  return rebalanceScreenshotRoles(dedupeSelectedScreenshotPlayers(trimScreenshotNoiseSlots(slots)));
 }
 
 function boxesOverlap(a = {}, b = {}) {
@@ -1426,7 +1449,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         },
       });
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
-      const attempt = { variant: preprocessed.variant, region: plan.region, ocr, candidates, review, quality };
+      const attempt = { variant: preprocessed.variant, region: plan.region, layout: plan.layout || null, ocr, candidates, review, quality };
       attempts.push(attempt);
       if (!quality.needsFallback && quality.matchedPlayerCount >= 11) {
         return selectBestFantasyScreenshotOcrAttempt(attempts);
@@ -1439,7 +1462,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
 }
 
 export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {
-  return [...attempts].sort((a, b) => {
+  const sortAttempts = (items = []) => [...items].sort((a, b) => {
     const aMatched = a.quality?.matchedPlayerCount || 0;
     const bMatched = b.quality?.matchedPlayerCount || 0;
     if (bMatched !== aMatched) return bMatched - aMatched;
@@ -1450,7 +1473,11 @@ export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {
     const bCandidates = b.quality?.candidateCount || 0;
     if (bCandidates !== aCandidates) return bCandidates - aCandidates;
     return (b.quality?.score || 0) - (a.quality?.score || 0);
-  })[0] || null;
+  });
+  const layoutAttempts = sortAttempts((attempts || []).filter((attempt) => attempt.layout === "fpl-pitch"));
+  const bestLayout = layoutAttempts[0] || null;
+  if ((bestLayout?.quality?.matchedPlayerCount || 0) >= 4) return bestLayout;
+  return sortAttempts(attempts)[0] || null;
 }
 
 export function createFantasyScreenshotImportSummary({
