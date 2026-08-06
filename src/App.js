@@ -4958,6 +4958,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const fantasyScreenshotAbortRef = useRef(null);
   const fantasyScreenshotImportRunIdRef = useRef(0);
   const fantasyScreenshotManualCorrectionCountRef = useRef(0);
+  const fantasyIqHeaderRef = useRef(null);
   const [fantasyPlayerData, setFantasyPlayerData] = useState(() => ({
     ...FANTASY_IQ_FALLBACK_PLAYER_DATASET,
     status: "loading",
@@ -5281,6 +5282,12 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     };
   };
 
+  const scrollToFantasyIqHeader = () => {
+    window.requestAnimationFrame(() => {
+      fantasyIqHeaderRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    });
+  };
+
   const handleConfirmFantasyScreenshotImport = () => {
     if (!fantasyScreenshotReview) return;
     const squad = getFantasyScreenshotReviewSquad(fantasyScreenshotReview);
@@ -5336,6 +5343,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     queueFantasyIqHistoryPrompt("Your screenshot import changed your Fantasy IQ squad.");
     resetFantasyScreenshotImport("completed");
     setFantasyScreenshotImportOpen(false);
+    setActiveView(FANTASY_IQ_VIEW_ID);
+    setFantasyIqAnalysisPanel("team");
+    scrollToFantasyIqHeader();
   };
 
   const openFantasyIqBuilder = (squad = fantasyIqSquad) => {
@@ -11788,13 +11798,6 @@ useEffect(() => {
           fantasyScreenshotReviewValidation.errors.filter((error) => !/Captain|Vice-captain/i.test(error)).length
         )
       : 0;
-    const fantasyScreenshotFeedbackSummary = fantasyScreenshotPostImportSummary
-      ? createFantasyScreenshotFeedbackSummary({
-          rating: fantasyScreenshotFeedbackRating,
-          note: fantasyScreenshotFeedbackNote,
-          importSummary: fantasyScreenshotPostImportSummary,
-        })
-      : null;
     const getFantasyTransferPlayerOutlook = (player) => getFantasyIqPlayerOutlook(
       player,
       report.preparedFantasyIqReport?.players?.find((item) => item.id === player?.id)?.clubOutlook ||
@@ -13153,11 +13156,13 @@ useEffect(() => {
                   ? "Status: Draft squad"
                   : "Status: No squad entered yet"}
               </div>
-              <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
-                {squadPlayerCount
-                  ? `${squadPlayerCount}/15 players selected · Formation ${report.squadValidation?.summary?.formation || "Incomplete"}`
-                  : "Add your fantasy squad to unlock your complete Fantasy IQ score."}
-              </div>
+              {!report.squad?.confirmed && (
+                <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+                  {squadPlayerCount
+                    ? `${squadPlayerCount}/15 players selected · Formation ${report.squadValidation?.summary?.formation || "Incomplete"}`
+                    : "Add your fantasy squad to unlock your complete Fantasy IQ score."}
+                </div>
+              )}
               {report.squad?.needsPlayerDataReview && (
                 <div style={{ color: theme.warn, fontSize: 12, fontWeight: 850 }}>
                   Your saved squad needs a quick player-data review.
@@ -13277,18 +13282,6 @@ useEffect(() => {
               onChange={(event) => setFantasyScreenshotFeedbackNote(event.target.value)}
               placeholder="What went wrong?"
               style={{ ...probInput, textAlign: "left", padding: "8px 10px", fontSize: 12 }}
-            />
-            <textarea
-              readOnly
-              value={JSON.stringify(fantasyScreenshotFeedbackSummary, null, 2)}
-              style={{
-                ...probInput,
-                minHeight: 110,
-                textAlign: "left",
-                fontFamily: "monospace",
-                fontSize: 11,
-                resize: "vertical",
-              }}
             />
           </div>
         )}
@@ -13439,7 +13432,7 @@ useEffect(() => {
 
         {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
           "Fantasy IQ Overview",
-          "Add your fantasy squad to unlock your complete Fantasy IQ score.",
+          "Your confirmed squad is ready for complete Fantasy IQ scoring.",
           <div
             style={{
               background: "rgba(255,255,255,0.04)",
@@ -17431,7 +17424,7 @@ const TABS = [
         )}
 
         {activeView === FANTASY_IQ_VIEW_ID && !isWorldCupMode && (
-          <section style={cardStyle}>
+          <section ref={fantasyIqHeaderRef} style={cardStyle}>
             <div
               style={{
                 textAlign: "center",
