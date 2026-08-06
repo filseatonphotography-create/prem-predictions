@@ -42,6 +42,24 @@ export const FANTASY_SCREENSHOT_TESSERACT_ASSETS = {
 
 export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.5-local-ocr-v1";
 
+const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
+  { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.41, y: 0.216, width: 0.18, height: 0.032 } },
+  { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.11, y: 0.344, width: 0.18, height: 0.033 } },
+  { id: "starter-def-2", role: "starter", position: "DEF", box: { x: 0.41, y: 0.344, width: 0.18, height: 0.033 } },
+  { id: "starter-def-3", role: "starter", position: "DEF", box: { x: 0.705, y: 0.344, width: 0.18, height: 0.033 } },
+  { id: "starter-mid-1", role: "starter", position: "MID", box: { x: 0.055, y: 0.473, width: 0.18, height: 0.034 } },
+  { id: "starter-mid-2", role: "starter", position: "MID", box: { x: 0.29, y: 0.473, width: 0.18, height: 0.034 } },
+  { id: "starter-mid-3", role: "starter", position: "MID", box: { x: 0.529, y: 0.473, width: 0.18, height: 0.034 } },
+  { id: "starter-mid-4", role: "starter", position: "MID", box: { x: 0.767, y: 0.473, width: 0.18, height: 0.034 } },
+  { id: "starter-fwd-1", role: "starter", position: "FWD", box: { x: 0.116, y: 0.6, width: 0.18, height: 0.034 } },
+  { id: "starter-fwd-2", role: "starter", position: "FWD", box: { x: 0.41, y: 0.6, width: 0.18, height: 0.034 } },
+  { id: "starter-fwd-3", role: "starter", position: "FWD", box: { x: 0.706, y: 0.6, width: 0.18, height: 0.034 } },
+  { id: "bench-gk-1", role: "bench", position: "GK", box: { x: 0.063, y: 0.771, width: 0.18, height: 0.034 } },
+  { id: "bench-mid-1", role: "bench", position: "MID", box: { x: 0.294, y: 0.771, width: 0.18, height: 0.034 } },
+  { id: "bench-def-1", role: "bench", position: "DEF", box: { x: 0.527, y: 0.771, width: 0.18, height: 0.034 } },
+  { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.754, y: 0.771, width: 0.18, height: 0.034 } },
+];
+
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
   idle: "idle",
   selected: "image selected",
@@ -87,16 +105,24 @@ const OCR_CODE_CORRECTIONS = {
 
 const SCREENSHOT_NON_PLAYER_WORDS = new Set([
   "american",
+  "better",
   "emirates",
   "express",
+  "fiybetter",
   "hybeer",
   "aybeiter",
   "ohnoosed",
+  "opponent",
+  "pitch",
+  "pod",
   "seee see",
   "seeesee",
   "snapdragon",
+  "snapdragor",
   "snopdragon",
   "substitutes",
+  "temporal",
+  "wv",
 ]);
 
 function safeText(value) {
@@ -391,17 +417,57 @@ function detectCaptainMarker(text = "") {
   return { captain: false, viceCaptain: false };
 }
 
-function stripNonNameTokens(tokens = []) {
+function stripNonNameTokens(tokens = [], { keepTeamCodeLikeTokens = false } = {}) {
   return tokens.filter((token) => {
     const normalisedToken = normaliseFantasyPlayerName(token);
     if (SCREENSHOT_NON_PLAYER_WORDS.has(normalisedToken)) return false;
     if (/^\d+\s*[\W_]*(GK|GKP|DEF|MID|FWD|FOR)$/i.test(token)) return false;
-    const code = correctFantasyTeamCodeFromOcr(token);
-    if (code.normalisedCode) return false;
+    if (!keepTeamCodeLikeTokens) {
+      const code = correctFantasyTeamCodeFromOcr(token);
+      if (code.normalisedCode) return false;
+    }
     if (inferPositionFromText(token)) return false;
     if (/^(C|VC|CAP|VICE|BENCH|SUB|START|XI)$/i.test(token)) return false;
     return /[a-zA-Z]/.test(token);
   });
+}
+
+function getAbsoluteLayoutBox(box = {}, width = 0, height = 0) {
+  return {
+    x: Math.round(Number(box.x || 0) * width),
+    y: Math.round(Number(box.y || 0) * height),
+    width: Math.round(Number(box.width || 0) * width),
+    height: Math.round(Number(box.height || 0) * height),
+  };
+}
+
+function getFantasyScreenshotNameLayoutSlots(width = 0, height = 0) {
+  const numericWidth = Number(width || 0);
+  const numericHeight = Number(height || 0);
+  if (!numericWidth || !numericHeight) return [];
+  return FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => ({
+    ...slot,
+    boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
+  }));
+}
+
+function getBlockCenter(block = {}) {
+  const box = block.boundingBox || {};
+  return {
+    x: Number(box.x || 0) + Number(box.width || 0) / 2,
+    y: Number(box.y || 0) + Number(box.height || 0) / 2,
+  };
+}
+
+function findLayoutSlotForOcrBlock(block = {}, layoutSlots = []) {
+  const center = getBlockCenter(block);
+  return (layoutSlots || []).find((slot) => {
+    const box = slot.boundingBox || {};
+    return center.x >= Number(box.x || 0) &&
+      center.x <= Number(box.x || 0) + Number(box.width || 0) &&
+      center.y >= Number(box.y || 0) &&
+      center.y <= Number(box.y || 0) + Number(box.height || 0);
+  }) || null;
 }
 
 function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false, hasPosition = false } = {}) {
@@ -421,18 +487,21 @@ function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false
 
 export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
   const imageHeight = Number(options.imageHeight || 0);
+  const layoutSlots = options.layoutSlots || [];
   return (ocrBlocks || [])
     .map((block, index) => {
       const text = safeText(block.text);
       if (!text) return null;
+      const layoutSlot = findLayoutSlotForOcrBlock(block, layoutSlots);
+      if (layoutSlots.length && !layoutSlot) return null;
       const tokens = text.split(/\s+/).filter(Boolean);
-      const teamCodeResult = tokens
+      const teamCodeResult = layoutSlot ? null : tokens
         .map((token) => correctFantasyTeamCodeFromOcr(token, options.teams || []))
         .find((result) => result.normalisedCode);
-      const rawPosition = inferPositionFromText(text);
-      const role = inferRoleFromBlock(block, imageHeight);
+      const rawPosition = layoutSlot?.position || inferPositionFromText(text);
+      const role = layoutSlot?.role || inferRoleFromBlock(block, imageHeight);
       const marker = detectCaptainMarker(text);
-      const name = stripNonNameTokens(tokens).join(" ");
+      const name = stripNonNameTokens(tokens, { keepTeamCodeLikeTokens: !!layoutSlot }).join(" ");
       if (!isLikelyFantasyScreenshotPlayerName(name, {
         hasTeamCode: !!teamCodeResult?.normalisedCode,
         hasPosition: !!rawPosition,
@@ -445,8 +514,8 @@ export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
         rawCaptainMarker: marker.captain ? "C" : "",
         rawViceCaptainMarker: marker.viceCaptain ? "VC" : "",
         sourceRegion: {
-          id: `ocr-line-${index}`,
-          boundingBox: block.boundingBox || null,
+          id: layoutSlot?.id || `ocr-line-${index}`,
+          boundingBox: layoutSlot?.boundingBox || block.boundingBox || null,
           textPreview: text.slice(0, 80),
         },
         extractionConfidence: Number.isFinite(Number(block.confidence)) ? Number(block.confidence) : 0.5,
@@ -484,6 +553,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "analyse",
   "aybeiter",
   "bench",
+  "better",
   "captain",
   "club",
   "clubs",
@@ -494,6 +564,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "express",
   "fantasy",
   "fixture",
+  "fiybetter",
   "gameweek",
   "gw",
   "help",
@@ -505,6 +576,9 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "mock",
   "not",
   "ohnoosed",
+  "opponent",
+  "pitch",
+  "pod",
   "points",
   "possible",
   "prediction",
@@ -517,6 +591,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "seee",
   "seeesee",
   "snapdragon",
+  "snapdragor",
   "snopdragon",
   "squad",
   "starter",
@@ -525,9 +600,11 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "substitutes",
   "tap",
   "team",
+  "temporal",
   "to",
   "total",
   "vice",
+  "wv",
 ]);
 
 function isCrowdedOcrNoiseSlot(slot = {}) {
@@ -969,7 +1046,34 @@ function applyThresholdSharpen(imageData, contrast = 1.35) {
   return imageData;
 }
 
-export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, crop = null) {
+function applyScreenshotRegionMask(canvas, context, regions = []) {
+  const absoluteRegions = (regions || [])
+    .map((region) => getAbsoluteLayoutBox(region, canvas.width, canvas.height))
+    .filter((region) => region.width > 0 && region.height > 0);
+  if (!absoluteRegions.length || typeof document === "undefined") return { canvas, context };
+
+  const maskedCanvas = document.createElement("canvas");
+  maskedCanvas.width = canvas.width;
+  maskedCanvas.height = canvas.height;
+  const maskedContext = maskedCanvas.getContext("2d", { willReadFrequently: true });
+  if (!maskedContext) return { canvas, context };
+
+  maskedContext.fillStyle = "#ffffff";
+  maskedContext.fillRect(0, 0, maskedCanvas.width, maskedCanvas.height);
+  absoluteRegions.forEach((region) => {
+    const paddingX = Math.max(2, Math.round(region.width * 0.04));
+    const paddingY = Math.max(1, Math.round(region.height * 0.12));
+    const sx = Math.max(0, region.x - paddingX);
+    const sy = Math.max(0, region.y - paddingY);
+    const sw = Math.min(canvas.width - sx, region.width + paddingX * 2);
+    const sh = Math.min(canvas.height - sy, region.height + paddingY * 2);
+    maskedContext.drawImage(canvas, sx, sy, sw, sh, sx, sy, sw, sh);
+  });
+  disposeCanvas(canvas);
+  return { canvas: maskedCanvas, context: maskedContext };
+}
+
+export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, crop = null, maskRegions = []) {
   const prepared = getPreparedScreenshotCanvas(decoded);
   if (!prepared?.canvas || !prepared?.context) return { source: decoded?.url, variant: "original", cleanup: () => {} };
   let { canvas, context } = prepared;
@@ -988,6 +1092,11 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
       canvas = cropCanvas;
       context = cropContext;
     }
+  }
+  if (maskRegions?.length) {
+    const masked = applyScreenshotRegionMask(canvas, context, maskRegions);
+    canvas = masked.canvas;
+    context = masked.context;
   }
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const processed = variant === "threshold-sharpened"
@@ -1063,6 +1172,20 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
   ocrRunner = runFantasyScreenshotOcr,
 } = {}) {
   const attemptPlans = [
+    {
+      variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
+      region: "fpl-name-labels",
+      pageSegMode: "11",
+      maskRegions: FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => slot.box),
+      layout: "fpl-pitch",
+    },
+    {
+      variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant,
+      region: "fpl-name-labels-threshold",
+      pageSegMode: "11",
+      maskRegions: FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => slot.box),
+      layout: "fpl-pitch",
+    },
     { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, region: "full", pageSegMode: "11" },
     { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "full", pageSegMode: "11" },
     { variant: "original-resized", region: "full", pageSegMode: "6" },
@@ -1072,14 +1195,20 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
   const attempts = [];
   for (let index = 0; index < attemptPlans.length; index += 1) {
     const plan = attemptPlans[index];
-    const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop);
+    const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop, plan.maskRegions);
     try {
       onStatus(index === 0 ? "Reading player names" : `Trying ${plan.region} image cleanup`);
       const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal, pageSegMode: plan.pageSegMode });
+      const parseWidth = preprocessed.width || imageMetadata?.width || decoded?.width;
+      const parseHeight = preprocessed.height || imageMetadata?.height || decoded?.height;
+      const layoutSlots = plan.layout === "fpl-pitch"
+        ? getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight)
+        : [];
       const candidates = parseFantasyScreenshotCandidates(ocr.blocks, {
         players,
         teams,
-        imageHeight: preprocessed.height || imageMetadata?.height || decoded?.height,
+        imageHeight: parseHeight,
+        layoutSlots,
       });
       const review = buildFantasyScreenshotReview({
         extractedSlots: candidates,
@@ -1090,6 +1219,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
           preprocessingVariant: preprocessed.variant,
           ocrRegion: plan.region,
           pageSegMode: plan.pageSegMode,
+          screenshotLayout: plan.layout || null,
           ocrTextBlockCount: ocr.blocks.length,
           ocrDebug: ocr.raw,
         },

@@ -717,17 +717,26 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(quality.needsFallback).toBe(true);
   });
 
-  test("layout OCR attempts can select a cleaner crop without merging names", async () => {
-    const fixturePlayers = [
+  test("layout OCR attempt reads fixed FPL name labels and ignores sponsor text", async () => {
+    const fixtureNames = [
       "Raya",
       "Gabriel",
-      "Van Dijk",
-      "Trippier",
-      "Saka",
-      "Salah",
+      "Shaw",
+      "Gvardiol",
+      "Gross",
+      "Szoboszlai",
+      "B.Fernandes",
+      "Garnacho",
+      "Calvert-Lewin",
       "Haaland",
-      "Watkins",
-    ].map((name, index) => ({
+      "Gyokeres",
+      "Dubravka",
+      "Hughes",
+      "Diop",
+      "Thomas",
+    ];
+    const layoutPositions = ["GK", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "FWD", "FWD", "FWD", "GK", "MID", "DEF", "DEF"];
+    const fixturePlayers = fixtureNames.map((name, index) => ({
       id: `layout:${index + 1}`,
       sourceId: index + 1,
       firstName: name,
@@ -738,33 +747,57 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
       normalisedName: name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(),
       teamCode: ["ARS", "LIV", "MCI", "NEW"][index % 4],
       teamName: "Test",
-      position: index === 0 ? "GK" : index < 4 ? "DEF" : index < 6 ? "MID" : "FWD",
-      positionId: index === 0 ? 1 : index < 4 ? 2 : index < 6 ? 3 : 4,
+      position: layoutPositions[index],
+      positionId: layoutPositions[index] === "GK" ? 1 : layoutPositions[index] === "DEF" ? 2 : layoutPositions[index] === "MID" ? 3 : 4,
       dataSource: "test",
     }));
-    const ocrRunner = jest.fn()
-      .mockResolvedValueOnce({ blocks: [{ text: "Raya Gabriel Van Dijk", confidence: 0.7, boundingBox: { y: 100 } }], raw: null })
-      .mockResolvedValueOnce({ blocks: [], raw: null })
-      .mockResolvedValueOnce({ blocks: [], raw: null })
-      .mockResolvedValueOnce({
-        blocks: fixturePlayers.map((player, index) => ({
-          text: player.displayName,
-          confidence: 0.9,
-          boundingBox: { x: index * 80, y: 100, width: 50, height: 20 },
-        })),
-        raw: null,
-      })
-      .mockResolvedValue({ blocks: [], raw: null });
+    const layoutBoxes = [
+      { x: 0.41, y: 0.216, width: 0.18, height: 0.032 },
+      { x: 0.11, y: 0.344, width: 0.18, height: 0.033 },
+      { x: 0.41, y: 0.344, width: 0.18, height: 0.033 },
+      { x: 0.705, y: 0.344, width: 0.18, height: 0.033 },
+      { x: 0.055, y: 0.473, width: 0.18, height: 0.034 },
+      { x: 0.29, y: 0.473, width: 0.18, height: 0.034 },
+      { x: 0.529, y: 0.473, width: 0.18, height: 0.034 },
+      { x: 0.767, y: 0.473, width: 0.18, height: 0.034 },
+      { x: 0.116, y: 0.6, width: 0.18, height: 0.034 },
+      { x: 0.41, y: 0.6, width: 0.18, height: 0.034 },
+      { x: 0.706, y: 0.6, width: 0.18, height: 0.034 },
+      { x: 0.063, y: 0.771, width: 0.18, height: 0.034 },
+      { x: 0.294, y: 0.771, width: 0.18, height: 0.034 },
+      { x: 0.527, y: 0.771, width: 0.18, height: 0.034 },
+      { x: 0.754, y: 0.771, width: 0.18, height: 0.034 },
+    ];
+    const ocrRunner = jest.fn().mockResolvedValueOnce({
+      blocks: [
+        { text: "Snapdragon", confidence: 0.9, boundingBox: { x: 500, y: 840, width: 90, height: 24 } },
+        ...fixturePlayers.map((player, index) => {
+          const box = layoutBoxes[index];
+          return {
+            text: player.displayName,
+            confidence: 0.9,
+            boundingBox: {
+              x: Math.round(1200 * box.x),
+              y: Math.round(1800 * box.y),
+              width: Math.round(1200 * box.width),
+              height: Math.round(1800 * box.height),
+            },
+          };
+        }),
+      ],
+      raw: null,
+    });
 
     const best = await runFantasyScreenshotOcrWithFallback(
       { url: "fixture.png", width: 1200, height: 1800 },
       { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
     );
 
-    expect(ocrRunner).toHaveBeenCalledTimes(5);
-    expect(best.region).toBe("squad-area");
-    expect(best.review.extractedSlots.filter((slot) => slot.selectedPlayerId)).toHaveLength(8);
-    expect(best.review.extractedSlots.some((slot) => slot.extracted.rawName === "Raya Gabriel Van Dijk")).toBe(false);
+    expect(ocrRunner).toHaveBeenCalledTimes(1);
+    expect(best.region).toBe("fpl-name-labels");
+    expect(best.review.extractedSlots.filter((slot) => slot.selectedPlayerId)).toHaveLength(15);
+    expect(best.review.extractedSlots.some((slot) => slot.extracted.rawName === "Snapdragon")).toBe(false);
+    expect(best.review.extractedSlots.filter((slot) => slot.role === "bench")).toHaveLength(4);
   });
 
   test("debug summary excludes screenshot data, OCR text and player contents", () => {
