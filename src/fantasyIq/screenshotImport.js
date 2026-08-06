@@ -502,6 +502,39 @@ function findLayoutSlotsForOcrBlock(block = {}, layoutSlots = []) {
   return overlapping.length ? overlapping : centerSlot ? [centerSlot] : [];
 }
 
+function getLayoutRowSlotsForBlock(block = {}, layoutSlots = []) {
+  const center = getBlockCenter(block);
+  const centerSlot = findLayoutSlotForOcrBlock(block, layoutSlots);
+  const referenceBox = centerSlot?.boundingBox || block.boundingBox || {};
+  const referenceY = centerSlot
+    ? Number(referenceBox.y || 0) + Number(referenceBox.height || 0) / 2
+    : center.y;
+  const rowTolerance = Math.max(18, Number(referenceBox.height || 0) * 1.2);
+  return (layoutSlots || [])
+    .filter((slot) => {
+      const box = slot.boundingBox || {};
+      const slotCenterY = Number(box.y || 0) + Number(box.height || 0) / 2;
+      return Math.abs(slotCenterY - referenceY) <= rowTolerance;
+    })
+    .sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
+}
+
+function expandLayoutSlotsForMergedText(block = {}, layoutSlots = [], minimumCount = 1) {
+  const directSlots = findLayoutSlotsForOcrBlock(block, layoutSlots);
+  if (directSlots.length >= minimumCount) return directSlots;
+  const rowSlots = getLayoutRowSlotsForBlock(block, layoutSlots);
+  if (rowSlots.length <= directSlots.length) return directSlots;
+  const blockX = Number(block.boundingBox?.x || 0);
+  const startIndex = Math.max(0, rowSlots.findIndex((slot) => {
+    const box = slot.boundingBox || {};
+    return Number(box.x || 0) + Number(box.width || 0) >= blockX;
+  }));
+  const resolvedStart = startIndex < 0 ? 0 : startIndex;
+  const expanded = rowSlots.slice(resolvedStart, resolvedStart + minimumCount);
+  if (expanded.length >= minimumCount) return expanded;
+  return rowSlots.slice(Math.max(0, rowSlots.length - minimumCount));
+}
+
 function getPlayerMentionSearchNames(player = {}) {
   return [
     player.webName,
@@ -510,6 +543,38 @@ function getPlayerMentionSearchNames(player = {}) {
   ]
     .map((name) => normaliseFantasyPlayerName(name))
     .filter((name, index, names) => name && name.length >= 4 && names.indexOf(name) === index);
+}
+
+function compactEditDistance(left = "", right = "") {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array(right.length + 1).fill(0);
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
+    }
+    for (let j = 0; j <= right.length; j += 1) previous[j] = current[j];
+  }
+  return previous[right.length];
+}
+
+function findApproximateCompactNameIndex(text = "", search = "") {
+  if (!text || !search || search.length < 5 || text.length < 5) return -1;
+  const searchLength = Math.min(search.length, text.length);
+  const minLength = Math.max(5, searchLength - 2);
+  for (let start = 0; start <= text.length - minLength; start += 1) {
+    for (let length = searchLength + 1; length >= minLength; length -= 1) {
+      if (start + length > text.length) continue;
+      const slice = text.slice(start, start + length);
+      const distance = compactEditDistance(slice, search.slice(0, length));
+      if (distance <= (length >= 8 ? 2 : 1)) return start;
+    }
+  }
+  return -1;
 }
 
 function findPlayerMentionsInLayoutText(text = "", players = [], position = "") {
@@ -527,9 +592,12 @@ function findPlayerMentionsInLayoutText(text = "", players = [], position = "") 
       const fuzzyPrefixIndex = compactName.length >= 8
         ? compactText.indexOf(compactName.slice(0, Math.max(5, Math.floor(compactName.length * 0.58))))
         : -1;
-      const matchIndex = index >= 0 ? index : prefixIndex >= 0 ? prefixIndex : fuzzyPrefixIndex;
+      const approximateIndex = index < 0 && prefixIndex < 0 && fuzzyPrefixIndex < 0
+        ? findApproximateCompactNameIndex(compactText, compactName)
+        : -1;
+      const matchIndex = index >= 0 ? index : prefixIndex >= 0 ? prefixIndex : fuzzyPrefixIndex >= 0 ? fuzzyPrefixIndex : approximateIndex;
       if (matchIndex < 0) return null;
-      const confidence = index >= 0 ? 0.96 : prefixIndex >= 0 ? 0.86 : 0.76;
+      const confidence = index >= 0 ? 0.96 : prefixIndex >= 0 ? 0.86 : fuzzyPrefixIndex >= 0 ? 0.76 : 0.72;
       return { player, index: matchIndex, confidence };
     }))
     .filter(Boolean)
@@ -561,14 +629,14 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
   (ocrBlocks || []).forEach((block) => {
     const text = safeText(block.text);
     if (!text) return;
-    const slots = findLayoutSlotsForOcrBlock(block, layoutSlots);
-    if (!slots.length) return;
     const tokens = stripNonNameTokens(text.split(/\s+/).filter(Boolean), { keepTeamCodeLikeTokens: true });
     const cleanedText = tokens.join(" ");
     if (!isLikelyFantasyScreenshotPlayerName(cleanedText, { hasPosition: true })) return;
 
-    const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "");
+    const slots = expandLayoutSlotsForMergedText(block, layoutSlots, Math.max(1, mentions.length));
+    if (!slots.length || !mentions.length) return;
+    const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const positionMentionsBySlot = orderedSlots.map((slot) =>
       findPlayerMentionsInLayoutText(cleanedText, players, slot.position)
     );
@@ -586,8 +654,6 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
             confidence: Math.max(Number(block.confidence || 0.6), mention.confidence),
             issue: mentions.length > 1 ? "Player name split from a merged OCR label row." : "",
           })
-        : slots.length === 1
-        ? createLayoutCandidate({ rawName: cleanedText, slot, block, confidence: Number(block.confidence || 0.58) })
         : null;
       if (!candidate) return;
       const existing = candidatesBySlotId.get(slot.id);

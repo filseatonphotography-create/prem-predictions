@@ -792,12 +792,12 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
         { text: "Emirat", confidence: 0.88, boundingBox: { x: 136, y: 620, width: 70, height: 18 } },
         { text: "[Eensse}", confidence: 0.75, boundingBox: { x: Math.round(1200 * 0.705), y: Math.round(1800 * 0.344), width: 120, height: 28 } },
         {
-          text: "Szoboszlai B.Fernan",
+          text: "szoboslai B.Fernan",
           confidence: 0.86,
           boundingBox: {
             x: Math.round(1200 * layoutBoxes[5].x),
             y: Math.round(1800 * layoutBoxes[5].y),
-            width: Math.round(1200 * (layoutBoxes[6].x + layoutBoxes[6].width - layoutBoxes[5].x)),
+            width: Math.round(1200 * layoutBoxes[5].width),
             height: Math.round(1800 * layoutBoxes[5].height),
           },
         },
