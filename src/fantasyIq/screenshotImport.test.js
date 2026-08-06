@@ -714,10 +714,47 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
 
   test("usable fixed-layout OCR beats noisier broad fallback matches", () => {
     const best = selectBestFantasyScreenshotOcrAttempt([
-      { variant: "layout", layout: "fpl-pitch", quality: { score: 50, candidateCount: 7, matchedPlayerCount: 7 }, review: { extractedSlots: [] } },
+      { variant: "layout", layout: "fpl-pitch", quality: { score: 30, candidateCount: 2, matchedPlayerCount: 2 }, review: { extractedSlots: [] } },
       { variant: "full", layout: null, quality: { score: 70, candidateCount: 10, matchedPlayerCount: 9 }, review: { extractedSlots: [] } },
     ]);
     expect(best.variant).toBe("layout");
+  });
+
+  test("fixed-layout OCR stops before broad fallback when it finds usable players", async () => {
+    const fixturePlayers = ["Raya", "Gabriel"].map((name, index) => ({
+      id: `layout-stop:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: "",
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase(),
+      teamCode: "ARS",
+      teamName: "Test",
+      position: index === 0 ? "GK" : "DEF",
+      positionId: index === 0 ? 1 : 2,
+      dataSource: "test",
+    }));
+    const ocrRunner = jest.fn()
+      .mockResolvedValueOnce({ blocks: [], raw: null })
+      .mockResolvedValueOnce({
+        blocks: [
+          { text: "Raya", confidence: 0.9, boundingBox: { x: Math.round(1200 * 0.41), y: Math.round(1800 * 0.216), width: 120, height: 28 } },
+          { text: "Gabriel", confidence: 0.9, boundingBox: { x: Math.round(1200 * 0.11), y: Math.round(1800 * 0.344), width: 120, height: 28 } },
+        ],
+        raw: null,
+      })
+      .mockResolvedValue({ blocks: [{ text: "Rio Cardines", confidence: 0.95, boundingBox: { x: 0, y: 0, width: 120, height: 24 } }], raw: null });
+
+    const best = await runFantasyScreenshotOcrWithFallback(
+      { url: "fixture.png", width: 1200, height: 1800 },
+      { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
+    );
+
+    expect(ocrRunner).toHaveBeenCalledTimes(2);
+    expect(best.region).toBe("fpl-name-labels-threshold");
+    expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(["Raya", "Gabriel"]);
   });
 
   test("primary quality below threshold requests fallback", () => {
@@ -843,7 +880,7 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
 
   test("duplicate selected players are not kept in multiple screenshot slots", () => {
     const fixturePlayers = [{
-      id: "layout:hughes",
+      id: "layout:hughes-1",
       sourceId: 1,
       firstName: "Will",
       lastName: "Hughes",
@@ -856,15 +893,29 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
       position: "MID",
       positionId: 3,
       dataSource: "test",
+    }, {
+      id: "layout:hughes-2",
+      sourceId: 2,
+      firstName: "Other",
+      lastName: "Hughes",
+      displayName: "Other Hughes",
+      name: "Other Hughes",
+      webName: "Hughes",
+      normalisedName: "other hughes",
+      teamCode: "SUN",
+      teamName: "Test",
+      position: "MID",
+      positionId: 3,
+      dataSource: "test",
     }];
     const review = buildFantasyScreenshotReview({
       extractedSlots: [
         { rawName: "Hughes", rawPosition: "MID", rawSquadRole: "bench", extractionConfidence: 0.9, sourceRegion: { boundingBox: { y: 100 } } },
-        { rawName: "Will Hughes", rawPosition: "MID", rawSquadRole: "bench", extractionConfidence: 0.85, sourceRegion: { boundingBox: { y: 160 } } },
+        { rawName: "Other Hughes", rawPosition: "MID", rawSquadRole: "bench", extractionConfidence: 0.85, sourceRegion: { boundingBox: { y: 160 } } },
       ],
       players: fixturePlayers,
     });
-    expect(review.extractedSlots.filter((slot) => slot.selectedPlayerId === "layout:hughes")).toHaveLength(1);
+    expect(review.extractedSlots.filter((slot) => slot.selectedPlayerId)).toHaveLength(1);
     expect(review.extractedSlots.filter((slot) => !slot.selectedPlayerId)).toHaveLength(1);
   });
 

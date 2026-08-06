@@ -874,15 +874,21 @@ function trimScreenshotNoiseSlots(slots = []) {
 }
 
 function dedupeSelectedScreenshotPlayers(slots = []) {
-  const bestSlotByPlayerId = new Map();
+  const bestSlotByPlayerKey = new Map();
+  const getSelectedPlayerKey = (slot = {}) => {
+    const player = slot.selectedPlayer || {};
+    return normaliseFantasyPlayerName(player.webName || player.displayName || player.name || slot.selectedPlayerId);
+  };
   (slots || []).forEach((slot) => {
     if (!slot.selectedPlayerId) return;
-    const existing = bestSlotByPlayerId.get(slot.selectedPlayerId);
+    const key = getSelectedPlayerKey(slot);
+    if (!key) return;
+    const existing = bestSlotByPlayerKey.get(key);
     if (!existing || getReviewSlotQuality(slot) > getReviewSlotQuality(existing)) {
-      bestSlotByPlayerId.set(slot.selectedPlayerId, slot);
+      bestSlotByPlayerKey.set(key, slot);
     }
   });
-  const retainedSlotIds = new Set(Array.from(bestSlotByPlayerId.values()).map((slot) => slot.id));
+  const retainedSlotIds = new Set(Array.from(bestSlotByPlayerKey.values()).map((slot) => slot.id));
   return (slots || []).map((slot) => {
     if (!slot.selectedPlayerId || retainedSlotIds.has(slot.id)) return slot;
     return {
@@ -1417,6 +1423,9 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
     { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "bench-area", pageSegMode: "6", crop: { x: 0, y: 0.58, width: 1, height: 0.42 } },
   ];
   const attempts = [];
+  const hasUsableLayoutAttempt = (attempt = null) =>
+    attempt?.layout === "fpl-pitch" &&
+    ((attempt.quality?.matchedPlayerCount || 0) > 0 || (attempt.quality?.candidateCount || 0) > 0);
   for (let index = 0; index < attemptPlans.length; index += 1) {
     const plan = attemptPlans[index];
     const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop, plan.maskRegions);
@@ -1451,6 +1460,10 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
       const attempt = { variant: preprocessed.variant, region: plan.region, layout: plan.layout || null, ocr, candidates, review, quality };
       attempts.push(attempt);
+      if (index === 1) {
+        const bestLayout = selectBestFantasyScreenshotOcrAttempt(attempts);
+        if (hasUsableLayoutAttempt(bestLayout)) return bestLayout;
+      }
       if (!quality.needsFallback && quality.matchedPlayerCount >= 11) {
         return selectBestFantasyScreenshotOcrAttempt(attempts);
       }
@@ -1476,7 +1489,7 @@ export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {
   });
   const layoutAttempts = sortAttempts((attempts || []).filter((attempt) => attempt.layout === "fpl-pitch"));
   const bestLayout = layoutAttempts[0] || null;
-  if ((bestLayout?.quality?.matchedPlayerCount || 0) >= 4) return bestLayout;
+  if ((bestLayout?.quality?.matchedPlayerCount || 0) > 0 || (bestLayout?.quality?.candidateCount || 0) > 0) return bestLayout;
   return sortAttempts(attempts)[0] || null;
 }
 
