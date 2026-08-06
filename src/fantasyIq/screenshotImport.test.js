@@ -15,6 +15,7 @@ import {
   parseFantasyScreenshotCandidates,
   removeFantasyScreenshotReviewSlot,
   runFantasyScreenshotOcr,
+  runFantasyScreenshotSlotOcr,
   runFantasyScreenshotOcrWithFallback,
   selectBestFantasyScreenshotOcrAttempt,
   scoreFantasyScreenshotOcrQuality,
@@ -660,6 +661,22 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     await runFantasyScreenshotOcr("fixture.png");
     expect(mockSetParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_pageseg_mode: "11" }));
     expect(mockRecognize).toHaveBeenCalledWith("fixture.png", {}, { text: true, blocks: true });
+    expect(mockTerminate).toHaveBeenCalledTimes(1);
+  });
+
+  test("slot OCR reads each fixed label rectangle with one worker", async () => {
+    mockRecognize
+      .mockResolvedValueOnce({ data: { text: "Raya", confidence: 92, words: [] } })
+      .mockResolvedValueOnce({ data: { text: "Gabriel", confidence: 90, words: [] } });
+    const result = await runFantasyScreenshotSlotOcr("fixture.png", [
+      { id: "slot-1", boundingBox: { x: 10, y: 20, width: 100, height: 30 } },
+      { id: "slot-2", boundingBox: { x: 140, y: 20, width: 110, height: 30 } },
+    ]);
+
+    expect(mockSetParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_pageseg_mode: "7" }));
+    expect(mockRecognize).toHaveBeenNthCalledWith(1, "fixture.png", { rectangle: { left: 10, top: 20, width: 100, height: 30 } }, { text: true, blocks: true });
+    expect(mockRecognize).toHaveBeenNthCalledWith(2, "fixture.png", { rectangle: { left: 140, top: 20, width: 110, height: 30 } }, { text: true, blocks: true });
+    expect(result.blocks.map((block) => block.text)).toEqual(["Raya", "Gabriel"]);
     expect(mockTerminate).toHaveBeenCalledTimes(1);
   });
 

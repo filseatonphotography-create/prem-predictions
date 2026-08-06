@@ -1393,6 +1393,75 @@ export async function runFantasyScreenshotOcr(imageSource, { onStatus = () => {}
   }
 }
 
+export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [], { onStatus = () => {}, signal, tesseractOptions = {}, pageSegMode = "7" } = {}) {
+  onStatus("Loading slot OCR worker");
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("eng", 1, {
+    ...getFantasyScreenshotTesseractOptions(tesseractOptions),
+    logger: (message) => {
+      if (message?.status) onStatus(message.status);
+    },
+  });
+  await worker.setParameters?.({
+    tessedit_pageseg_mode: String(pageSegMode || "7"),
+    preserve_interword_spaces: "1",
+  });
+  let terminated = false;
+  const terminateWorker = async () => {
+    if (terminated) return;
+    terminated = true;
+    await worker.terminate();
+  };
+  const abortHandler = () => {
+    terminateWorker();
+  };
+  signal?.addEventListener?.("abort", abortHandler, { once: true });
+  if (signal?.aborted) {
+    await terminateWorker();
+    throw new DOMException("OCR cancelled", "AbortError");
+  }
+  try {
+    const blocks = [];
+    for (let index = 0; index < (layoutSlots || []).length; index += 1) {
+      const slot = layoutSlots[index];
+      const box = slot.boundingBox || {};
+      if (!Number(box.width) || !Number(box.height)) continue;
+      if (signal?.aborted) throw new DOMException("OCR cancelled", "AbortError");
+      onStatus(`Reading player slot ${index + 1} of ${layoutSlots.length}`);
+      const result = await worker.recognize(imageSource, {
+        rectangle: {
+          left: Math.max(0, Math.round(Number(box.x || 0))),
+          top: Math.max(0, Math.round(Number(box.y || 0))),
+          width: Math.max(1, Math.round(Number(box.width || 0))),
+          height: Math.max(1, Math.round(Number(box.height || 0))),
+        },
+      }, { text: true, blocks: true });
+      const text = safeText(result?.data?.text || normaliseOcrBlocks(result).map((block) => block.text).join(" "));
+      if (!text) continue;
+      blocks.push({
+        text,
+        confidence: Math.max(0, Math.min(1, Number(result?.data?.confidence ?? 55) / 100)),
+        boundingBox: box,
+        lineIndex: index,
+        wordIndex: 0,
+      });
+    }
+    return {
+      blocks,
+      raw: process.env.NODE_ENV === "development"
+        ? {
+            slotCount: layoutSlots.length,
+            textLength: blocks.reduce((sum, block) => sum + safeText(block.text).length, 0),
+          }
+        : null,
+    };
+  } finally {
+    signal?.removeEventListener?.("abort", abortHandler);
+    onStatus("Stopping slot OCR worker");
+    await terminateWorker();
+  }
+}
+
 export async function runFantasyScreenshotOcrWithFallback(decoded, {
   players = [],
   teams = [],
@@ -1400,8 +1469,16 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
   onStatus = () => {},
   signal,
   ocrRunner = runFantasyScreenshotOcr,
+  slotOcrRunner = null,
 } = {}) {
   const attemptPlans = [
+    {
+      variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
+      region: "fpl-slot-lines",
+      pageSegMode: "7",
+      layout: "fpl-pitch",
+      slotLayout: true,
+    },
     {
       variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
       region: "fpl-name-labels",
@@ -1428,15 +1505,18 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
     ((attempt.quality?.matchedPlayerCount || 0) > 0 || (attempt.quality?.candidateCount || 0) > 0);
   for (let index = 0; index < attemptPlans.length; index += 1) {
     const plan = attemptPlans[index];
+    if (plan.slotLayout && ocrRunner !== runFantasyScreenshotOcr && !slotOcrRunner) continue;
     const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop, plan.maskRegions);
     try {
       onStatus(index === 0 ? "Reading player names" : `Trying ${plan.region} image cleanup`);
-      const ocr = await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal, pageSegMode: plan.pageSegMode });
       const parseWidth = preprocessed.width || imageMetadata?.width || decoded?.width;
       const parseHeight = preprocessed.height || imageMetadata?.height || decoded?.height;
       const layoutSlots = plan.layout === "fpl-pitch"
         ? getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight)
         : [];
+      const ocr = plan.slotLayout
+        ? await (slotOcrRunner || runFantasyScreenshotSlotOcr)(preprocessed.source || decoded?.url, layoutSlots, { onStatus, signal, pageSegMode: plan.pageSegMode })
+        : await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal, pageSegMode: plan.pageSegMode });
       const candidates = parseFantasyScreenshotCandidates(ocr.blocks, {
         players,
         teams,
@@ -1460,7 +1540,9 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
       const attempt = { variant: preprocessed.variant, region: plan.region, layout: plan.layout || null, ocr, candidates, review, quality };
       attempts.push(attempt);
-      if (index === 1) {
+      if (plan.slotLayout && hasUsableLayoutAttempt(attempt)) return attempt;
+      const layoutAttemptCount = attempts.filter((attemptItem) => attemptItem.layout === "fpl-pitch").length;
+      if (layoutAttemptCount >= 2) {
         const bestLayout = selectBestFantasyScreenshotOcrAttempt(attempts);
         if (hasUsableLayoutAttempt(bestLayout)) return bestLayout;
       }
