@@ -5081,6 +5081,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const fantasyScreenshotImportRunIdRef = useRef(0);
   const fantasyScreenshotManualCorrectionCountRef = useRef(0);
   const fantasyIqHeaderRef = useRef(null);
+  const fantasyIqOverviewRef = useRef(null);
   const fantasyIqPendingHeaderScrollRef = useRef(false);
   const [fantasyPlayerData, setFantasyPlayerData] = useState(() => ({
     ...FANTASY_IQ_FALLBACK_PLAYER_DATASET,
@@ -5405,9 +5406,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     };
   };
 
-  const scrollToFantasyIqHeader = () => {
+  const scrollToFantasyIqOverview = () => {
     const scroll = () => {
-      const element = fantasyIqHeaderRef.current;
+      const element = fantasyIqOverviewRef.current || fantasyIqHeaderRef.current;
       if (!element) return false;
       const top = element.getBoundingClientRect().top + window.scrollY - 6;
       window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
@@ -5420,16 +5421,16 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     });
   };
 
-  const queueFantasyIqHeaderScroll = () => {
+  const queueFantasyIqOverviewScroll = () => {
     fantasyIqPendingHeaderScrollRef.current = true;
-    scrollToFantasyIqHeader();
+    scrollToFantasyIqOverview();
   };
 
   useEffect(() => {
     if (activeView !== FANTASY_IQ_VIEW_ID || !fantasyIqPendingHeaderScrollRef.current) return;
     fantasyIqPendingHeaderScrollRef.current = false;
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(scrollToFantasyIqHeader);
+      window.requestAnimationFrame(scrollToFantasyIqOverview);
     });
   }, [activeView, fantasyIqAnalysisPanel, fantasyIqBuilderOpen, fantasyScreenshotImportOpen]);
 
@@ -5490,7 +5491,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyScreenshotImportOpen(false);
     setActiveView(FANTASY_IQ_VIEW_ID);
     setFantasyIqAnalysisPanel("team");
-    queueFantasyIqHeaderScroll();
+    queueFantasyIqOverviewScroll();
   };
 
   const openFantasyIqBuilder = (squad = fantasyIqSquad) => {
@@ -5566,7 +5567,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     queueFantasyIqHistoryPrompt("Your manual squad edit changed your Fantasy IQ squad.");
     setActiveView(FANTASY_IQ_VIEW_ID);
     setFantasyIqAnalysisPanel("team");
-    queueFantasyIqHeaderScroll();
+    queueFantasyIqOverviewScroll();
   };
 
   const handleClearFantasyIqSquad = () => {
@@ -11397,8 +11398,9 @@ useEffect(() => {
         </div>
       );
     };
-    const renderFantasyIqSection = (title, subtitle, children, borderColor = theme.line) => (
+    const renderFantasyIqSection = (title, subtitle, children, borderColor = theme.line, ref = null) => (
       <div
+        ref={ref}
         style={{
           background: theme.panelHi,
           border: `1px solid ${borderColor}`,
@@ -13653,7 +13655,8 @@ useEffect(() => {
               Model-based squad analysis only. This is not predicted FPL points. It uses current FPL prices when available, but does not include player minutes, injuries, ownership or transfer hits.
             </div>
           </div>,
-          theme.accent2
+          theme.accent2,
+          fantasyIqOverviewRef
         )}
 
         {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
