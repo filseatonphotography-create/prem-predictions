@@ -915,10 +915,11 @@ const FANTASY_IQ_SCORE_CONFIG = {
     viceCaptain: 0.15,
   },
   squadBalanceWeights: {
-    formation: 0.35,
-    clubDiversification: 0.3,
+    formation: 0.25,
+    clubDiversification: 0.2,
     starterCoverage: 0.2,
     benchCover: 0.15,
+    valueEfficiency: 0.2,
   },
   predictionAlignmentWeights: {
     starters: 0.5,
@@ -942,6 +943,7 @@ const FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION = {
   maxSquadSize: 15,
   starters: 11,
   bench: 4,
+  budget: 100,
   maxPlayersPerClub: 3,
   positions: {
     GK: 2,
@@ -999,6 +1001,7 @@ function createEmptyFantasyIqReport() {
     concerns: [],
     recommendations: [],
     predictionConflicts: [],
+    budget: null,
     transferPriority: null,
     confidenceReasons: [],
     playerDataStatus: null,
@@ -1085,6 +1088,8 @@ function normaliseFantasyIqSquad(rawSquad = createEmptyFantasyIqSquad()) {
         teamName: String(player?.teamName || getFantasyIqTeamByCode(teamCode) || "").trim(),
         position,
         positionId: player?.positionId ?? null,
+        price: getFantasyIqPlayerPrice(player),
+        priceTenths: getFantasyIqPlayerPriceTenths(player),
         squadRole: isRecognisedFantasyIqSquadRole(squadRole) ? squadRole : "bench",
         isCaptain: !!player?.isCaptain,
         isViceCaptain: !!player?.isViceCaptain,
@@ -1142,6 +1147,7 @@ function validateFantasyIqSquad(squad = createEmptyFantasyIqSquad()) {
   const starterPositionCounts = countFantasyIqPlayersByPosition(starters);
   const clubCounts = countFantasyIqPlayersByClub(players);
   const formation = deriveFantasyIqFormation(normalisedSquad);
+  const budgetSummary = getFantasyIqSquadBudgetSummary(players);
 
   if (players.length !== FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.maxSquadSize) {
     errors.push("Squad must contain 15 players.");
@@ -1171,6 +1177,12 @@ function validateFantasyIqSquad(squad = createEmptyFantasyIqSquad()) {
       errors.push(`No more than 3 players from one club (${clubCode}).`);
     }
   });
+
+  if (budgetSummary.complete && Number(budgetSummary.totalCost || 0) > FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.budget + 0.001) {
+    errors.push(`Squad exceeds the £${FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.budget.toFixed(1)}m budget.`);
+  } else if (players.length && !budgetSummary.complete) {
+    warnings.push(`Budget check incomplete because ${players.length - budgetSummary.pricedPlayerCount} players do not have prices yet.`);
+  }
 
   players.forEach((player) => {
     if (!player.name || !player.teamCode || !player.position) {
@@ -1233,6 +1245,7 @@ function validateFantasyIqSquad(squad = createEmptyFantasyIqSquad()) {
       bench: bench.length,
       formation: formation?.label || null,
       clubCounts,
+      budget: budgetSummary,
       positionCounts,
       starterPositionCounts,
       hasCaptain: !!captain,
@@ -1266,6 +1279,8 @@ function addFantasyIqSquadPlayer(squad, player) {
         teamName: player.teamName || getFantasyIqTeamByCode(player.teamCode),
         position: player.position,
         positionId: player.positionId ?? null,
+        price: getFantasyIqPlayerPrice(player),
+        priceTenths: getFantasyIqPlayerPriceTenths(player),
         squadRole,
         isCaptain: false,
         isViceCaptain: false,
@@ -1429,6 +1444,62 @@ function getFantasyIqPlayerContributionWeight(player) {
   if (player?.squadRole === "starter") return FANTASY_IQ_SCORE_CONFIG.squadContributionWeights.starter;
   if (player?.position === "GK") return FANTASY_IQ_SCORE_CONFIG.squadContributionWeights.benchGoalkeeper;
   return FANTASY_IQ_SCORE_CONFIG.squadContributionWeights.benchOutfield;
+}
+
+function getFantasyIqPlayerPriceTenths(player = {}) {
+  const candidates = [
+    player.priceTenths,
+    player.nowCost,
+    player.externalMetadata?.nowCost,
+    player.externalMetadata?.now_cost,
+  ];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) return Math.round(number);
+  }
+  const price = Number(player.price ?? player.cost ?? player.externalMetadata?.price);
+  return Number.isFinite(price) && price > 0 ? Math.round(price * 10) : null;
+}
+
+function getFantasyIqPlayerPrice(player = {}) {
+  const tenths = getFantasyIqPlayerPriceTenths(player);
+  return tenths == null ? null : tenths / 10;
+}
+
+function getFantasyIqSquadBudgetSummary(players = []) {
+  const pricedPlayers = (players || [])
+    .map((player) => getFantasyIqPlayerPriceTenths(player))
+    .filter((priceTenths) => priceTenths != null);
+  const totalTenths = pricedPlayers.reduce((sum, priceTenths) => sum + priceTenths, 0);
+  const budgetLimit = FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.budget;
+  return {
+    budgetLimit,
+    pricedPlayerCount: pricedPlayers.length,
+    totalPlayers: (players || []).length,
+    totalCost: pricedPlayers.length ? totalTenths / 10 : null,
+    remaining: pricedPlayers.length === (players || []).length ? budgetLimit - totalTenths / 10 : null,
+    complete: pricedPlayers.length === (players || []).length,
+  };
+}
+
+function formatFantasyIqBudget(value) {
+  return Number.isFinite(Number(value)) ? `£${Number(value).toFixed(1)}m` : "NA";
+}
+
+function getFantasyIqPlayerValueScore(player = {}) {
+  const playerScore = Number(player.fantasyIqScore);
+  const price = getFantasyIqPlayerPrice(player);
+  if (!Number.isFinite(playerScore) || !Number.isFinite(price)) return null;
+  const positionBands = {
+    GK: { budget: 4.0, premium: 5.8 },
+    DEF: { budget: 4.0, premium: 7.2 },
+    MID: { budget: 4.5, premium: 13.5 },
+    FWD: { budget: 4.5, premium: 14.0 },
+  };
+  const band = positionBands[player.position] || { budget: 4.5, premium: 12.0 };
+  const priceRatio = clampNumber((price - band.budget) / Math.max(0.1, band.premium - band.budget), 0, 1);
+  const expectedScoreForPrice = 45 + priceRatio * 35;
+  return clampFantasyIqScore(65 + (playerScore - expectedScoreForPrice) * 1.25);
 }
 
 function getFantasyIqPredictionGoalScore(goals, attacking = true) {
@@ -1737,11 +1808,38 @@ function buildFantasyIqScoredReport({
   const benchCoverScore = clampFantasyIqScore(
     (new Set(bench.map((player) => player.position).filter(Boolean)).size / Math.min(4, FANTASY_IQ_POSITIONS.length)) * 100
   );
+  const budgetSummary = validation.summary?.budget || getFantasyIqSquadBudgetSummary(enrichedPlayers);
+  const playerValueAverage = getFantasyIqWeightedAverage(
+    enrichedPlayers,
+    (player) => getFantasyIqPlayerValueScore(player),
+    (player) => player.contributionWeight
+  );
+  const budgetLegalityScore =
+    budgetSummary.complete && Number(budgetSummary.totalCost || 0) > FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.budget
+      ? 0
+      : budgetSummary.complete
+      ? 100
+      : 70;
+  const valueEfficiencyScore = clampFantasyIqScore(
+    getFantasyIqWeightedAverage(
+      [
+        { value: playerValueAverage, weight: 0.8 },
+        { value: budgetLegalityScore, weight: 0.2 },
+      ],
+      (item) => item.value,
+      (item) => item.weight
+    ) ?? budgetLegalityScore
+  );
+  report.budget = {
+    ...budgetSummary,
+    valueEfficiencyScore,
+  };
   report.categories.squadBalance = clampFantasyIqScore(
     formationScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.formation +
       clubDiversificationScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.clubDiversification +
       starterCoverageScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.starterCoverage +
-      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.benchCover
+      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.benchCover +
+      valueEfficiencyScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.valueEfficiency
   );
 
   const predictedPlayers = enrichedPlayers.filter((player) => player.predictionOutlook?.predictionCount);
@@ -1837,6 +1935,30 @@ function buildFantasyIqScoredReport({
       `Captaincy model score: ${captain.name} ${clampFantasyIqScore(captainScore)}/100; vice ${viceCaptain?.name || "not set"} ${
         viceCaptainScore == null ? "NA" : `${clampFantasyIqScore(viceCaptainScore)}/100`
       }.`
+    );
+  }
+  if (budgetSummary.totalCost != null) {
+    const remaining = budgetSummary.remaining;
+    report.strengths.push(
+      `Budget-aware score: ${formatFantasyIqBudget(budgetSummary.totalCost)} used${
+        remaining == null ? "" : `, ${formatFantasyIqBudget(remaining)} remaining`
+      }; value efficiency ${valueEfficiencyScore}/100.`
+    );
+  }
+  const strongestValues = [...enrichedPlayers]
+    .map((player) => ({
+      player,
+      valueScore: getFantasyIqPlayerValueScore(player),
+      price: getFantasyIqPlayerPrice(player),
+    }))
+    .filter((item) => item.valueScore != null && item.price != null)
+    .sort((a, b) => b.valueScore - a.valueScore)
+    .slice(0, 2);
+  if (strongestValues.length) {
+    report.recommendations.push(
+      `Best value holds: ${strongestValues
+        .map((item) => `${item.player.name} (${formatFantasyIqBudget(item.price)}, ${item.valueScore}/100 value)`)
+        .join(", ")}.`
     );
   }
   if (weakestStarters.length) {
@@ -11368,6 +11490,13 @@ useEffect(() => {
       { label: "Fixture Outlook", value: formatFantasyIqScore(preparedReport.categories?.fixtureOutlook) },
       { label: "Attack Outlook", value: formatFantasyIqScore(preparedReport.categories?.attackOutlook) },
       { label: "Defence Outlook", value: formatFantasyIqScore(preparedReport.categories?.defenceOutlook) },
+      {
+        label: "Budget Used",
+        value: preparedReport.budget?.totalCost == null
+          ? "Price data pending"
+          : `${formatFantasyIqBudget(preparedReport.budget.totalCost)} / ${formatFantasyIqBudget(preparedReport.budget.budgetLimit)}`,
+      },
+      { label: "Value Efficiency", value: formatFantasyIqScore(preparedReport.budget?.valueEfficiencyScore) },
       { label: "Prediction Alignment", value: formatFantasyIqScore(preparedReport.categories?.predictionAlignment) },
       { label: "Transfer Priority", value: preparedReport.transferPriority },
     ];
@@ -11399,7 +11528,7 @@ useEffect(() => {
       {
         label: "Squad Balance",
         value: preparedReport.categories?.squadBalance,
-        detail: "Formation validity, club spread, starter coverage and bench position coverage.",
+        detail: "Formation validity, club spread, starter coverage, bench coverage and price-relative squad value.",
         color: "#14B8A6",
       },
       {
@@ -13447,7 +13576,7 @@ useEffect(() => {
               {overviewMetrics.map((item) => renderFantasyIqMetric(item.label, item.value, theme.accent2))}
             </div>
             <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35, textAlign: "center" }}>
-              Model-based squad analysis only. This is not predicted FPL points and does not include player minutes, prices, injuries, ownership or transfers.
+              Model-based squad analysis only. This is not predicted FPL points. It uses current FPL prices when available, but does not include player minutes, injuries, ownership or transfer hits.
             </div>
           </div>,
           theme.accent2
@@ -13533,7 +13662,7 @@ useEffect(() => {
             Data note
           </div>
           <div style={{ marginTop: 4, fontSize: 11, color: theme.muted, lineHeight: 1.35 }}>
-            Guidance only. This uses your predictions, app results and fixture home/away context. It does not use official FPL prices, injury news or predicted line-ups.
+            Guidance only. This uses your predictions, app results, fixture home/away context and current FPL prices when available. It does not use injury news or predicted line-ups.
           </div>
         </div>
       </div>

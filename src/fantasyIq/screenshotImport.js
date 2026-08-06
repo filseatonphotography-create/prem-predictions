@@ -1187,6 +1187,8 @@ export function convertFantasyScreenshotReviewToSquad(review = {}) {
         teamName: slot.selectedPlayer.teamName,
         position: slot.selectedPlayer.position,
         positionId: slot.selectedPlayer.positionId,
+        price: slot.selectedPlayer.price ?? null,
+        priceTenths: slot.selectedPlayer.priceTenths ?? slot.selectedPlayer.externalMetadata?.nowCost ?? null,
         squadRole: ["starter", "bench"].includes(slot.role) ? slot.role : "bench",
         isCaptain: !!slot.isCaptain,
         isViceCaptain: !!slot.isViceCaptain,

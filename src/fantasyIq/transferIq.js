@@ -72,6 +72,8 @@ function toSquadPlayer(player = {}, outgoingPlayer = {}) {
     teamName: player.teamName || "",
     position: String(player.position || "").toUpperCase(),
     positionId: player.positionId ?? null,
+    price: player.price ?? null,
+    priceTenths: player.priceTenths ?? player.externalMetadata?.nowCost ?? null,
     squadRole: outgoingPlayer.squadRole || "bench",
     isCaptain: false,
     isViceCaptain: false,

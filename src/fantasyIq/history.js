@@ -4,7 +4,7 @@ export const FANTASY_IQ_HISTORY_VERSION = "fantasy-iq-history-v1";
 export const FANTASY_IQ_HISTORY_SCHEMA_VERSION = 1;
 export const FANTASY_IQ_HISTORY_STORAGE_PREFIX = "predictionAddiction:fantasyIqHistory:v1";
 export const FANTASY_IQ_MODEL_VERSION = "fantasy-iq-v1";
-export const FANTASY_IQ_SCORE_CONFIG_VERSION = "fantasy-iq-score-config-v1";
+export const FANTASY_IQ_SCORE_CONFIG_VERSION = "fantasy-iq-score-config-v2";
 export const FANTASY_IQ_HISTORY_LIMITS = {
   maxSnapshotsPerSeason: 50,
   maxSnapshotsTotal: 100,

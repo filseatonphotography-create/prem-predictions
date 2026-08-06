@@ -18,8 +18,8 @@ export {
 
 /* global globalThis */
 
-export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 1;
-export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v1";
+export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 2;
+export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v2";
 export const FANTASY_PLAYER_DATA_SOURCE = "official-fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_ENDPOINT = "/.netlify/functions/fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_DIRECT_ENDPOINT = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -56,6 +56,12 @@ function getAvailabilityStatus(record = {}) {
   if (status === "d") return "doubtful";
   if (["i", "s", "u", "n"].includes(status)) return "unavailable";
   return "unknown";
+}
+
+function getPlayerPriceTenths(record = {}) {
+  const nowCost = toNumber(record?.now_cost ?? record?.nowCost);
+  if (!nowCost || nowCost <= 0) return null;
+  return Math.round(nowCost);
 }
 
 function makeDiagnostics() {
@@ -238,6 +244,7 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
     const lastName = safeString(record?.second_name);
     const webName = safeString(record?.web_name);
     const displayName = safeString(`${firstName} ${lastName}`) || webName;
+    const priceTenths = getPlayerPriceTenths(record);
 
     if (!sourceId || !displayName || !webName) {
       diagnostics.rejectedPlayerCount += 1;
@@ -275,9 +282,12 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
       teamName: team.name,
       position: position.code,
       positionId: position.id,
+      price: priceTenths == null ? null : priceTenths / 10,
+      priceTenths,
       active: !record.removed,
       availabilityStatus: getAvailabilityStatus(record),
       externalMetadata: {
+        nowCost: priceTenths,
         news: safeString(record.news),
         newsAdded: record.news_added || null,
         chanceOfPlayingNextRound: record.chance_of_playing_next_round ?? null,
@@ -450,6 +460,8 @@ export function reconcileFantasyIqSquadWithPlayerData(squad = {}, playerDataset 
         teamCode: sourceMatch.teamCode,
         teamName: sourceMatch.teamName,
         position: sourceMatch.position,
+        price: sourceMatch.price,
+        priceTenths: sourceMatch.priceTenths,
         availabilityStatus: sourceMatch.availabilityStatus,
         externalMetadata: sourceMatch.externalMetadata,
         dataSource: sourceMatch.dataSource,
@@ -479,6 +491,8 @@ export function reconcileFantasyIqSquadWithPlayerData(squad = {}, playerDataset 
         teamCode: match.player.teamCode,
         teamName: match.player.teamName,
         position: match.player.position,
+        price: match.player.price,
+        priceTenths: match.player.priceTenths,
         availabilityStatus: match.player.availabilityStatus,
         externalMetadata: match.player.externalMetadata,
         dataSource: match.player.dataSource,
