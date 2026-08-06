@@ -43,21 +43,21 @@ export const FANTASY_SCREENSHOT_TESSERACT_ASSETS = {
 export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.5-local-ocr-v1";
 
 const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
-  { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.41, y: 0.216, width: 0.18, height: 0.032 } },
-  { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.11, y: 0.344, width: 0.18, height: 0.033 } },
-  { id: "starter-def-2", role: "starter", position: "DEF", box: { x: 0.41, y: 0.344, width: 0.18, height: 0.033 } },
-  { id: "starter-def-3", role: "starter", position: "DEF", box: { x: 0.705, y: 0.344, width: 0.18, height: 0.033 } },
-  { id: "starter-mid-1", role: "starter", position: "MID", box: { x: 0.055, y: 0.473, width: 0.18, height: 0.034 } },
-  { id: "starter-mid-2", role: "starter", position: "MID", box: { x: 0.29, y: 0.473, width: 0.18, height: 0.034 } },
-  { id: "starter-mid-3", role: "starter", position: "MID", box: { x: 0.529, y: 0.473, width: 0.18, height: 0.034 } },
-  { id: "starter-mid-4", role: "starter", position: "MID", box: { x: 0.767, y: 0.473, width: 0.18, height: 0.034 } },
-  { id: "starter-fwd-1", role: "starter", position: "FWD", box: { x: 0.116, y: 0.6, width: 0.18, height: 0.034 } },
-  { id: "starter-fwd-2", role: "starter", position: "FWD", box: { x: 0.41, y: 0.6, width: 0.18, height: 0.034 } },
-  { id: "starter-fwd-3", role: "starter", position: "FWD", box: { x: 0.706, y: 0.6, width: 0.18, height: 0.034 } },
-  { id: "bench-gk-1", role: "bench", position: "GK", box: { x: 0.063, y: 0.771, width: 0.18, height: 0.034 } },
-  { id: "bench-mid-1", role: "bench", position: "MID", box: { x: 0.294, y: 0.771, width: 0.18, height: 0.034 } },
-  { id: "bench-def-1", role: "bench", position: "DEF", box: { x: 0.527, y: 0.771, width: 0.18, height: 0.034 } },
-  { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.754, y: 0.771, width: 0.18, height: 0.034 } },
+  { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.41, y: 0.216, width: 0.18, height: 0.02 } },
+  { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.11, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-2", role: "starter", position: "DEF", box: { x: 0.41, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-3", role: "starter", position: "DEF", box: { x: 0.705, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-1", role: "starter", position: "MID", box: { x: 0.055, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-2", role: "starter", position: "MID", box: { x: 0.29, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-3", role: "starter", position: "MID", box: { x: 0.529, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-4", role: "starter", position: "MID", box: { x: 0.767, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-fwd-1", role: "starter", position: "FWD", box: { x: 0.116, y: 0.6, width: 0.18, height: 0.02 } },
+  { id: "starter-fwd-2", role: "starter", position: "FWD", box: { x: 0.41, y: 0.6, width: 0.18, height: 0.02 } },
+  { id: "starter-fwd-3", role: "starter", position: "FWD", box: { x: 0.706, y: 0.6, width: 0.18, height: 0.02 } },
+  { id: "bench-gk-1", role: "bench", position: "GK", box: { x: 0.063, y: 0.771, width: 0.18, height: 0.02 } },
+  { id: "bench-mid-1", role: "bench", position: "MID", box: { x: 0.294, y: 0.771, width: 0.18, height: 0.02 } },
+  { id: "bench-def-1", role: "bench", position: "DEF", box: { x: 0.527, y: 0.771, width: 0.18, height: 0.02 } },
+  { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.754, y: 0.771, width: 0.18, height: 0.02 } },
 ];
 
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
@@ -577,7 +577,7 @@ function findApproximateCompactNameIndex(text = "", search = "") {
   return -1;
 }
 
-function findPlayerMentionsInLayoutText(text = "", players = [], position = "") {
+function findPlayerMentionsInLayoutText(text = "", players = [], position = "", { allowLoose = true } = {}) {
   const normalisedText = normaliseFantasyPlayerName(text);
   if (!normalisedText) return [];
   const compactText = normalisedText.replace(/\s+/g, "");
@@ -589,10 +589,10 @@ function findPlayerMentionsInLayoutText(text = "", players = [], position = "") 
       const prefixIndex = compactName.length >= 7
         ? compactText.indexOf(compactName.slice(0, Math.max(6, Math.floor(compactName.length * 0.72))))
         : -1;
-      const fuzzyPrefixIndex = compactName.length >= 8
+      const fuzzyPrefixIndex = allowLoose && compactName.length >= 8
         ? compactText.indexOf(compactName.slice(0, Math.max(5, Math.floor(compactName.length * 0.58))))
         : -1;
-      const approximateIndex = index < 0 && prefixIndex < 0 && fuzzyPrefixIndex < 0
+      const approximateIndex = allowLoose && index < 0 && prefixIndex < 0 && fuzzyPrefixIndex < 0
         ? findApproximateCompactNameIndex(compactText, compactName)
         : -1;
       const matchIndex = index >= 0 ? index : prefixIndex >= 0 ? prefixIndex : fuzzyPrefixIndex >= 0 ? fuzzyPrefixIndex : approximateIndex;
@@ -631,14 +631,16 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     if (!text) return;
     const tokens = stripNonNameTokens(text.split(/\s+/).filter(Boolean), { keepTeamCodeLikeTokens: true });
     const cleanedText = tokens.join(" ");
+    if (/^[A-Z]{2,3}\s*\([HA]\)$/i.test(cleanedText) || /^[HA]$/i.test(cleanedText)) return;
     if (!isLikelyFantasyScreenshotPlayerName(cleanedText, { hasPosition: true })) return;
 
-    const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "");
+    const strictSlotOcr = !!block.strictSlotOcr;
+    const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "", { allowLoose: !strictSlotOcr });
     const slots = expandLayoutSlotsForMergedText(block, layoutSlots, Math.max(1, mentions.length));
     if (!slots.length || !mentions.length) return;
     const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const positionMentionsBySlot = orderedSlots.map((slot) =>
-      findPlayerMentionsInLayoutText(cleanedText, players, slot.position)
+      findPlayerMentionsInLayoutText(cleanedText, players, slot.position, { allowLoose: !strictSlotOcr })
     );
     orderedSlots.forEach((slot, slotIndex) => {
       const slotMentions = positionMentionsBySlot[slotIndex];
@@ -1442,6 +1444,7 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
         text,
         confidence: Math.max(0, Math.min(1, Number(result?.data?.confidence ?? 55) / 100)),
         boundingBox: box,
+        strictSlotOcr: true,
         lineIndex: index,
         wordIndex: 0,
       });

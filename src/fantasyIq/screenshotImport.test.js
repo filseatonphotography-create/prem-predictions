@@ -895,6 +895,46 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.review.extractedSlots.filter((slot) => slot.role === "bench")).toHaveLength(4);
   });
 
+  test("strict slot OCR does not correct short names into different real players", () => {
+    const candidates = parseFantasyScreenshotCandidates([
+      {
+        text: "Raya",
+        confidence: 0.9,
+        strictSlotOcr: true,
+        boundingBox: { x: Math.round(1200 * 0.41), y: Math.round(1800 * 0.216), width: 120, height: 24 },
+      },
+      {
+        text: "COV (H)",
+        confidence: 0.9,
+        strictSlotOcr: true,
+        boundingBox: { x: Math.round(1200 * 0.11), y: Math.round(1800 * 0.344), width: 120, height: 24 },
+      },
+    ], {
+      imageHeight: 1800,
+      layoutSlots: [
+        { id: "starter-gk-1", role: "starter", position: "GK", boundingBox: { x: Math.round(1200 * 0.41), y: Math.round(1800 * 0.216), width: 120, height: 24 } },
+        { id: "starter-def-1", role: "starter", position: "DEF", boundingBox: { x: Math.round(1200 * 0.11), y: Math.round(1800 * 0.344), width: 120, height: 24 } },
+      ],
+      players: [{
+        id: "layout:rayan",
+        sourceId: 88,
+        firstName: "Rayan",
+        lastName: "",
+        displayName: "Rayan",
+        name: "Rayan",
+        webName: "Rayan",
+        normalisedName: "rayan",
+        teamCode: "WOL",
+        teamName: "Test",
+        position: "DEF",
+        positionId: 2,
+        dataSource: "test",
+      }],
+    });
+
+    expect(candidates).toEqual([]);
+  });
+
   test("duplicate selected players are not kept in multiple screenshot slots", () => {
     const fixturePlayers = [{
       id: "layout:hughes-1",
