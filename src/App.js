@@ -11696,7 +11696,8 @@ useEffect(() => {
         players: starters.filter((player) => player.position === position),
       }));
       const summary = editingValidation.summary || {};
-      const blockingErrors = fantasyIqConfirmAttempted ? editingValidation.errors : editingValidation.errors.slice(0, 3);
+      const primaryBlockingErrors = fantasyIqConfirmAttempted ? editingValidation.errors : editingValidation.errors.slice(0, 3);
+      const confirmBlockingErrors = editingValidation.errors || [];
 
       return (
         <div style={{ display: "grid", gap: 12 }}>
@@ -11721,9 +11722,9 @@ useEffect(() => {
             </div>
           </div>
 
-          {!!blockingErrors.length && (
+          {!!primaryBlockingErrors.length && (
             <div style={{ display: "grid", gap: 4 }} role="alert">
-              {blockingErrors.map((error) => (
+              {primaryBlockingErrors.map((error) => (
                 <div key={error} style={{ color: theme.warn, fontSize: 12 }}>
                   {error}
                 </div>
@@ -11870,16 +11871,39 @@ useEffect(() => {
             )}
           </div>
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={handleSaveFantasyIqDraft} style={{ ...pillBtn(false), padding: "8px 10px" }}>
-              Save Draft
-            </button>
-            <button type="button" onClick={handleConfirmFantasyIqSquad} style={{ ...pillBtn(editingValidation.isValid), padding: "8px 10px" }}>
-              Confirm Squad
-            </button>
-            <button type="button" onClick={closeFantasyIqBuilder} style={{ ...pillBtn(false), padding: "8px 10px" }}>
-              Close Builder
-            </button>
+          <div
+            style={{
+              background: editingValidation.isValid ? "rgba(34,197,94,0.08)" : "rgba(245,158,11,0.08)",
+              border: `1px solid ${editingValidation.isValid ? theme.accent2 : theme.warn}`,
+              borderRadius: 10,
+              padding: 10,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            <div style={{ color: editingValidation.isValid ? theme.accent2 : theme.warn, fontSize: 12, fontWeight: 950 }}>
+              {editingValidation.isValid ? "Ready to confirm." : "Before confirming:"}
+            </div>
+            {!editingValidation.isValid && (
+              <div style={{ display: "grid", gap: 4 }} role="alert">
+                {confirmBlockingErrors.map((error) => (
+                  <div key={error} style={{ color: theme.text, fontSize: 12, lineHeight: 1.35 }}>
+                    {error}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={handleSaveFantasyIqDraft} style={{ ...pillBtn(false), padding: "8px 10px" }}>
+                Save Draft
+              </button>
+              <button type="button" onClick={handleConfirmFantasyIqSquad} style={{ ...pillBtn(editingValidation.isValid), padding: "8px 10px" }}>
+                Confirm Squad
+              </button>
+              <button type="button" onClick={closeFantasyIqBuilder} style={{ ...pillBtn(false), padding: "8px 10px" }}>
+                Close Builder
+              </button>
+            </div>
           </div>
         </div>
       );
