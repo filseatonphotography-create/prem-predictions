@@ -7,6 +7,7 @@ import {
   convertFantasyScreenshotReviewToSquad,
   correctFantasyTeamCodeFromOcr,
   decodeFantasyScreenshotImage,
+  detectFantasyScreenshotNameLayoutSlots,
   getFantasyScreenshotCombinedConfidence,
   getFantasyScreenshotTesseractOptions,
   hasExternalTesseractAssetPaths,
@@ -678,6 +679,34 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(mockRecognize).toHaveBeenNthCalledWith(2, "fixture.png", { rectangle: { left: 140, top: 20, width: 110, height: 30 } }, { text: true, blocks: true });
     expect(result.blocks.map((block) => block.text)).toEqual(["Raya", "Gabriel"]);
     expect(mockTerminate).toHaveBeenCalledTimes(1);
+  });
+
+  test("detects shifted white FPL name labels instead of using shirt-area boxes", () => {
+    const canvas = { width: 1200, height: 1800 };
+    const labelY = 500;
+    const labelHeight = 58;
+    const context = {
+      canvas,
+      getImageData: jest.fn((x, y, width, height) => {
+        const isLabelRow = y >= labelY && y <= labelY + labelHeight;
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let index = 0; index < data.length; index += 4) {
+          data[index] = isLabelRow ? 245 : 20;
+          data[index + 1] = isLabelRow ? 245 : 140;
+          data[index + 2] = isLabelRow ? 245 : 70;
+          data[index + 3] = 255;
+        }
+        return { data };
+      }),
+    };
+
+    const slots = detectFantasyScreenshotNameLayoutSlots(canvas, context);
+    const gkSlot = slots.find((slot) => slot.id === "starter-gk-1");
+
+    expect(gkSlot.detectedLabel).toBe(true);
+    expect(gkSlot.boundingBox.y).toBeGreaterThan(490);
+    expect(gkSlot.boundingBox.y).toBeLessThan(510);
+    expect(gkSlot.boundingBox.height).toBeLessThan(labelHeight);
   });
 
   test("worker terminates after OCR failure", async () => {

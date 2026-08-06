@@ -60,6 +60,24 @@ const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
   { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.754, y: 0.771, width: 0.18, height: 0.02 } },
 ];
 
+const FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT = [
+  { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.39, y: 0.2, width: 0.22, height: 0.1 } },
+  { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.09, y: 0.32, width: 0.22, height: 0.11 } },
+  { id: "starter-def-2", role: "starter", position: "DEF", box: { x: 0.39, y: 0.32, width: 0.22, height: 0.11 } },
+  { id: "starter-def-3", role: "starter", position: "DEF", box: { x: 0.685, y: 0.32, width: 0.22, height: 0.11 } },
+  { id: "starter-mid-1", role: "starter", position: "MID", box: { x: 0.035, y: 0.45, width: 0.22, height: 0.11 } },
+  { id: "starter-mid-2", role: "starter", position: "MID", box: { x: 0.27, y: 0.45, width: 0.22, height: 0.11 } },
+  { id: "starter-mid-3", role: "starter", position: "MID", box: { x: 0.509, y: 0.45, width: 0.22, height: 0.11 } },
+  { id: "starter-mid-4", role: "starter", position: "MID", box: { x: 0.747, y: 0.45, width: 0.22, height: 0.11 } },
+  { id: "starter-fwd-1", role: "starter", position: "FWD", box: { x: 0.096, y: 0.58, width: 0.22, height: 0.11 } },
+  { id: "starter-fwd-2", role: "starter", position: "FWD", box: { x: 0.39, y: 0.58, width: 0.22, height: 0.11 } },
+  { id: "starter-fwd-3", role: "starter", position: "FWD", box: { x: 0.686, y: 0.58, width: 0.22, height: 0.11 } },
+  { id: "bench-gk-1", role: "bench", position: "GK", box: { x: 0.043, y: 0.75, width: 0.22, height: 0.12 } },
+  { id: "bench-mid-1", role: "bench", position: "MID", box: { x: 0.274, y: 0.75, width: 0.22, height: 0.12 } },
+  { id: "bench-def-1", role: "bench", position: "DEF", box: { x: 0.507, y: 0.75, width: 0.22, height: 0.12 } },
+  { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.734, y: 0.75, width: 0.22, height: 0.12 } },
+];
+
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
   idle: "idle",
   selected: "image selected",
@@ -452,6 +470,79 @@ function getFantasyScreenshotNameLayoutSlots(width = 0, height = 0) {
     ...slot,
     boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
   }));
+}
+
+function getAverageBrightPixelRatio(context, box = {}, rowY = 0, rowHeight = 2) {
+  const canvas = context.canvas || {};
+  const x = Math.max(0, Math.round(Number(box.x || 0)));
+  const y = Math.max(0, Math.round(rowY));
+  const width = Math.max(1, Math.min(Math.round(Number(box.width || 0)), Number(canvas.width || x + 1) - x));
+  const height = Math.max(1, Math.min(Math.round(rowHeight), Number(canvas.height || y + 1) - y));
+  const imageData = context.getImageData(x, y, width, height);
+  const data = imageData.data;
+  let bright = 0;
+  const total = Math.max(1, data.length / 4);
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    if (red >= 215 && green >= 215 && blue >= 215) bright += 1;
+  }
+  return bright / total;
+}
+
+function detectWhiteNameLabelBox(context, searchBox = {}) {
+  const rowStep = Math.max(2, Math.round(Number(searchBox.height || 0) / 42));
+  const minimumRunHeight = Math.max(8, Math.round(Number(searchBox.height || 0) * 0.14));
+  const runs = [];
+  let current = null;
+  const startY = Math.max(0, Math.round(Number(searchBox.y || 0)));
+  const endY = Math.max(startY, Math.round(Number(searchBox.y || 0) + Number(searchBox.height || 0)));
+  for (let y = startY; y <= endY; y += rowStep) {
+    const ratio = getAverageBrightPixelRatio(context, searchBox, y, rowStep);
+    if (ratio >= 0.42) {
+      if (!current) current = { y0: y, y1: y + rowStep, peak: ratio };
+      current.y1 = y + rowStep;
+      current.peak = Math.max(current.peak, ratio);
+    } else if (current) {
+      if (current.y1 - current.y0 >= minimumRunHeight) runs.push(current);
+      current = null;
+    }
+  }
+  if (current && current.y1 - current.y0 >= minimumRunHeight) runs.push(current);
+  const bestRun = runs
+    .filter((run) => run.peak >= 0.55 || run.y1 - run.y0 >= minimumRunHeight * 1.5)
+    .sort((a, b) => (b.y1 - b.y0) - (a.y1 - a.y0) || b.peak - a.peak)[0];
+  if (!bestRun) return null;
+  const labelHeight = Math.max(10, bestRun.y1 - bestRun.y0);
+  const nameTop = bestRun.y0 + Math.round(labelHeight * 0.03);
+  const nameHeight = Math.max(12, Math.round(labelHeight * 0.48));
+  const insetX = Math.max(4, Math.round(Number(searchBox.width || 0) * 0.08));
+  return {
+    x: Math.max(0, Math.round(Number(searchBox.x || 0) + insetX)),
+    y: Math.max(0, nameTop),
+    width: Math.max(1, Math.round(Number(searchBox.width || 0) - insetX * 2)),
+    height: nameHeight,
+  };
+}
+
+export function detectFantasyScreenshotNameLayoutSlots(canvas, context) {
+  if (!canvas || !context) return [];
+  return FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT.map((slot) => {
+    const searchBox = getAbsoluteLayoutBox(slot.box, canvas.width, canvas.height);
+    const detectedBox = detectWhiteNameLabelBox(context, searchBox);
+    return {
+      id: slot.id,
+      role: slot.role,
+      position: slot.position,
+      boundingBox: detectedBox || getAbsoluteLayoutBox(
+        FPL_PITCH_SCREENSHOT_NAME_LAYOUT.find((item) => item.id === slot.id)?.box || slot.box,
+        canvas.width,
+        canvas.height
+      ),
+      detectedLabel: !!detectedBox,
+    };
+  });
 }
 
 function getBlockCenter(block = {}) {
@@ -1307,7 +1398,7 @@ function applyScreenshotRegionMask(canvas, context, regions = []) {
   return { canvas: maskedCanvas, context: maskedContext };
 }
 
-export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, crop = null, maskRegions = []) {
+export async function preprocessFantasyScreenshotImage(decoded, variant = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, crop = null, maskRegions = [], detectLayout = false) {
   const prepared = getPreparedScreenshotCanvas(decoded);
   if (!prepared?.canvas || !prepared?.context) return { source: decoded?.url, variant: "original", cleanup: () => {} };
   let { canvas, context } = prepared;
@@ -1339,12 +1430,14 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
     ? imageData
     : applyGrayscaleContrast(imageData);
   context.putImageData(processed, 0, 0);
+  const layoutSlots = detectLayout ? detectFantasyScreenshotNameLayoutSlots(canvas, context) : [];
   return {
     source: canvas.toDataURL("image/png"),
     variant,
     crop,
     width: canvas.width,
     height: canvas.height,
+    layoutSlots,
     cleanup: () => disposeCanvas(canvas),
   };
 }
@@ -1409,6 +1502,7 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
   await worker.setParameters?.({
     tessedit_pageseg_mode: String(pageSegMode || "7"),
     preserve_interword_spaces: "1",
+    tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'- ",
   });
   let terminated = false;
   const terminateWorker = async () => {
@@ -1511,13 +1605,13 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
   for (let index = 0; index < attemptPlans.length; index += 1) {
     const plan = attemptPlans[index];
     if (plan.slotLayout && ocrRunner !== runFantasyScreenshotOcr && !slotOcrRunner) continue;
-    const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop, plan.maskRegions);
+    const preprocessed = await preprocessFantasyScreenshotImage(decoded, plan.variant, plan.crop, plan.maskRegions, plan.layout === "fpl-pitch");
     try {
       onStatus(index === 0 ? "Reading player names" : `Trying ${plan.region} image cleanup`);
       const parseWidth = preprocessed.width || imageMetadata?.width || decoded?.width;
       const parseHeight = preprocessed.height || imageMetadata?.height || decoded?.height;
       const layoutSlots = plan.layout === "fpl-pitch"
-        ? getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight)
+        ? (preprocessed.layoutSlots?.length ? preprocessed.layoutSlots : getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight))
         : [];
       const ocr = plan.slotLayout
         ? await (slotOcrRunner || runFantasyScreenshotSlotOcr)(preprocessed.source || decoded?.url, layoutSlots, { onStatus, signal, pageSegMode: plan.pageSegMode })
