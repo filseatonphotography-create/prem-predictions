@@ -751,6 +751,24 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
       positionId: layoutPositions[index] === "GK" ? 1 : layoutPositions[index] === "DEF" ? 2 : layoutPositions[index] === "MID" ? 3 : 4,
       dataSource: "test",
     }));
+    const availablePlayers = [
+      ...fixturePlayers,
+      {
+        id: "layout:enzo",
+        sourceId: 99,
+        firstName: "Enzo",
+        lastName: "Le Fee",
+        displayName: "Enzo Le Fee",
+        name: "Enzo Le Fee",
+        webName: "Enzo Le Fee",
+        normalisedName: "enzo le fee",
+        teamCode: "SUN",
+        teamName: "Test",
+        position: "MID",
+        positionId: 3,
+        dataSource: "test",
+      },
+    ];
     const layoutBoxes = [
       { x: 0.41, y: 0.216, width: 0.18, height: 0.032 },
       { x: 0.11, y: 0.344, width: 0.18, height: 0.033 },
@@ -771,7 +789,20 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     const ocrRunner = jest.fn().mockResolvedValueOnce({
       blocks: [
         { text: "Snapdragon", confidence: 0.9, boundingBox: { x: 500, y: 840, width: 90, height: 24 } },
-        ...fixturePlayers.map((player, index) => {
+        { text: "Emirat", confidence: 0.88, boundingBox: { x: 136, y: 620, width: 70, height: 18 } },
+        { text: "[Eensse}", confidence: 0.75, boundingBox: { x: Math.round(1200 * 0.705), y: Math.round(1800 * 0.344), width: 120, height: 28 } },
+        {
+          text: "Szoboszlai B.Fernan",
+          confidence: 0.86,
+          boundingBox: {
+            x: Math.round(1200 * layoutBoxes[5].x),
+            y: Math.round(1800 * layoutBoxes[5].y),
+            width: Math.round(1200 * (layoutBoxes[6].x + layoutBoxes[6].width - layoutBoxes[5].x)),
+            height: Math.round(1800 * layoutBoxes[5].height),
+          },
+        },
+        ...fixturePlayers.filter((player) => !["Szoboszlai", "B.Fernandes"].includes(player.displayName)).map((player) => {
+          const index = fixturePlayers.indexOf(player);
           const box = layoutBoxes[index];
           return {
             text: player.displayName,
@@ -790,13 +821,15 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
 
     const best = await runFantasyScreenshotOcrWithFallback(
       { url: "fixture.png", width: 1200, height: 1800 },
-      { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
+      { players: availablePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
     );
 
     expect(ocrRunner).toHaveBeenCalledTimes(1);
     expect(best.region).toBe("fpl-name-labels");
     expect(best.review.extractedSlots.filter((slot) => slot.selectedPlayerId)).toHaveLength(15);
     expect(best.review.extractedSlots.some((slot) => slot.extracted.rawName === "Snapdragon")).toBe(false);
+    expect(best.review.extractedSlots.some((slot) => slot.selectedPlayerId === "layout:enzo")).toBe(false);
+    expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["Szoboszlai", "B.Fernandes"]));
     expect(best.review.extractedSlots.filter((slot) => slot.role === "bench")).toHaveLength(4);
   });
 

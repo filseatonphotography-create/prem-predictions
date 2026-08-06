@@ -107,6 +107,8 @@ const SCREENSHOT_NON_PLAYER_WORDS = new Set([
   "american",
   "better",
   "emirates",
+  "emirat",
+  "emirat",
   "express",
   "fiybetter",
   "hybeer",
@@ -117,6 +119,7 @@ const SCREENSHOT_NON_PLAYER_WORDS = new Set([
   "pod",
   "seee see",
   "seeesee",
+  "eensse",
   "snapdragon",
   "snapdragor",
   "snopdragon",
@@ -459,6 +462,20 @@ function getBlockCenter(block = {}) {
   };
 }
 
+function getBoxIntersectionArea(a = {}, b = {}) {
+  const ax1 = Number(a.x || 0);
+  const ay1 = Number(a.y || 0);
+  const ax2 = ax1 + Number(a.width || 0);
+  const ay2 = ay1 + Number(a.height || 0);
+  const bx1 = Number(b.x || 0);
+  const by1 = Number(b.y || 0);
+  const bx2 = bx1 + Number(b.width || 0);
+  const by2 = by1 + Number(b.height || 0);
+  const width = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+  const height = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+  return width * height;
+}
+
 function findLayoutSlotForOcrBlock(block = {}, layoutSlots = []) {
   const center = getBlockCenter(block);
   return (layoutSlots || []).find((slot) => {
@@ -468,6 +485,120 @@ function findLayoutSlotForOcrBlock(block = {}, layoutSlots = []) {
       center.y >= Number(box.y || 0) &&
       center.y <= Number(box.y || 0) + Number(box.height || 0);
   }) || null;
+}
+
+function findLayoutSlotsForOcrBlock(block = {}, layoutSlots = []) {
+  const blockBox = block.boundingBox || {};
+  const blockArea = Math.max(1, Number(blockBox.width || 0) * Number(blockBox.height || 0));
+  const centerSlot = findLayoutSlotForOcrBlock(block, layoutSlots);
+  const overlapping = (layoutSlots || [])
+    .map((slot) => {
+      const area = getBoxIntersectionArea(blockBox, slot.boundingBox || {});
+      return { slot, ratio: area / blockArea };
+    })
+    .filter((item) => item.ratio >= 0.08 || item.slot.id === centerSlot?.id)
+    .sort((a, b) => Number(a.slot.boundingBox?.x || 0) - Number(b.slot.boundingBox?.x || 0))
+    .map((item) => item.slot);
+  return overlapping.length ? overlapping : centerSlot ? [centerSlot] : [];
+}
+
+function getPlayerMentionSearchNames(player = {}) {
+  return [
+    player.webName,
+    player.displayName,
+    player.name,
+  ]
+    .map((name) => normaliseFantasyPlayerName(name))
+    .filter((name, index, names) => name && name.length >= 4 && names.indexOf(name) === index);
+}
+
+function findPlayerMentionsInLayoutText(text = "", players = [], position = "") {
+  const normalisedText = normaliseFantasyPlayerName(text);
+  if (!normalisedText) return [];
+  const compactText = normalisedText.replace(/\s+/g, "");
+  return (players || [])
+    .filter((player) => !position || String(player.position || "").toUpperCase() === position)
+    .flatMap((player) => getPlayerMentionSearchNames(player).map((name) => {
+      const compactName = name.replace(/\s+/g, "");
+      const index = compactText.indexOf(compactName);
+      const prefixIndex = compactName.length >= 7
+        ? compactText.indexOf(compactName.slice(0, Math.max(6, Math.floor(compactName.length * 0.72))))
+        : -1;
+      const fuzzyPrefixIndex = compactName.length >= 8
+        ? compactText.indexOf(compactName.slice(0, Math.max(5, Math.floor(compactName.length * 0.58))))
+        : -1;
+      const matchIndex = index >= 0 ? index : prefixIndex >= 0 ? prefixIndex : fuzzyPrefixIndex;
+      if (matchIndex < 0) return null;
+      const confidence = index >= 0 ? 0.96 : prefixIndex >= 0 ? 0.86 : 0.76;
+      return { player, index: matchIndex, confidence };
+    }))
+    .filter(Boolean)
+    .sort((a, b) => a.index - b.index || b.confidence - a.confidence);
+}
+
+function createLayoutCandidate({ rawName, slot, block, confidence = 0.62, issue = "" } = {}) {
+  const cleanedName = safeText(rawName);
+  if (!cleanedName) return null;
+  return {
+    rawName: cleanedName,
+    rawTeamCode: "",
+    rawPosition: slot?.position || "",
+    rawSquadRole: slot?.role || "unknown",
+    rawCaptainMarker: "",
+    rawViceCaptainMarker: "",
+    sourceRegion: {
+      id: slot?.id || block?.sourceRegion?.id || "",
+      boundingBox: slot?.boundingBox || block?.boundingBox || null,
+      textPreview: safeText(block?.text).slice(0, 80),
+    },
+    extractionConfidence: Math.max(0, Math.min(1, Number(confidence) || 0.5)),
+    issues: issue ? [issue] : [],
+  };
+}
+
+function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], players = []) {
+  const candidatesBySlotId = new Map();
+  (ocrBlocks || []).forEach((block) => {
+    const text = safeText(block.text);
+    if (!text) return;
+    const slots = findLayoutSlotsForOcrBlock(block, layoutSlots);
+    if (!slots.length) return;
+    const tokens = stripNonNameTokens(text.split(/\s+/).filter(Boolean), { keepTeamCodeLikeTokens: true });
+    const cleanedText = tokens.join(" ");
+    if (!isLikelyFantasyScreenshotPlayerName(cleanedText, { hasPosition: true })) return;
+
+    const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
+    const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "");
+    const positionMentionsBySlot = orderedSlots.map((slot) =>
+      findPlayerMentionsInLayoutText(cleanedText, players, slot.position)
+    );
+    orderedSlots.forEach((slot, slotIndex) => {
+      const slotMentions = positionMentionsBySlot[slotIndex];
+      const orderedMention = slots.length > 1 ? mentions[slotIndex] : null;
+      const mention = orderedMention && (!slot.position || orderedMention.player.position === slot.position)
+        ? orderedMention
+        : slotMentions[slotIndex] || slotMentions[0] || null;
+      const candidate = mention
+        ? createLayoutCandidate({
+            rawName: mention.player.webName || mention.player.displayName || mention.player.name,
+            slot,
+            block,
+            confidence: Math.max(Number(block.confidence || 0.6), mention.confidence),
+            issue: mentions.length > 1 ? "Player name split from a merged OCR label row." : "",
+          })
+        : slots.length === 1
+        ? createLayoutCandidate({ rawName: cleanedText, slot, block, confidence: Number(block.confidence || 0.58) })
+        : null;
+      if (!candidate) return;
+      const existing = candidatesBySlotId.get(slot.id);
+      if (!existing || Number(candidate.extractionConfidence || 0) > Number(existing.extractionConfidence || 0)) {
+        candidatesBySlotId.set(slot.id, candidate);
+      }
+    });
+  });
+  return layoutSlots
+    .map((slot) => candidatesBySlotId.get(slot.id))
+    .filter(Boolean);
 }
 
 function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false, hasPosition = false } = {}) {
@@ -488,6 +619,9 @@ function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false
 export function parseFantasyScreenshotCandidates(ocrBlocks = [], options = {}) {
   const imageHeight = Number(options.imageHeight || 0);
   const layoutSlots = options.layoutSlots || [];
+  if (layoutSlots.length) {
+    return createLayoutCandidatesFromOcrBlocks(ocrBlocks, layoutSlots, options.players || []);
+  }
   return (ocrBlocks || [])
     .map((block, index) => {
       const text = safeText(block.text);
@@ -588,6 +722,7 @@ const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
   "score",
   "select",
   "selected",
+  "eensse",
   "seee",
   "seeesee",
   "snapdragon",
