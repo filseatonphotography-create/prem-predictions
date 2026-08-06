@@ -5081,6 +5081,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const fantasyScreenshotImportRunIdRef = useRef(0);
   const fantasyScreenshotManualCorrectionCountRef = useRef(0);
   const fantasyIqHeaderRef = useRef(null);
+  const fantasyIqPendingHeaderScrollRef = useRef(false);
   const [fantasyPlayerData, setFantasyPlayerData] = useState(() => ({
     ...FANTASY_IQ_FALLBACK_PLAYER_DATASET,
     status: "loading",
@@ -5405,10 +5406,32 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   };
 
   const scrollToFantasyIqHeader = () => {
+    const scroll = () => {
+      const element = fantasyIqHeaderRef.current;
+      if (!element) return false;
+      const top = element.getBoundingClientRect().top + window.scrollY - 6;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      return true;
+    };
     window.requestAnimationFrame(() => {
-      fantasyIqHeaderRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      if (!scroll()) {
+        window.setTimeout(scroll, 80);
+      }
     });
   };
+
+  const queueFantasyIqHeaderScroll = () => {
+    fantasyIqPendingHeaderScrollRef.current = true;
+    scrollToFantasyIqHeader();
+  };
+
+  useEffect(() => {
+    if (activeView !== FANTASY_IQ_VIEW_ID || !fantasyIqPendingHeaderScrollRef.current) return;
+    fantasyIqPendingHeaderScrollRef.current = false;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollToFantasyIqHeader);
+    });
+  }, [activeView, fantasyIqAnalysisPanel, fantasyIqBuilderOpen, fantasyScreenshotImportOpen]);
 
   const handleConfirmFantasyScreenshotImport = () => {
     if (!fantasyScreenshotReview) return;
@@ -5467,7 +5490,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyScreenshotImportOpen(false);
     setActiveView(FANTASY_IQ_VIEW_ID);
     setFantasyIqAnalysisPanel("team");
-    scrollToFantasyIqHeader();
+    queueFantasyIqHeaderScroll();
   };
 
   const openFantasyIqBuilder = (squad = fantasyIqSquad) => {
@@ -5541,6 +5564,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyIqUnsavedChanges(false);
     setFantasyIqSquadStatus("Your squad is ready for Fantasy IQ analysis.");
     queueFantasyIqHistoryPrompt("Your manual squad edit changed your Fantasy IQ squad.");
+    setActiveView(FANTASY_IQ_VIEW_ID);
+    setFantasyIqAnalysisPanel("team");
+    queueFantasyIqHeaderScroll();
   };
 
   const handleClearFantasyIqSquad = () => {
@@ -11913,6 +11939,7 @@ useEffect(() => {
       : createEmptyFantasyIqSquad();
     const fantasyScreenshotReviewValidation = validateFantasyIqSquad(fantasyScreenshotReviewSquad);
     const fantasyScreenshotReviewSummary = fantasyScreenshotReviewValidation.summary || {};
+    const fantasyScreenshotConfirmBlockingErrors = fantasyScreenshotReviewValidation.errors || [];
     const fantasyScreenshotReadySummaryText = fantasyScreenshotReviewValidation.isValid
       ? `15 players confirmed. Formation: ${fantasyScreenshotReviewSummary.formation || "Valid"}. Captain selected. Vice-captain selected. Ready to import.`
       : "";
@@ -13190,18 +13217,41 @@ useEffect(() => {
                 renderFantasyScreenshotMissingPlayerSlot(index)
               )}
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                disabled={!fantasyScreenshotReviewValidation.isValid}
-                onClick={handleConfirmFantasyScreenshotImport}
-                style={{ ...pillBtn(fantasyScreenshotReviewValidation.isValid), padding: "8px 10px", fontSize: 12 }}
-              >
-                {fantasyScreenshotReplacePending ? "Confirm Replace Squad" : "Confirm Import"}
-              </button>
-              <button type="button" onClick={() => openFantasyIqBuilder(fantasyIqSquad)} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
-                Use Manual Entry
-              </button>
+            <div
+              style={{
+                background: fantasyScreenshotReviewValidation.isValid ? "rgba(34,197,94,0.08)" : "rgba(245,158,11,0.08)",
+                border: `1px solid ${fantasyScreenshotReviewValidation.isValid ? theme.accent2 : theme.warn}`,
+                borderRadius: 10,
+                padding: 10,
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <div style={{ color: fantasyScreenshotReviewValidation.isValid ? theme.accent2 : theme.warn, fontSize: 12, fontWeight: 950 }}>
+                {fantasyScreenshotReviewValidation.isValid ? "Ready to confirm." : "Before confirming:"}
+              </div>
+              {!fantasyScreenshotReviewValidation.isValid && (
+                <div style={{ display: "grid", gap: 4 }} role="alert">
+                  {fantasyScreenshotConfirmBlockingErrors.map((error) => (
+                    <div key={error} style={{ color: theme.text, fontSize: 12, lineHeight: 1.35 }}>
+                      {error}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  disabled={!fantasyScreenshotReviewValidation.isValid}
+                  onClick={handleConfirmFantasyScreenshotImport}
+                  style={{ ...pillBtn(fantasyScreenshotReviewValidation.isValid), padding: "8px 10px", fontSize: 12 }}
+                >
+                  {fantasyScreenshotReplacePending ? "Confirm Replace Squad" : "Confirm Import"}
+                </button>
+                <button type="button" onClick={() => openFantasyIqBuilder(fantasyIqSquad)} style={{ ...pillBtn(false), padding: "8px 10px", fontSize: 12 }}>
+                  Use Manual Entry
+                </button>
+              </div>
             </div>
           </div>
         )}
