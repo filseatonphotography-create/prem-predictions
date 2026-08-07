@@ -909,6 +909,7 @@ const FANTASY_IQ_SCORE_CONFIG = {
     unknown: 1,
   },
   availabilityChanceFloor: 0.15,
+  minimumScoredPlayersForOverall: 8,
   clubFixtureWeights: {
     overallExpectedPoints: 0.6,
     overallDifficulty: 0.4,
@@ -1486,10 +1487,13 @@ function applyFantasyIqPlayerAvailability(player = {}, score) {
 
 function getFantasyIqWeightedAverage(items = [], selector = (item) => item, weightSelector = () => 1) {
   const validItems = (items || [])
-    .map((item, index) => ({
-      value: Number(selector(item, index)),
-      weight: Math.max(0, Number(weightSelector(item, index)) || 0),
-    }))
+    .map((item, index) => {
+      const rawValue = selector(item, index);
+      return {
+        value: rawValue == null || rawValue === "" ? null : Number(rawValue),
+        weight: Math.max(0, Number(weightSelector(item, index)) || 0),
+      };
+    })
     .filter((item) => Number.isFinite(item.value) && item.weight > 0);
   const totalWeight = validItems.reduce((sum, item) => sum + item.weight, 0);
   if (!validItems.length || totalWeight <= 0) return null;
@@ -1792,12 +1796,17 @@ export function buildFantasyIqScoredReport({
   });
   const starters = enrichedPlayers.filter((player) => player.squadRole === "starter");
   const bench = enrichedPlayers.filter((player) => player.squadRole === "bench");
+  const modelScoredPlayers = enrichedPlayers.filter((player) => player.fantasyIqScore != null);
   const attackers = starters.filter((player) => ["MID", "FWD"].includes(player.position));
   const defenders = starters.filter((player) => ["GK", "DEF"].includes(player.position));
   const captain = enrichedPlayers.find((player) => player.id === normalisedSquad.captainPlayerId || player.isCaptain);
   const viceCaptain = enrichedPlayers.find((player) => player.id === normalisedSquad.viceCaptainPlayerId || player.isViceCaptain);
   const selectedClubCodes = Array.from(new Set(enrichedPlayers.map((player) => player.teamCode).filter(Boolean)));
   const uniqueClubOutlooks = selectedClubCodes.map((teamCode) => clubOutlooks[teamCode]).filter(Boolean);
+  const unmatchedFixtureClubCodes = selectedClubCodes.filter((teamCode) => {
+    const outlook = clubOutlooks[teamCode];
+    return !outlook || !outlook.fixtureCount;
+  });
 
   const playerFixtureAverage = getFantasyIqWeightedAverage(
     enrichedPlayers,
@@ -1806,8 +1815,14 @@ export function buildFantasyIqScoredReport({
   );
   const uniqueClubFixtureAverage = getFantasyIqWeightedAverage(uniqueClubOutlooks, (outlook) => outlook.overallScore);
   report.categories.fixtureOutlook = spreadFantasyIqScore(
-    (playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.playerAverage +
-      (uniqueClubFixtureAverage || playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.uniqueClubAverage,
+    getFantasyIqWeightedAverage(
+      [
+        { value: playerFixtureAverage, weight: FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.playerAverage },
+        { value: uniqueClubFixtureAverage, weight: FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.uniqueClubAverage },
+      ],
+      (item) => item.value,
+      (item) => item.weight
+    ),
     FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
   );
 
@@ -1816,7 +1831,8 @@ export function buildFantasyIqScoredReport({
       attackers,
       (player) => {
         const positionBoost = player.position === "FWD" ? 1.05 : 1;
-        return ((player.fantasyIqAttackScore ?? player.fantasyIqScore) || 0) * positionBoost;
+        const score = player.fantasyIqAttackScore ?? player.fantasyIqScore;
+        return score == null ? null : score * positionBoost;
       },
       (player) => player.contributionWeight
     ),
@@ -1940,9 +1956,15 @@ export function buildFantasyIqScoredReport({
       (player) => player.contributionWeight
     );
     report.categories.predictionAlignment = spreadFantasyIqScore(
-      (starterPredictionScore || squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.starters +
-        (captainPredictionScore || squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.captains +
-        (squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.squad,
+      getFantasyIqWeightedAverage(
+        [
+          { value: starterPredictionScore, weight: FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.starters },
+          { value: captainPredictionScore, weight: FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.captains },
+          { value: squadPredictionScore, weight: FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.squad },
+        ],
+        (item) => item.value,
+        (item) => item.weight
+      ),
       FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
     );
   }
@@ -1953,8 +1975,14 @@ export function buildFantasyIqScoredReport({
     (player) => (player.position === "GK" ? 0.75 : 1)
   );
   report.categories.benchStrength = spreadFantasyIqScore(
-    (benchOutlookScore || 0) * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchOutlook +
-      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchCoverage,
+    getFantasyIqWeightedAverage(
+      [
+        { value: benchOutlookScore, weight: FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchOutlook },
+        { value: benchCoverScore, weight: FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchCoverage },
+      ],
+      (item) => item.value,
+      (item) => item.weight
+    ),
     FANTASY_IQ_SCORE_CONFIG.sensitivity.structuralCategorySpread
   );
 
@@ -1963,13 +1991,16 @@ export function buildFantasyIqScoredReport({
     (sum, [key]) => sum + Number(FANTASY_IQ_SCORE_CONFIG[key] || 0),
     0
   );
-  report.overallScore = spreadFantasyIqScore(
-    availableCategoryEntries.reduce(
-      (sum, [key, value]) => sum + Number(value || 0) * (Number(FANTASY_IQ_SCORE_CONFIG[key] || 0) / availableWeightTotal),
-      0
-    ),
-    FANTASY_IQ_SCORE_CONFIG.sensitivity.overallSpread
-  );
+  const hasEnoughFixtureEvidence = modelScoredPlayers.length >= FANTASY_IQ_SCORE_CONFIG.minimumScoredPlayersForOverall;
+  report.overallScore = hasEnoughFixtureEvidence
+    ? spreadFantasyIqScore(
+        availableCategoryEntries.reduce(
+          (sum, [key, value]) => sum + Number(value) * (Number(FANTASY_IQ_SCORE_CONFIG[key] || 0) / availableWeightTotal),
+          0
+        ),
+        FANTASY_IQ_SCORE_CONFIG.sensitivity.overallSpread
+      )
+    : null;
 
   const modelConfidenceAverage = getFantasyIqWeightedAverage(uniqueClubOutlooks, (outlook) => outlook.confidenceScore);
   const unresolvedCount = enrichedPlayers.filter((player) =>
@@ -1989,6 +2020,11 @@ export function buildFantasyIqScoredReport({
       : "low";
   if (playerDataStatus?.fallbackReason) report.confidenceReasons.push(playerDataStatus.fallbackReason);
   if (unresolvedCount) report.confidenceReasons.push(`${unresolvedCount} squad players require confirmation.`);
+  if (!hasEnoughFixtureEvidence) {
+    report.confidenceReasons.push(
+      `Fixture model only matched ${modelScoredPlayers.length} of ${enrichedPlayers.length} squad players.`
+    );
+  }
   if (!usingFallbackData && !unresolvedCount && playerDataStatus?.status === "ready") {
     report.confidenceReasons.push("Official player data was successfully updated.");
   }
@@ -2051,6 +2087,12 @@ export function buildFantasyIqScoredReport({
         .join(", ")}.`
     );
   }
+  if (!hasEnoughFixtureEvidence) {
+    report.concerns.push("Fantasy IQ is locked until enough squad players can be matched to Premier League fixture outlooks.");
+  }
+  if (unmatchedFixtureClubCodes.length) {
+    report.concerns.push(`Fixture outlook missing for: ${unmatchedFixtureClubCodes.slice(0, 6).join(", ")}.`);
+  }
   if (flaggedAvailability.length) {
     report.concerns.push(
       `Availability risk: ${flaggedAvailability
@@ -2079,7 +2121,9 @@ export function buildFantasyIqScoredReport({
   }
 
   report.transferPriority =
-    report.overallScore >= 75
+    report.overallScore == null
+      ? "Locked"
+      : report.overallScore >= 75
       ? "Low priority"
       : report.overallScore >= 60
       ? "Medium priority"
@@ -2096,12 +2140,14 @@ export function buildFantasyIqScoredReport({
   report.players = enrichedPlayers;
   report.diagnostics = {
     selectedClubs: selectedClubCodes.length,
-    scoredPlayers: enrichedPlayers.filter((player) => player.fantasyIqScore != null).length,
+    scoredPlayers: modelScoredPlayers.length,
     predictionPlayers: predictedPlayers.length,
     modelConfidenceAverage: modelConfidenceAverage == null ? null : clampFantasyIqScore(modelConfidenceAverage),
     unresolvedPlayerCount: unresolvedCount,
     playerDataSource: playerDataStatus?.source || null,
     availabilityRisks: flaggedAvailability.length,
+    minimumScoredPlayersForOverall: FANTASY_IQ_SCORE_CONFIG.minimumScoredPlayersForOverall,
+    unmatchedFixtureClubCodes,
   };
 
   return report;

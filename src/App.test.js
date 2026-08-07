@@ -198,6 +198,25 @@ describe("Fantasy IQ scoring", () => {
     expect(injured.concerns.join(" ")).toMatch(/Availability risk/);
     expect(injured.diagnostics.availabilityRisks).toBe(2);
   });
+
+  test("does not convert missing fixture outlooks into a fake low score", () => {
+    const report = buildFantasyIqScoredReport({
+      squad: makeFantasyIqSquad(),
+      validation: makeFantasyIqValidation(),
+      clubOutlooks: {},
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(report.overallScore).toBeNull();
+    expect(report.categories.fixtureOutlook).toBeNull();
+    expect(report.categories.attackOutlook).toBeNull();
+    expect(report.categories.defenceOutlook).toBeNull();
+    expect(report.transferPriority).toBe("Locked");
+    expect(report.diagnostics.scoredPlayers).toBe(0);
+    expect(report.diagnostics.unmatchedFixtureClubCodes).toContain("ARS");
+    expect(report.concerns.join(" ")).toMatch(/locked until enough squad players/i);
+    expect(report.concerns.join(" ")).toMatch(/Fixture outlook missing/);
+  });
 });
 
 describe("season winner history", () => {
