@@ -218,6 +218,15 @@ const PREMIER_SEASON_WINNER_RECORD = {
   completedAt: "2026-05-24T15:00:00.000Z",
   winners: [{ player: "Phil", userId: "1763874000000", points: 643 }],
 };
+const PERFORMANCE_BADGE_IDS = new Set([
+  "streaker",
+  "superStreaker",
+  "sharpShooter",
+  "sniper",
+  "superSniper",
+  "captainClever",
+  "captainKing",
+]);
 
 const RESERVED_LEGACY_NAMES = [
   "Tom",
@@ -410,6 +419,32 @@ function isValidSeasonWinnerRecord(record) {
   return endYear === startYear + 1;
 }
 
+function getSeasonLabelFromFixtures(fixtures = []) {
+  const years = (fixtures || [])
+    .map((fixture) => new Date(fixture.kickoff).getUTCFullYear())
+    .filter((year) => Number.isFinite(year));
+  if (!years.length) return "";
+  const startYear = Math.min(...years);
+  const endYear = Math.max(...years);
+  return startYear === endYear ? String(startYear) : `${startYear}/${String(endYear).slice(-2)}`;
+}
+
+function hasValidResultScore(result) {
+  if (!result || typeof result !== "object") return false;
+  const home = Number(result.homeGoals);
+  const away = Number(result.awayGoals);
+  return Number.isFinite(home) && Number.isFinite(away);
+}
+
+function shouldStripUnstartedPerformanceBadges(record = {}) {
+  if (normalizeLeagueMode(record.mode) !== "premier") return false;
+  const fixtures = getFixturesForMode(record.mode);
+  const currentSeasonLabel = getSeasonLabelFromFixtures(fixtures);
+  if (!currentSeasonLabel || String(record.seasonLabel || "") !== currentSeasonLabel) return false;
+  const results = loadResults();
+  return !fixtures.some((fixture) => hasValidResultScore(results[fixture.id]));
+}
+
 function sanitizeBadgeHistoryRecord(record) {
   if (!record || typeof record !== "object" || !record.id) return null;
   const safeRecord = {
@@ -469,6 +504,17 @@ function sanitizeBadgeHistoryRecord(record) {
     safeRecord.exactScores = 0;
     safeRecord.correctCaptains = 0;
     safeRecord.earnedBadgeIds = [];
+  }
+
+  if (shouldStripUnstartedPerformanceBadges(safeRecord)) {
+    safeRecord.playedSeason = false;
+    safeRecord.currentWeeklyWinStreak = 0;
+    safeRecord.longestWeeklyWinStreak = 0;
+    safeRecord.exactScores = 0;
+    safeRecord.correctCaptains = 0;
+    safeRecord.earnedBadgeIds = safeRecord.earnedBadgeIds.filter(
+      (badgeId) => !PERFORMANCE_BADGE_IDS.has(badgeId)
+    );
   }
 
   return safeRecord;

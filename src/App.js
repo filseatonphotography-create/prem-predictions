@@ -191,6 +191,15 @@ const ORIGINALS_LEAGUE_USER_IDS = new Set([
   "1763874000000",
 ]);
 const emptyGlobalMedals = () => ({ gold: 0, silver: 0, bronze: 0 });
+const PERFORMANCE_BADGE_IDS = new Set([
+  "streaker",
+  "superStreaker",
+  "sharpShooter",
+  "sniper",
+  "superSniper",
+  "captainClever",
+  "captainKing",
+]);
 const positiveBadgeCount = (value) => {
   const count = Number(value);
   return Number.isFinite(count) && count > 0 ? count : 0;
@@ -10122,6 +10131,7 @@ const visibleSeasonWinnerHistory = useMemo(
 );
 
 const badgeStatsByKey = useMemo(() => {
+  const currentPremierSeasonLabel = isWorldCupMode ? "" : getSeasonLabelFromFixtures(activeFixtures);
   const completedPremierBadgeGameweeks = new Set(
     isWorldCupMode
       ? []
@@ -10259,6 +10269,17 @@ const badgeStatsByKey = useMemo(() => {
   }
 
   const playedSeasonsByKey = {};
+  const getSafeEarnedBadgeIdsForRecord = (record = {}) => {
+    const earnedIds = Array.isArray(record.earnedBadgeIds) ? record.earnedBadgeIds.filter(Boolean) : [];
+    const isCurrentUnstartedPremierSeason =
+      !isWorldCupMode &&
+      currentPremierSeasonLabel &&
+      String(record.seasonLabel || "") === currentPremierSeasonLabel &&
+      !currentSeasonHasCompletedPremierGameweek;
+    return isCurrentUnstartedPremierSeason
+      ? earnedIds.filter((badgeId) => !PERFORMANCE_BADGE_IDS.has(String(badgeId)))
+      : earnedIds;
+  };
   const addPlayedSeason = (key, seasonLabel) => {
     const cleanKey = String(key || "").trim();
     const cleanSeason = String(seasonLabel || "").trim();
@@ -10287,9 +10308,20 @@ const badgeStatsByKey = useMemo(() => {
           bronze: Math.max(row.globalMedals?.bronze || 0, Number(record.globalMedals?.bronze) || 0),
         };
         row.coinLeagueWins = (row.coinLeagueWins || 0) + (Number(record.coinLeagueWins) || 0);
-        // Performance badges are current-season only and must be recomputed from completed fixtures.
+        if (String(record.seasonLabel || "") !== currentPremierSeasonLabel) {
+          row.currentWeeklyWinStreak = Math.max(
+            row.currentWeeklyWinStreak,
+            Number(record.currentWeeklyWinStreak) || 0
+          );
+          row.longestWeeklyWinStreak = Math.max(
+            row.longestWeeklyWinStreak,
+            Number(record.longestWeeklyWinStreak) || 0
+          );
+          row.exactScores = Math.max(row.exactScores, Number(record.exactScores) || 0);
+          row.correctCaptains = Math.max(row.correctCaptains, Number(record.correctCaptains) || 0);
+        }
         row.earnedBadgeIds = Array.from(
-          new Set([...(row.earnedBadgeIds || []), ...((record.earnedBadgeIds || []).filter(Boolean))])
+          new Set([...(row.earnedBadgeIds || []), ...getSafeEarnedBadgeIdsForRecord(record)])
         );
         if (record.playedSeason) addPlayedSeason(key, record.seasonLabel);
       });
@@ -10373,6 +10405,7 @@ const badgeStatsByKey = useMemo(() => {
 }, [
   seasonWinnerHistory,
   activeFixtures,
+  activeGameweeks,
   historicalScores,
   leaderboard,
   globalLeaderboard,
@@ -10412,6 +10445,7 @@ const getPlayerBadgeStats = (row = {}) => {
 
 const getEarnedBadges = (badgeStats = {}) =>
   BADGE_DEFINITIONS.filter((badge) => {
+    if ((badgeStats.earnedBadgeIds || []).includes(badge.id)) return true;
     if (badge.id === "founder") return !!badgeStats.founder;
     if (badge.id === "addict") return (badgeStats.seasonsPlayed || 0) > 2;
     if (badge.id === "veteran") return (badgeStats.seasonsPlayed || 0) > 5;
