@@ -10122,6 +10122,15 @@ const visibleSeasonWinnerHistory = useMemo(
 );
 
 const badgeStatsByKey = useMemo(() => {
+  const completedPremierBadgeGameweeks = new Set(
+    isWorldCupMode
+      ? []
+      : activeGameweeks.filter((gw) => {
+          const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
+          return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+        })
+  );
+  const currentSeasonHasCompletedPremierGameweek = completedPremierBadgeGameweeks.size > 0;
   const stats = {};
   const ensureStats = (key, player = "", userId = "") => {
     const cleanKey = String(key || "").trim();
@@ -10278,16 +10287,7 @@ const badgeStatsByKey = useMemo(() => {
           bronze: Math.max(row.globalMedals?.bronze || 0, Number(record.globalMedals?.bronze) || 0),
         };
         row.coinLeagueWins = (row.coinLeagueWins || 0) + (Number(record.coinLeagueWins) || 0);
-        row.currentWeeklyWinStreak = Math.max(
-          row.currentWeeklyWinStreak,
-          Number(record.currentWeeklyWinStreak) || 0
-        );
-        row.longestWeeklyWinStreak = Math.max(
-          row.longestWeeklyWinStreak,
-          Number(record.longestWeeklyWinStreak) || 0
-        );
-        row.exactScores = Math.max(row.exactScores, Number(record.exactScores) || 0);
-        row.correctCaptains = Math.max(row.correctCaptains, Number(record.correctCaptains) || 0);
+        // Performance badges are current-season only and must be recomputed from completed fixtures.
         row.earnedBadgeIds = Array.from(
           new Set([...(row.earnedBadgeIds || []), ...((record.earnedBadgeIds || []).filter(Boolean))])
         );
@@ -10297,6 +10297,7 @@ const badgeStatsByKey = useMemo(() => {
 
   const streaks = {};
   [...historicalScores]
+    .filter((row) => completedPremierBadgeGameweeks.has(Number(row.gameweek)))
     .sort((a, b) => (Number(a.gameweek) || 0) - (Number(b.gameweek) || 0))
     .forEach((row) => {
       const entries = Object.entries(row)
@@ -10327,17 +10328,15 @@ const badgeStatsByKey = useMemo(() => {
   currentStatsKeys.forEach((key) => {
     const row = ensureStats(key, currentPlayer, currentUserId);
     if (!row) return;
-    row.seasonsPlayed = predictionIqReport.completedPredictions > 0 ? 1 : 0;
-    row.exactScores = currentSeasonPredictionStats.exactScores || 0;
-    row.correctCaptains = currentSeasonPredictionStats.correctCaptains || 0;
-    row.currentWeeklyWinStreak = Math.max(
-      row.currentWeeklyWinStreak,
-      predictionIqReport.currentWinningStreak || 0
-    );
-    row.longestWeeklyWinStreak = Math.max(
-      row.longestWeeklyWinStreak,
-      predictionIqReport.longestWinningStreak || 0
-    );
+    row.seasonsPlayed = currentSeasonHasCompletedPremierGameweek && predictionIqReport.completedPredictions > 0 ? 1 : 0;
+    row.exactScores = currentSeasonHasCompletedPremierGameweek ? currentSeasonPredictionStats.exactScores || 0 : 0;
+    row.correctCaptains = currentSeasonHasCompletedPremierGameweek ? currentSeasonPredictionStats.correctCaptains || 0 : 0;
+    row.currentWeeklyWinStreak = currentSeasonHasCompletedPremierGameweek
+      ? Math.max(row.currentWeeklyWinStreak, predictionIqReport.currentWinningStreak || 0)
+      : 0;
+    row.longestWeeklyWinStreak = currentSeasonHasCompletedPremierGameweek
+      ? Math.max(row.longestWeeklyWinStreak, predictionIqReport.longestWinningStreak || 0)
+      : 0;
   });
   if (currentUserId && currentPlayer) {
     mergeStats(currentUserId, currentPlayer);
@@ -10486,11 +10485,14 @@ useEffect(() => {
   if (!liveStats) return;
 
   const earnedBadgeIds = getEarnedBadges(liveStats).map((badge) => badge.id);
+  const hasCompletedPremierGameweek = activeGameweeks.some((gw) => {
+    const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
+    return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+  });
   const playedSeason =
-    (predictionIqReport.completedPredictions || 0) > 0 ||
-    (currentGwPoints || 0) > 0 ||
-    earnedBadgeIds.length > 0;
-  if (!playedSeason && !earnedBadgeIds.length) return;
+    hasCompletedPremierGameweek &&
+    ((predictionIqReport.completedPredictions || 0) > 0 || (currentGwPoints || 0) > 0);
+  if (!playedSeason) return;
 
   const seasonLabel = getSeasonLabelFromFixtures(activeFixtures) || "Current season";
   const userKey = String(currentUserId || currentPlayer || "").trim();
@@ -10582,6 +10584,8 @@ useEffect(() => {
   currentPlayer,
   authToken,
   activeFixtures,
+  activeGameweeks,
+  results,
   badgeStatsByKey,
   predictionIqReport,
   currentGwPoints,
