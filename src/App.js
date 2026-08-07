@@ -12124,6 +12124,9 @@ useEffect(() => {
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
     const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(fantasyScreenshotReviewSlots);
+    const fantasyScreenshotAvailabilityRisks = fantasyScreenshotReviewSlots
+      .map((slot) => slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId))
+      .filter((player) => player && !["available", "unknown"].includes(String(player.availabilityStatus || "unknown").toLowerCase()));
     const fantasyScreenshotPartialSummaryText = fantasyScreenshotReview && fantasyScreenshotSelectedCount >= 11 && fantasyScreenshotSelectedCount < 15
       ? `Starting XI detected. Add ${15 - fantasyScreenshotSelectedCount} bench players before importing a full Fantasy IQ squad.`
       : "";
@@ -13072,6 +13075,7 @@ useEffect(() => {
                 </div>
                 <div style={{ color: theme.muted, fontSize: 11, fontWeight: 850 }}>
                   {selectedPlayer?.position || slot.extracted.rawPosition || "Position TBC"}
+                  {selectedPlayer?.availabilityStatus && selectedPlayer.availabilityStatus !== "available" ? ` · ${selectedPlayer.availabilityStatus}` : ""}
                 </div>
               </div>
             </div>
@@ -13367,6 +13371,18 @@ useEffect(() => {
               {fantasyScreenshotPartialSummaryText && (
                 <div style={{ color: theme.warn, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
                   {fantasyScreenshotPartialSummaryText}
+                </div>
+              )}
+              {!!fantasyScreenshotAvailabilityRisks.length && (
+                <div style={{ color: theme.warn, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
+                  Availability risk detected: {fantasyScreenshotAvailabilityRisks
+                    .slice(0, 4)
+                    .map((player) => {
+                      const chance = Number(player.externalMetadata?.chanceOfPlayingNextRound ?? player.externalMetadata?.chanceOfPlayingThisRound);
+                      const chanceText = Number.isFinite(chance) ? `, ${chance}% chance` : "";
+                      return `${player.displayName || player.name} (${player.availabilityStatus}${chanceText})`;
+                    })
+                    .join(", ")}.
                 </div>
               )}
             </div>
@@ -13810,7 +13826,7 @@ useEffect(() => {
               {overviewMetrics.map((item) => renderFantasyIqMetric(item.label, item.value, theme.accent2))}
             </div>
             <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35, textAlign: "center" }}>
-              Model-based squad analysis only. This is not predicted FPL points. It uses current FPL prices when available, but does not include player minutes, injuries, ownership or transfer hits.
+              Model-based squad analysis only. This is not predicted FPL points. It uses current FPL prices and availability flags when available, but does not include predicted minutes, ownership or transfer hits.
             </div>
           </div>,
           theme.accent2,

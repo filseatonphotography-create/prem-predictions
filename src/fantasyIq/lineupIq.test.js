@@ -302,6 +302,22 @@ describe("Lineup IQ generation", () => {
     expect(score.lineupScore).toBe(28);
   });
 
+  test("availability risk heavily reduces lineup score", () => {
+    const available = scoreFantasyLineupPlayer({
+      player: makePlayer(["x", "MID", "TST", "MID", "starter"]),
+      clubOutlook: { overallScore: 90, attackScore: 90, fixtures: [{ overallScore: 90, attackScore: 90 }] },
+      predictionOutlook: {},
+    });
+    const unavailable = scoreFantasyLineupPlayer({
+      player: { ...makePlayer(["x", "MID", "TST", "MID", "starter"]), availabilityStatus: "unavailable", externalMetadata: { chanceOfPlayingNextRound: 0 } },
+      clubOutlook: { overallScore: 90, attackScore: 90, fixtures: [{ overallScore: 90, attackScore: 90 }] },
+      predictionOutlook: {},
+    });
+
+    expect(unavailable.availabilityRisk).toBe(true);
+    expect(available.lineupScore - unavailable.lineupScore).toBeGreaterThan(70);
+  });
+
   test("best lineup has highest deterministic lineup score", () => {
     const analysis = makeAnalysis();
     expect(analysis.suggestedLineupScore).toBeGreaterThanOrEqual(analysis.currentLineupScore);
@@ -355,6 +371,27 @@ describe("Lineup IQ decisions", () => {
     const analysis = makeAnalysis();
     expect(analysis.suggestedViceCaptainId).not.toBe(analysis.suggestedCaptainId);
     expect(analysis.suggestedSquad.players.find((player) => player.id === analysis.suggestedViceCaptainId).squadRole).toBe("starter");
+  });
+
+  test("suggested lineup avoids unavailable players when legal alternatives exist", () => {
+    const squad = makeSquad({
+      players: playerRows.map(makePlayer).map((player) =>
+        player.id === "p10"
+          ? { ...player, availabilityStatus: "unavailable", externalMetadata: { chanceOfPlayingNextRound: 0 } }
+          : player
+      ),
+    });
+    const analysis = createFantasyLineupIqAnalysis({
+      squad,
+      clubOutlooks: makeClubOutlooks(),
+      predictionOutlooks: makePredictionOutlooks(),
+      normaliseSquad,
+      validateSquad,
+    });
+
+    expect(analysis.suggestedSquad.players.find((player) => player.id === "p10").squadRole).toBe("bench");
+    expect(analysis.suggestedSquad.players.find((player) => player.id === "p15").squadRole).toBe("starter");
+    expect(analysis.warnings.join(" ")).toMatch(/availability/i);
   });
 
   test("current captain can remain when scores are close", () => {

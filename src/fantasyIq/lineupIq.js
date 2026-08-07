@@ -7,6 +7,13 @@ export const FANTASY_LINEUP_IQ_CONFIG = {
   closeDecisionThreshold: 3,
   alternativeScoreDistance: 3,
   preserveCaptainThreshold: 3,
+  availabilityMultipliers: {
+    available: 1,
+    doubtful: 0.65,
+    unavailable: 0.08,
+    unknown: 1,
+  },
+  availabilityFloor: 5,
   verdictBands: {
     strongImprovement: 8,
     goodImprovement: 4,
@@ -63,6 +70,31 @@ function weightedAverage(items = []) {
 function roundScore(value) {
   const number = numberOrNull(value);
   return number == null ? null : Math.round(number * 10) / 10;
+}
+
+function getAvailabilityMultiplier(player = {}, config = FANTASY_LINEUP_IQ_CONFIG) {
+  const status = String(player?.availabilityStatus || "unknown").toLowerCase();
+  const statusMultiplier = config.availabilityMultipliers?.[status] ?? config.availabilityMultipliers?.unknown ?? 1;
+  const chance = [
+    player?.externalMetadata?.chanceOfPlayingNextRound,
+    player?.externalMetadata?.chanceOfPlayingThisRound,
+  ]
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value >= 0 && value <= 100);
+  if (chance == null) return statusMultiplier;
+  return Math.min(statusMultiplier, clamp(chance / 100, 0.05, 1));
+}
+
+function hasAvailabilityRisk(player = {}) {
+  return !["available", "unknown", ""].includes(String(player?.availabilityStatus || "unknown").toLowerCase());
+}
+
+function applyAvailabilityToScore(score, player = {}, config = FANTASY_LINEUP_IQ_CONFIG) {
+  const number = numberOrNull(score);
+  if (number == null) return null;
+  const multiplier = getAvailabilityMultiplier(player, config);
+  const floor = Number(config.availabilityFloor) || 0;
+  return floor + (number - floor) * multiplier;
 }
 
 function defaultNormaliseSquad(squad) {
@@ -151,9 +183,12 @@ export function scoreFantasyLineupPlayer({
     { value: threeWeekPositionOutlook, weight: config.threeWeekWeight },
   ]);
   const predictionAdjustment = getFantasyLineupPredictionAdjustment(player, predictionOutlook, config);
-  const lineupScore = objectiveScore == null ? null : clamp(objectiveScore + predictionAdjustment, 0, 100);
+  const availabilityAdjustedScore = applyAvailabilityToScore(objectiveScore, player, config);
+  const lineupScore = availabilityAdjustedScore == null ? null : clamp(availabilityAdjustedScore + predictionAdjustment, 0, 100);
   const confidence =
     !player?.teamCode || !immediateFixture
+      ? "low"
+      : hasAvailabilityRisk(player)
       ? "low"
       : ["ambiguous", "unmatched", "legacy"].includes(player.reconciliationStatus)
       ? "low"
@@ -167,6 +202,8 @@ export function scoreFantasyLineupPlayer({
     immediateScore: roundScore(immediatePositionOutlook),
     threeWeekScore: roundScore(threeWeekPositionOutlook),
     predictionAdjustment: roundScore(predictionAdjustment),
+    availabilityMultiplier: roundScore(getAvailabilityMultiplier(player, config)),
+    availabilityRisk: hasAvailabilityRisk(player),
     lineupScore: roundScore(lineupScore),
     immediateAttackScore: roundScore(immediateOutlook.attackScore),
     immediateDefenceScore: roundScore(immediateOutlook.defenceScore),
@@ -192,14 +229,18 @@ export function scoreFantasyLineupCaptain({
     { value: playerScore.threeWeekScore, weight: 0.15 },
     { value: 50 + predictionAdjustment, weight: 0.1 },
   ]);
+  const adjustedScore = applyAvailabilityToScore(score, player, config);
   const reasons = [];
+  if (hasAvailabilityRisk(player)) {
+    reasons.push(`${player?.displayName || player?.name || "This player"} has an availability risk in the player data.`);
+  }
   if (isDefensive) reasons.push(`${player?.teamCode || "This club"} has the strongest defensive captain profile among the compared starters.`);
   else reasons.push(`${player?.teamCode || "This club"} has the strongest immediate attacking outlook among the compared starters.`);
   if (predictionAdjustment > 0) reasons.push("Your prediction also supports this club's immediate fixture.");
   if (predictionAdjustment < 0) reasons.push("Your prediction is more cautious for this club.");
   return {
     playerId: player?.id || null,
-    score: roundScore(score),
+    score: roundScore(adjustedScore),
     label: player?.displayName || player?.name || "Unknown player",
     reasons,
   };
@@ -412,9 +453,15 @@ function buildPlayerDecisions({ squad, suggestedLineup, playerScoresById }) {
     const score = playerScoresById[player.id] || {};
     const changed = currentRole !== suggestedRole;
     const reason = !changed
-      ? "No role change suggested."
+      ? score.availabilityRisk
+        ? "Availability risk is accounted for in the lineup score."
+        : "No role change suggested."
       : suggestedRole === "starter"
-      ? `${player.teamCode} has the stronger immediate ${["GK", "DEF"].includes(player.position) ? "defensive" : "attacking"} fixture outlook.`
+      ? score.availabilityRisk
+        ? "Availability risk remains, but this is still the strongest legal lineup from the current squad."
+        : `${player.teamCode} has the stronger immediate ${["GK", "DEF"].includes(player.position) ? "defensive" : "attacking"} fixture outlook.`
+      : score.availabilityRisk
+      ? "Availability risk makes this player a weaker lineup option."
       : `${player.teamCode} is the higher-risk option in this model comparison.`;
     return {
       playerId: player.id,
@@ -481,18 +528,20 @@ function calculateLineupConfidence({ squad, playerScoresById, clubOutlooks = {},
   const missingImmediate = scores.filter((score) => score.missingImmediateFixture).length;
   const unresolved = players.filter((player) => ["ambiguous", "unmatched", "legacy"].includes(player.reconciliationStatus)).length;
   const unknownClubCount = players.filter((player) => !clubOutlooks[player.teamCode]).length;
+  const availabilityRiskCount = players.filter(hasAvailabilityRisk).length;
   const predictedClubs = new Set(Object.values(predictionOutlooks).filter((row) => row?.predictionCount).map((row) => row.teamCode));
   const representedClubs = new Set(players.map((player) => player.teamCode).filter(Boolean));
   const predictionCoverage = representedClubs.size ? predictedClubs.size / representedClubs.size : 0;
   const modelConfidenceAverage = weightedAverage(
     Array.from(representedClubs).map((teamCode) => ({ value: clubOutlooks[teamCode]?.fixtures?.[0]?.confidenceScore ?? clubOutlooks[teamCode]?.confidenceScore, weight: 1 }))
   );
-  let confidenceScore = clamp((modelConfidenceAverage ?? 45) - lowCount * 4 - missingImmediate * 6 - unresolved * 6 - unknownClubCount * 18 + predictionCoverage * 10, 0, 100);
+  let confidenceScore = clamp((modelConfidenceAverage ?? 45) - lowCount * 4 - missingImmediate * 6 - unresolved * 6 - unknownClubCount * 18 - availabilityRiskCount * 5 + predictionCoverage * 10, 0, 100);
   if (playerDataStatus?.cacheStatus === "fallback") confidenceScore = Math.min(confidenceScore, 45);
   const confidence = confidenceScore >= 72 ? "high" : confidenceScore >= 48 ? "medium" : "low";
   const reasons = [];
   if (missingImmediate) reasons.push(`${missingImmediate} players have limited immediate fixture evidence.`);
   if (unknownClubCount) reasons.push(`${unknownClubCount} players have unknown club fixture data.`);
+  if (availabilityRiskCount) reasons.push(`${availabilityRiskCount} players have availability risks in the player data.`);
   if (unresolved) reasons.push(`${unresolved} players need player-data confirmation.`);
   if (!predictedClubs.size) reasons.push("No immediate predictions found; objective fixture model still drives the analysis.");
   if (playerDataStatus?.cacheStatus === "fallback") reasons.push("Player data is using a fallback cache.");
@@ -621,6 +670,7 @@ export function createFantasyLineupIqAnalysis({
     validateSquad,
   });
   const closeDecisions = buildCloseDecisions(playerDecisions, config);
+  const availabilityRiskPlayers = (currentSquad.players || []).filter(hasAvailabilityRisk);
   return {
     ...base,
     suggestedSquad: suggestedBuilt.squad,
@@ -652,6 +702,7 @@ export function createFantasyLineupIqAnalysis({
     benchOrder: buildBenchOrder(suggestedBuilt.squad.players.filter((player) => player.squadRole === "bench"), playerScoresById),
     warnings: [
       "Lineup IQ only updates your squad inside Prediction Addiction.",
+      ...availabilityRiskPlayers.slice(0, 3).map((player) => `${player.displayName || player.name} has an availability risk and is penalised in Lineup IQ.`),
       ...closeDecisions.map((item) => item.reason),
     ],
     confidence: calculateLineupConfidence({ squad: currentSquad, playerScoresById, clubOutlooks, predictionOutlooks, playerDataStatus }),
