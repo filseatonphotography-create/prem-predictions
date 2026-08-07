@@ -318,6 +318,26 @@ describe("Lineup IQ generation", () => {
     expect(available.lineupScore - unavailable.lineupScore).toBeGreaterThan(70);
   });
 
+  test("vague unavailable status without injury evidence does not reduce lineup score", () => {
+    const available = scoreFantasyLineupPlayer({
+      player: makePlayer(["x", "MID", "TST", "MID", "starter"]),
+      clubOutlook: { overallScore: 90, attackScore: 90, fixtures: [{ overallScore: 90, attackScore: 90 }] },
+      predictionOutlook: {},
+    });
+    const vagueUnavailable = scoreFantasyLineupPlayer({
+      player: {
+        ...makePlayer(["x", "MID", "TST", "MID", "starter"]),
+        availabilityStatus: "unavailable",
+        externalMetadata: { rawStatus: "u", news: "", chanceOfPlayingNextRound: null, chanceOfPlayingThisRound: null },
+      },
+      clubOutlook: { overallScore: 90, attackScore: 90, fixtures: [{ overallScore: 90, attackScore: 90 }] },
+      predictionOutlook: {},
+    });
+
+    expect(vagueUnavailable.availabilityRisk).toBe(false);
+    expect(vagueUnavailable.lineupScore).toBe(available.lineupScore);
+  });
+
   test("best lineup has highest deterministic lineup score", () => {
     const analysis = makeAnalysis();
     expect(analysis.suggestedLineupScore).toBeGreaterThanOrEqual(analysis.currentLineupScore);

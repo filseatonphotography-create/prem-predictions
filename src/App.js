@@ -40,6 +40,15 @@ import {
   createFantasyLineupIqAnalysis,
 } from "./fantasyIq/lineupIq";
 import {
+  FANTASY_SUGGESTED_TEAM_VERSION,
+  createFantasySuggestedTeam,
+} from "./fantasyIq/suggestedTeam";
+import {
+  getFantasyAvailabilityChance,
+  getFantasyAvailabilityLabel,
+  hasActionableFantasyAvailabilityRisk,
+} from "./fantasyIq/availability";
+import {
   FANTASY_IQ_HISTORY_CATEGORY_KEYS,
   FANTASY_IQ_HISTORY_CATEGORY_LABELS,
   FANTASY_IQ_HISTORY_SCHEMA_VERSION,
@@ -1138,7 +1147,7 @@ function normaliseFantasyIqSquad(rawSquad = createEmptyFantasyIqSquad()) {
   const captainPlayerId = input.captainPlayerId || captainPlayer?.id || null;
   const viceCaptainPlayerId = input.viceCaptainPlayerId || viceCaptainPlayer?.id || null;
   const squad = {
-    source: ["screenshot", "manual", "transfer-iq", "lineup-iq"].includes(input.source) ? input.source : null,
+    source: ["screenshot", "manual", "transfer-iq", "lineup-iq", "suggested-team"].includes(input.source) ? input.source : null,
     formation: null,
     gameweek: Number.isFinite(Number(input.gameweek)) ? Number(input.gameweek) : null,
     players: normalisedPlayers.map((player) => ({
@@ -1463,17 +1472,12 @@ function spreadFantasyIqScore(score, factor = 1) {
 }
 
 function getFantasyIqAvailabilityMultiplier(player = {}) {
+  if (!hasActionableFantasyAvailabilityRisk(player)) return FANTASY_IQ_SCORE_CONFIG.availabilityMultipliers.unknown;
   const status = String(player.availabilityStatus || "unknown").toLowerCase();
   const statusMultiplier =
     FANTASY_IQ_SCORE_CONFIG.availabilityMultipliers[status] ??
     FANTASY_IQ_SCORE_CONFIG.availabilityMultipliers.unknown;
-  const chanceCandidates = [
-    player.externalMetadata?.chanceOfPlayingNextRound,
-    player.externalMetadata?.chanceOfPlayingThisRound,
-  ];
-  const chance = chanceCandidates
-    .map((value) => Number(value))
-    .find((value) => Number.isFinite(value) && value >= 0 && value <= 100);
+  const chance = getFantasyAvailabilityChance(player);
   if (chance == null) return statusMultiplier;
   return Math.min(statusMultiplier, clampNumber(chance / 100, FANTASY_IQ_SCORE_CONFIG.availabilityChanceFloor, 1));
 }
@@ -1575,7 +1579,7 @@ function getFantasyIqPredictionGoalScore(goals, attacking = true) {
   return mapping[index];
 }
 
-function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context = {}) {
+export function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context = {}) {
   return PREMIER_LEAGUE_TEAMS.reduce((out, team) => {
     const teamCode = getTeamCode(team);
     const normalizedTeam = normalizeTeamName(team);
@@ -2039,7 +2043,7 @@ export function buildFantasyIqScoredReport({
     .slice(0, 2);
   const benchUpside = bench.filter((player) => Number(player.fantasyIqScore || 0) >= 70);
   const flaggedAvailability = enrichedPlayers
-    .filter((player) => ["doubtful", "unavailable"].includes(String(player.availabilityStatus || "").toLowerCase()))
+    .filter(hasActionableFantasyAvailabilityRisk)
     .sort((a, b) => getFantasyIqPlayerContributionWeight(b) - getFantasyIqPlayerContributionWeight(a));
 
   if (bestStarters.length) {
@@ -2098,9 +2102,9 @@ export function buildFantasyIqScoredReport({
       `Availability risk: ${flaggedAvailability
         .slice(0, 3)
         .map((player) => {
-          const chance = Number(player.externalMetadata?.chanceOfPlayingNextRound ?? player.externalMetadata?.chanceOfPlayingThisRound);
-          const chanceText = Number.isFinite(chance) ? `, ${chance}% chance` : "";
-          return `${player.name} (${player.availabilityStatus}${chanceText})`;
+          const chance = getFantasyAvailabilityChance(player);
+          const chanceText = chance != null ? `, ${chance}% chance` : "";
+          return `${player.name} (${getFantasyAvailabilityLabel(player)}${chanceText})`;
         })
         .join(", ")}.`
     );
@@ -9291,6 +9295,14 @@ const fantasyIqReport = useMemo(() => {
     predictionOutlooks: fantasyIqPredictionOutlooks,
     playerDataStatus: fantasyPlayerData,
   });
+  const fantasySuggestedTeam = createFantasySuggestedTeam({
+    players: fantasyPlayerData.players || [],
+    clubOutlooks: fantasyIqClubOutlooks,
+    predictionOutlooks: fantasyIqPredictionOutlooks,
+    validateSquad: validateFantasyIqSquad,
+    scoreReport: buildFantasyIqScoredReport,
+    playerDataStatus: fantasyPlayerData,
+  });
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
   const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
   const actualCleanSheets = teamRows.reduce((sum, row) => sum + row.actualCleanSheets, 0);
@@ -9440,6 +9452,7 @@ const fantasyIqReport = useMemo(() => {
     predictionSignalRows,
     predictionConflicts: [...predictionConflicts, ...(preparedFantasyIqReport.predictionConflicts || [])].slice(0, 6),
     preparedFantasyIqReport,
+    fantasySuggestedTeam,
     fantasyIqClubOutlooks,
     fantasyIqPredictionOutlooks,
     squad: fantasyIqSquad,
@@ -9459,6 +9472,7 @@ const fantasyIqReport = useMemo(() => {
   fantasyIqSquad,
   fantasyIqSquadValidation,
   fantasyPlayerData,
+  gameMode,
   isWorldCupMode,
   leaguePerformanceContext,
   predictions,
@@ -9489,6 +9503,7 @@ const currentFantasyIqSnapshotCandidate = useMemo(() => {
       fantasyIqModelVersion: FANTASY_IQ_MODEL_VERSION,
       lineupIqModelVersion: FANTASY_LINEUP_IQ_VERSION,
       transferIqModelVersion: FANTASY_TRANSFER_IQ_VERSION,
+      suggestedTeamModelVersion: FANTASY_SUGGESTED_TEAM_VERSION,
       fixtureModelVersion: PREMIER_LEAGUE_MODEL_CONFIG.version || "premier-fixture-model-v1",
       scoreConfigVersion: FANTASY_IQ_SCORE_CONFIG_VERSION,
       playerDataSource: fantasyPlayerData.source || fantasyPlayerData.cacheStatus || null,
@@ -12126,7 +12141,7 @@ useEffect(() => {
     const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(fantasyScreenshotReviewSlots);
     const fantasyScreenshotAvailabilityRisks = fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId))
-      .filter((player) => player && !["available", "unknown"].includes(String(player.availabilityStatus || "unknown").toLowerCase()));
+      .filter(hasActionableFantasyAvailabilityRisk);
     const fantasyScreenshotPartialSummaryText = fantasyScreenshotReview && fantasyScreenshotSelectedCount >= 11 && fantasyScreenshotSelectedCount < 15
       ? `Starting XI detected. Add ${15 - fantasyScreenshotSelectedCount} bench players before importing a full Fantasy IQ squad.`
       : "";
@@ -12327,6 +12342,101 @@ useEffect(() => {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      );
+    };
+    const renderFantasySuggestedTeamPlayer = (player) => (
+      <div
+        key={`suggested-team-${player.id}`}
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${player.isCaptain ? theme.warn : player.isViceCaptain ? theme.accent : theme.line}`,
+          borderRadius: 8,
+          padding: "7px 8px",
+          display: "grid",
+          gap: 4,
+          minWidth: 0,
+        }}
+      >
+        <div style={{ color: theme.text, fontSize: 12, fontWeight: 950, overflowWrap: "anywhere" }}>
+          {player.displayName || player.name}
+          {player.isCaptain ? " C" : ""}
+          {player.isViceCaptain ? " V" : ""}
+        </div>
+        <div style={{ color: theme.muted, fontSize: 10, fontWeight: 850 }}>
+          {player.teamCode} · {player.position} · {formatFantasyIqBudget(player.price)}
+        </div>
+        <div style={{ color: theme.muted, fontSize: 10 }}>
+          Pick {Math.round(Number(player.suggestedTeamScore || 0))}/100 · Fixture {Math.round(Number(player.suggestedFixtureScore || 0))} · Form {Math.round(Number(player.suggestedFormScore || 0))}
+        </div>
+      </div>
+    );
+    const renderFantasySuggestedTeamLayout = (players, title) => {
+      const groups = FANTASY_IQ_POSITIONS.map((position) => ({
+        position,
+        players: (players || []).filter((player) => player.position === position),
+      })).filter((group) => group.players.length);
+      return (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>{title}</div>
+          <div
+            style={{
+              background: "linear-gradient(180deg, rgba(34,197,94,0.12), rgba(15,23,42,0.88))",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 10,
+              padding: 10,
+              display: "grid",
+              gap: 8,
+            }}
+          >
+            {groups.map((group) => (
+              <div key={`suggested-row-${title}-${group.position}`} style={{ display: "grid", gap: 5 }}>
+                <div style={{ color: theme.muted, fontSize: 10, fontWeight: 950 }}>{group.position}</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`, gap: 6 }}>
+                  {group.players.map(renderFantasySuggestedTeamPlayer)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+    const renderFantasySuggestedTeam = () => {
+      const suggestion = report.fantasySuggestedTeam;
+      if (!suggestion || suggestion.status !== "ready") {
+        return (
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ color: theme.warn, fontSize: 13, fontWeight: 850 }}>
+              Suggested team is locked until current priced FPL player data and fixture outlooks are available.
+            </div>
+            {(suggestion?.warnings || []).map((warning) => (
+              <div key={warning} style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>{warning}</div>
+            ))}
+          </div>
+        );
+      }
+      return (
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+            {renderFantasyIqMetric("Suggested Fantasy IQ", formatFantasyIqScore(suggestion.overallScore), theme.accent2)}
+            {renderFantasyIqMetric("Budget Used", `${formatFantasyIqBudget(suggestion.totalCost)} / £100.0m`, theme.accent)}
+            {renderFantasyIqMetric("Formation", suggestion.formation || "NA", theme.muted)}
+            {renderFantasyIqMetric("Captain", suggestion.captain?.displayName || suggestion.captain?.name || "NA", theme.warn)}
+          </div>
+          {renderFantasySuggestedTeamLayout(suggestion.starters, "Suggested Starting XI")}
+          {renderFantasySuggestedTeamLayout(suggestion.bench, "Suggested Bench")}
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+            {renderFantasyIqNotes("Why These Picks", suggestion.reasons, theme.accent2)}
+            {renderFantasyIqNotes("Availability / Data", suggestion.warnings, theme.warn)}
+            {renderFantasyIqNotes(
+              "Club Counts",
+              Object.entries(suggestion.clubCounts || {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([club, count]) => `${club}: ${count}`),
+              theme.accent
+            )}
+          </div>
+          <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+            Suggested Team uses model fixtures, current FPL prices, available FPL form fields and actionable injury/availability flags. It does not submit transfers or alter your saved squad.
           </div>
         </div>
       );
@@ -13378,9 +13488,9 @@ useEffect(() => {
                   Availability risk detected: {fantasyScreenshotAvailabilityRisks
                     .slice(0, 4)
                     .map((player) => {
-                      const chance = Number(player.externalMetadata?.chanceOfPlayingNextRound ?? player.externalMetadata?.chanceOfPlayingThisRound);
-                      const chanceText = Number.isFinite(chance) ? `, ${chance}% chance` : "";
-                      return `${player.displayName || player.name} (${player.availabilityStatus}${chanceText})`;
+                      const chance = getFantasyAvailabilityChance(player);
+                      const chanceText = chance != null ? `, ${chance}% chance` : "";
+                      return `${player.displayName || player.name} (${getFantasyAvailabilityLabel(player)}${chanceText})`;
                     })
                     .join(", ")}.
                 </div>
@@ -13808,6 +13918,13 @@ useEffect(() => {
         )}
 
         {fantasyIqAnalysisPanel === "team" && renderFantasyIqSquadEntrySection()}
+
+        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && renderFantasyIqSection(
+          "Prediction Addiction Suggested Team",
+          "A legal 15-player squad for the next three gameweeks using budget, club limits, fixtures, form, value and actionable availability risk.",
+          renderFantasySuggestedTeam(),
+          "#22C55E"
+        )}
 
         {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
           "Fantasy IQ Overview",

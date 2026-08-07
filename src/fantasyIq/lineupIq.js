@@ -1,3 +1,8 @@
+import {
+  getFantasyAvailabilityChance,
+  hasActionableFantasyAvailabilityRisk,
+} from "./availability";
+
 export const FANTASY_LINEUP_IQ_VERSION = "lineup-iq-v1";
 
 export const FANTASY_LINEUP_IQ_CONFIG = {
@@ -73,20 +78,16 @@ function roundScore(value) {
 }
 
 function getAvailabilityMultiplier(player = {}, config = FANTASY_LINEUP_IQ_CONFIG) {
+  if (!hasActionableFantasyAvailabilityRisk(player)) return config.availabilityMultipliers?.unknown ?? 1;
   const status = String(player?.availabilityStatus || "unknown").toLowerCase();
   const statusMultiplier = config.availabilityMultipliers?.[status] ?? config.availabilityMultipliers?.unknown ?? 1;
-  const chance = [
-    player?.externalMetadata?.chanceOfPlayingNextRound,
-    player?.externalMetadata?.chanceOfPlayingThisRound,
-  ]
-    .map((value) => Number(value))
-    .find((value) => Number.isFinite(value) && value >= 0 && value <= 100);
+  const chance = getFantasyAvailabilityChance(player);
   if (chance == null) return statusMultiplier;
   return Math.min(statusMultiplier, clamp(chance / 100, 0.05, 1));
 }
 
 function hasAvailabilityRisk(player = {}) {
-  return !["available", "unknown", ""].includes(String(player?.availabilityStatus || "unknown").toLowerCase());
+  return hasActionableFantasyAvailabilityRisk(player);
 }
 
 function applyAvailabilityToScore(score, player = {}, config = FANTASY_LINEUP_IQ_CONFIG) {

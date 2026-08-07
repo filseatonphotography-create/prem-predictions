@@ -1,3 +1,5 @@
+import { hasActionableFantasyAvailabilityRisk } from "./availability";
+
 export const FANTASY_TRANSFER_IQ_VERSION = "transfer-iq-v1";
 
 export const FANTASY_TRANSFER_IQ_CATEGORY_LABELS = {
@@ -421,6 +423,5 @@ export function createFantasyTransferIqComparison({
 }
 
 export function requiresFantasyTransferAvailabilityAcknowledgement(player) {
-  const status = String(player?.availabilityStatus || "unknown").toLowerCase();
-  return !!status && !["available", "unknown"].includes(status);
+  return hasActionableFantasyAvailabilityRisk(player);
 }

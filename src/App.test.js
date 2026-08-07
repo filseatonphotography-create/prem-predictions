@@ -17,6 +17,7 @@ import {
   buildWeightedNextFixtureOutlook,
   buildPremierLeagueTableRows,
   buildFantasyIqScoredReport,
+  buildFantasyIqClubOutlooks,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -199,6 +200,34 @@ describe("Fantasy IQ scoring", () => {
     expect(injured.diagnostics.availabilityRisks).toBe(2);
   });
 
+  test("vague unavailable status without injury evidence does not crush strong squads", () => {
+    const clubOutlooks = buildFantasyIqClubOutlooks(FIXTURES, {}, {});
+    const strongTeams = ["ARS", "ARS", "LIV", "MCI", "MCI", "LIV", "CHE", "MCI", "ARS", "CHE", "LIV", "NEW", "FUL", "BOU", "AVL"];
+    const strongSquad = makeFantasyIqSquad(
+      Object.fromEntries(
+        squadPlayers.map(([id], index) => [
+          id,
+          {
+            teamCode: strongTeams[index],
+            teamName: strongTeams[index],
+            availabilityStatus: "unavailable",
+            externalMetadata: { rawStatus: "u", news: "", chanceOfPlayingNextRound: null, chanceOfPlayingThisRound: null },
+          },
+        ])
+      )
+    );
+    const report = buildFantasyIqScoredReport({
+      squad: strongSquad,
+      validation: makeFantasyIqValidation(),
+      clubOutlooks,
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(report.overallScore).toBeGreaterThan(50);
+    expect(report.categories.attackOutlook).toBeGreaterThan(55);
+    expect(report.diagnostics.availabilityRisks).toBe(0);
+  });
+
   test("does not convert missing fixture outlooks into a fake low score", () => {
     const report = buildFantasyIqScoredReport({
       squad: makeFantasyIqSquad(),
@@ -216,6 +245,41 @@ describe("Fantasy IQ scoring", () => {
     expect(report.diagnostics.unmatchedFixtureClubCodes).toContain("ARS");
     expect(report.concerns.join(" ")).toMatch(/locked until enough squad players/i);
     expect(report.concerns.join(" ")).toMatch(/Fixture outlook missing/);
+  });
+
+  test("real fixture model gives attacking clubs usable attack outlooks", () => {
+    const outlooks = buildFantasyIqClubOutlooks(FIXTURES, {}, {});
+
+    expect(outlooks.MCI.attackScore).toBeGreaterThan(45);
+    expect(outlooks.ARS.attackScore).toBeGreaterThan(45);
+    expect(outlooks.MCI.attackScore).toBeGreaterThan(outlooks.HUL.attackScore);
+    expect(outlooks.ARS.attackScore).toBeGreaterThan(outlooks.COV.attackScore);
+  });
+
+  test("real fixture model separates strong attacking squads from weak attacking squads", () => {
+    const outlooks = buildFantasyIqClubOutlooks(FIXTURES, {}, {});
+    const makeSquadFromTeams = (teams) =>
+      makeFantasyIqSquad(
+        Object.fromEntries(
+          squadPlayers.map(([id], index) => [id, { teamCode: teams[index], teamName: teams[index] }])
+        )
+      );
+    const validation = makeFantasyIqValidation();
+    const strong = buildFantasyIqScoredReport({
+      squad: makeSquadFromTeams(["ARS", "ARS", "LIV", "MCI", "MCI", "LIV", "CHE", "MCI", "ARS", "CHE", "LIV", "NEW", "FUL", "BOU", "AVL"]),
+      validation,
+      clubOutlooks: outlooks,
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+    const weak = buildFantasyIqScoredReport({
+      squad: makeSquadFromTeams(["HUL", "HUL", "COV", "IPS", "COV", "HUL", "IPS", "COV", "HUL", "IPS", "COV", "EVE", "BRE", "FUL", "CRY"]),
+      validation,
+      clubOutlooks: outlooks,
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(strong.categories.attackOutlook).toBeGreaterThan(weak.categories.attackOutlook + 15);
+    expect(strong.overallScore).toBeGreaterThan(weak.overallScore + 10);
   });
 });
 
