@@ -136,4 +136,45 @@ describe("Prediction Addiction suggested team", () => {
     expect(suggestion.players.some((player) => player.id === injuredStar.id)).toBe(false);
     expect(suggestion.warnings.join(" ")).toMatch(/availability risk/i);
   });
+
+  test("uses budget for premium players when they have stronger role and upside", () => {
+    const premiumPlayers = [
+      makePlayer("premium-fwd", "FWD", "ARS", 13, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-mid", "MID", "MCI", 12, {
+        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 42, minutes: 890, starts: 10 },
+      }),
+      makePlayer("premium-def", "DEF", "LIV", 7.5, {
+        externalMetadata: { form: 7.5, pointsPerGame: 6.5, selectedByPercent: 35, minutes: 880, starts: 10 },
+      }),
+    ];
+    const suggestion = createFantasySuggestedTeam({
+      players: [...premiumPlayers, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+    });
+
+    expect(suggestion.status).toBe("ready");
+    expect(suggestion.totalCost).toBeGreaterThanOrEqual(85);
+    expect(suggestion.players.map((player) => player.id)).toEqual(expect.arrayContaining(["premium-fwd", "premium-mid"]));
+  });
+
+  test("does not start players with weak starting evidence", () => {
+    const rotationRisk = makePlayer("rotation-risk", "MID", "ARS", 12, {
+      externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 25, minutes: 90, starts: 1 },
+    });
+    const suggestion = createFantasySuggestedTeam({
+      players: [rotationRisk, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+    });
+
+    expect(suggestion.status).toBe("ready");
+    expect(suggestion.starters.some((player) => player.id === rotationRisk.id)).toBe(false);
+  });
 });

@@ -30,6 +30,9 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
     { label: "5-4-1", counts: { GK: 1, DEF: 5, MID: 4, FWD: 1 } },
   ],
   valueBiases: [0, 0.25, 0.5, 0.85, 1.2, 1.6],
+  premiumBiases: [0, 0.2, 0.45, 0.7],
+  preferredMinimumSpend: 92,
+  minimumStarterLikelihood: 32,
 };
 
 function numberOrNull(value) {
@@ -83,6 +86,23 @@ function getFormScore(player = {}) {
   return scores.reduce((sum, item) => sum + item.value * (item.weight / totalWeight), 0);
 }
 
+function getStarterLikelihoodScore(player = {}) {
+  const meta = player.externalMetadata || {};
+  const minutes = scale(meta.minutes, 0, 900, null);
+  const starts = scale(meta.starts, 0, 10, null);
+  const pointsPerGame = scale(meta.pointsPerGame, 0, 8, null);
+  const selected = scale(meta.selectedByPercent, 0, 35, null);
+  const scores = [
+    { value: minutes, weight: 0.42 },
+    { value: starts, weight: 0.34 },
+    { value: pointsPerGame, weight: 0.14 },
+    { value: selected, weight: 0.1 },
+  ].filter((item) => item.value != null);
+  const totalWeight = scores.reduce((sum, item) => sum + item.weight, 0);
+  if (!scores.length || totalWeight <= 0) return 58;
+  return scores.reduce((sum, item) => sum + item.value * (item.weight / totalWeight), 0);
+}
+
 function getPredictionScore(position, predictionOutlook = {}) {
   if (!predictionOutlook || predictionOutlook.overallScore == null) return null;
   if (["GK", "DEF"].includes(position)) return predictionOutlook.defenceScore ?? predictionOutlook.overallScore;
@@ -104,16 +124,20 @@ function scoreCandidate(player, clubOutlook, predictionOutlook) {
   const fixtureScore = getFixtureScore(position, clubOutlook);
   if (fixtureScore == null || price == null) return null;
   const formScore = getFormScore(player);
+  const starterLikelihoodScore = getStarterLikelihoodScore(player);
   const predictionScore = getPredictionScore(position, predictionOutlook);
   const valueScore = clamp((fixtureScore * 0.7 + formScore * 0.3) / Math.max(4, price) * 8.8, 0, 100);
+  const premiumScore = scale(price, 4, position === "GK" ? 7 : position === "DEF" ? 8 : 14, 40);
   const availabilityChance = getFantasyAvailabilityChance(player);
   const risk = hasActionableFantasyAvailabilityRisk(player);
   const availabilityPenalty = risk ? 100 - (availabilityChance ?? 35) : 0;
   const score =
-    fixtureScore * 0.56 +
-    formScore * 0.18 +
-    valueScore * 0.16 +
-    (predictionScore ?? fixtureScore) * 0.1 -
+    fixtureScore * 0.43 +
+    starterLikelihoodScore * 0.2 +
+    premiumScore * 0.16 +
+    formScore * 0.12 +
+    (predictionScore ?? fixtureScore) * 0.06 +
+    valueScore * 0.03 -
     availabilityPenalty * 0.8;
   return {
     ...player,
@@ -121,6 +145,8 @@ function scoreCandidate(player, clubOutlook, predictionOutlook) {
     position,
     fixtureScore: round(fixtureScore),
     formScore: round(formScore),
+    starterLikelihoodScore: round(starterLikelihoodScore),
+    premiumScore: round(premiumScore),
     valueScore: round(valueScore),
     predictionScore: round(predictionScore),
     suggestedScore: round(clamp(score, 0, 100), 2),
@@ -150,7 +176,48 @@ function countByClub(players = []) {
   }, {});
 }
 
-function buildGreedySquad(candidatesByPosition, config, valueBias = 0) {
+function getSelectionScore(player, valueBias = 0, premiumBias = 0) {
+  return player.suggestedScore + player.valueScore * valueBias + player.premiumScore * premiumBias;
+}
+
+function getBudgetUsed(players = []) {
+  return players.reduce((sum, player) => sum + Number(player.price || 0), 0);
+}
+
+function upgradeSquad(selected, candidatesByPosition, config, valueBias = 0, premiumBias = 0) {
+  let current = [...selected];
+  const maxUpgrades = 24;
+  for (let upgradeCount = 0; upgradeCount < maxUpgrades; upgradeCount += 1) {
+    const budgetUsed = getBudgetUsed(current);
+    const selectedIds = new Set(current.map((player) => player.id));
+    const clubCounts = countByClub(current);
+    const upgrades = current
+      .flatMap((outgoing, index) =>
+        (candidatesByPosition[outgoing.position] || [])
+          .filter((incoming) => !selectedIds.has(incoming.id))
+          .map((incoming) => {
+            const nextClubCounts = { ...clubCounts };
+            nextClubCounts[outgoing.teamCode] = Math.max(0, (nextClubCounts[outgoing.teamCode] || 0) - 1);
+            if ((nextClubCounts[incoming.teamCode] || 0) >= config.maxPlayersPerClub) return null;
+            const nextBudget = budgetUsed - outgoing.price + incoming.price;
+            if (nextBudget > config.budget + 0.001) return null;
+            const scoreGain = getSelectionScore(incoming, valueBias, premiumBias) - getSelectionScore(outgoing, valueBias, premiumBias);
+            const spendGain = incoming.price - outgoing.price;
+            if (scoreGain <= 0.05 && spendGain <= 0) return null;
+            const underSpendBonus = budgetUsed < config.preferredMinimumSpend && spendGain > 0 ? spendGain * 0.45 : 0;
+            return { index, incoming, gain: scoreGain + underSpendBonus, scoreGain, spendGain, nextBudget };
+          })
+          .filter(Boolean)
+      )
+      .sort((a, b) => b.gain - a.gain || b.nextBudget - a.nextBudget);
+    const best = upgrades[0];
+    if (!best || best.gain <= 0.05) break;
+    current = current.map((player, index) => (index === best.index ? best.incoming : player));
+  }
+  return current;
+}
+
+function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBias = 0) {
   const selected = [];
   const selectedIds = new Set();
   const clubCounts = {};
@@ -162,7 +229,7 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0) {
     const position = order.find((item) => remaining[item] > 0) || Object.keys(remaining).find((item) => remaining[item] > 0);
     if (!position) break;
     const pool = [...(candidatesByPosition[position] || [])].sort(
-      (a, b) => (b.suggestedScore + b.valueScore * valueBias) - (a.suggestedScore + a.valueScore * valueBias)
+      (a, b) => getSelectionScore(b, valueBias, premiumBias) - getSelectionScore(a, valueBias, premiumBias)
     );
     const remainingAfterPosition = { ...remaining, [position]: remaining[position] - 1 };
     const currentBudgetUsed = budgetUsed;
@@ -181,7 +248,7 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0) {
     budgetUsed += chosen.price;
   }
 
-  return selected.length === 15 ? selected : null;
+  return selected.length === 15 ? upgradeSquad(selected, candidatesByPosition, config, valueBias, premiumBias) : null;
 }
 
 function chooseStarters(players = [], config = FANTASY_SUGGESTED_TEAM_CONFIG) {
@@ -254,6 +321,8 @@ function toSquad(players, formation) {
       suggestedFixtureScore: player.fixtureScore,
       suggestedFormScore: player.formScore,
       suggestedValueScore: player.valueScore,
+      suggestedStarterLikelihoodScore: player.starterLikelihoodScore,
+      suggestedPremiumScore: player.premiumScore,
     })),
   };
 }
@@ -277,7 +346,8 @@ export function createFantasySuggestedTeam({
       clubOutlooks[String(player.teamCode || "").toUpperCase()],
       predictionOutlooks[String(player.teamCode || "").toUpperCase()]
     ))
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((player) => player.starterLikelihoodScore >= config.minimumStarterLikelihood);
 
   const candidatesByPosition = Object.fromEntries(Object.keys(config.positions).map((position) => [
     position,
@@ -298,9 +368,12 @@ export function createFantasySuggestedTeam({
     };
   }
 
-  const attempts = config.valueBiases
-    .map((bias) => {
-      const selected = buildGreedySquad(candidatesByPosition, config, bias);
+  const attemptConfigs = config.valueBiases.flatMap((valueBias) =>
+    config.premiumBiases.map((premiumBias) => ({ valueBias, premiumBias }))
+  );
+  const attempts = attemptConfigs
+    .map(({ valueBias, premiumBias }) => {
+      const selected = buildGreedySquad(candidatesByPosition, config, valueBias, premiumBias);
       if (!selected) return null;
       const formation = chooseStarters(selected, config);
       if (!formation) return null;
@@ -311,7 +384,8 @@ export function createFantasySuggestedTeam({
         ? scoreReport({ squad, validation, clubOutlooks, predictionOutlooks, playerDataStatus })
         : null;
       return {
-        valueBias: bias,
+        valueBias,
+        premiumBias,
         squad,
         validation,
         report,
@@ -323,7 +397,11 @@ export function createFantasySuggestedTeam({
       };
     })
     .filter(Boolean)
-    .sort((a, b) => b.score - a.score || a.totalCost - b.totalCost);
+    .sort((a, b) => {
+      const aSpendBonus = a.totalCost >= config.preferredMinimumSpend ? 2 : (a.totalCost / config.preferredMinimumSpend) * 2;
+      const bSpendBonus = b.totalCost >= config.preferredMinimumSpend ? 2 : (b.totalCost / config.preferredMinimumSpend) * 2;
+      return (b.score + bSpendBonus) - (a.score + aSpendBonus) || b.totalCost - a.totalCost;
+    });
   const best = attempts[0];
   if (!best) {
     return {
@@ -357,10 +435,11 @@ export function createFantasySuggestedTeam({
     players: best.squad.players,
     warnings: [
       excludedRiskCount ? `${excludedRiskCount} players with actionable availability risk were excluded.` : "",
+      best.totalCost < config.preferredMinimumSpend ? `Only ${round(best.totalCost)}m was used because the model could not find higher-priced upgrades that improved the squad within constraints.` : "",
       playerDataStatus?.cacheStatus === "fallback" ? "Live FPL player data is unavailable, so suggested team is locked to fallback quality." : "",
     ].filter(Boolean),
     reasons: [
-      `Optimised for the next three gameweeks using fixture outlook, role weighting, price value and available FPL form fields.`,
+      `Optimised for the next three gameweeks using fixture outlook, starter likelihood, premium upside, price value and available FPL form fields.`,
       `Legal squad: ${best.formation}, ${round(best.totalCost)}m used, max ${config.maxPlayersPerClub} players per club.`,
       captain ? `${captain.displayName || captain.name} is captain because he has the strongest attacking starter profile.` : "",
     ].filter(Boolean),

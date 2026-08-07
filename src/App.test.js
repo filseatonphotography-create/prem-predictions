@@ -224,8 +224,80 @@ describe("Fantasy IQ scoring", () => {
     });
 
     expect(report.overallScore).toBeGreaterThan(50);
-    expect(report.categories.attackOutlook).toBeGreaterThan(55);
+    expect(report.categories.attackOutlook).toBeGreaterThan(50);
     expect(report.diagnostics.availabilityRisks).toBe(0);
+  });
+
+  test("elite nailed premium squads can score at the top end", () => {
+    const clubOutlooks = buildFantasyIqClubOutlooks(FIXTURES, {}, {});
+    const eliteTeams = ["ARS", "ARS", "LIV", "MCI", "MCI", "LIV", "CHE", "MCI", "ARS", "CHE", "LIV", "NEW", "FUL", "BOU", "AVL"];
+    const squad = makeFantasyIqSquad(
+      Object.fromEntries(
+        squadPlayers.map(([id, , , position], index) => [
+          id,
+          {
+            teamCode: eliteTeams[index],
+            teamName: eliteTeams[index],
+            price: position === "GK" ? 5.5 : position === "DEF" ? 7 : position === "MID" ? 12 : 13,
+            priceTenths: position === "GK" ? 55 : position === "DEF" ? 70 : position === "MID" ? 120 : 130,
+            externalMetadata: {
+              form: 9,
+              pointsPerGame: 8,
+              selectedByPercent: 45,
+              minutes: 900,
+              starts: 10,
+              totalPoints: 155,
+            },
+          },
+        ])
+      )
+    );
+    const report = buildFantasyIqScoredReport({
+      squad,
+      validation: makeFantasyIqValidation(),
+      clubOutlooks,
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(report.overallScore).toBeGreaterThanOrEqual(90);
+    expect(report.categories.attackOutlook).toBeGreaterThan(70);
+  });
+
+  test("injured low-form squads can score at the bottom end", () => {
+    const clubOutlooks = buildFantasyIqClubOutlooks(FIXTURES, {}, {});
+    const weakTeams = ["HUL", "HUL", "COV", "IPS", "COV", "HUL", "IPS", "COV", "HUL", "IPS", "COV", "EVE", "BRE", "FUL", "CRY"];
+    const squad = makeFantasyIqSquad(
+      Object.fromEntries(
+        squadPlayers.map(([id], index) => [
+          id,
+          {
+            teamCode: weakTeams[index],
+            teamName: weakTeams[index],
+            availabilityStatus: "unavailable",
+            externalMetadata: {
+              rawStatus: "i",
+              news: "Injured",
+              chanceOfPlayingNextRound: 0,
+              form: 0,
+              pointsPerGame: 0,
+              selectedByPercent: 0,
+              minutes: 0,
+              starts: 0,
+              totalPoints: 0,
+            },
+          },
+        ])
+      )
+    );
+    const report = buildFantasyIqScoredReport({
+      squad,
+      validation: makeFantasyIqValidation(),
+      clubOutlooks,
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(report.overallScore).toBeLessThanOrEqual(10);
+    expect(report.diagnostics.availabilityRisks).toBe(15);
   });
 
   test("does not convert missing fixture outlooks into a fake low score", () => {
