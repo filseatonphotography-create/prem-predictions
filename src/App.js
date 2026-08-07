@@ -5249,8 +5249,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [winnerIndex, setWinnerIndex] = useState(0);
   const [winnerModalType, setWinnerModalType] = useState("gw");
   const [winnerPopupCheckCount, setWinnerPopupCheckCount] = useState(0);
-  const [fantasyIqAnalysisPanel, setFantasyIqAnalysisPanel] = useState("team");
-  const [fantasyIqAnalysisMenuOpen, setFantasyIqAnalysisMenuOpen] = useState(false);
+  const [fantasyIqAnalysisPanel, setFantasyIqAnalysisPanel] = useState("home");
+  const [fantasySuggestedTeamStyle, setFantasySuggestedTeamStyle] = useState("balanced");
   const [fantasyInsightsScope, setFantasyInsightsScope] = useState("gameweek");
   const fantasyIqUserIdentifier = useMemo(
     () => currentUserId || currentPlayer || loginName || "guest",
@@ -9383,6 +9383,7 @@ const fantasyIqReport = useMemo(() => {
     validateSquad: validateFantasyIqSquad,
     scoreReport: buildFantasyIqScoredReport,
     playerDataStatus: fantasyPlayerData,
+    style: fantasySuggestedTeamStyle,
   });
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
   const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
@@ -9552,6 +9553,7 @@ const fantasyIqReport = useMemo(() => {
   fantasyInsightsScope,
   fantasyIqSquad,
   fantasyIqSquadValidation,
+  fantasySuggestedTeamStyle,
   fantasyPlayerData,
   gameMode,
   isWorldCupMode,
@@ -12485,9 +12487,41 @@ useEffect(() => {
     };
     const renderFantasySuggestedTeam = () => {
       const suggestion = report.fantasySuggestedTeam;
-      if (!suggestion || suggestion.status !== "ready") {
+      const styleControls = (
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>Pick your squad style</div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+            {fantasySuggestedTeamStyles.map(([id, label, detail]) => {
+              const selected = fantasySuggestedTeamStyle === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setFantasySuggestedTeamStyle(id)}
+                  style={{
+                    border: `1px solid ${selected ? theme.accent2 : theme.line}`,
+                    borderRadius: 8,
+                    padding: "10px 11px",
+                    background: selected ? "rgba(34,197,94,0.14)" : "rgba(255,255,255,0.04)",
+                    color: theme.text,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    display: "grid",
+                    gap: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 13, fontWeight: 950 }}>{label}</span>
+                  <span style={{ color: theme.muted, fontSize: 11, lineHeight: 1.3 }}>{detail}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+      if (!suggestion || suggestion.status === "locked") {
         return (
           <div style={{ display: "grid", gap: 8 }}>
+            {styleControls}
             <div style={{ color: theme.warn, fontSize: 13, fontWeight: 850 }}>
               Suggested team is locked until current priced FPL player data and fixture outlooks are available.
             </div>
@@ -12497,12 +12531,19 @@ useEffect(() => {
           </div>
         );
       }
+      const isStrongRecommendation = suggestion.status === "ready";
       return (
         <div style={{ display: "grid", gap: 12 }}>
+          {styleControls}
+          {!isStrongRecommendation && (
+            <div style={{ color: theme.warn, fontSize: 13, fontWeight: 900, lineHeight: 1.35 }}>
+              No strong 85+ recommendation from the current data. Showing the closest legal draft for review only.
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
             {renderFantasyIqMetric("Suggested Fantasy IQ", formatFantasyIqScore(suggestion.overallScore), theme.accent2)}
             {renderFantasyIqMetric("Budget Used", `${formatFantasyIqBudget(suggestion.totalCost)} / £100.0m`, theme.accent)}
-            {renderFantasyIqMetric("Formation", suggestion.formation || "NA", theme.muted)}
+            {renderFantasyIqMetric("Style / Formation", `${suggestion.styleLabel || "Balanced"} · ${suggestion.formation || "NA"}`, theme.muted)}
             {renderFantasyIqMetric("Captain", suggestion.captain?.displayName || suggestion.captain?.name || "NA", theme.warn)}
           </div>
           {renderFantasySuggestedTeamLayout(suggestion.starters, "Suggested Starting XI")}
@@ -13630,74 +13671,81 @@ useEffect(() => {
       </div>
     );
 
-    const renderFantasyIqPanelSelector = () => (
-      <div style={{ position: "relative", display: "grid", gap: 6, justifyItems: "start" }}>
-        <button
-          type="button"
-          aria-haspopup="menu"
-          aria-expanded={fantasyIqAnalysisMenuOpen}
-          onClick={() => setFantasyIqAnalysisMenuOpen((open) => !open)}
+    const fantasySuggestedTeamStyles = [
+      ["balanced", "Balanced", "A rounded squad across attack, defence, fixtures and form."],
+      ["attacking", "Attacking", "Prioritises forwards, attacking midfielders and high goal outlook."],
+      ["defensive", "Defensive", "Prioritises defenders, goalkeepers and clean-sheet outlook."],
+    ];
+    const renderFantasyIqBackBar = () => (
+      <button
+        type="button"
+        onClick={() => setFantasyIqAnalysisPanel("home")}
+        style={{ ...pillBtn(false), padding: "7px 9px", fontSize: 12, justifySelf: "start" }}
+      >
+        Back to Fantasy IQ
+      </button>
+    );
+    const renderFantasyIqHomeChoice = (id, title, detail, color) => (
+      <button
+        type="button"
+        onClick={() => setFantasyIqAnalysisPanel(id)}
+        style={{
+          border: `1px solid ${color}`,
+          borderRadius: 10,
+          padding: isMobile || compact ? 14 : 18,
+          background: `linear-gradient(135deg, ${color}2A, rgba(255,255,255,0.05))`,
+          color: theme.text,
+          cursor: "pointer",
+          textAlign: "left",
+          display: "grid",
+          gap: 8,
+          minHeight: isMobile || compact ? 132 : 150,
+          alignContent: "center",
+          boxShadow: `0 0 0 1px rgba(255,255,255,0.04), 0 12px 30px ${color}18`,
+        }}
+      >
+        <span style={{ color, fontSize: 12, fontWeight: 950, textTransform: "uppercase" }}>Fantasy IQ</span>
+        <span style={{ color: theme.text, fontSize: isMobile || compact ? 22 : 28, fontWeight: 1000, lineHeight: 1.05 }}>
+          {title}
+        </span>
+        <span style={{ color: theme.muted, fontSize: 13, fontWeight: 750, lineHeight: 1.35 }}>
+          {detail}
+        </span>
+      </button>
+    );
+    const renderFantasyIqHome = () => (
+      <div style={{ display: "grid", gap: 14 }}>
+        <div
           style={{
+            border: `1px solid ${theme.line}`,
+            borderRadius: 12,
+            padding: isMobile || compact ? 14 : 18,
+            background: "linear-gradient(135deg, rgba(34,197,94,0.14), rgba(56,189,248,0.09), rgba(255,255,255,0.04))",
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) auto",
-            gap: 10,
-            alignItems: "center",
-            minWidth: isMobile || compact ? "100%" : 260,
-            textAlign: "left",
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: `1px solid ${theme.accent}`,
-            background: "rgba(56,189,248,0.1)",
-            color: theme.text,
-            cursor: "pointer",
-            fontSize: 13,
-            fontWeight: 950,
+            gap: 6,
           }}
         >
-          <span>Analysis Type: {fantasyIqAnalysisPanel === "prediction" ? "Prediction Analysis" : "Team Analysis"}</span>
-          <span style={{ color: theme.accent }}>{fantasyIqAnalysisMenuOpen ? "▲" : "▼"}</span>
-        </button>
-        {fantasyIqAnalysisMenuOpen && (
-          <div
-            role="menu"
-            style={{
-              width: isMobile || compact ? "100%" : 260,
-              background: theme.panelHi,
-              border: `1px solid ${theme.line}`,
-              borderRadius: 8,
-              overflow: "hidden",
-              display: "grid",
-            }}
-          >
-            {[
-              ["prediction", "Prediction Analysis"],
-              ["team", "Team Analysis"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setFantasyIqAnalysisPanel(id);
-                  setFantasyIqAnalysisMenuOpen(false);
-                }}
-                style={{
-                  padding: "9px 12px",
-                  border: "none",
-                  borderBottom: `1px solid ${theme.line}`,
-                  background: fantasyIqAnalysisPanel === id ? "rgba(56,189,248,0.12)" : "transparent",
-                  color: theme.text,
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 13,
-                  fontWeight: 900,
-                }}
-              >
-                {label}
-              </button>
-            ))}
+          <div style={{ color: theme.text, fontSize: isMobile || compact ? 26 : 34, fontWeight: 1000, lineHeight: 1 }}>
+            Fantasy IQ
           </div>
-        )}
+          <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.35, maxWidth: 720 }}>
+            Build a Prediction Addiction squad or analyse your own fantasy team in a few taps.
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 12 }}>
+          {renderFantasyIqHomeChoice(
+            "suggested",
+            "Prediction Addiction Suggested Team",
+            "Choose attacking, defensive or balanced and get a legal squad for the next three gameweeks.",
+            "#22C55E"
+          )}
+          {renderFantasyIqHomeChoice(
+            "team",
+            "Analyse Your Fantasy Team",
+            "Upload a screenshot or enter your squad to score it, review Lineup IQ and compare transfers.",
+            "#38BDF8"
+          )}
+        </div>
       </div>
     );
 
@@ -13864,7 +13912,7 @@ useEffect(() => {
 
     return (
       <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
-        {renderFantasyIqPanelSelector()}
+        {fantasyIqAnalysisPanel === "home" && renderFantasyIqHome()}
 
         {fantasyIqAnalysisPanel === "prediction" && renderFantasyIqSection(
           "Your Prediction Signals",
@@ -13998,14 +14046,18 @@ useEffect(() => {
           "#EF4444"
         )}
 
-        {fantasyIqAnalysisPanel === "team" && renderFantasyIqSquadEntrySection()}
+        {fantasyIqAnalysisPanel === "suggested" && renderFantasyIqBackBar()}
 
-        {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && renderFantasyIqSection(
+        {fantasyIqAnalysisPanel === "suggested" && renderFantasyIqSection(
           "Prediction Addiction Suggested Team",
           "A legal 15-player squad for the next three gameweeks using budget, club limits, fixtures, form, value and actionable availability risk.",
           renderFantasySuggestedTeam(),
           "#22C55E"
         )}
+
+        {fantasyIqAnalysisPanel === "team" && renderFantasyIqBackBar()}
+
+        {fantasyIqAnalysisPanel === "team" && renderFantasyIqSquadEntrySection()}
 
         {fantasyIqAnalysisPanel === "team" && !fantasyIqTeamWorkflowActive && report.squad?.confirmed && renderFantasyIqSection(
           "Fantasy IQ Overview",

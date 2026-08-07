@@ -86,7 +86,15 @@ function validateSquad(squad) {
 
 function scoreReport({ squad }) {
   const average = (squad.players || []).reduce((sum, player) => sum + Number(player.suggestedTeamScore || 0), 0) / squad.players.length;
-  return { overallScore: Math.round(average), categories: {}, players: squad.players };
+  return { overallScore: Math.round(Math.min(100, average + 25)), categories: {}, players: squad.players };
+}
+
+function spendByGroup(players = []) {
+  return players.reduce((out, player) => {
+    const key = ["GK", "DEF"].includes(player.position) ? "defensive" : "attacking";
+    out[key] += Number(player.price || 0);
+    return out;
+  }, { defensive: 0, attacking: 0 });
 }
 
 describe("Prediction Addiction suggested team", () => {
@@ -176,5 +184,188 @@ describe("Prediction Addiction suggested team", () => {
 
     expect(suggestion.status).toBe("ready");
     expect(suggestion.starters.some((player) => player.id === rotationRisk.id)).toBe(false);
+  });
+
+  test("excludes available forwards with Gabriel Jesus-style rotation evidence", () => {
+    const gabrielJesusProfile = makePlayer("gabriel-jesus", "FWD", "ARS", 6, {
+      availabilityStatus: "available",
+      externalMetadata: {
+        form: 0,
+        pointsPerGame: 1.7,
+        selectedByPercent: 0.4,
+        minutes: 418,
+        starts: 3,
+        totalPoints: 24,
+      },
+    });
+    const suggestion = createFantasySuggestedTeam({
+      players: [gabrielJesusProfile, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+    });
+
+    expect(suggestion.status).toBe("ready");
+    expect(suggestion.players.some((player) => player.id === gabrielJesusProfile.id)).toBe(false);
+  });
+
+  test("attacking and defensive styles prefer different starting shapes", () => {
+    const players = makePool();
+    const clubOutlooks = makeOutlooks();
+    const attacking = createFantasySuggestedTeam({
+      players,
+      clubOutlooks,
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "attacking",
+    });
+    const defensive = createFantasySuggestedTeam({
+      players,
+      clubOutlooks,
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+    const attackingCounts = attacking.starters.reduce((out, player) => ({ ...out, [player.position]: (out[player.position] || 0) + 1 }), {});
+    const defensiveCounts = defensive.starters.reduce((out, player) => ({ ...out, [player.position]: (out[player.position] || 0) + 1 }), {});
+
+    expect(attacking.status).toBe("ready");
+    expect(defensive.status).toBe("ready");
+    expect(attacking.style).toBe("attacking");
+    expect(defensive.style).toBe("defensive");
+    expect(attacking.formation).toBe("3-4-3");
+    expect(["5-4-1", "5-3-2"]).toContain(defensive.formation);
+    expect(attackingCounts.FWD).toBeGreaterThanOrEqual(defensiveCounts.FWD);
+    expect(defensiveCounts.DEF).toBeGreaterThanOrEqual(attackingCounts.DEF);
+  });
+
+  test("style changes where the budget is concentrated", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("premium-att-mid", "MID", "MCI", 12, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 40, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-att-fwd", "FWD", "LIV", 13, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 40, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-def-gk", "GK", "NEW", 6.5, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 35, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-def-def", "DEF", "AVL", 7.5, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 35, minutes: 900, starts: 10 },
+      }),
+    ];
+    const clubOutlooks = makeOutlooks();
+    const attacking = createFantasySuggestedTeam({
+      players,
+      clubOutlooks,
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "attacking",
+    });
+    const defensive = createFantasySuggestedTeam({
+      players,
+      clubOutlooks,
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+    const attackingSpend = spendByGroup(attacking.players);
+    const defensiveSpend = spendByGroup(defensive.players);
+
+    expect(attackingSpend.attacking).toBeGreaterThan(defensiveSpend.attacking);
+    expect(defensiveSpend.defensive).toBeGreaterThan(attackingSpend.defensive);
+  });
+
+  test("starting XI requires stronger minutes evidence than bench", () => {
+    const benchCover = makePlayer("bench-cover", "MID", "MCI", 4.5, {
+      externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 10, minutes: 450, starts: 5 },
+    });
+    const basePool = makePool();
+    const highMids = Array.from(
+      basePool
+        .filter((player) => player.position === "MID")
+        .reduce((map, player) => (map.has(player.teamCode) ? map : map.set(player.teamCode, player)), new Map())
+        .values()
+    ).slice(0, 4);
+    const players = [
+      benchCover,
+      ...basePool.filter((player) => player.position !== "MID"),
+      ...highMids,
+    ];
+    const suggestion = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(suggestion.players.some((player) => player.id === benchCover.id)).toBe(true);
+    expect(suggestion.starters.some((player) => player.id === benchCover.id)).toBe(false);
+  });
+
+  test("avoids tripling up on clubs when comparable alternatives exist", () => {
+    const suggestion = createFantasySuggestedTeam({
+      players: makePool(),
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(suggestion.status).toBe("ready");
+    expect(Math.max(...Object.values(suggestion.clubCounts))).toBeLessThanOrEqual(2);
+  });
+
+  test("allows a third club player when the outlook clearly warrants it", () => {
+    const standoutPlayers = [
+      makePlayer("ars-premium-fwd", "FWD", "ARS", 13, {
+        externalMetadata: { form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 },
+      }),
+      makePlayer("ars-premium-mid", "MID", "ARS", 12, {
+        externalMetadata: { form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 },
+      }),
+      makePlayer("ars-premium-def", "DEF", "ARS", 7.5, {
+        externalMetadata: { form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 },
+      }),
+    ];
+    const outlooks = {
+      ...makeOutlooks(),
+      ARS: { overallScore: 100, attackScore: 100, defenceScore: 100, fixtureCount: 3, fixtures: [{ overallScore: 100, attackScore: 100, defenceScore: 100 }] },
+    };
+    const suggestion = createFantasySuggestedTeam({
+      players: [...standoutPlayers, ...makePool()],
+      clubOutlooks: outlooks,
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(suggestion.status).toBe("ready");
+    expect(suggestion.clubCounts.ARS).toBe(3);
+  });
+
+  test("does not present sub-85 drafts as strong recommendations", () => {
+    const suggestion = createFantasySuggestedTeam({
+      players: makePool(),
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport: ({ squad }) => ({ overallScore: 72, categories: {}, players: squad.players }),
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(suggestion.status).toBe("review");
+    expect(suggestion.overallScore).toBe(72);
+    expect(suggestion.warnings.join(" ")).toMatch(/No strong 85\+/);
   });
 });
