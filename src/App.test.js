@@ -16,6 +16,7 @@ import {
   buildGeneratedModelOdds,
   buildWeightedNextFixtureOutlook,
   buildPremierLeagueTableRows,
+  buildFantasyIqScoredReport,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -77,6 +78,125 @@ describe("2026/27 Premier League data", () => {
     expect(getTeamCode("Coventry City FC")).toBe("COV");
     expect(getTeamCode("Hull City AFC")).toBe("HUL");
     expect(getTeamCode("Ipswich Town FC")).toBe("IPS");
+  });
+});
+
+describe("Fantasy IQ scoring", () => {
+  const squadPlayers = [
+    ["p1", "Goalkeeper One", "ARS", "GK", "starter"],
+    ["p2", "Defender One", "ARS", "DEF", "starter"],
+    ["p3", "Defender Two", "CHE", "DEF", "starter"],
+    ["p4", "Defender Three", "LIV", "DEF", "starter"],
+    ["p5", "Midfielder One", "MCI", "MID", "starter"],
+    ["p6", "Midfielder Two", "NEW", "MID", "starter"],
+    ["p7", "Midfielder Three", "AVL", "MID", "starter"],
+    ["p8", "Midfielder Four", "BHA", "MID", "starter"],
+    ["p9", "Forward One", "TOT", "FWD", "starter"],
+    ["p10", "Forward Two", "MUN", "FWD", "starter"],
+    ["p11", "Forward Three", "BOU", "FWD", "starter"],
+    ["p12", "Bench Goalkeeper", "EVE", "GK", "bench"],
+    ["p13", "Bench Defender", "FUL", "DEF", "bench"],
+    ["p14", "Bench Midfielder", "BRE", "MID", "bench"],
+    ["p15", "Bench Forward", "CRY", "FWD", "bench"],
+  ];
+
+  function makeFantasyIqSquad(playerOverrides = {}) {
+    return {
+      confirmed: true,
+      captainPlayerId: "p5",
+      viceCaptainPlayerId: "p9",
+      players: squadPlayers.map(([id, name, teamCode, position, squadRole]) => ({
+        id,
+        name,
+        displayName: name,
+        teamCode,
+        teamName: teamCode,
+        position,
+        squadRole,
+        availabilityStatus: "available",
+        price: 5,
+        priceTenths: 50,
+        ...(playerOverrides[id] || {}),
+      })),
+    };
+  }
+
+  function makeFantasyIqValidation() {
+    return {
+      isValid: true,
+      errors: [],
+      warnings: [],
+      summary: {
+        starterPositionCounts: { GK: 1, DEF: 3, MID: 4, FWD: 3 },
+        clubCounts: Object.fromEntries(squadPlayers.map(([, , teamCode]) => [teamCode, 1])),
+        budget: { complete: true, totalCost: 75, remaining: 25, budgetLimit: 100, pricedPlayerCount: 15, totalPlayers: 15 },
+      },
+    };
+  }
+
+  function makeClubOutlooks(score) {
+    return Object.fromEntries(
+      squadPlayers.map(([, , teamCode]) => [
+        teamCode,
+        {
+          teamCode,
+          overallScore: score,
+          attackScore: score,
+          defenceScore: score,
+          confidenceScore: 80,
+          fixtures: [{ overallScore: score, attackScore: score, defenceScore: score }],
+        },
+      ])
+    );
+  }
+
+  test("spreads strong and weak squads away from the middle", () => {
+    const validation = makeFantasyIqValidation();
+    const strong = buildFantasyIqScoredReport({
+      squad: makeFantasyIqSquad(),
+      validation,
+      clubOutlooks: makeClubOutlooks(78),
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+    const weak = buildFantasyIqScoredReport({
+      squad: makeFantasyIqSquad(),
+      validation,
+      clubOutlooks: makeClubOutlooks(28),
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(strong.overallScore).toBeGreaterThan(70);
+    expect(weak.overallScore).toBeLessThan(45);
+    expect(strong.overallScore - weak.overallScore).toBeGreaterThan(30);
+  });
+
+  test("penalises unavailable and doubtful players in the main score", () => {
+    const validation = makeFantasyIqValidation();
+    const healthy = buildFantasyIqScoredReport({
+      squad: makeFantasyIqSquad(),
+      validation,
+      clubOutlooks: makeClubOutlooks(72),
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+    const injured = buildFantasyIqScoredReport({
+      squad: makeFantasyIqSquad({
+        p5: {
+          availabilityStatus: "unavailable",
+          externalMetadata: { chanceOfPlayingNextRound: 0, news: "Injured" },
+        },
+        p9: {
+          availabilityStatus: "doubtful",
+          externalMetadata: { chanceOfPlayingNextRound: 50, news: "Knock" },
+        },
+      }),
+      validation,
+      clubOutlooks: makeClubOutlooks(72),
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(healthy.overallScore - injured.overallScore).toBeGreaterThanOrEqual(5);
+    expect(injured.concerns.join(" ")).toMatch(/Availability risk/);
+    expect(injured.diagnostics.availabilityRisks).toBe(2);
   });
 });
 

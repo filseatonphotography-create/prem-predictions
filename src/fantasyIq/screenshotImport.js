@@ -78,6 +78,12 @@ const FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT = [
   { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.734, y: 0.75, width: 0.22, height: 0.12 } },
 ];
 
+export const FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT = FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => ({
+  id: slot.id,
+  role: slot.role,
+  position: slot.position,
+}));
+
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
   idle: "idle",
   selected: "image selected",
@@ -1258,6 +1264,137 @@ export function removeFantasyScreenshotReviewSlot(review, slotId) {
   };
 }
 
+export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT) {
+  const layoutSlots = (layout || []).map((slot, index) => ({ ...slot, index }));
+  const assignedSlotIds = new Set();
+  const assignedLayoutIds = new Set();
+  const slotByExplicitLayoutId = new Map();
+
+  (slots || []).forEach((slot) => {
+    const layoutId = slot?.extracted?.sourceRegion?.id;
+    if (!layoutId || slotByExplicitLayoutId.has(layoutId)) return;
+    if (!layoutSlots.some((layoutSlot) => layoutSlot.id === layoutId)) return;
+    slotByExplicitLayoutId.set(layoutId, slot);
+  });
+
+  const items = layoutSlots.map((layoutSlot) => {
+    const explicitSlot = slotByExplicitLayoutId.get(layoutSlot.id);
+    if (explicitSlot) {
+      assignedSlotIds.add(explicitSlot.id);
+      assignedLayoutIds.add(layoutSlot.id);
+      return { type: "slot", id: explicitSlot.id, slot: explicitSlot, layoutSlot };
+    }
+    return { type: "missing", id: `missing-review-slot-${layoutSlot.id}`, role: layoutSlot.role, position: layoutSlot.position, layoutSlot };
+  });
+
+  (slots || []).forEach((slot) => {
+    if (!slot?.id || assignedSlotIds.has(slot.id)) return;
+    const slotRole = ["starter", "bench"].includes(slot.role) ? slot.role : slot.extracted?.rawSquadRole;
+    const slotPosition = slot.selectedPlayer?.position || slot.extracted?.rawPosition;
+    const itemIndex = items.findIndex((item) => {
+      if (item.type !== "missing" || assignedLayoutIds.has(item.layoutSlot.id)) return false;
+      if (slotRole && item.role !== slotRole) return false;
+      return !slotPosition || item.position === slotPosition;
+    });
+    if (itemIndex < 0) {
+      items.push({ type: "slot", id: slot.id, slot, layoutSlot: null });
+      assignedSlotIds.add(slot.id);
+      return;
+    }
+    assignedLayoutIds.add(items[itemIndex].layoutSlot.id);
+    assignedSlotIds.add(slot.id);
+    items[itemIndex] = { type: "slot", id: slot.id, slot, layoutSlot: items[itemIndex].layoutSlot };
+  });
+
+  const positionCounts = {};
+  return items.map((item) => {
+    const position = item.type === "missing" ? item.position : item.layoutSlot?.position || item.slot?.selectedPlayer?.position || item.slot?.extracted?.rawPosition || "";
+    if (position) positionCounts[position] = (positionCounts[position] || 0) + 1;
+    return {
+      ...item,
+      position,
+      positionNumber: position ? positionCounts[position] : null,
+    };
+  });
+}
+
+function getFantasyScreenshotRecoveryLayoutSlots(review = {}, layoutSlots = []) {
+  if (!review || !(layoutSlots || []).length) return [];
+  const layoutById = new Map((layoutSlots || []).map((slot) => [slot.id, slot]));
+  return buildFantasyScreenshotReviewDisplaySlots(review.extractedSlots || [], layoutSlots)
+    .filter((item) => {
+      if (!item.layoutSlot?.id) return false;
+      if (item.type === "missing") return true;
+      return !item.slot?.selectedPlayerId || ["ambiguous", "unmatched"].includes(item.slot?.status);
+    })
+    .map((item) => layoutById.get(item.layoutSlot.id))
+    .filter((slot) => slot?.boundingBox && Number(slot.boundingBox.width) && Number(slot.boundingBox.height));
+}
+
+async function recoverFantasyScreenshotMissingLayoutSlots({
+  attempt,
+  imageSource,
+  layoutSlots = [],
+  players = [],
+  teams = [],
+  parseHeight = 0,
+  onStatus = () => {},
+  signal,
+  slotOcrRunner = null,
+  canUseDefaultSlotOcr = true,
+  pageSegMode = "7",
+} = {}) {
+  const missingLayoutSlots = getFantasyScreenshotRecoveryLayoutSlots(attempt?.review, layoutSlots);
+  if (!missingLayoutSlots.length) return attempt;
+  if (!slotOcrRunner && !canUseDefaultSlotOcr) return attempt;
+
+  onStatus(`Rechecking ${missingLayoutSlots.length} missing screenshot ${missingLayoutSlots.length === 1 ? "slot" : "slots"}`);
+  const recoveryOcr = await (slotOcrRunner || runFantasyScreenshotSlotOcr)(imageSource, missingLayoutSlots, {
+    onStatus,
+    signal,
+    pageSegMode,
+  });
+  const combinedBlocks = [...(attempt?.ocr?.blocks || []), ...(recoveryOcr.blocks || [])];
+  const candidates = parseFantasyScreenshotCandidates(combinedBlocks, {
+    players,
+    teams,
+    imageHeight: parseHeight,
+    layoutSlots,
+  });
+  const review = buildFantasyScreenshotReview({
+    extractedSlots: candidates,
+    players,
+    teams,
+    imageMetadata: {
+      ...(attempt?.review?.imageMetadata || {}),
+      targetedRecoverySlotCount: missingLayoutSlots.length,
+      targetedRecoveryTextBlockCount: recoveryOcr.blocks?.length || 0,
+      ocrTextBlockCount: combinedBlocks.length,
+    },
+  });
+  const quality = scoreFantasyScreenshotOcrQuality({ blocks: combinedBlocks, candidates, review });
+  const recoveredAttempt = {
+    ...attempt,
+    region: `${attempt.region}+targeted-slots`,
+    ocr: {
+      ...(attempt?.ocr || {}),
+      blocks: combinedBlocks,
+      raw: {
+        ...(attempt?.ocr?.raw || {}),
+        targetedRecovery: recoveryOcr.raw || null,
+      },
+    },
+    candidates,
+    review,
+    quality,
+    targetedRecovery: {
+      slotCount: missingLayoutSlots.length,
+      textBlockCount: recoveryOcr.blocks?.length || 0,
+    },
+  };
+  return selectBestFantasyScreenshotOcrAttempt([attempt, recoveredAttempt]);
+}
+
 export function convertFantasyScreenshotReviewToSquad(review = {}) {
   const slots = review.extractedSlots || [];
   return {
@@ -1599,9 +1736,6 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
     { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant, region: "bench-area", pageSegMode: "6", crop: { x: 0, y: 0.58, width: 1, height: 0.42 } },
   ];
   const attempts = [];
-  const hasUsableLayoutAttempt = (attempt = null) =>
-    attempt?.layout === "fpl-pitch" &&
-    ((attempt.quality?.matchedPlayerCount || 0) > 0 || (attempt.quality?.candidateCount || 0) > 0);
   for (let index = 0; index < attemptPlans.length; index += 1) {
     const plan = attemptPlans[index];
     if (plan.slotLayout && ocrRunner !== runFantasyScreenshotOcr && !slotOcrRunner) continue;
@@ -1637,13 +1771,28 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         },
       });
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });
-      const attempt = { variant: preprocessed.variant, region: plan.region, layout: plan.layout || null, ocr, candidates, review, quality };
+      let attempt = { variant: preprocessed.variant, region: plan.region, layout: plan.layout || null, ocr, candidates, review, quality };
+      if (plan.layout === "fpl-pitch") {
+        attempt = await recoverFantasyScreenshotMissingLayoutSlots({
+          attempt,
+          imageSource: preprocessed.source || decoded?.url,
+          layoutSlots,
+          players,
+          teams,
+          parseHeight,
+          onStatus,
+          signal,
+          slotOcrRunner,
+          canUseDefaultSlotOcr: ocrRunner === runFantasyScreenshotOcr,
+          pageSegMode: "7",
+        });
+      }
       attempts.push(attempt);
-      if (plan.slotLayout && hasUsableLayoutAttempt(attempt)) return attempt;
+      if (plan.slotLayout && (attempt.quality?.matchedPlayerCount || 0) >= 11) return attempt;
       const layoutAttemptCount = attempts.filter((attemptItem) => attemptItem.layout === "fpl-pitch").length;
       if (layoutAttemptCount >= 2) {
         const bestLayout = selectBestFantasyScreenshotOcrAttempt(attempts);
-        if (hasUsableLayoutAttempt(bestLayout)) return bestLayout;
+        if ((bestLayout?.quality?.matchedPlayerCount || 0) >= 11) return bestLayout;
       }
       if (!quality.needsFallback && quality.matchedPlayerCount >= 11) {
         return selectBestFantasyScreenshotOcrAttempt(attempts);
@@ -1670,7 +1819,12 @@ export function selectBestFantasyScreenshotOcrAttempt(attempts = []) {
   });
   const layoutAttempts = sortAttempts((attempts || []).filter((attempt) => attempt.layout === "fpl-pitch"));
   const bestLayout = layoutAttempts[0] || null;
-  if ((bestLayout?.quality?.matchedPlayerCount || 0) > 0 || (bestLayout?.quality?.candidateCount || 0) > 0) return bestLayout;
+  if (
+    (bestLayout?.quality?.matchedPlayerCount || 0) >= FANTASY_SCREENSHOT_IMPORT_CONFIG.qualityThresholds.minimumMatchedPlayers ||
+    (bestLayout?.quality?.candidateCount || 0) >= FANTASY_SCREENSHOT_IMPORT_CONFIG.qualityThresholds.minimumCandidates
+  ) {
+    return bestLayout;
+  }
   return sortAttempts(attempts)[0] || null;
 }
 

@@ -15,6 +15,7 @@ import {
 import {
   FANTASY_SCREENSHOT_IMPORT_CONFIG,
   addFantasyScreenshotReviewPlayer,
+  buildFantasyScreenshotReviewDisplaySlots,
   createFantasyScreenshotFeedbackSummary,
   createFantasyScreenshotImportSummary,
   convertFantasyScreenshotReviewToSquad,
@@ -895,6 +896,19 @@ const FANTASY_IQ_SCORE_CONFIG = {
   predictionAlignment: 0.1,
   benchStrength: 0.05,
   expectedGoalsRange: { min: 0.4, max: 2.6 },
+  sensitivity: {
+    curveExponent: 0.8,
+    fixtureCategorySpread: 1.2,
+    structuralCategorySpread: 0.85,
+    overallSpread: 1.12,
+  },
+  availabilityMultipliers: {
+    available: 1,
+    doubtful: 0.72,
+    unavailable: 0.18,
+    unknown: 1,
+  },
+  availabilityChanceFloor: 0.15,
   clubFixtureWeights: {
     overallExpectedPoints: 0.6,
     overallDifficulty: 0.4,
@@ -1416,20 +1430,58 @@ function formatFantasyIqScore(value) {
 
 function fantasyIqDifficultyToScore(difficultyScore) {
   const difficulty = clampNumber(difficultyScore, 1, 5);
-  return ((5 - difficulty) / 4) * 100;
+  return applyFantasyIqSensitivityCurve(((5 - difficulty) / 4) * 100);
 }
 
 function fantasyIqExpectedPointsToScore(expectedPoints) {
-  return (clampNumber(expectedPoints, 0, 3) / 3) * 100;
+  return applyFantasyIqSensitivityCurve((clampNumber(expectedPoints, 0, 3) / 3) * 100);
 }
 
 function fantasyIqExpectedGoalsToScore(expectedGoals) {
   const range = FANTASY_IQ_SCORE_CONFIG.expectedGoalsRange;
-  return ((clampNumber(expectedGoals, range.min, range.max) - range.min) / (range.max - range.min)) * 100;
+  return applyFantasyIqSensitivityCurve(
+    ((clampNumber(expectedGoals, range.min, range.max) - range.min) / (range.max - range.min)) * 100
+  );
 }
 
 function fantasyIqProbabilityToScore(probability) {
-  return clampNumber(probability, 0, 1) * 100;
+  return applyFantasyIqSensitivityCurve(clampNumber(probability, 0, 1) * 100);
+}
+
+function applyFantasyIqSensitivityCurve(score, exponent = FANTASY_IQ_SCORE_CONFIG.sensitivity.curveExponent) {
+  const ratio = clampNumber(score, 0, 100) / 100;
+  if (ratio === 0.5) return 50;
+  const distance = Math.abs(ratio - 0.5) * 2;
+  const curvedDistance = Math.pow(distance, Math.max(0.25, Number(exponent) || 1));
+  return clampNumber(50 + Math.sign(ratio - 0.5) * curvedDistance * 50, 0, 100);
+}
+
+function spreadFantasyIqScore(score, factor = 1) {
+  if (score == null) return null;
+  return clampFantasyIqScore(50 + (Number(score) - 50) * factor);
+}
+
+function getFantasyIqAvailabilityMultiplier(player = {}) {
+  const status = String(player.availabilityStatus || "unknown").toLowerCase();
+  const statusMultiplier =
+    FANTASY_IQ_SCORE_CONFIG.availabilityMultipliers[status] ??
+    FANTASY_IQ_SCORE_CONFIG.availabilityMultipliers.unknown;
+  const chanceCandidates = [
+    player.externalMetadata?.chanceOfPlayingNextRound,
+    player.externalMetadata?.chanceOfPlayingThisRound,
+  ];
+  const chance = chanceCandidates
+    .map((value) => Number(value))
+    .find((value) => Number.isFinite(value) && value >= 0 && value <= 100);
+  if (chance == null) return statusMultiplier;
+  return Math.min(statusMultiplier, clampNumber(chance / 100, FANTASY_IQ_SCORE_CONFIG.availabilityChanceFloor, 1));
+}
+
+function applyFantasyIqPlayerAvailability(player = {}, score) {
+  if (score == null) return null;
+  const multiplier = getFantasyIqAvailabilityMultiplier(player);
+  const replacementFloor = player.squadRole === "starter" ? 8 : 18;
+  return clampNumber(replacementFloor + (Number(score) - replacementFloor) * multiplier, 0, 100);
 }
 
 function getFantasyIqWeightedAverage(items = [], selector = (item) => item, weightSelector = () => 1) {
@@ -1678,16 +1730,25 @@ function getFantasyIqPlayerOutlook(player, clubOutlook) {
         : clubOutlook?.overallScore,
   }));
   const score = getFantasyIqWeightedAverage(weightedScores, (item) => item.value, (item) => item.weight);
+  const availabilityAdjustedScore = applyFantasyIqPlayerAvailability(player, score);
+  const availabilityAdjustedOverall = applyFantasyIqPlayerAvailability(player, clubOutlook?.overallScore);
+  const availabilityAdjustedAttack = applyFantasyIqPlayerAvailability(player, clubOutlook?.attackScore);
+  const availabilityAdjustedDefence = applyFantasyIqPlayerAvailability(player, clubOutlook?.defenceScore);
   return {
-    score,
-    overallScore: clubOutlook?.overallScore ?? null,
-    attackScore: clubOutlook?.attackScore ?? null,
-    defenceScore: clubOutlook?.defenceScore ?? null,
+    score: availabilityAdjustedScore,
+    rawScore: score,
+    overallScore: availabilityAdjustedOverall,
+    attackScore: availabilityAdjustedAttack,
+    defenceScore: availabilityAdjustedDefence,
+    rawOverallScore: clubOutlook?.overallScore ?? null,
+    rawAttackScore: clubOutlook?.attackScore ?? null,
+    rawDefenceScore: clubOutlook?.defenceScore ?? null,
+    availabilityMultiplier: getFantasyIqAvailabilityMultiplier(player),
     nextFixture: clubOutlook?.fixtures?.[0] || null,
   };
 }
 
-function buildFantasyIqScoredReport({
+export function buildFantasyIqScoredReport({
   squad = createEmptyFantasyIqSquad(),
   validation = validateFantasyIqSquad(squad),
   clubOutlooks = {},
@@ -1720,9 +1781,11 @@ function buildFantasyIqScoredReport({
       clubOutlook,
       predictionOutlook,
       fantasyIqScore: playerOutlook.score,
+      fantasyIqRawScore: playerOutlook.rawScore,
       fantasyIqOverallScore: playerOutlook.overallScore,
       fantasyIqAttackScore: playerOutlook.attackScore,
       fantasyIqDefenceScore: playerOutlook.defenceScore,
+      fantasyIqAvailabilityMultiplier: playerOutlook.availabilityMultiplier,
       nextFixture: playerOutlook.nextFixture,
       contributionWeight: getFantasyIqPlayerContributionWeight(player),
     };
@@ -1742,12 +1805,13 @@ function buildFantasyIqScoredReport({
     (player) => player.contributionWeight
   );
   const uniqueClubFixtureAverage = getFantasyIqWeightedAverage(uniqueClubOutlooks, (outlook) => outlook.overallScore);
-  report.categories.fixtureOutlook = clampFantasyIqScore(
+  report.categories.fixtureOutlook = spreadFantasyIqScore(
     (playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.playerAverage +
-      (uniqueClubFixtureAverage || playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.uniqueClubAverage
+      (uniqueClubFixtureAverage || playerFixtureAverage || 0) * FANTASY_IQ_SCORE_CONFIG.fixtureOutlookWeights.uniqueClubAverage,
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
   );
 
-  report.categories.attackOutlook = clampFantasyIqScore(
+  report.categories.attackOutlook = spreadFantasyIqScore(
     getFantasyIqWeightedAverage(
       attackers,
       (player) => {
@@ -1755,15 +1819,17 @@ function buildFantasyIqScoredReport({
         return ((player.fantasyIqAttackScore ?? player.fantasyIqScore) || 0) * positionBoost;
       },
       (player) => player.contributionWeight
-    )
+    ),
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
   );
 
-  report.categories.defenceOutlook = clampFantasyIqScore(
+  report.categories.defenceOutlook = spreadFantasyIqScore(
     getFantasyIqWeightedAverage(
       defenders,
       (player) => player.fantasyIqDefenceScore ?? player.fantasyIqScore,
       (player) => player.contributionWeight
-    )
+    ),
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
   );
 
   const captainScore = captain
@@ -1787,7 +1853,7 @@ function buildFantasyIqScoredReport({
         (item) => item.weight
       )
     : null;
-  report.categories.captaincyOutlook = clampFantasyIqScore(
+  report.categories.captaincyOutlook = spreadFantasyIqScore(
     getFantasyIqWeightedAverage(
       [
         { value: captainScore, weight: FANTASY_IQ_SCORE_CONFIG.captaincyWeights.captain },
@@ -1795,7 +1861,8 @@ function buildFantasyIqScoredReport({
       ],
       (item) => item.value,
       (item) => item.weight
-    )
+    ),
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
   );
 
   const starterPositionCounts = validation.summary?.starterPositionCounts || {};
@@ -1843,12 +1910,13 @@ function buildFantasyIqScoredReport({
     ...budgetSummary,
     valueEfficiencyScore,
   };
-  report.categories.squadBalance = clampFantasyIqScore(
+  report.categories.squadBalance = spreadFantasyIqScore(
     formationScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.formation +
       clubDiversificationScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.clubDiversification +
       starterCoverageScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.starterCoverage +
       benchCoverScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.benchCover +
-      valueEfficiencyScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.valueEfficiency
+      valueEfficiencyScore * FANTASY_IQ_SCORE_CONFIG.squadBalanceWeights.valueEfficiency,
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.structuralCategorySpread
   );
 
   const predictedPlayers = enrichedPlayers.filter((player) => player.predictionOutlook?.predictionCount);
@@ -1871,10 +1939,11 @@ function buildFantasyIqScoredReport({
       (player) => player.predictionOutlook.overallScore,
       (player) => player.contributionWeight
     );
-    report.categories.predictionAlignment = clampFantasyIqScore(
+    report.categories.predictionAlignment = spreadFantasyIqScore(
       (starterPredictionScore || squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.starters +
         (captainPredictionScore || squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.captains +
-        (squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.squad
+        (squadPredictionScore || 0) * FANTASY_IQ_SCORE_CONFIG.predictionAlignmentWeights.squad,
+      FANTASY_IQ_SCORE_CONFIG.sensitivity.fixtureCategorySpread
     );
   }
 
@@ -1883,9 +1952,10 @@ function buildFantasyIqScoredReport({
     (player) => player.fantasyIqScore,
     (player) => (player.position === "GK" ? 0.75 : 1)
   );
-  report.categories.benchStrength = clampFantasyIqScore(
+  report.categories.benchStrength = spreadFantasyIqScore(
     (benchOutlookScore || 0) * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchOutlook +
-      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchCoverage
+      benchCoverScore * FANTASY_IQ_SCORE_CONFIG.benchStrengthWeights.benchCoverage,
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.structuralCategorySpread
   );
 
   const availableCategoryEntries = Object.entries(report.categories).filter(([, value]) => value != null);
@@ -1893,11 +1963,12 @@ function buildFantasyIqScoredReport({
     (sum, [key]) => sum + Number(FANTASY_IQ_SCORE_CONFIG[key] || 0),
     0
   );
-  report.overallScore = clampFantasyIqScore(
+  report.overallScore = spreadFantasyIqScore(
     availableCategoryEntries.reduce(
       (sum, [key, value]) => sum + Number(value || 0) * (Number(FANTASY_IQ_SCORE_CONFIG[key] || 0) / availableWeightTotal),
       0
-    )
+    ),
+    FANTASY_IQ_SCORE_CONFIG.sensitivity.overallSpread
   );
 
   const modelConfidenceAverage = getFantasyIqWeightedAverage(uniqueClubOutlooks, (outlook) => outlook.confidenceScore);
@@ -1931,6 +2002,9 @@ function buildFantasyIqScoredReport({
     .sort((a, b) => a.fantasyIqScore - b.fantasyIqScore)
     .slice(0, 2);
   const benchUpside = bench.filter((player) => Number(player.fantasyIqScore || 0) >= 70);
+  const flaggedAvailability = enrichedPlayers
+    .filter((player) => ["doubtful", "unavailable"].includes(String(player.availabilityStatus || "").toLowerCase()))
+    .sort((a, b) => getFantasyIqPlayerContributionWeight(b) - getFantasyIqPlayerContributionWeight(a));
 
   if (bestStarters.length) {
     report.strengths.push(
@@ -1977,6 +2051,18 @@ function buildFantasyIqScoredReport({
         .join(", ")}.`
     );
   }
+  if (flaggedAvailability.length) {
+    report.concerns.push(
+      `Availability risk: ${flaggedAvailability
+        .slice(0, 3)
+        .map((player) => {
+          const chance = Number(player.externalMetadata?.chanceOfPlayingNextRound ?? player.externalMetadata?.chanceOfPlayingThisRound);
+          const chanceText = Number.isFinite(chance) ? `, ${chance}% chance` : "";
+          return `${player.name} (${player.availabilityStatus}${chanceText})`;
+        })
+        .join(", ")}.`
+    );
+  }
   if (report.categories.predictionAlignment == null) {
     report.concerns.push("Prediction alignment is locked until upcoming score predictions exist for your squad's clubs.");
   }
@@ -2015,6 +2101,7 @@ function buildFantasyIqScoredReport({
     modelConfidenceAverage: modelConfidenceAverage == null ? null : clampFantasyIqScore(modelConfidenceAverage),
     unresolvedPlayerCount: unresolvedCount,
     playerDataSource: playerDataStatus?.source || null,
+    availabilityRisks: flaggedAvailability.length,
   };
 
   return report;
@@ -11990,24 +12077,7 @@ useEffect(() => {
     const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
-    const fantasyScreenshotVisiblePositionCounts = fantasyScreenshotReviewSlots.reduce((out, slot) => {
-      const position = slot.selectedPlayer?.position || slot.extracted?.rawPosition;
-      if (FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[position]) {
-        out[position] = (out[position] || 0) + 1;
-      }
-      return out;
-    }, {});
-    const fantasyScreenshotMissingPositionSlots = FANTASY_IQ_POSITIONS.flatMap((position) => {
-      const expected = FANTASY_IQ_EXPECTED_SQUAD_COMPOSITION.positions[position] || 0;
-      const current = fantasyScreenshotVisiblePositionCounts[position] || 0;
-      return Array.from({ length: Math.max(0, expected - current) }, (_, index) => ({
-        position,
-        number: current + index + 1,
-      }));
-    });
-    const fantasyScreenshotMissingPlayerCount = Math.max(0, 15 - fantasyScreenshotReviewSlots.length);
-    const fantasyScreenshotVisibleStarterCount = fantasyScreenshotReviewSlots.filter((slot) => slot.role === "starter").length;
-    const fantasyScreenshotMissingStarterCount = Math.max(0, 11 - fantasyScreenshotVisibleStarterCount);
+    const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(fantasyScreenshotReviewSlots);
     const fantasyScreenshotPartialSummaryText = fantasyScreenshotReview && fantasyScreenshotSelectedCount >= 11 && fantasyScreenshotSelectedCount < 15
       ? `Starting XI detected. Add ${15 - fantasyScreenshotSelectedCount} bench players before importing a full Fantasy IQ squad.`
       : "";
@@ -13043,10 +13113,13 @@ useEffect(() => {
         </div>
       );
     };
-    const renderFantasyScreenshotMissingPlayerSlot = (index) => {
-      const slotId = `missing-review-slot-${index}`;
-      const role = index < fantasyScreenshotMissingStarterCount ? "starter" : "bench";
-      const positionSlot = fantasyScreenshotMissingPositionSlots[index] || {};
+    const renderFantasyScreenshotMissingPlayerSlot = (item) => {
+      const slotId = item.id;
+      const role = item.role || "bench";
+      const positionSlot = {
+        position: item.position,
+        number: item.positionNumber,
+      };
       const positionLabel =
         positionSlot.position === "GK"
           ? "Goalkeeper"
@@ -13086,7 +13159,7 @@ useEffect(() => {
             <div style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${theme.line}`, background: "rgba(255,255,255,0.04)" }} />
             <div style={{ minWidth: 0 }}>
               <div style={{ color: theme.warn, fontSize: 13, fontWeight: 950 }}>
-                {positionLabel} {positionSlot.number || index + 1}
+                {positionLabel} {positionSlot.number || ""}
               </div>
               <div style={{ color: theme.muted, fontSize: 11, fontWeight: 850 }}>
                 {role === "starter" ? "Starter" : "Bench"} · Search to add manually
@@ -13252,9 +13325,10 @@ useEffect(() => {
               )}
             </div>
             <div style={{ display: "grid", gap: 8 }}>
-              {(fantasyScreenshotReview.extractedSlots || []).map(renderFantasyScreenshotReviewSlot)}
-              {Array.from({ length: fantasyScreenshotMissingPlayerCount }, (_, index) =>
-                renderFantasyScreenshotMissingPlayerSlot(index)
+              {fantasyScreenshotReviewDisplaySlots.map((item) =>
+                item.type === "slot"
+                  ? renderFantasyScreenshotReviewSlot(item.slot)
+                  : renderFantasyScreenshotMissingPlayerSlot(item)
               )}
             </div>
             <div

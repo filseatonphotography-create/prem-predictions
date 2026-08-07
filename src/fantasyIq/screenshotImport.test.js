@@ -1,5 +1,6 @@
 import {
   addFantasyScreenshotReviewPlayer,
+  buildFantasyScreenshotReviewDisplaySlots,
   buildFantasyScreenshotReview,
   calculateFantasyScreenshotImportConfidence,
   createFantasyScreenshotFeedbackSummary,
@@ -418,6 +419,60 @@ describe("Fantasy screenshot review and import conversion", () => {
     expect(review.unresolvedCount).toBe(1);
   });
 
+  test("review display keeps missing screenshot slots inline", () => {
+    const slots = [
+      {
+        id: "slot-gk",
+        role: "starter",
+        selectedPlayerId: "gk",
+        selectedPlayer: { id: "gk", position: "GK" },
+        extracted: { rawPosition: "GK", rawSquadRole: "starter", sourceRegion: { id: "starter-gk-1" } },
+      },
+      {
+        id: "slot-def-left",
+        role: "starter",
+        selectedPlayerId: "def-left",
+        selectedPlayer: { id: "def-left", position: "DEF" },
+        extracted: { rawPosition: "DEF", rawSquadRole: "starter", sourceRegion: { id: "starter-def-1" } },
+      },
+      {
+        id: "slot-def-right",
+        role: "starter",
+        selectedPlayerId: "def-right",
+        selectedPlayer: { id: "def-right", position: "DEF" },
+        extracted: { rawPosition: "DEF", rawSquadRole: "starter", sourceRegion: { id: "starter-def-3" } },
+      },
+    ];
+
+    const display = buildFantasyScreenshotReviewDisplaySlots(slots);
+
+    expect(display.slice(0, 4).map((item) => item.type === "slot" ? item.slot.id : item.id)).toEqual([
+      "slot-gk",
+      "slot-def-left",
+      "missing-review-slot-starter-def-2",
+      "slot-def-right",
+    ]);
+  });
+
+  test("manual review additions are assigned back into layout order", () => {
+    const slots = [
+      {
+        id: "manual-mid",
+        role: "starter",
+        selectedPlayerId: "mid",
+        selectedPlayer: { id: "mid", position: "MID" },
+        extracted: { rawPosition: "MID", rawSquadRole: "starter", sourceRegion: null },
+      },
+    ];
+
+    const display = buildFantasyScreenshotReviewDisplaySlots(slots);
+    const manualIndex = display.findIndex((item) => item.type === "slot" && item.slot.id === "manual-mid");
+
+    expect(display[manualIndex].layoutSlot.id).toBe("starter-mid-1");
+    expect(manualIndex).toBeGreaterThan(display.findIndex((item) => item.id === "missing-review-slot-starter-def-3"));
+    expect(manualIndex).toBeLessThan(display.findIndex((item) => item.id === "missing-review-slot-starter-mid-2"));
+  });
+
   test("cleans noisy OCR review into fifteen ordered squad selections", () => {
     const names = [
       ["Raya", "ARS", "GK"],
@@ -758,15 +813,15 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.variant).toBe("clean");
   });
 
-  test("usable fixed-layout OCR beats noisier broad fallback matches", () => {
+  test("tiny partial fixed-layout OCR does not beat a stronger broad fallback", () => {
     const best = selectBestFantasyScreenshotOcrAttempt([
       { variant: "layout", layout: "fpl-pitch", quality: { score: 30, candidateCount: 2, matchedPlayerCount: 2 }, review: { extractedSlots: [] } },
       { variant: "full", layout: null, quality: { score: 70, candidateCount: 10, matchedPlayerCount: 9 }, review: { extractedSlots: [] } },
     ]);
-    expect(best.variant).toBe("layout");
+    expect(best.variant).toBe("full");
   });
 
-  test("fixed-layout OCR stops before broad fallback when it finds usable players", async () => {
+  test("partial fixed-layout OCR keeps trying broad fallback passes", async () => {
     const fixturePlayers = ["Raya", "Gabriel"].map((name, index) => ({
       id: `layout-stop:${index + 1}`,
       sourceId: index + 1,
@@ -798,9 +853,68 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
       { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner }
     );
 
-    expect(ocrRunner).toHaveBeenCalledTimes(2);
+    expect(ocrRunner).toHaveBeenCalledTimes(7);
     expect(best.region).toBe("fpl-name-labels-threshold");
     expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(["Raya", "Gabriel"]);
+  });
+
+  test("targeted slot recovery rechecks only missing layout locations", async () => {
+    const fixturePlayers = [
+      ["Raya", "GK"],
+      ["Gabriel", "DEF"],
+      ["Saliba", "DEF"],
+    ].map(([name, position], index) => ({
+      id: `targeted:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: "",
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase(),
+      teamCode: "ARS",
+      teamName: "Test",
+      position,
+      positionId: position === "GK" ? 1 : 2,
+      dataSource: "test",
+    }));
+    const boxFor = (slot) => ({
+      x: Math.round(1200 * slot.box.x),
+      y: Math.round(1800 * slot.box.y),
+      width: Math.round(1200 * slot.box.width),
+      height: Math.round(1800 * slot.box.height),
+    });
+    const slotCalls = [];
+    const slotOcrRunner = jest.fn(async (imageSource, layoutSlots) => {
+      slotCalls.push(layoutSlots.map((slot) => slot.id));
+      const blockFor = (slotId, text) => {
+        const slot = [
+          { id: "starter-gk-1", box: { x: 0.41, y: 0.216, width: 0.18, height: 0.02 } },
+          { id: "starter-def-1", box: { x: 0.11, y: 0.344, width: 0.18, height: 0.02 } },
+          { id: "starter-def-2", box: { x: 0.41, y: 0.344, width: 0.18, height: 0.02 } },
+        ].find((item) => item.id === slotId);
+        return { text, confidence: 0.9, strictSlotOcr: true, boundingBox: boxFor(slot) };
+      };
+      if (slotCalls.length === 1) {
+        return { blocks: [blockFor("starter-gk-1", "Raya"), blockFor("starter-def-1", "Gabriel")], raw: null };
+      }
+      if (slotCalls.length === 2) {
+        return { blocks: [blockFor("starter-def-2", "Saliba")], raw: null };
+      }
+      return { blocks: [], raw: null };
+    });
+    const ocrRunner = jest.fn().mockResolvedValue({ blocks: [], raw: null });
+
+    const best = await runFantasyScreenshotOcrWithFallback(
+      { url: "fixture.png", width: 1200, height: 1800 },
+      { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner, slotOcrRunner }
+    );
+
+    expect(slotOcrRunner).toHaveBeenCalled();
+    expect(slotCalls[1]).toContain("starter-def-2");
+    expect(slotCalls[1]).not.toContain("starter-gk-1");
+    expect(best.region).toContain("targeted-slots");
+    expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["Raya", "Gabriel", "Saliba"]));
   });
 
   test("primary quality below threshold requests fallback", () => {
