@@ -97,6 +97,21 @@ function spendByGroup(players = []) {
   }, { defensive: 0, attacking: 0 });
 }
 
+function spendByRole(players = []) {
+  return players.reduce((out, player) => {
+    out[player.squadRole] += Number(player.price || 0);
+    return out;
+  }, { starter: 0, bench: 0 });
+}
+
+function spendByPositionGroup(players = []) {
+  return players.reduce((out, player) => {
+    if (["GK", "DEF", "MID"].includes(player.position)) out.defensiveCore += Number(player.price || 0);
+    if (["MID", "FWD"].includes(player.position)) out.attack += Number(player.price || 0);
+    return out;
+  }, { defensiveCore: 0, attack: 0 });
+}
+
 describe("Prediction Addiction suggested team", () => {
   test("builds a legal 15-player squad under budget and club limits", () => {
     const suggestion = createFantasySuggestedTeam({
@@ -280,6 +295,237 @@ describe("Prediction Addiction suggested team", () => {
 
     expect(attackingSpend.attacking).toBeGreaterThan(defensiveSpend.attacking);
     expect(defensiveSpend.defensive).toBeGreaterThan(attackingSpend.defensive);
+  });
+
+  test("all styles try to spend at least 97m when upgrades are available", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("premium-mid-a", "MID", "MCI", 12.5, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-mid-b", "MID", "LIV", 11.5, {
+        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-fwd", "FWD", "ARS", 13, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-def", "DEF", "NEW", 7.5, {
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-gk", "GK", "AVL", 6.2, {
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 24, minutes: 900, starts: 10 },
+      }),
+    ];
+
+    ["balanced", "attacking", "defensive"].forEach((style) => {
+      const suggestion = createFantasySuggestedTeam({
+        players,
+        clubOutlooks: makeOutlooks(),
+        validateSquad,
+        scoreReport,
+        playerDataStatus: { status: "ready", cacheStatus: "live" },
+        style,
+      });
+
+      expect(suggestion.status).toBe("ready");
+      expect(suggestion.totalCost).toBeGreaterThanOrEqual(97);
+    });
+  });
+
+  test("attacking concentrates more budget in the starting XI than balanced rotation", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("premium-mid-a", "MID", "MCI", 12.5, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-mid-b", "MID", "LIV", 11.5, {
+        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-fwd", "FWD", "ARS", 13, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+      }),
+    ];
+    const balanced = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+    const attacking = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "attacking",
+    });
+    const balancedSpend = spendByRole(balanced.players);
+    const attackingSpend = spendByRole(attacking.players);
+
+    expect(attackingSpend.starter / attacking.totalCost).toBeGreaterThan(balancedSpend.starter / balanced.totalCost);
+    expect(balancedSpend.bench).toBeGreaterThanOrEqual(attackingSpend.bench);
+  });
+
+  test("defensive style pushes spend into goalkeepers defenders and midfielders", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("premium-def", "DEF", "NEW", 7.5, {
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-mid", "MID", "MCI", 11.5, {
+        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-gk", "GK", "AVL", 6.2, {
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 24, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-fwd", "FWD", "ARS", 13, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+      }),
+    ];
+    const defensive = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+    const spend = spendByPositionGroup(defensive.players);
+
+    expect(["5-4-1", "5-3-2", "4-5-1"]).toContain(defensive.formation);
+    expect(spend.defensiveCore).toBeGreaterThan(spend.attack);
+  });
+
+  test("defensive style does not pay premium forward prices for bench slots", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("premium-fwd-a", "FWD", "MCI", 12.5, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-fwd-b", "FWD", "LIV", 11.5, {
+        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 38, minutes: 880, starts: 10 },
+      }),
+      makePlayer("cheap-fwd-a", "FWD", "FUL", 4.5, {
+        externalMetadata: { form: 3, pointsPerGame: 2.5, selectedByPercent: 4, minutes: 650, starts: 7 },
+      }),
+      makePlayer("cheap-fwd-b", "FWD", "BRE", 4.5, {
+        externalMetadata: { form: 3, pointsPerGame: 2.5, selectedByPercent: 4, minutes: 650, starts: 7 },
+      }),
+    ];
+
+    const defensive = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+
+    expect(defensive.status).toBe("ready");
+    expect(defensive.bench.filter((player) => player.position === "FWD").every((player) => player.price <= 7)).toBe(true);
+    expect(defensive.players.filter((player) => ["premium-fwd-a", "premium-fwd-b"].includes(player.id) && player.squadRole === "bench")).toHaveLength(0);
+  });
+
+  test("attacking style uses one strong goalkeeper with a cheap backup instead of two premium keepers", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("premium-gk-a", "GK", "MCI", 6, {
+        externalMetadata: { form: 9, pointsPerGame: 7, selectedByPercent: 35, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-gk-b", "GK", "LIV", 5.8, {
+        externalMetadata: { form: 8, pointsPerGame: 6.5, selectedByPercent: 30, minutes: 900, starts: 10 },
+      }),
+      makePlayer("cheap-gk", "GK", "CRY", 4.5, {
+        externalMetadata: { form: 4, pointsPerGame: 3, selectedByPercent: 5, minutes: 900, starts: 10 },
+      }),
+    ];
+
+    const attacking = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "attacking",
+    });
+    const benchGoalkeeper = attacking.bench.find((player) => player.position === "GK");
+    const selectedGoalkeepers = attacking.players.filter((player) => player.position === "GK");
+
+    expect(attacking.status).toBe("ready");
+    expect(new Set(selectedGoalkeepers.map((player) => player.teamCode)).size).toBe(2);
+    expect(benchGoalkeeper).toBeTruthy();
+    expect(benchGoalkeeper.price).toBeLessThanOrEqual(4.8);
+  });
+
+  test("balanced and defensive styles can carry two playable rotating goalkeepers", () => {
+    const players = [
+      ...makePool(),
+      makePlayer("rotating-gk-a", "GK", "MCI", 5.5, {
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 25, minutes: 900, starts: 10 },
+      }),
+      makePlayer("rotating-gk-b", "GK", "LIV", 5.3, {
+        externalMetadata: { form: 7.5, pointsPerGame: 5.8, selectedByPercent: 22, minutes: 900, starts: 10 },
+      }),
+      makePlayer("cheap-gk", "GK", "CRY", 4.5, {
+        externalMetadata: { form: 3, pointsPerGame: 2, selectedByPercent: 3, minutes: 500, starts: 5 },
+      }),
+    ];
+
+    const balanced = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+    const defensive = createFantasySuggestedTeam({
+      players,
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+
+    [balanced, defensive].forEach((suggestion) => {
+      const goalkeepers = suggestion.players.filter((player) => player.position === "GK");
+      expect(suggestion.status).toBe("ready");
+      expect(goalkeepers).toHaveLength(2);
+      expect(new Set(goalkeepers.map((player) => player.teamCode)).size).toBe(2);
+      expect(goalkeepers.every((player) => player.suggestedStarterLikelihoodScore >= FANTASY_SUGGESTED_TEAM_CONFIG.minimumStartingXiLikelihood)).toBe(true);
+    });
+  });
+
+  test("balanced style spends closer to the full budget when strong upgrades are available", () => {
+    const premiumUpgrades = [
+      makePlayer("premium-mid-a", "MID", "MCI", 12.5, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-mid-b", "MID", "LIV", 11.5, {
+        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-fwd", "FWD", "ARS", 13, {
+        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+      }),
+      makePlayer("premium-def", "DEF", "NEW", 7.5, {
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 },
+      }),
+    ];
+    const balanced = createFantasySuggestedTeam({
+      players: [...makePool(), ...premiumUpgrades],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.totalCost).toBeGreaterThanOrEqual(98);
   });
 
   test("starting XI requires stronger minutes evidence than bench", () => {

@@ -31,7 +31,8 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
   ],
   valueBiases: [0, 0.25, 0.5, 0.85, 1.2, 1.6],
   premiumBiases: [0, 0.2, 0.45, 0.7],
-  preferredMinimumSpend: 92,
+  preferredMinimumSpend: 97,
+  idealSpend: 99,
   minimumSquadLikelihood: 28,
   minimumStartingXiLikelihood: 62,
   minimumReliableStarts: 4,
@@ -48,24 +49,37 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
       positionBias: { GK: 0, DEF: 0, MID: 0, FWD: 0 },
       premiumBias: { GK: 0.95, DEF: 1, MID: 1, FWD: 1 },
       fixtureBias: { attack: 1, defence: 1 },
+      selectionOrder: ["MID", "FWD", "DEF", "GK", "MID", "DEF", "FWD", "GK"],
       formations: ["4-4-2", "3-5-2", "4-3-3", "3-4-3", "4-5-1", "5-3-2", "5-4-1"],
+      goalkeeperStrategy: "rotate",
+      benchPricePenalty: { GK: 0.15, DEF: 0.35, MID: 0.35, FWD: 0.45 },
+      starterSpendBonus: { GK: 0.2, DEF: 0.45, MID: 0.55, FWD: 0.55 },
     },
     attacking: {
       label: "Attacking",
       positionBias: { GK: -4, DEF: -2, MID: 5, FWD: 8 },
       premiumBias: { GK: 0.75, DEF: 0.85, MID: 1.2, FWD: 1.28 },
       fixtureBias: { attack: 1.12, defence: 0.92 },
+      selectionOrder: ["FWD", "MID", "MID", "FWD", "DEF", "GK", "MID", "DEF", "GK"],
       formations: ["3-4-3", "3-5-2", "4-3-3", "4-4-2", "4-5-1", "5-3-2", "5-4-1"],
+      goalkeeperStrategy: "single",
+      backupGoalkeeperMaxPrice: 4.5,
+      benchPricePenalty: { GK: 2.4, DEF: 1.5, MID: 1.8, FWD: 2.1 },
+      starterSpendBonus: { GK: 0.1, DEF: 0.25, MID: 1.15, FWD: 1.35 },
       allowBenchEnabler: true,
       maxBenchEnablers: 1,
       benchEnablerMaxPrice: { DEF: 4.5, MID: 4.5, FWD: 4.5 },
     },
     defensive: {
       label: "Defensive",
-      positionBias: { GK: 7, DEF: 6, MID: 0, FWD: -4 },
-      premiumBias: { GK: 1.25, DEF: 1.2, MID: 0.92, FWD: 0.8 },
+      positionBias: { GK: 8, DEF: 7, MID: 2, FWD: -7 },
+      premiumBias: { GK: 1.3, DEF: 1.25, MID: 1.05, FWD: 0.68 },
       fixtureBias: { attack: 0.92, defence: 1.12 },
+      selectionOrder: ["DEF", "GK", "DEF", "MID", "DEF", "MID", "GK", "DEF", "FWD"],
       formations: ["5-4-1", "5-3-2", "4-5-1", "4-4-2", "3-5-2", "4-3-3", "3-4-3"],
+      goalkeeperStrategy: "rotate",
+      benchPricePenalty: { GK: 0.15, DEF: 0.25, MID: 0.45, FWD: 3.4 },
+      starterSpendBonus: { GK: 1.1, DEF: 1.2, MID: 0.75, FWD: -0.35 },
     },
   },
 };
@@ -262,8 +276,64 @@ function getSelectionScore(player, valueBias = 0, premiumBias = 0, clubCounts = 
   return player.suggestedScore + player.valueScore * valueBias + player.premiumScore * premiumBias - stackPenalty;
 }
 
+function getPreferredFormationCounts(styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  const preferredLabel = styleConfig.formations?.[0];
+  return config.starterFormations.find((formation) => formation.label === preferredLabel)?.counts || config.starterFormations[0]?.counts || {};
+}
+
+function getPositionSelectedCount(players = [], position = "") {
+  return players.filter((player) => player.position === position).length;
+}
+
+function getStyleAwareSelectionScore({
+  player,
+  selected = [],
+  valueBias = 0,
+  premiumBias = 0,
+  clubCounts = {},
+  styleConfig = {},
+  config = FANTASY_SUGGESTED_TEAM_CONFIG,
+} = {}) {
+  const base = getSelectionScore(player, valueBias, premiumBias, clubCounts, config);
+  const preferredCounts = getPreferredFormationCounts(styleConfig, config);
+  const alreadySelectedAtPosition = getPositionSelectedCount(selected, player.position);
+  const likelyBenchAtPosition = alreadySelectedAtPosition >= Number(preferredCounts[player.position] || 0);
+  const starterSpendBonus = Number(styleConfig.starterSpendBonus?.[player.position] ?? 0);
+  if (!likelyBenchAtPosition) return base + Math.max(0, player.price - 4.5) * starterSpendBonus;
+  if (player.position === "GK" && styleConfig.goalkeeperStrategy === "single" && Number(styleConfig.backupGoalkeeperMaxPrice)) {
+    const cap = Number(styleConfig.backupGoalkeeperMaxPrice);
+    return base - Math.max(0, player.price - cap) * 100 - player.price * 3;
+  }
+  const benchPenalty = Number(styleConfig.benchPricePenalty?.[player.position] ?? 1);
+  const cheapBenchBonus = Math.max(0, 5 - player.price) * 1.2;
+  return base - Math.max(0, player.price - 4.5) * benchPenalty + cheapBenchBonus;
+}
+
 function getBudgetUsed(players = []) {
   return players.reduce((sum, player) => sum + Number(player.price || 0), 0);
+}
+
+function getBenchPremiumWaste(squad = {}, styleConfig = {}) {
+  return (squad.players || [])
+    .filter((player) => player.squadRole === "bench")
+    .reduce((sum, player) => {
+      const threshold =
+        player.position === "GK" ? (styleConfig.goalkeeperStrategy === "single" ? Number(styleConfig.backupGoalkeeperMaxPrice || 4.8) : 6.2) :
+        player.position === "DEF" ? 5.5 :
+        player.position === "MID" ? 7 :
+        7;
+      const penalty = Number(styleConfig.benchPricePenalty?.[player.position] ?? 1);
+      return sum + Math.max(0, Number(player.price || 0) - threshold) * penalty;
+    }, 0);
+}
+
+function uniquePlayersById(players = []) {
+  const seen = new Set();
+  return players.filter((player) => {
+    if (!player?.id || seen.has(player.id)) return false;
+    seen.add(player.id);
+    return true;
+  });
 }
 
 function hasThirdClubPlayerEdge({
@@ -394,13 +464,37 @@ function diversifyClubStacks(selected, candidatesByPosition, config, valueBias =
   return current;
 }
 
+function optimiseBackupGoalkeeper(selected = [], candidatesByPosition = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG, styleConfig = {}) {
+  if (styleConfig.goalkeeperStrategy !== "single") return selected;
+  const cap = Number(styleConfig.backupGoalkeeperMaxPrice || 0);
+  if (!cap) return selected;
+  const goalkeepers = selected.filter((player) => player.position === "GK");
+  if (goalkeepers.length !== 2 || goalkeepers.some((player) => player.price <= cap)) return selected;
+  const starter = goalkeepers.slice().sort((a, b) => b.suggestedScore - a.suggestedScore || b.price - a.price)[0];
+  const outgoing = goalkeepers.find((player) => player.id !== starter.id);
+  const selectedIds = new Set(selected.map((player) => player.id));
+  const clubCountsAfterOutgoing = countByClub(selected);
+  clubCountsAfterOutgoing[outgoing.teamCode] = Math.max(0, (clubCountsAfterOutgoing[outgoing.teamCode] || 0) - 1);
+  const replacement = (candidatesByPosition.GK || [])
+    .filter((player) => player.price <= cap)
+    .filter((player) => !selectedIds.has(player.id))
+    .filter((player) => (clubCountsAfterOutgoing[player.teamCode] || 0) < config.maxPlayersPerClub)
+    .sort((a, b) => {
+      const aSoftStacked = (clubCountsAfterOutgoing[a.teamCode] || 0) >= config.softPlayersPerClub ? 1 : 0;
+      const bSoftStacked = (clubCountsAfterOutgoing[b.teamCode] || 0) >= config.softPlayersPerClub ? 1 : 0;
+      return aSoftStacked - bSoftStacked || a.price - b.price || b.suggestedScore - a.suggestedScore;
+    })[0];
+  if (!replacement) return selected;
+  return selected.map((player) => (player.id === outgoing.id ? replacement : player));
+}
+
 function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBias = 0, styleConfig = {}) {
   const selected = [];
   const selectedIds = new Set();
   const clubCounts = {};
   const remaining = { ...config.positions };
   let budgetUsed = 0;
-  const order = ["FWD", "MID", "DEF", "GK", "MID", "DEF", "FWD", "GK"];
+  const order = styleConfig.selectionOrder || ["FWD", "MID", "DEF", "GK", "MID", "DEF", "FWD", "GK"];
 
   if (styleConfig.allowBenchEnabler) {
     const benchEnabler = Object.values(candidatesByPosition)
@@ -420,7 +514,9 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBi
     const position = order.find((item) => remaining[item] > 0) || Object.keys(remaining).find((item) => remaining[item] > 0);
     if (!position) break;
     const pool = [...(candidatesByPosition[position] || [])].sort(
-      (a, b) => getSelectionScore(b, valueBias, premiumBias, clubCounts, config) - getSelectionScore(a, valueBias, premiumBias, clubCounts, config)
+      (a, b) =>
+        getStyleAwareSelectionScore({ player: b, selected, valueBias, premiumBias, clubCounts, styleConfig, config }) -
+        getStyleAwareSelectionScore({ player: a, selected, valueBias, premiumBias, clubCounts, styleConfig, config })
     );
     const remainingAfterPosition = { ...remaining, [position]: remaining[position] - 1 };
     const currentBudgetUsed = budgetUsed;
@@ -428,6 +524,22 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBi
       if (selectedIds.has(player.id)) return false;
       if (player.benchEnablerEligible && countBenchEnablers(selected) >= (styleConfig.maxBenchEnablers ?? 0)) return false;
       if ((clubCounts[player.teamCode] || 0) >= config.maxPlayersPerClub) return false;
+      if (position === "GK" && selected.some((selectedPlayer) => selectedPlayer.position === "GK" && selectedPlayer.teamCode === player.teamCode)) return false;
+      if (
+        position === "GK" &&
+        styleConfig.goalkeeperStrategy === "single" &&
+        getPositionSelectedCount(selected, "GK") >= 1 &&
+        Number(styleConfig.backupGoalkeeperMaxPrice) &&
+        player.price > Number(styleConfig.backupGoalkeeperMaxPrice)
+      ) {
+        const hasAffordableBackup = (candidatesByPosition.GK || []).some((candidate) =>
+          !selectedIds.has(candidate.id) &&
+          candidate.id !== player.id &&
+          candidate.price <= Number(styleConfig.backupGoalkeeperMaxPrice) &&
+          (clubCounts[candidate.teamCode] || 0) < config.maxPlayersPerClub
+        );
+        if (hasAffordableBackup) return false;
+      }
       const nextBudget = currentBudgetUsed + player.price;
       const minRemaining = getMinRemainingCost(
         candidatesByPosition,
@@ -456,7 +568,7 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBi
   }
 
   if (selected.length !== 15) return null;
-  return diversifyClubStacks(
+  const diversified = diversifyClubStacks(
     upgradeSquad(selected, candidatesByPosition, config, valueBias, premiumBias, styleConfig),
     candidatesByPosition,
     config,
@@ -464,13 +576,19 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBi
     premiumBias,
     styleConfig
   );
+  return optimiseBackupGoalkeeper(diversified, candidatesByPosition, config, styleConfig);
 }
 
 function chooseStarters(players = [], config = FANTASY_SUGGESTED_TEAM_CONFIG, styleConfig = {}) {
+  const preferredGoalkeeper = players
+    .filter((player) => player.position === "GK")
+    .filter((player) => player.starterLikelihoodScore >= config.minimumStartingXiLikelihood)
+    .sort((a, b) => b.suggestedScore - a.suggestedScore || b.price - a.price)[0] || null;
   const byPosition = Object.fromEntries(["GK", "DEF", "MID", "FWD"].map((position) => [
     position,
     players
       .filter((player) => player.position === position)
+      .filter((player) => position !== "GK" || player.id === preferredGoalkeeper?.id)
       .filter((player) => player.starterLikelihoodScore >= config.minimumStartingXiLikelihood)
       .sort((a, b) => b.suggestedScore - a.suggestedScore),
   ]));
@@ -577,18 +695,26 @@ export function createFantasySuggestedTeam({
 
   const candidatesByPosition = Object.fromEntries(Object.keys(config.positions).map((position) => [
     position,
-    [
+    uniquePlayersById([
       ...eligible
       .filter((player) => player.position === position)
         .filter((player) => !player.benchEnablerEligible)
       .sort((a, b) => b.suggestedScore - a.suggestedScore)
       .slice(0, config.candidateLimitByPosition[position] || 24),
+      ...(position === "GK"
+        && styleConfig.goalkeeperStrategy === "single"
+        ? eligible
+            .filter((player) => player.position === "GK")
+            .filter((player) => player.price <= Number(styleConfig.backupGoalkeeperMaxPrice || 4.8))
+            .sort((a, b) => a.price - b.price || b.suggestedScore - a.suggestedScore)
+            .slice(0, 6)
+        : []),
       ...eligible
         .filter((player) => player.position === position)
         .filter((player) => player.benchEnablerEligible)
         .sort((a, b) => a.price - b.price || b.suggestedScore - a.suggestedScore)
         .slice(0, styleConfig.maxBenchEnablers ?? 0),
-    ],
+    ]),
   ]));
   const missingPositions = Object.entries(config.positions)
     .filter(([position, count]) => (candidatesByPosition[position] || []).length < count)
@@ -627,14 +753,19 @@ export function createFantasySuggestedTeam({
         totalCost: round(selected.reduce((sum, player) => sum + player.price, 0)),
         remainingBudget: round(config.budget - selected.reduce((sum, player) => sum + player.price, 0)),
         clubCounts: countByClub(selected),
+        benchPremiumWaste: round(getBenchPremiumWaste(squad, styleConfig), 2),
         score: report?.overallScore ?? selected.reduce((sum, player) => sum + player.suggestedScore, 0) / selected.length,
       };
     })
     .filter(Boolean)
     .sort((a, b) => {
-      const aSpendBonus = a.totalCost >= config.preferredMinimumSpend ? 2 : (a.totalCost / config.preferredMinimumSpend) * 2;
-      const bSpendBonus = b.totalCost >= config.preferredMinimumSpend ? 2 : (b.totalCost / config.preferredMinimumSpend) * 2;
-      return (b.score + bSpendBonus) - (a.score + aSpendBonus) || b.totalCost - a.totalCost;
+      const idealSpend = Number(config.idealSpend || config.preferredMinimumSpend || 98);
+      const getAttemptRankScore = (attempt) => {
+        const spendRatio = clamp(attempt.totalCost / Math.max(1, config.budget), 0, 1);
+        const underspendPenalty = Math.max(0, idealSpend - attempt.totalCost) * 0.65;
+        return attempt.score + spendRatio * 4 - Number(attempt.benchPremiumWaste || 0) * 2.2 - underspendPenalty;
+      };
+      return getAttemptRankScore(b) - getAttemptRankScore(a) || b.totalCost - a.totalCost;
     });
   const best = attempts[0];
   if (!best) {

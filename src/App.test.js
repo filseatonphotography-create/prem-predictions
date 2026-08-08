@@ -171,6 +171,37 @@ describe("Fantasy IQ scoring", () => {
     expect(strong.overallScore - weak.overallScore).toBeGreaterThan(30);
   });
 
+  test("excellent squads can reach recommended-team score territory", () => {
+    const validation = makeFantasyIqValidation();
+    const squad = makeFantasyIqSquad(
+      Object.fromEntries(
+        squadPlayers.map(([id, , , position]) => [
+          id,
+          {
+            price: position === "GK" ? 5.5 : position === "DEF" ? 6.5 : position === "MID" ? 10.5 : 11.5,
+            priceTenths: position === "GK" ? 55 : position === "DEF" ? 65 : position === "MID" ? 105 : 115,
+            externalMetadata: {
+              form: 8,
+              pointsPerGame: 6.5,
+              selectedByPercent: 30,
+              minutes: 850,
+              starts: 9,
+              totalPoints: 130,
+            },
+          },
+        ])
+      )
+    );
+    const report = buildFantasyIqScoredReport({
+      squad,
+      validation,
+      clubOutlooks: makeClubOutlooks(76),
+      playerDataStatus: { status: "ready", source: "test" },
+    });
+
+    expect(report.overallScore).toBeGreaterThanOrEqual(90);
+  });
+
   test("penalises unavailable and doubtful players in the main score", () => {
     const validation = makeFantasyIqValidation();
     const healthy = buildFantasyIqScoredReport({

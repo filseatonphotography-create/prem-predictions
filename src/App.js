@@ -909,9 +909,9 @@ const FANTASY_IQ_SCORE_CONFIG = {
     curveExponent: 0.8,
     fixtureCategorySpread: 1.2,
     structuralCategorySpread: 0.85,
-    overallSpread: 1.12,
-    overallDisplayFloor: 18,
-    overallDisplayCeiling: 82,
+    overallSpread: 1.18,
+    overallDisplayFloor: 24,
+    overallDisplayCeiling: 76,
   },
   availabilityMultipliers: {
     available: 1,
