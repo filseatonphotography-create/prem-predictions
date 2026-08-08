@@ -56,6 +56,9 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
       premiumBias: { GK: 0.75, DEF: 0.85, MID: 1.2, FWD: 1.28 },
       fixtureBias: { attack: 1.12, defence: 0.92 },
       formations: ["3-4-3", "3-5-2", "4-3-3", "4-4-2", "4-5-1", "5-3-2", "5-4-1"],
+      allowBenchEnabler: true,
+      maxBenchEnablers: 1,
+      benchEnablerMaxPrice: { DEF: 4.5, MID: 4.5, FWD: 4.5 },
     },
     defensive: {
       label: "Defensive",
@@ -152,6 +155,17 @@ function hasWeakStartingEvidence(player = {}, config = FANTASY_SUGGESTED_TEAM_CO
   return [lowStarts, lowMinutes, ignoredByManagers, lowOutput, noForm].filter(Boolean).length >= 3;
 }
 
+function isAttackingBenchEnablerCandidate(player = {}, styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  if (!styleConfig.allowBenchEnabler) return false;
+  const position = String(player.position || "").toUpperCase();
+  if (!["DEF", "MID", "FWD"].includes(position)) return false;
+  if (hasActionableFantasyAvailabilityRisk(player)) return false;
+  if (!hasWeakStartingEvidence(player, config)) return false;
+  const maxPrice = numberOrNull(styleConfig.benchEnablerMaxPrice?.[position]) ?? 4.5;
+  const price = getPlayerPrice(player);
+  return price != null && price <= maxPrice;
+}
+
 function getPredictionScore(position, predictionOutlook = {}) {
   if (!predictionOutlook || predictionOutlook.overallScore == null) return null;
   if (["GK", "DEF"].includes(position)) return predictionOutlook.defenceScore ?? predictionOutlook.overallScore;
@@ -212,15 +226,17 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
     suggestedScore: round(clamp(score, 0, 100), 2),
     availabilityRisk: risk,
     weakStartingEvidence,
+    benchEnablerEligible: isAttackingBenchEnablerCandidate(player, styleConfig),
     clubOutlook,
     predictionOutlook,
   };
 }
 
-function getMinRemainingCost(candidatesByPosition, remainingCounts) {
+function getMinRemainingCost(candidatesByPosition, remainingCounts, excludedIds = new Set()) {
   return Object.entries(remainingCounts).reduce((sum, [position, count]) => {
     if (count <= 0) return sum;
     const prices = (candidatesByPosition[position] || [])
+      .filter((player) => !excludedIds.has(player.id))
       .map((player) => player.price)
       .filter((price) => price != null)
       .sort((a, b) => a - b)
@@ -235,6 +251,10 @@ function countByClub(players = []) {
     out[player.teamCode] = (out[player.teamCode] || 0) + 1;
     return out;
   }, {});
+}
+
+function countBenchEnablers(players = []) {
+  return players.filter((player) => player.benchEnablerEligible).length;
 }
 
 function getSelectionScore(player, valueBias = 0, premiumBias = 0, clubCounts = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
@@ -266,7 +286,11 @@ function hasThirdClubPlayerEdge({
     .filter((player) => (clubCounts[player.teamCode] || 0) < config.softPlayersPerClub)
     .filter((player) => {
       const nextBudget = budgetUsed + player.price;
-      const minRemaining = getMinRemainingCost(candidatesByPosition, remainingAfterPosition);
+      const minRemaining = getMinRemainingCost(
+        candidatesByPosition,
+        remainingAfterPosition,
+        new Set([...selectedIds, player.id])
+      );
       return nextBudget + minRemaining <= config.budget + 0.001;
     })
     .sort((a, b) => getSelectionScore(b, valueBias, premiumBias, clubCounts, config) - getSelectionScore(a, valueBias, premiumBias, clubCounts, config))[0];
@@ -274,7 +298,7 @@ function hasThirdClubPlayerEdge({
   return candidateScore >= getSelectionScore(bestAlternative, valueBias, premiumBias, clubCounts, config) + config.thirdClubPlayerRequiredEdge;
 }
 
-function upgradeSquad(selected, candidatesByPosition, config, valueBias = 0, premiumBias = 0) {
+function upgradeSquad(selected, candidatesByPosition, config, valueBias = 0, premiumBias = 0, styleConfig = {}) {
   let current = [...selected];
   const maxUpgrades = 24;
   for (let upgradeCount = 0; upgradeCount < maxUpgrades; upgradeCount += 1) {
@@ -286,11 +310,18 @@ function upgradeSquad(selected, candidatesByPosition, config, valueBias = 0, pre
         (candidatesByPosition[outgoing.position] || [])
           .filter((incoming) => !selectedIds.has(incoming.id))
           .map((incoming) => {
+            if (styleConfig.allowBenchEnabler && outgoing.benchEnablerEligible) return null;
             const nextClubCounts = { ...clubCounts };
             nextClubCounts[outgoing.teamCode] = Math.max(0, (nextClubCounts[outgoing.teamCode] || 0) - 1);
             if ((nextClubCounts[incoming.teamCode] || 0) >= config.maxPlayersPerClub) return null;
             const nextBudget = budgetUsed - outgoing.price + incoming.price;
             if (nextBudget > config.budget + 0.001) return null;
+            if (styleConfig.allowBenchEnabler) {
+              const nextBenchEnablers = countBenchEnablers(current) - (outgoing.benchEnablerEligible ? 1 : 0) + (incoming.benchEnablerEligible ? 1 : 0);
+              if (nextBenchEnablers > (styleConfig.maxBenchEnablers ?? 1)) return null;
+            } else if (incoming.benchEnablerEligible) {
+              return null;
+            }
             const outgoingClubCounts = { ...clubCounts, [outgoing.teamCode]: Math.max(0, (clubCounts[outgoing.teamCode] || 0) - 1) };
             if (!hasThirdClubPlayerEdge({
               candidate: incoming,
@@ -320,7 +351,7 @@ function upgradeSquad(selected, candidatesByPosition, config, valueBias = 0, pre
   return current;
 }
 
-function diversifyClubStacks(selected, candidatesByPosition, config, valueBias = 0, premiumBias = 0) {
+function diversifyClubStacks(selected, candidatesByPosition, config, valueBias = 0, premiumBias = 0, styleConfig = {}) {
   let current = [...selected];
   let changed = true;
   while (changed) {
@@ -333,6 +364,7 @@ function diversifyClubStacks(selected, candidatesByPosition, config, valueBias =
     const stackPlayers = current
       .map((player, index) => ({ player, index }))
       .filter((item) => item.player.teamCode === stackedClub)
+      .filter((item) => !(styleConfig.allowBenchEnabler && item.player.benchEnablerEligible))
       .sort((a, b) => getSelectionScore(a.player, valueBias, premiumBias, clubCounts, config) - getSelectionScore(b.player, valueBias, premiumBias, clubCounts, config));
     const replacement = stackPlayers
       .flatMap(({ player: outgoing, index }) =>
@@ -340,6 +372,13 @@ function diversifyClubStacks(selected, candidatesByPosition, config, valueBias =
           .filter((incoming) => !selectedIds.has(incoming.id))
           .filter((incoming) => (clubCounts[incoming.teamCode] || 0) < config.softPlayersPerClub)
           .filter((incoming) => budgetUsed - outgoing.price + incoming.price <= config.budget + 0.001)
+          .filter((incoming) => {
+            if (styleConfig.allowBenchEnabler) {
+              const nextBenchEnablers = countBenchEnablers(current) - (outgoing.benchEnablerEligible ? 1 : 0) + (incoming.benchEnablerEligible ? 1 : 0);
+              return nextBenchEnablers <= (styleConfig.maxBenchEnablers ?? 1);
+            }
+            return !incoming.benchEnablerEligible;
+          })
           .map((incoming) => {
             const outgoingScore = getSelectionScore(outgoing, valueBias, premiumBias, clubCounts, config);
             const incomingScore = getSelectionScore(incoming, valueBias, premiumBias, clubCounts, config);
@@ -355,13 +394,27 @@ function diversifyClubStacks(selected, candidatesByPosition, config, valueBias =
   return current;
 }
 
-function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBias = 0) {
+function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBias = 0, styleConfig = {}) {
   const selected = [];
   const selectedIds = new Set();
   const clubCounts = {};
   const remaining = { ...config.positions };
   let budgetUsed = 0;
   const order = ["FWD", "MID", "DEF", "GK", "MID", "DEF", "FWD", "GK"];
+
+  if (styleConfig.allowBenchEnabler) {
+    const benchEnabler = Object.values(candidatesByPosition)
+      .flat()
+      .filter((player) => player.benchEnablerEligible)
+      .sort((a, b) => a.price - b.price || b.suggestedScore - a.suggestedScore)[0];
+    if (benchEnabler) {
+      selected.push(benchEnabler);
+      selectedIds.add(benchEnabler.id);
+      clubCounts[benchEnabler.teamCode] = (clubCounts[benchEnabler.teamCode] || 0) + 1;
+      remaining[benchEnabler.position] -= 1;
+      budgetUsed += benchEnabler.price;
+    }
+  }
 
   while (selected.length < 15) {
     const position = order.find((item) => remaining[item] > 0) || Object.keys(remaining).find((item) => remaining[item] > 0);
@@ -373,9 +426,14 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBi
     const currentBudgetUsed = budgetUsed;
     const chosen = pool.find((player) => {
       if (selectedIds.has(player.id)) return false;
+      if (player.benchEnablerEligible && countBenchEnablers(selected) >= (styleConfig.maxBenchEnablers ?? 0)) return false;
       if ((clubCounts[player.teamCode] || 0) >= config.maxPlayersPerClub) return false;
       const nextBudget = currentBudgetUsed + player.price;
-      const minRemaining = getMinRemainingCost(candidatesByPosition, remainingAfterPosition);
+      const minRemaining = getMinRemainingCost(
+        candidatesByPosition,
+        remainingAfterPosition,
+        new Set([...selectedIds, player.id])
+      );
       return nextBudget + minRemaining <= config.budget + 0.001 && hasThirdClubPlayerEdge({
         candidate: player,
         pool,
@@ -399,11 +457,12 @@ function buildGreedySquad(candidatesByPosition, config, valueBias = 0, premiumBi
 
   if (selected.length !== 15) return null;
   return diversifyClubStacks(
-    upgradeSquad(selected, candidatesByPosition, config, valueBias, premiumBias),
+    upgradeSquad(selected, candidatesByPosition, config, valueBias, premiumBias, styleConfig),
     candidatesByPosition,
     config,
     valueBias,
-    premiumBias
+    premiumBias,
+    styleConfig
   );
 }
 
@@ -484,6 +543,7 @@ function toSquad(players, formation) {
       suggestedValueScore: player.valueScore,
       suggestedStarterLikelihoodScore: player.starterLikelihoodScore,
       suggestedPremiumScore: player.premiumScore,
+      suggestedBenchEnablerEligible: !!player.benchEnablerEligible,
     })),
   };
 }
@@ -497,6 +557,7 @@ export function createFantasySuggestedTeam({
   playerDataStatus = null,
   config = FANTASY_SUGGESTED_TEAM_CONFIG,
   style = "balanced",
+  fixtureHorizon = 3,
 } = {}) {
   const styleConfig = getStyleConfig(style, config);
   const eligible = (players || [])
@@ -504,7 +565,7 @@ export function createFantasySuggestedTeam({
     .filter((player) => !player?.temporary)
     .filter((player) => config.positions[String(player?.position || "").toUpperCase()])
     .filter((player) => !hasActionableFantasyAvailabilityRisk(player))
-    .filter((player) => !hasWeakStartingEvidence(player, config))
+    .filter((player) => !hasWeakStartingEvidence(player, config) || isAttackingBenchEnablerCandidate(player, styleConfig, config))
     .map((player) => scoreCandidate(
       player,
       clubOutlooks[String(player.teamCode || "").toUpperCase()],
@@ -512,14 +573,22 @@ export function createFantasySuggestedTeam({
       styleConfig
     ))
     .filter(Boolean)
-    .filter((player) => player.starterLikelihoodScore >= config.minimumSquadLikelihood);
+    .filter((player) => player.benchEnablerEligible || player.starterLikelihoodScore >= config.minimumSquadLikelihood);
 
   const candidatesByPosition = Object.fromEntries(Object.keys(config.positions).map((position) => [
     position,
-    eligible
+    [
+      ...eligible
       .filter((player) => player.position === position)
+        .filter((player) => !player.benchEnablerEligible)
       .sort((a, b) => b.suggestedScore - a.suggestedScore)
       .slice(0, config.candidateLimitByPosition[position] || 24),
+      ...eligible
+        .filter((player) => player.position === position)
+        .filter((player) => player.benchEnablerEligible)
+        .sort((a, b) => a.price - b.price || b.suggestedScore - a.suggestedScore)
+        .slice(0, styleConfig.maxBenchEnablers ?? 0),
+    ],
   ]));
   const missingPositions = Object.entries(config.positions)
     .filter(([position, count]) => (candidatesByPosition[position] || []).length < count)
@@ -538,7 +607,7 @@ export function createFantasySuggestedTeam({
   );
   const attempts = attemptConfigs
     .map(({ valueBias, premiumBias }) => {
-      const selected = buildGreedySquad(candidatesByPosition, config, valueBias, premiumBias);
+      const selected = buildGreedySquad(candidatesByPosition, config, valueBias, premiumBias, styleConfig);
       if (!selected) return null;
       const formation = chooseStarters(selected, config, styleConfig);
       if (!formation) return null;
@@ -580,10 +649,12 @@ export function createFantasySuggestedTeam({
   const excludedRiskCount = (players || []).filter(hasActionableFantasyAvailabilityRisk).length;
   const starters = best.squad.players.filter((player) => player.squadRole === "starter");
   const bench = best.squad.players.filter((player) => player.squadRole === "bench");
+  const benchEnablers = bench.filter((player) => player.suggestedBenchEnablerEligible);
   const captain = best.squad.players.find((player) => player.id === best.squad.captainPlayerId) || null;
   const viceCaptain = best.squad.players.find((player) => player.id === best.squad.viceCaptainPlayerId) || null;
   const overallScore = best.report?.overallScore ?? round(best.score);
   const recommendationReady = overallScore >= config.minimumRecommendedScore;
+  const horizonLabel = `${Math.max(1, Math.round(Number(fixtureHorizon) || 3))} gameweeks`;
   return {
     status: recommendationReady ? "ready" : "review",
     version: FANTASY_SUGGESTED_TEAM_VERSION,
@@ -609,8 +680,9 @@ export function createFantasySuggestedTeam({
       playerDataStatus?.cacheStatus === "fallback" ? "Live FPL player data is unavailable, so suggested team is locked to fallback quality." : "",
     ].filter(Boolean),
     reasons: [
-      `Optimised for the next three gameweeks using fixture outlook, starter likelihood, premium upside, price value and available FPL form fields.`,
+      `Optimised for the next ${horizonLabel} using fixture outlook, starter likelihood, premium upside, price value and available FPL form fields.`,
       `Legal squad: ${best.formation}, ${round(best.totalCost)}m used, max ${config.maxPlayersPerClub} players per club with a soft preference for ${config.softPlayersPerClub}.`,
+      benchEnablers.length ? `Attacking bench tactic: ${benchEnablers[0].displayName || benchEnablers[0].name} is a cheap outfield bench enabler so more budget can go into premium attackers.` : "",
       captain ? `${captain.displayName || captain.name} is captain because he has the strongest attacking starter profile.` : "",
     ].filter(Boolean),
   };

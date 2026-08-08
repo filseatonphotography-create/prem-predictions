@@ -60,6 +60,25 @@ const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
   { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.754, y: 0.771, width: 0.18, height: 0.02 } },
 ];
 
+const FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT = [
+  { id: "starter-def-wide-1", role: "starter", position: "DEF", optional: true, box: { x: 0.02, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-2", role: "starter", position: "DEF", optional: true, box: { x: 0.205, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-3", role: "starter", position: "DEF", optional: true, box: { x: 0.529, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-4", role: "starter", position: "DEF", optional: true, box: { x: 0.767, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-5", role: "starter", position: "DEF", optional: true, box: { x: 0.8, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-1", role: "starter", position: "MID", optional: true, box: { x: 0.02, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-2", role: "starter", position: "MID", optional: true, box: { x: 0.205, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-3", role: "starter", position: "MID", optional: true, box: { x: 0.41, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-4", role: "starter", position: "MID", optional: true, box: { x: 0.615, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-5", role: "starter", position: "MID", optional: true, box: { x: 0.8, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-fwd-wide-3", role: "starter", position: "FWD", optional: true, box: { x: 0.767, y: 0.6, width: 0.18, height: 0.02 } },
+];
+
+const FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT = [
+  ...FPL_PITCH_SCREENSHOT_NAME_LAYOUT,
+  ...FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT,
+];
+
 const FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT = [
   { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.39, y: 0.2, width: 0.22, height: 0.1 } },
   { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.09, y: 0.32, width: 0.22, height: 0.11 } },
@@ -78,10 +97,27 @@ const FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT = [
   { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.734, y: 0.75, width: 0.22, height: 0.12 } },
 ];
 
-export const FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT = FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => ({
+const FPL_PITCH_SCREENSHOT_OPTIONAL_CARD_SEARCH_LAYOUT = FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT.map((slot) => ({
+  ...slot,
+  box: {
+    x: Math.max(0, slot.box.x - 0.02),
+    y: Math.max(0, slot.box.y - 0.024),
+    width: Math.min(0.24, slot.box.width + 0.04),
+    height: 0.11,
+  },
+}));
+
+const FPL_PITCH_SCREENSHOT_EXPANDED_CARD_SEARCH_LAYOUT = [
+  ...FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT,
+  ...FPL_PITCH_SCREENSHOT_OPTIONAL_CARD_SEARCH_LAYOUT,
+];
+
+export const FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT = FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.map((slot) => ({
   id: slot.id,
   role: slot.role,
   position: slot.position,
+  optional: !!slot.optional,
+  box: slot.box,
 }));
 
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
@@ -472,7 +508,7 @@ function getFantasyScreenshotNameLayoutSlots(width = 0, height = 0) {
   const numericWidth = Number(width || 0);
   const numericHeight = Number(height || 0);
   if (!numericWidth || !numericHeight) return [];
-  return FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => ({
+  return FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.map((slot) => ({
     ...slot,
     boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
   }));
@@ -534,15 +570,16 @@ function detectWhiteNameLabelBox(context, searchBox = {}) {
 
 export function detectFantasyScreenshotNameLayoutSlots(canvas, context) {
   if (!canvas || !context) return [];
-  return FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT.map((slot) => {
+  return FPL_PITCH_SCREENSHOT_EXPANDED_CARD_SEARCH_LAYOUT.map((slot) => {
     const searchBox = getAbsoluteLayoutBox(slot.box, canvas.width, canvas.height);
     const detectedBox = detectWhiteNameLabelBox(context, searchBox);
     return {
       id: slot.id,
       role: slot.role,
       position: slot.position,
+      optional: !!slot.optional,
       boundingBox: detectedBox || getAbsoluteLayoutBox(
-        FPL_PITCH_SCREENSHOT_NAME_LAYOUT.find((item) => item.id === slot.id)?.box || slot.box,
+        FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.find((item) => item.id === slot.id)?.box || slot.box,
         canvas.width,
         canvas.height
       ),
@@ -1284,8 +1321,9 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
       assignedLayoutIds.add(layoutSlot.id);
       return { type: "slot", id: explicitSlot.id, slot: explicitSlot, layoutSlot };
     }
+    if (layoutSlot.optional) return null;
     return { type: "missing", id: `missing-review-slot-${layoutSlot.id}`, role: layoutSlot.role, position: layoutSlot.position, layoutSlot };
-  });
+  }).filter(Boolean);
 
   (slots || []).forEach((slot) => {
     if (!slot?.id || assignedSlotIds.has(slot.id)) return;
@@ -1306,8 +1344,20 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
     items[itemIndex] = { type: "slot", id: slot.id, slot, layoutSlot: items[itemIndex].layoutSlot };
   });
 
+  const orderedItems = items.slice().sort((a, b) => {
+    const aBox = a.layoutSlot?.box || a.slot?.extracted?.sourceRegion?.boundingBox || {};
+    const bBox = b.layoutSlot?.box || b.slot?.extracted?.sourceRegion?.boundingBox || {};
+    const ay = Number(aBox.y ?? 999);
+    const by = Number(bBox.y ?? 999);
+    if (ay !== by) return ay - by;
+    const ax = Number(aBox.x ?? 999);
+    const bx = Number(bBox.x ?? 999);
+    if (ax !== bx) return ax - bx;
+    return String(a.id).localeCompare(String(b.id));
+  });
+
   const positionCounts = {};
-  return items.map((item) => {
+  return orderedItems.map((item) => {
     const position = item.type === "missing" ? item.position : item.layoutSlot?.position || item.slot?.selectedPlayer?.position || item.slot?.extracted?.rawPosition || "";
     if (position) positionCounts[position] = (positionCounts[position] || 0) + 1;
     return {
@@ -1321,7 +1371,7 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
 function getFantasyScreenshotRecoveryLayoutSlots(review = {}, layoutSlots = []) {
   if (!review || !(layoutSlots || []).length) return [];
   const layoutById = new Map((layoutSlots || []).map((slot) => [slot.id, slot]));
-  return buildFantasyScreenshotReviewDisplaySlots(review.extractedSlots || [], layoutSlots)
+  const recoverySlots = buildFantasyScreenshotReviewDisplaySlots(review.extractedSlots || [], layoutSlots)
     .filter((item) => {
       if (!item.layoutSlot?.id) return false;
       if (item.type === "missing") return true;
@@ -1329,6 +1379,19 @@ function getFantasyScreenshotRecoveryLayoutSlots(review = {}, layoutSlots = []) 
     })
     .map((item) => layoutById.get(item.layoutSlot.id))
     .filter((slot) => slot?.boundingBox && Number(slot.boundingBox.width) && Number(slot.boundingBox.height));
+  const starterCount = (review.extractedSlots || []).filter((slot) => slot.role === "starter" && slot.selectedPlayerId).length;
+  if (starterCount >= 11) return recoverySlots;
+  const seenLayoutIds = new Set((review.extractedSlots || []).map((slot) => slot.extracted?.sourceRegion?.id).filter(Boolean));
+  const recoveryIds = new Set(recoverySlots.map((slot) => slot.id));
+  (layoutSlots || [])
+    .filter((slot) => slot.optional && slot.role === "starter")
+    .filter((slot) => !seenLayoutIds.has(slot.id) && !recoveryIds.has(slot.id))
+    .filter((slot) => slot?.boundingBox && Number(slot.boundingBox.width) && Number(slot.boundingBox.height))
+    .forEach((slot) => {
+      recoveryIds.add(slot.id);
+      recoverySlots.push(slot);
+    });
+  return recoverySlots;
 }
 
 async function recoverFantasyScreenshotMissingLayoutSlots({
@@ -1719,14 +1782,14 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
       region: "fpl-name-labels",
       pageSegMode: "11",
-      maskRegions: FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => slot.box),
+      maskRegions: FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.map((slot) => slot.box),
       layout: "fpl-pitch",
     },
     {
       variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.fallbackVariant,
       region: "fpl-name-labels-threshold",
       pageSegMode: "11",
-      maskRegions: FPL_PITCH_SCREENSHOT_NAME_LAYOUT.map((slot) => slot.box),
+      maskRegions: FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.map((slot) => slot.box),
       layout: "fpl-pitch",
     },
     { variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant, region: "full", pageSegMode: "11" },
@@ -1747,6 +1810,9 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       const layoutSlots = plan.layout === "fpl-pitch"
         ? (preprocessed.layoutSlots?.length ? preprocessed.layoutSlots : getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight))
         : [];
+      const parseLayoutSlots = plan.slotLayout
+        ? layoutSlots
+        : layoutSlots.filter((slot) => !slot.optional);
       const ocr = plan.slotLayout
         ? await (slotOcrRunner || runFantasyScreenshotSlotOcr)(preprocessed.source || decoded?.url, layoutSlots, { onStatus, signal, pageSegMode: plan.pageSegMode })
         : await ocrRunner(preprocessed.source || decoded?.url, { onStatus, signal, pageSegMode: plan.pageSegMode });
@@ -1754,7 +1820,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         players,
         teams,
         imageHeight: parseHeight,
-        layoutSlots,
+        layoutSlots: parseLayoutSlots,
       });
       const review = buildFantasyScreenshotReview({
         extractedSlots: candidates,

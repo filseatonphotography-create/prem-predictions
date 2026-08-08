@@ -311,6 +311,58 @@ describe("Prediction Addiction suggested team", () => {
     expect(suggestion.starters.some((player) => player.id === benchCover.id)).toBe(false);
   });
 
+  test("attacking style can carry one cheap non-starting outfield bench enabler", () => {
+    const expensivePool = makePool().map((player) => ({
+      ...player,
+      price: player.position === "GK" ? 5 : player.position === "DEF" ? 6 : player.position === "MID" ? 8 : 9,
+    }));
+    const benchEnabler = makePlayer("cheap-attacking-enabler", "MID", "CRY", 4, {
+      externalMetadata: { form: 0, pointsPerGame: 1, selectedByPercent: 0.2, minutes: 0, starts: 0 },
+    });
+    const tightConfig = {
+      ...FANTASY_SUGGESTED_TEAM_CONFIG,
+      budget: 107,
+      preferredMinimumSpend: 100,
+      softPlayersPerClub: 3,
+    };
+    const validateTightSquad = (squad) => {
+      const validation = validateSquad(squad);
+      return {
+        ...validation,
+        isValid: validation.errors.filter((error) => error !== "budget").length === 0 &&
+          squad.players.reduce((sum, player) => sum + player.price, 0) <= tightConfig.budget,
+        errors: validation.errors.filter((error) => error !== "budget"),
+      };
+    };
+
+    const balanced = createFantasySuggestedTeam({
+      players: [benchEnabler, ...expensivePool],
+      clubOutlooks: makeOutlooks(),
+      validateSquad: validateTightSquad,
+      scoreReport: () => ({ overallScore: 90, categories: {}, players: [] }),
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+      config: tightConfig,
+    });
+    const attacking = createFantasySuggestedTeam({
+      players: [benchEnabler, ...expensivePool],
+      clubOutlooks: makeOutlooks(),
+      validateSquad: validateTightSquad,
+      scoreReport: () => ({ overallScore: 90, categories: {}, players: [] }),
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "attacking",
+      config: tightConfig,
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.players.some((player) => player.id === benchEnabler.id)).toBe(false);
+    expect(attacking.status).toBe("ready");
+    expect(attacking.players.filter((player) => player.suggestedBenchEnablerEligible)).toHaveLength(1);
+    expect(attacking.bench.some((player) => player.id === benchEnabler.id)).toBe(true);
+    expect(attacking.starters.some((player) => player.id === benchEnabler.id)).toBe(false);
+    expect(attacking.reasons.join(" ")).toMatch(/cheap outfield bench enabler/);
+  });
+
   test("avoids tripling up on clubs when comparable alternatives exist", () => {
     const suggestion = createFantasySuggestedTeam({
       players: makePool(),

@@ -454,6 +454,32 @@ describe("Fantasy screenshot review and import conversion", () => {
     ]);
   });
 
+  test("review display keeps detected optional wide slots inline without empty optional placeholders", () => {
+    const slots = [
+      {
+        id: "slot-gk",
+        role: "starter",
+        selectedPlayerId: "gk",
+        selectedPlayer: { id: "gk", position: "GK" },
+        extracted: { rawPosition: "GK", rawSquadRole: "starter", sourceRegion: { id: "starter-gk-1" } },
+      },
+      {
+        id: "slot-wide-mid",
+        role: "starter",
+        selectedPlayerId: "mid-wide",
+        selectedPlayer: { id: "mid-wide", position: "MID" },
+        extracted: { rawPosition: "MID", rawSquadRole: "starter", sourceRegion: { id: "starter-mid-wide-5" } },
+      },
+    ];
+
+    const display = buildFantasyScreenshotReviewDisplaySlots(slots);
+    const ids = display.map((item) => item.type === "slot" ? item.slot.id : item.id);
+
+    expect(ids).toContain("slot-wide-mid");
+    expect(ids.indexOf("slot-wide-mid")).toBeGreaterThan(ids.indexOf("missing-review-slot-starter-mid-4"));
+    expect(ids.some((id) => id === "missing-review-slot-starter-mid-wide-5")).toBe(false);
+  });
+
   test("manual review additions are assigned back into layout order", () => {
     const slots = [
       {
@@ -762,6 +788,31 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(gkSlot.boundingBox.y).toBeGreaterThan(490);
     expect(gkSlot.boundingBox.y).toBeLessThan(510);
     expect(gkSlot.boundingBox.height).toBeLessThan(labelHeight);
+  });
+
+  test("detects optional wide formation name labels for far-right players", () => {
+    const canvas = { width: 1200, height: 1800 };
+    const context = {
+      canvas,
+      getImageData: jest.fn((x, y, width, height) => {
+        const isWideMidSearch = x >= 920 && y >= 800 && y <= 980;
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let index = 0; index < data.length; index += 4) {
+          data[index] = isWideMidSearch ? 246 : 20;
+          data[index + 1] = isWideMidSearch ? 246 : 140;
+          data[index + 2] = isWideMidSearch ? 246 : 70;
+          data[index + 3] = 255;
+        }
+        return { data };
+      }),
+    };
+
+    const slots = detectFantasyScreenshotNameLayoutSlots(canvas, context);
+    const wideMidSlot = slots.find((slot) => slot.id === "starter-mid-wide-5");
+
+    expect(wideMidSlot.detectedLabel).toBe(true);
+    expect(wideMidSlot.optional).toBe(true);
+    expect(wideMidSlot.boundingBox.x).toBeGreaterThan(900);
   });
 
   test("worker terminates after OCR failure", async () => {

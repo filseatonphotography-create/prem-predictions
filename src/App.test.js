@@ -551,6 +551,25 @@ describe("World Cup sync helpers", () => {
     expect(two.attackDifficulty).toBeCloseTo(2.75, 8);
   });
 
+  test("builds five-fixture Fantasy IQ club outlooks for suggested teams", () => {
+    const fixtures = [1, 2, 3, 4, 5].map((gameweek) => ({
+      id: 9000 + gameweek,
+      gameweek,
+      kickoff: `2026-08-${String(10 + gameweek).padStart(2, "0")}T15:00:00Z`,
+      homeTeam: "Arsenal FC",
+      awayTeam: ["Chelsea FC", "Liverpool FC", "Manchester City FC", "Tottenham Hotspur FC", "Newcastle United FC"][gameweek - 1],
+    }));
+
+    const defaultOutlooks = buildFantasyIqClubOutlooks(fixtures, {}, {});
+    const fiveFixtureOutlooks = buildFantasyIqClubOutlooks(fixtures, {}, {}, { horizon: 5 });
+
+    expect(defaultOutlooks.ARS.fixtures).toHaveLength(3);
+    expect(fiveFixtureOutlooks.ARS.fixtures).toHaveLength(5);
+    expect(fiveFixtureOutlooks.ARS.fixtureCount).toBe(5);
+    expect(fiveFixtureOutlooks.ARS.fixtures.map((fixture) => fixture.gameweek)).toEqual([1, 2, 3, 4, 5]);
+    expect(Number.isFinite(fiveFixtureOutlooks.ARS.overallScore)).toBe(true);
+  });
+
   test("builds the current Premier League table from released fixtures", () => {
     const rows = buildPremierLeagueTableRows(FIXTURES, {});
     const teamKeys = new Set(rows.map((row) => normalizeTeamName(row.team.name)));

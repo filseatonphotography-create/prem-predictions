@@ -1648,7 +1648,9 @@ function getFantasyIqPredictionGoalScore(goals, attacking = true) {
   return mapping[index];
 }
 
-export function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context = {}) {
+export function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context = {}, options = {}) {
+  const horizon = Math.max(1, Math.round(Number(options.horizon) || 3));
+  const fixtureWeights = options.weights || getPremierLeagueFixtureWeights(horizon);
   return PREMIER_LEAGUE_TEAMS.reduce((out, team) => {
     const teamCode = getTeamCode(team);
     const normalizedTeam = normalizeTeamName(team);
@@ -1660,7 +1662,7 @@ export function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context 
         return isTeamFixture && !isFixtureCompleted(fixture, results);
       })
       .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff))
-      .slice(0, 3)
+      .slice(0, horizon)
       .map((fixture) => {
         const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
         const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
@@ -1705,7 +1707,7 @@ export function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context 
             fantasyIqDifficultyToScore(defenceDifficultyScore) * FANTASY_IQ_SCORE_CONFIG.clubFixtureWeights.defenceDifficulty,
         };
       });
-    const weights = PREMIER_LEAGUE_MODEL_CONFIG.nextThreeFixtureWeights.slice(0, upcoming.length);
+    const weights = fixtureWeights.slice(0, upcoming.length);
     const fixtureWeight = (_, index) => weights[index] || 0;
 
     out[teamCode] = {
@@ -3207,7 +3209,20 @@ const PREMIER_LEAGUE_MODEL_CONFIG = {
   defenceCleanSheetWeight: 2.2,
   defenceOpponentGoalsWeight: 0.75,
   nextThreeFixtureWeights: [0.5, 0.3, 0.2],
+  nextFiveFixtureWeights: [0.34, 0.24, 0.18, 0.14, 0.1],
 };
+
+const FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON = 5;
+
+function getPremierLeagueFixtureWeights(horizon = 3) {
+  const numericHorizon = Math.max(1, Math.round(Number(horizon) || 3));
+  if (numericHorizon === 5) return PREMIER_LEAGUE_MODEL_CONFIG.nextFiveFixtureWeights;
+  if (numericHorizon <= 3) return PREMIER_LEAGUE_MODEL_CONFIG.nextThreeFixtureWeights.slice(0, numericHorizon);
+  const decay = 0.72;
+  const weights = Array.from({ length: numericHorizon }, (_, index) => decay ** index);
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  return weights.map((weight) => weight / total);
+}
 
 const OVERALL_DIFFICULTY_BANDS = [
   { minExpectedPoints: 2.15, score: 1, label: "Easy", color: "#22c55e" },
@@ -4643,15 +4658,16 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
   };
 }
 
-export function buildWeightedNextFixtureOutlook(upcomingFixtures = []) {
+export function buildWeightedNextFixtureOutlook(upcomingFixtures = [], horizon = 3) {
+  const numericHorizon = Math.max(1, Math.round(Number(horizon) || 3));
   const validFixtures = (upcomingFixtures || [])
-    .slice(0, 3)
+    .slice(0, numericHorizon)
     .filter((fixture) =>
       Number.isFinite(Number(fixture?.difficultyScore)) &&
       Number.isFinite(Number(fixture?.attackDifficultyScore)) &&
       Number.isFinite(Number(fixture?.defenceDifficultyScore))
     );
-  const weights = PREMIER_LEAGUE_MODEL_CONFIG.nextThreeFixtureWeights.slice(0, validFixtures.length);
+  const weights = getPremierLeagueFixtureWeights(numericHorizon).slice(0, validFixtures.length);
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
 
   if (!validFixtures.length || totalWeight <= 0) {
@@ -4659,7 +4675,7 @@ export function buildWeightedNextFixtureOutlook(upcomingFixtures = []) {
       fixtureCount: 0,
       confidence: "low",
       validFixtures: [],
-      missingFixtureCount: Math.max(0, Math.min(3, (upcomingFixtures || []).length) - validFixtures.length),
+      missingFixtureCount: Math.max(0, Math.min(numericHorizon, (upcomingFixtures || []).length) - validFixtures.length),
     };
   }
 
@@ -4671,9 +4687,9 @@ export function buildWeightedNextFixtureOutlook(upcomingFixtures = []) {
 
   return {
     fixtureCount: validFixtures.length,
-    confidence: validFixtures.length < 3 ? "medium" : "high",
+    confidence: validFixtures.length < numericHorizon ? "medium" : "high",
     validFixtures,
-    missingFixtureCount: Math.max(0, Math.min(3, (upcomingFixtures || []).length) - validFixtures.length),
+    missingFixtureCount: Math.max(0, Math.min(numericHorizon, (upcomingFixtures || []).length) - validFixtures.length),
     overallDifficulty: weightedAverage((fixture) => fixture.difficultyScore),
     attackDifficulty: weightedAverage((fixture) => fixture.attackDifficultyScore),
     defenceDifficulty: weightedAverage((fixture) => fixture.defenceDifficultyScore),
@@ -9364,6 +9380,12 @@ const fantasyIqReport = useMemo(() => {
     results,
     leaguePerformanceContext
   );
+  const fantasySuggestedTeamClubOutlooks = buildFantasyIqClubOutlooks(
+    activeFixtures,
+    results,
+    leaguePerformanceContext,
+    { horizon: FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON }
+  );
   const fantasyIqPredictionOutlooks = buildFantasyIqPredictionOutlooks(
     activeFixtures,
     currentPredictions,
@@ -9378,12 +9400,13 @@ const fantasyIqReport = useMemo(() => {
   });
   const fantasySuggestedTeam = createFantasySuggestedTeam({
     players: fantasyPlayerData.players || [],
-    clubOutlooks: fantasyIqClubOutlooks,
+    clubOutlooks: fantasySuggestedTeamClubOutlooks,
     predictionOutlooks: fantasyIqPredictionOutlooks,
     validateSquad: validateFantasyIqSquad,
     scoreReport: buildFantasyIqScoredReport,
     playerDataStatus: fantasyPlayerData,
     style: fantasySuggestedTeamStyle,
+    fixtureHorizon: FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON,
   });
   const completedResults = teamRows.reduce((sum, row) => sum + row.actualPlayed, 0) / 2;
   const actualGoals = teamRows.reduce((sum, row) => sum + row.actualFor, 0) / 2;
@@ -13736,7 +13759,7 @@ useEffect(() => {
           {renderFantasyIqHomeChoice(
             "suggested",
             "Prediction Addiction Suggested Team",
-            "Choose attacking, defensive or balanced and get a legal squad for the next three gameweeks.",
+            "Choose attacking, defensive or balanced and get a legal squad for the next five gameweeks.",
             "#22C55E"
           )}
           {renderFantasyIqHomeChoice(
@@ -14050,7 +14073,7 @@ useEffect(() => {
 
         {fantasyIqAnalysisPanel === "suggested" && renderFantasyIqSection(
           "Prediction Addiction Suggested Team",
-          "A legal 15-player squad for the next three gameweeks using budget, club limits, fixtures, form, value and actionable availability risk.",
+          "A legal 15-player squad for the next five gameweeks using budget, club limits, fixtures, form, value and actionable availability risk.",
           renderFantasySuggestedTeam(),
           "#22C55E"
         )}
