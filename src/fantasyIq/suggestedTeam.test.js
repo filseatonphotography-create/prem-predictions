@@ -410,6 +410,39 @@ describe("Prediction Addiction suggested team", () => {
     expect(spend.defensiveCore).toBeGreaterThan(spend.attack);
   });
 
+  test("defensive style starts premium-ish midfielders with strong fixtures", () => {
+    const premiumMidfielder = makePlayer("strong-fixture-premium-mid", "MID", "LIV", 7.5, {
+      externalMetadata: recentStarterMetadata({
+        form: 8,
+        pointsPerGame: 6.5,
+        selectedByPercent: 30,
+        minutes: 900,
+        starts: 10,
+      }),
+    });
+    const defensive = createFantasySuggestedTeam({
+      players: [premiumMidfielder, ...makePool()],
+      clubOutlooks: {
+        ...makeOutlooks(),
+        LIV: {
+          overallScore: 92,
+          attackScore: 94,
+          defenceScore: 88,
+          fixtureCount: 3,
+          fixtures: [{ overallScore: 92, attackScore: 94, defenceScore: 88 }],
+        },
+      },
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+
+    expect(defensive.status).toBe("ready");
+    expect(defensive.players.some((player) => player.id === premiumMidfielder.id)).toBe(true);
+    expect(defensive.starters.some((player) => player.id === premiumMidfielder.id)).toBe(true);
+  });
+
   test("defensive style does not pay premium forward prices for bench slots", () => {
     const players = [
       ...makePool(),

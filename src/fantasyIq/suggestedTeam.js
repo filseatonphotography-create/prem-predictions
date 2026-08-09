@@ -47,6 +47,8 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
   noRecentDataStarterMinutes: 1800,
   noRecentDataStarterStarts: 20,
   premiumAttackerPrice: 8,
+  mustStartAttackerPrice: 7,
+  mustStartAttackerFixtureScore: 68,
   premiumForwardPrice: 8.5,
   softPlayersPerClub: 2,
   thirdClubPlayerRequiredEdge: 18,
@@ -425,6 +427,12 @@ function isPremiumAttacker(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) 
   return ["MID", "FWD"].includes(player.position) && Number(player.price || 0) >= Number(config.premiumAttackerPrice || 8);
 }
 
+function isMustStartAttacker(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  return ["MID", "FWD"].includes(player.position) &&
+    Number(player.price || 0) >= Number(config.mustStartAttackerPrice || 7) &&
+    Number(player.fixtureScore || 0) >= Number(config.mustStartAttackerFixtureScore || 68);
+}
+
 function isPremiumForward(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
   return player.position === "FWD" && Number(player.price || 0) >= Number(config.premiumForwardPrice || 8.5);
 }
@@ -476,7 +484,7 @@ function getBenchedPremiumStarterAttackers(squad = {}, styleConfig = {}, config 
   if (!styleConfig.premiumAttackerMustStart) return [];
   return (squad.players || []).filter((player) =>
     player.squadRole === "bench" &&
-    isPremiumAttacker(player, config) &&
+    (isPremiumAttacker(player, config) || isMustStartAttacker(player, config)) &&
     hasStyleStarterEvidence(player, styleConfig, config)
   );
 }
@@ -744,7 +752,7 @@ function chooseStarters(players = [], config = FANTASY_SUGGESTED_TEAM_CONFIG, st
       .filter((player) => player.position === position)
       .filter((player) => position !== "GK" || player.id === preferredGoalkeeper?.id)
       .filter((player) => hasStyleStarterEvidence(player, styleConfig, config))
-      .sort((a, b) => b.suggestedScore - a.suggestedScore),
+      .sort((a, b) => Number(isMustStartAttacker(b, config)) - Number(isMustStartAttacker(a, config)) || b.suggestedScore - a.suggestedScore),
   ]));
   const formationRank = new Map((styleConfig.formations || []).map((label, index) => [label, index]));
   const validFormations = config.starterFormations
@@ -771,7 +779,7 @@ function chooseStarters(players = [], config = FANTASY_SUGGESTED_TEAM_CONFIG, st
       const starterIdSet = new Set(starters.map((player) => player.id));
       const benchedPremiumAttackers = players.filter((player) =>
         !starterIdSet.has(player.id) &&
-        isPremiumAttacker(player, config) &&
+        (isPremiumAttacker(player, config) || isMustStartAttacker(player, config)) &&
         hasStyleStarterEvidence(player, styleConfig, config)
       );
       const premiumBenchPenalty = styleConfig.premiumAttackerMustStart

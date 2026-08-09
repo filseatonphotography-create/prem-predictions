@@ -10,6 +10,7 @@ import {
   decodeFantasyScreenshotImage,
   detectFantasyScreenshotNameLayoutSlots,
   getFantasyScreenshotFormationLayoutSlots,
+  getFantasyScreenshotFormationReviewLayout,
   getFantasyScreenshotCombinedConfidence,
   getFantasyScreenshotTesseractOptions,
   hasExternalTesseractAssetPaths,
@@ -875,6 +876,31 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(fiveDef.find((slot) => slot.id === "starter-def-5").boundingBox.x).toBeGreaterThan(730);
     expect(fiveMid.find((slot) => slot.id === "starter-mid-5").boundingBox.x).toBeGreaterThan(730);
     expect(threeFwd.find((slot) => slot.id === "starter-fwd-3").boundingBox.x).toBeGreaterThan(650);
+  });
+
+  test("review display can use the detected 5-4-1 formation layout", () => {
+    const layout = getFantasyScreenshotFormationReviewLayout("5-4-1");
+    const display = buildFantasyScreenshotReviewDisplaySlots([
+      {
+        id: "review-richarlison",
+        extracted: {
+          rawName: "Richarlison",
+          rawPosition: "FWD",
+          rawSquadRole: "starter",
+          sourceRegion: { id: "starter-fwd-1" },
+        },
+        selectedPlayerId: "fpl:richarlison",
+        selectedPlayer: { id: "fpl:richarlison", position: "FWD", displayName: "Richarlison" },
+        role: "starter",
+        status: "matched",
+      },
+    ], layout);
+
+    expect(layout).toHaveLength(15);
+    expect(layout.slice(0, 11).map((slot) => slot.position)).toEqual(["GK", "DEF", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "FWD"]);
+    expect(display.filter((item) => item.type === "missing")).toHaveLength(14);
+    expect(display.find((item) => item.type === "slot").layoutSlot.id).toBe("starter-fwd-1");
+    expect(display.filter((item) => item.role === "starter" && item.position === "FWD")).toHaveLength(1);
   });
 
   test("detected wide labels infer the matching formation for targeted OCR", () => {

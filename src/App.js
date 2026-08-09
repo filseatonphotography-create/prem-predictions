@@ -12268,7 +12268,10 @@ useEffect(() => {
     const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
-    const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(fantasyScreenshotReviewSlots);
+    const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(
+      fantasyScreenshotReviewSlots,
+      fantasyScreenshotReview?.imageMetadata?.reviewSlotLayout || undefined
+    );
     const fantasyScreenshotAvailabilityRisks = fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId))
       .filter(hasActionableFantasyAvailabilityRisk);

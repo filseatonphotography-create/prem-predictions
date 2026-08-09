@@ -174,6 +174,18 @@ export const FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT = FPL_PITCH_SCREENSHOT_EXPAND
   box: slot.box,
 }));
 
+export function getFantasyScreenshotFormationReviewLayout(formationLabel = "3-4-3") {
+  const starterLayout = FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS[formationLabel] || FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS["3-4-3"];
+  const benchLayout = FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS[formationLabel] || FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS["3-4-3"];
+  return [...starterLayout, ...benchLayout].map((slot) => ({
+    id: slot.id,
+    role: slot.role,
+    position: slot.position,
+    optional: !!slot.optional,
+    box: slot.box,
+  }));
+}
+
 export const FANTASY_SCREENSHOT_IMPORT_STATES = {
   idle: "idle",
   selected: "image selected",
@@ -1558,9 +1570,11 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
   const positionCounts = {};
   return orderedItems.map((item) => {
     const position = item.type === "missing" ? item.position : item.layoutSlot?.position || item.slot?.selectedPlayer?.position || item.slot?.extracted?.rawPosition || "";
+    const role = item.type === "missing" ? item.role : item.layoutSlot?.role || item.slot?.role || item.slot?.extracted?.rawSquadRole || "";
     if (position) positionCounts[position] = (positionCounts[position] || 0) + 1;
     return {
       ...item,
+      role,
       position,
       positionNumber: position ? positionCounts[position] : null,
     };
@@ -1975,7 +1989,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
     {
       variant: FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.primaryVariant,
       region: "fpl-slot-lines",
-      pageSegMode: "7",
+      pageSegMode: "6",
       layout: "fpl-pitch",
       slotLayout: true,
     },
@@ -2011,6 +2025,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       const rawLayoutSlots = plan.layout === "fpl-pitch"
         ? (preprocessed.layoutSlots?.length ? preprocessed.layoutSlots : getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight, preprocessed.layoutViewport))
         : [];
+      const inferredFormation = inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots);
       const layoutSlots = plan.layout === "fpl-pitch"
         ? getBestFantasyScreenshotLayoutSlots(rawLayoutSlots, parseWidth, parseHeight, preprocessed.layoutViewport)
         : [];
@@ -2038,7 +2053,8 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
           screenshotLayout: plan.layout || null,
           ocrTextBlockCount: ocr.blocks.length,
           ocrDebug: ocr.raw,
-          inferredFormation: inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots),
+          inferredFormation,
+          reviewSlotLayout: inferredFormation ? getFantasyScreenshotFormationReviewLayout(inferredFormation) : null,
           layoutViewport: preprocessed.layoutViewport,
         },
       });
@@ -2056,7 +2072,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
           signal,
           slotOcrRunner,
           canUseDefaultSlotOcr: ocrRunner === runFantasyScreenshotOcr,
-          pageSegMode: "7",
+          pageSegMode: "6",
         });
       }
       attempts.push(attempt);
