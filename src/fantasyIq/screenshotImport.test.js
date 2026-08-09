@@ -1370,6 +1370,35 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(review.extractedSlots.filter((slot) => !slot.selectedPlayerId)).toHaveLength(1);
   });
 
+  test("review cleanup removes partial duplicate names and tiny OCR fragments", () => {
+    const fixturePlayers = [{
+      id: "fpl:van-de-ven",
+      sourceId: 1,
+      firstName: "Micky",
+      lastName: "van de Ven",
+      displayName: "Micky van de Ven",
+      name: "Micky van de Ven",
+      webName: "Van de Ven",
+      normalisedName: "micky van de ven",
+      teamCode: "TOT",
+      teamName: "Tottenham",
+      position: "DEF",
+      positionId: 2,
+      dataSource: "test",
+    }];
+    const review = buildFantasyScreenshotReview({
+      extractedSlots: [
+        { rawName: "Van de Ven", rawPosition: "DEF", rawSquadRole: "starter", extractionConfidence: 0.94, sourceRegion: { boundingBox: { x: 40, y: 300, width: 180, height: 42 } } },
+        { rawName: "de Ven", rawPosition: "DEF", rawSquadRole: "starter", extractionConfidence: 0.62, sourceRegion: { boundingBox: { x: 42, y: 304, width: 150, height: 36 } } },
+        { rawName: "aw", rawPosition: "DEF", rawSquadRole: "starter", extractionConfidence: 0.8, sourceRegion: { boundingBox: { x: 500, y: 300, width: 100, height: 42 } } },
+      ],
+      players: fixturePlayers,
+    });
+
+    expect(review.extractedSlots).toHaveLength(1);
+    expect(review.extractedSlots[0]).toMatchObject({ selectedPlayerId: "fpl:van-de-ven" });
+  });
+
   test("debug summary excludes screenshot data, OCR text and player contents", () => {
     const review = buildFantasyScreenshotReview({ extractedSlots: [{ rawName: "Bukayo Saka", rawTeamCode: "ARS", rawPosition: "MID", extractionConfidence: 0.9 }], players });
     const summary = createFantasyScreenshotImportSummary({

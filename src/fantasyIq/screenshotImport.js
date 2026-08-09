@@ -1246,11 +1246,12 @@ function isCrowdedOcrNoiseSlot(slot = {}) {
   if (slot.selectedPlayerId || slot.status === "ambiguous") return false;
   if ((slot.matchResult?.candidates || []).length) return false;
   const extracted = slot.extracted || {};
-  if (extracted.rawTeamCode || extracted.rawPosition) return false;
   const normalisedName = normaliseFantasyPlayerName(extracted.rawName);
   if (!normalisedName) return true;
   const words = normalisedName.split(/\s+/).filter(Boolean);
   if (words.some((word) => FANTASY_SCREENSHOT_NOISE_WORDS.has(word))) return true;
+  if (words.length === 1 && normalisedName.length <= 3) return true;
+  if (extracted.rawTeamCode || extracted.rawPosition) return false;
   if (words.length > 4) return true;
   if (normalisedName.length < 3) return true;
   const rawName = safeText(extracted.rawName);
@@ -1323,17 +1324,7 @@ function dedupeSelectedScreenshotPlayers(slots = []) {
     }
   });
   const retainedSlotIds = new Set(Array.from(bestSlotByPlayerKey.values()).map((slot) => slot.id));
-  return (slots || []).map((slot) => {
-    if (!slot.selectedPlayerId || retainedSlotIds.has(slot.id)) return slot;
-    return {
-      ...slot,
-      selectedPlayerId: null,
-      selectedPlayer: null,
-      status: "unmatched",
-      combinedConfidence: 0,
-      issues: [...(slot.issues || []), "Duplicate player detection ignored. Search this slot manually."],
-    };
-  });
+  return (slots || []).filter((slot) => !slot.selectedPlayerId || retainedSlotIds.has(slot.id));
 }
 
 function rebalanceScreenshotRoles(slots = []) {
@@ -1359,7 +1350,8 @@ function rebalanceScreenshotRoles(slots = []) {
 }
 
 function normaliseFantasyScreenshotReviewSlots(slots = []) {
-  return rebalanceScreenshotRoles(dedupeSelectedScreenshotPlayers(trimScreenshotNoiseSlots(slots)));
+  const cleaned = dedupeSelectedScreenshotPlayers(trimScreenshotNoiseSlots(slots)).filter((slot) => !isCrowdedOcrNoiseSlot(slot));
+  return rebalanceScreenshotRoles(cleaned).slice(0, 15);
 }
 
 function boxesOverlap(a = {}, b = {}) {
@@ -1674,7 +1666,7 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
   });
 
   const positionCounts = {};
-  return orderedItems.map((item) => {
+  return orderedItems.slice(0, 15).map((item) => {
     const position = item.type === "missing" ? item.position : item.layoutSlot?.position || item.slot?.selectedPlayer?.position || item.slot?.extracted?.rawPosition || "";
     const role = item.type === "missing" ? item.role : item.layoutSlot?.role || item.slot?.role || item.slot?.extracted?.rawSquadRole || "";
     if (position) positionCounts[position] = (positionCounts[position] || 0) + 1;

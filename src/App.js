@@ -14136,7 +14136,7 @@ useEffect(() => {
               {overviewMetrics.map((item) => renderFantasyIqMetric(item.label, item.value, theme.accent2))}
             </div>
             <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35, textAlign: "center" }}>
-              Model-based squad analysis only. This is not predicted FPL points. It uses current FPL prices and availability flags when available, but does not include predicted minutes, ownership or transfer hits.
+              Model-based squad analysis only. This is not predicted FPL points. It uses current FPL prices, availability flags and injury-related player availability where available, but does not include transfer hits.
             </div>
           </div>,
           theme.accent2,
@@ -14223,7 +14223,7 @@ useEffect(() => {
             Data note
           </div>
           <div style={{ marginTop: 4, fontSize: 11, color: theme.muted, lineHeight: 1.35 }}>
-            Guidance only. This uses your predictions, app results, fixture home/away context and current FPL prices when available. It does not use injury news or predicted line-ups.
+            Guidance only. This uses your predictions, app results, fixture home/away context, current FPL prices and player availability where available. It does not use confirmed team sheets.
           </div>
         </div>
       </div>
