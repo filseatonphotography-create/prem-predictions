@@ -622,7 +622,7 @@ export function inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots = [])
 
 function getBestFantasyScreenshotLayoutSlots(layoutSlots = [], width = 0, height = 0) {
   const inferredFormation = inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots);
-  if (!inferredFormation) return layoutSlots;
+  if (!inferredFormation) return getFantasyScreenshotFormationLayoutSlots("3-4-3", width, height);
   const byId = new Map((layoutSlots || []).map((slot) => [slot.id, slot]));
   return getFantasyScreenshotFormationLayoutSlots(inferredFormation, width, height).map((slot) => ({
     ...slot,
@@ -1498,6 +1498,7 @@ function getFantasyScreenshotRecoveryLayoutSlots(review = {}, layoutSlots = []) 
     .filter((slot) => slot?.boundingBox && Number(slot.boundingBox.width) && Number(slot.boundingBox.height));
   const starterCount = (review.extractedSlots || []).filter((slot) => slot.role === "starter" && slot.selectedPlayerId).length;
   if (starterCount >= 11) return recoverySlots;
+  if (starterCount < 8) return recoverySlots;
   const seenLayoutIds = new Set((review.extractedSlots || []).map((slot) => slot.extracted?.sourceRegion?.id).filter(Boolean));
   const recoveryIds = new Set(recoverySlots.map((slot) => slot.id));
   (layoutSlots || [])
@@ -1963,7 +1964,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         attempt = await recoverFantasyScreenshotMissingLayoutSlots({
           attempt,
           imageSource: preprocessed.source || decoded?.url,
-          layoutSlots,
+          layoutSlots: inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots) ? layoutSlots : rawLayoutSlots,
           players,
           teams,
           parseHeight,

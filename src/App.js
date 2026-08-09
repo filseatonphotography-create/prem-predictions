@@ -13736,20 +13736,6 @@ useEffect(() => {
     );
     const renderFantasyIqHome = () => (
       <div style={{ display: "grid", gap: 14 }}>
-        <div
-          style={{
-            border: `1px solid ${theme.line}`,
-            borderRadius: 12,
-            padding: isMobile || compact ? 14 : 18,
-            background: "linear-gradient(135deg, rgba(34,197,94,0.14), rgba(56,189,248,0.09), rgba(255,255,255,0.04))",
-            display: "grid",
-            gap: 6,
-          }}
-        >
-          <div style={{ color: theme.text, fontSize: isMobile || compact ? 26 : 34, fontWeight: 1000, lineHeight: 1 }}>
-            Fantasy IQ
-          </div>
-        </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 12 }}>
           {renderFantasyIqHomeChoice(
             "suggested",

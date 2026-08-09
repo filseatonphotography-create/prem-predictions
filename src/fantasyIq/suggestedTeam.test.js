@@ -657,6 +657,41 @@ describe("Prediction Addiction suggested team", () => {
     expect(balanced.starters.some((player) => player.id === lowMinuteMidfielder.id)).toBe(false);
   });
 
+  test("named role-doubt midfielders are not used as balanced starters", () => {
+    const roleDoubtPlayers = [
+      makePlayer("nico-gonzalez", "MID", "MCI", 6, {
+        displayName: "Nico Gonzalez",
+        name: "Nico Gonzalez",
+        webName: "Nico Gonzalez",
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 15, minutes: 900, starts: 9 },
+      }),
+      makePlayer("mikel-merino", "MID", "ARS", 6.5, {
+        displayName: "Mikel Merino",
+        name: "Mikel Merino",
+        webName: "Mikel Merino",
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 15, minutes: 900, starts: 9 },
+      }),
+      makePlayer("zubimendi", "MID", "ARS", 5.8, {
+        displayName: "Martin Zubimendi",
+        name: "Martin Zubimendi",
+        webName: "Zubimendi",
+        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 15, minutes: 900, starts: 9 },
+      }),
+    ];
+
+    const balanced = createFantasySuggestedTeam({
+      players: [...roleDoubtPlayers, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.starters.map((player) => player.id)).not.toEqual(expect.arrayContaining(roleDoubtPlayers.map((player) => player.id)));
+  });
+
   test("defensive single-forward shapes start a premium forward with good fixtures", () => {
     const premiumFixtureForward = makePlayer("premium-fixture-forward", "FWD", "ARS", 12.5, {
       externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },

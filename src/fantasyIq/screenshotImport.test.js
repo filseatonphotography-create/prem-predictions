@@ -1010,6 +1010,23 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["Raya", "Gabriel", "Saliba"]));
   });
 
+  test("slot OCR starts with 15 canonical slots when formation cannot be inferred", async () => {
+    const slotCalls = [];
+    const slotOcrRunner = jest.fn(async (imageSource, layoutSlots) => {
+      slotCalls.push(layoutSlots.map((slot) => slot.id));
+      return { blocks: [], raw: null };
+    });
+    const ocrRunner = jest.fn().mockResolvedValue({ blocks: [], raw: null });
+
+    await runFantasyScreenshotOcrWithFallback(
+      { url: "fixture.png", width: 1200, height: 1800 },
+      { players: [], imageMetadata: { width: 1200, height: 1800 }, ocrRunner, slotOcrRunner }
+    );
+
+    expect(slotCalls[0]).toHaveLength(15);
+    expect(slotCalls[0].some((slotId) => /wide/.test(slotId))).toBe(false);
+  });
+
   test("primary quality below threshold requests fallback", () => {
     const quality = scoreFantasyScreenshotOcrQuality({ blocks: [], candidates: [], review: { extractedSlots: [] } });
     expect(quality.needsFallback).toBe(true);

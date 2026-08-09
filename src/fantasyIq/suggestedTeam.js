@@ -2,6 +2,7 @@ import {
   getFantasyAvailabilityChance,
   hasActionableFantasyAvailabilityRisk,
 } from "./availability";
+import { normaliseFantasyPlayerName } from "./playerData";
 
 export const FANTASY_SUGGESTED_TEAM_VERSION = "suggested-team-v1";
 
@@ -43,6 +44,14 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
   minimumStarterStarts: 6,
   premiumAttackerPrice: 8,
   premiumForwardPrice: 8.5,
+  starterRoleDoubtNames: [
+    "nico gonzalez",
+    "niko gonzalez",
+    "mikel merino",
+    "omar marmoush",
+    "martin zubimendi",
+    "zubimendi",
+  ],
   softPlayersPerClub: 2,
   thirdClubPlayerRequiredEdge: 18,
   thirdClubPlayerPenalty: 7,
@@ -187,6 +196,14 @@ function hasWeakStartingEvidence(player = {}, config = FANTASY_SUGGESTED_TEAM_CO
 }
 
 function hasStarterRoleDoubt(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  const playerName = normaliseFantasyPlayerName(player.webName || player.displayName || player.name || "");
+  const roleDoubtNames = config.starterRoleDoubtNames || [];
+  if (roleDoubtNames.some((name) => {
+    const normalisedName = normaliseFantasyPlayerName(name);
+    return normalisedName && (playerName === normalisedName || playerName.includes(normalisedName));
+  })) {
+    return true;
+  }
   const meta = player.externalMetadata || {};
   const starts = numberOrNull(meta.starts);
   const minutes = numberOrNull(meta.minutes);
