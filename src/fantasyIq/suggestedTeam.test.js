@@ -157,7 +157,7 @@ describe("Prediction Addiction suggested team", () => {
 
     expect(suggestion.status).toBe("ready");
     expect(suggestion.players.some((player) => player.id === injuredStar.id)).toBe(false);
-    expect(suggestion.warnings.join(" ")).toMatch(/availability risk/i);
+    expect(suggestion.warnings.join(" ")).toMatch(/player availability/i);
   });
 
   test("uses budget for premium players when they have stronger role and upside", () => {
@@ -633,6 +633,30 @@ describe("Prediction Addiction suggested team", () => {
     expect(attacking.starters.some((player) => player.id === marmoushProfile.id)).toBe(false);
   });
 
+  test("known low-minute midfielders are not used as recommended starters", () => {
+    const lowMinuteMidfielder = makePlayer("low-minute-midfielder", "MID", "MCI", 6.5, {
+      externalMetadata: {
+        form: 8,
+        pointsPerGame: 6,
+        selectedByPercent: 20,
+        minutes: 420,
+        starts: 4,
+      },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [lowMinuteMidfielder, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.starters.some((player) => player.id === lowMinuteMidfielder.id)).toBe(false);
+  });
+
   test("defensive single-forward shapes start a premium forward with good fixtures", () => {
     const premiumFixtureForward = makePlayer("premium-fixture-forward", "FWD", "ARS", 12.5, {
       externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
@@ -675,6 +699,24 @@ describe("Prediction Addiction suggested team", () => {
     expect(balanced.status).toBe("ready");
     const selected = balanced.players.find((player) => player.id === joaoPedroProfile.id);
     if (selected) expect(selected.squadRole).toBe("starter");
+  });
+
+  test("premium attackers are not recommended as bench picks", () => {
+    const premiumBenchForward = makePlayer("premium-bench-forward", "FWD", "CHE", 9, {
+      externalMetadata: { form: 8, pointsPerGame: 7, selectedByPercent: 30, minutes: 850, starts: 9 },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [premiumBenchForward, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.bench.some((player) => player.id === premiumBenchForward.id)).toBe(false);
   });
 
   test("avoids tripling up on clubs when comparable alternatives exist", () => {
@@ -732,6 +774,6 @@ describe("Prediction Addiction suggested team", () => {
 
     expect(suggestion.status).toBe("review");
     expect(suggestion.overallScore).toBe(72);
-    expect(suggestion.warnings.join(" ")).toMatch(/No strong 85\+/);
+    expect(suggestion.warnings.join(" ")).not.toMatch(/No strong 85\+/);
   });
 });

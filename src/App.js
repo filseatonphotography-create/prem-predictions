@@ -11702,16 +11702,20 @@ useEffect(() => {
           gap: 12,
         }}
       >
-        <div>
-          <div style={{ fontSize: 17, color: borderColor, fontWeight: 950 }}>
-            {title}
+        {(title || subtitle) && (
+          <div>
+            {title && (
+              <div style={{ fontSize: 17, color: borderColor, fontWeight: 950 }}>
+                {title}
+              </div>
+            )}
+            {subtitle && (
+              <div style={{ marginTop: 3, fontSize: 12, color: theme.muted, lineHeight: 1.35 }}>
+                {subtitle}
+              </div>
+            )}
           </div>
-          {subtitle && (
-            <div style={{ marginTop: 3, fontSize: 12, color: theme.muted, lineHeight: 1.35 }}>
-              {subtitle}
-            </div>
-          )}
-        </div>
+        )}
         {children}
       </div>
     );
@@ -12554,15 +12558,9 @@ useEffect(() => {
           </div>
         );
       }
-      const isStrongRecommendation = suggestion.status === "ready";
       return (
         <div style={{ display: "grid", gap: 12 }}>
           {styleControls}
-          {!isStrongRecommendation && (
-            <div style={{ color: theme.warn, fontSize: 13, fontWeight: 900, lineHeight: 1.35 }}>
-              No strong 85+ recommendation from the current data. Showing the closest legal draft for review only.
-            </div>
-          )}
           <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(4, minmax(0, 1fr))", gap: 10 }}>
             {renderFantasyIqMetric("Suggested Fantasy IQ", formatFantasyIqScore(suggestion.overallScore), theme.accent2)}
             {renderFantasyIqMetric("Budget Used", `${formatFantasyIqBudget(suggestion.totalCost)} / £100.0m`, theme.accent)}
@@ -12581,7 +12579,7 @@ useEffect(() => {
             )}
           </div>
           <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
-            Suggested Team uses model fixtures, current FPL prices, available FPL form fields and actionable injury/availability flags. It does not submit transfers or alter your saved squad.
+            Suggested Team uses model fixtures, current FPL prices, available FPL form fields and player availability flags. It does not submit transfers or alter your saved squad.
           </div>
         </div>
       );
@@ -13751,15 +13749,12 @@ useEffect(() => {
           <div style={{ color: theme.text, fontSize: isMobile || compact ? 26 : 34, fontWeight: 1000, lineHeight: 1 }}>
             Fantasy IQ
           </div>
-          <div style={{ color: theme.muted, fontSize: 13, lineHeight: 1.35, maxWidth: 720 }}>
-            Build a Prediction Addiction squad or analyse your own fantasy team in a few taps.
-          </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 12 }}>
           {renderFantasyIqHomeChoice(
             "suggested",
             "Prediction Addiction Suggested Team",
-            "Choose attacking, defensive or balanced and get a legal squad for the next five gameweeks.",
+            "Choose attacking, defensive or balanced and get a 15 player squad for the next five gameweeks.",
             "#22C55E"
           )}
           {renderFantasyIqHomeChoice(
@@ -14072,8 +14067,8 @@ useEffect(() => {
         {fantasyIqAnalysisPanel === "suggested" && renderFantasyIqBackBar()}
 
         {fantasyIqAnalysisPanel === "suggested" && renderFantasyIqSection(
-          "Prediction Addiction Suggested Team",
-          "A legal 15-player squad for the next five gameweeks using budget, club limits, fixtures, form, value and actionable availability risk.",
+          null,
+          null,
           renderFantasySuggestedTeam(),
           "#22C55E"
         )}

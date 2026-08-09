@@ -39,6 +39,8 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
   minimumReliableMinutes: 540,
   minimumReliableSelectedByPercent: 2,
   minimumReliablePointsPerGame: 2.5,
+  minimumStarterMinutes: 650,
+  minimumStarterStarts: 6,
   premiumAttackerPrice: 8,
   premiumForwardPrice: 8.5,
   softPlayersPerClub: 2,
@@ -56,6 +58,8 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
       goalkeeperStrategy: "rotate",
       benchPricePenalty: { GK: 0.15, DEF: 0.35, MID: 0.35, FWD: 0.45 },
       starterSpendBonus: { GK: 0.2, DEF: 0.45, MID: 0.55, FWD: 0.55 },
+      starterMinimumMinutes: 650,
+      starterMinimumStarts: 6,
       premiumAttackerMustStart: true,
       maxStartingDefensivePlayersPerClub: 1,
     },
@@ -70,8 +74,8 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
       backupGoalkeeperMaxPrice: 4.5,
       benchPricePenalty: { GK: 2.4, DEF: 1.5, MID: 1.8, FWD: 2.1 },
       starterSpendBonus: { GK: 0.1, DEF: 0.25, MID: 1.15, FWD: 1.35 },
-      starterMinimumMinutes: 650,
-      starterMinimumStarts: 6,
+      starterMinimumMinutes: 700,
+      starterMinimumStarts: 7,
       premiumAttackerMustStart: true,
       allowBenchEnabler: true,
       maxBenchEnablers: 1,
@@ -87,6 +91,8 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
       goalkeeperStrategy: "rotate",
       benchPricePenalty: { GK: 0.15, DEF: 0.25, MID: 0.45, FWD: 3.4 },
       starterSpendBonus: { GK: 1.1, DEF: 1.2, MID: 0.75, FWD: -0.35 },
+      starterMinimumMinutes: 650,
+      starterMinimumStarts: 6,
       singleForwardRequiresPremium: true,
       singleForwardMinimumFixtureScore: 62,
       premiumAttackerMustStart: true,
@@ -180,6 +186,23 @@ function hasWeakStartingEvidence(player = {}, config = FANTASY_SUGGESTED_TEAM_CO
   return [lowStarts, lowMinutes, ignoredByManagers, lowOutput, noForm].filter(Boolean).length >= 3;
 }
 
+function hasStarterRoleDoubt(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  const meta = player.externalMetadata || {};
+  const starts = numberOrNull(meta.starts);
+  const minutes = numberOrNull(meta.minutes);
+  const pointsPerGame = numberOrNull(meta.pointsPerGame);
+  const selectedByPercent = numberOrNull(meta.selectedByPercent);
+  const minimumStarts = Number(config.minimumStarterStarts || 6);
+  const minimumMinutes = Number(config.minimumStarterMinutes || 650);
+  const knownRoleSignals = [starts, minutes].filter((value) => value != null).length;
+  if (!knownRoleSignals) return false;
+  if (starts != null && starts < minimumStarts) return true;
+  if (minutes != null && minutes < minimumMinutes) return true;
+  const lowOutput = pointsPerGame != null && pointsPerGame < config.minimumReliablePointsPerGame;
+  const ignoredByManagers = selectedByPercent != null && selectedByPercent < config.minimumReliableSelectedByPercent;
+  return lowOutput && ignoredByManagers;
+}
+
 function isAttackingBenchEnablerCandidate(player = {}, styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
   if (!styleConfig.allowBenchEnabler) return false;
   const position = String(player.position || "").toUpperCase();
@@ -226,8 +249,10 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
   const availabilityChance = getFantasyAvailabilityChance(player);
   const risk = hasActionableFantasyAvailabilityRisk(player);
   const weakStartingEvidence = hasWeakStartingEvidence(player);
+  const starterRoleDoubt = hasStarterRoleDoubt(player);
   const availabilityPenalty = risk ? 100 - (availabilityChance ?? 35) : 0;
   const rotationPenalty = weakStartingEvidence ? 28 : 0;
+  const roleDoubtPenalty = starterRoleDoubt ? 18 : 0;
   const score =
     fixtureScore * 0.43 +
     starterLikelihoodScore * 0.2 +
@@ -236,7 +261,8 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
     (predictionScore ?? fixtureScore) * 0.06 +
     valueScore * 0.03 -
     availabilityPenalty * 0.8 -
-    rotationPenalty +
+    rotationPenalty -
+    roleDoubtPenalty +
     (styleConfig.positionBias?.[position] || 0);
   return {
     ...player,
@@ -251,6 +277,7 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
     suggestedScore: round(clamp(score, 0, 100), 2),
     availabilityRisk: risk,
     weakStartingEvidence,
+    starterRoleDoubt,
     benchEnablerEligible: isAttackingBenchEnablerCandidate(player, styleConfig),
     clubOutlook,
     predictionOutlook,
@@ -335,10 +362,11 @@ function isPremiumForward(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
 function hasStyleStarterEvidence(player = {}, styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
   if (player.benchEnablerEligible) return false;
   if (Number(player.starterLikelihoodScore || 0) < Number(config.minimumStartingXiLikelihood || 0)) return false;
+  if (player.starterRoleDoubt || hasStarterRoleDoubt(player, config)) return false;
   const minutes = numberOrNull(player.externalMetadata?.minutes);
   const starts = numberOrNull(player.externalMetadata?.starts);
-  const minimumMinutes = numberOrNull(styleConfig.starterMinimumMinutes);
-  const minimumStarts = numberOrNull(styleConfig.starterMinimumStarts);
+  const minimumMinutes = numberOrNull(styleConfig.starterMinimumMinutes) ?? numberOrNull(config.minimumStarterMinutes);
+  const minimumStarts = numberOrNull(styleConfig.starterMinimumStarts) ?? numberOrNull(config.minimumStarterStarts);
   if (minimumMinutes != null && minutes != null && minutes < minimumMinutes) return false;
   if (minimumStarts != null && starts != null && starts < minimumStarts) return false;
   return true;
@@ -371,6 +399,15 @@ function getBenchPremiumWaste(squad = {}, styleConfig = {}) {
         : 0;
       return sum + Math.max(0, Number(player.price || 0) - threshold) * penalty + premiumAttackerPenalty;
     }, 0);
+}
+
+function getBenchedPremiumStarterAttackers(squad = {}, styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  if (!styleConfig.premiumAttackerMustStart) return [];
+  return (squad.players || []).filter((player) =>
+    player.squadRole === "bench" &&
+    isPremiumAttacker(player, config) &&
+    hasStyleStarterEvidence(player, styleConfig, config)
+  );
 }
 
 function uniquePlayersById(players = []) {
@@ -810,6 +847,7 @@ export function createFantasySuggestedTeam({
       const formation = chooseStarters(selected, config, styleConfig);
       if (!formation) return null;
       const squad = toSquad(selected, formation);
+      if (getBenchedPremiumStarterAttackers(squad, styleConfig, config).length) return null;
       const validation = typeof validateSquad === "function" ? validateSquad(squad) : { isValid: true };
       if (!validation?.isValid) return null;
       const report = typeof scoreReport === "function"
@@ -844,7 +882,7 @@ export function createFantasySuggestedTeam({
     return {
       status: "locked",
       version: FANTASY_SUGGESTED_TEAM_VERSION,
-      warnings: ["Suggested team could not build a legal squad under budget with the current player data."],
+      warnings: ["Suggested team could not build a 15 player squad under budget with the current player data."],
       players: [],
     };
   }
@@ -877,8 +915,7 @@ export function createFantasySuggestedTeam({
     bench,
     players: best.squad.players,
     warnings: [
-      !recommendationReady ? `No strong ${config.minimumRecommendedScore}+ Suggested Team is available from the current model run.` : "",
-      excludedRiskCount ? `${excludedRiskCount} players with actionable availability risk were excluded.` : "",
+      excludedRiskCount ? `${excludedRiskCount} players with player availability risk were excluded.` : "",
       best.totalCost < config.preferredMinimumSpend ? `Only ${round(best.totalCost)}m was used because the model could not find higher-priced upgrades that improved the squad within constraints.` : "",
       playerDataStatus?.cacheStatus === "fallback" ? "Live FPL player data is unavailable, so suggested team is locked to fallback quality." : "",
     ].filter(Boolean),
