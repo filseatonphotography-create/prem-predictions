@@ -559,6 +559,7 @@ function stripNonNameTokens(tokens = [], { keepTeamCodeLikeTokens = false } = {}
   return tokens.filter((token) => {
     const normalisedToken = normaliseFantasyPlayerName(token);
     if (SCREENSHOT_NON_PLAYER_WORDS.has(normalisedToken)) return false;
+    if (/^[HA]$/i.test(normalisedToken)) return false;
     if (/^\d+\s*[\W_]*(GK|GKP|DEF|MID|FWD|FOR)$/i.test(token)) return false;
     if (!keepTeamCodeLikeTokens) {
       const code = correctFantasyTeamCodeFromOcr(token);
@@ -568,6 +569,26 @@ function stripNonNameTokens(tokens = [], { keepTeamCodeLikeTokens = false } = {}
     if (/^(C|VC|CAP|VICE|BENCH|SUB|START|XI)$/i.test(token)) return false;
     return /[a-zA-Z]/.test(token);
   });
+}
+
+function getFantasyScreenshotFixtureTokenStart(tokens = []) {
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    const rawCode = safeText(tokens[index]).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const rawSide = safeText(tokens[index + 1]).toUpperCase().replace(/[^A-Z]/g, "");
+    if (!/^[HA]$/.test(rawSide)) continue;
+    const code = correctFantasyTeamCodeFromOcr(rawCode);
+    const looksLikeTeamCode = /^[A-Z0-9]{2,4}$/.test(rawCode);
+    if (code.normalisedCode || looksLikeTeamCode) return index;
+  }
+  return -1;
+}
+
+function extractFantasyScreenshotNameFromFixtureLabel(text = "") {
+  const tokens = safeText(text).split(/\s+/).filter(Boolean);
+  if (!tokens.length) return "";
+  const fixtureTokenStart = getFantasyScreenshotFixtureTokenStart(tokens);
+  if (fixtureTokenStart <= 0) return "";
+  return stripNonNameTokens(tokens.slice(0, fixtureTokenStart), { keepTeamCodeLikeTokens: false }).join(" ");
 }
 
 function getAbsoluteLayoutBox(box = {}, width = 0, height = 0, viewport = null) {
@@ -1021,7 +1042,7 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     const slots = directStrictSlot
       ? [directStrictSlot]
       : expandLayoutSlotsForMergedText(block, layoutSlots, Math.max(1, mentions.length));
-    if (!slots.length || !mentions.length) return;
+    if (!slots.length) return;
     const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const positionMentionsBySlot = orderedSlots.map((slot) =>
       findPlayerMentionsInLayoutText(cleanedText, players, slot.position, { allowLoose: allowLooseSlotMatch })
@@ -1035,6 +1056,7 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
         : orderedMention && (!slot.position || orderedMention.player.position === slot.position)
         ? orderedMention
         : slotMentions[slotIndex] || slotMentions[0] || null;
+      const fallbackRawName = mention ? "" : extractFantasyScreenshotNameFromFixtureLabel(text);
       const candidate = mention
         ? createLayoutCandidate({
             rawName: mention.player.webName || mention.player.displayName || mention.player.name,
@@ -1042,6 +1064,14 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
             block,
             confidence: Math.max(Number(block.confidence || 0.6), mention.confidence),
             issue: mentions.length > 1 ? "Player name split from a merged OCR label row." : "",
+          })
+        : isLikelyFantasyScreenshotPlayerName(fallbackRawName, { hasPosition: !!slot.position })
+        ? createLayoutCandidate({
+            rawName: fallbackRawName,
+            slot,
+            block,
+            confidence: Math.min(0.74, Math.max(0.58, Number(block.confidence || 0.6))),
+            issue: "OCR name could not be matched automatically. Check this player before importing.",
           })
         : null;
       if (!candidate) return;

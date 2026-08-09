@@ -6,6 +6,7 @@ const chromeVersionUrl = process.env.CHROME_DEBUG_URL || "http://127.0.0.1:9222/
 const appUrl = process.env.FANTASY_IQ_SMOKE_APP_URL || "http://localhost:3000";
 const screenshotDir = process.env.FANTASY_IQ_SCREENSHOT_DIR || "/Users/pse2/Downloads/screenshotformations";
 const verboseOutput = /^(1|true|yes)$/i.test(String(process.env.FANTASY_IQ_VERBOSE || ""));
+const useSampleData = !/^(0|false|no)$/i.test(String(process.env.FANTASY_IQ_USE_SAMPLE_DATA || "true"));
 const authKey = "pl_prediction_auth_v1";
 const playerDataKey = "predictionAddiction:fplPlayerData:v3";
 
@@ -220,6 +221,22 @@ function summariseReview(review, expectedNames) {
   return summary;
 }
 
+function summarisePageText(text = "", expectedNames = []) {
+  const normalisedText = normaliseName(text);
+  const selectedNames = expectedNames.filter((name) => normalisedText.includes(normaliseName(name)));
+  return {
+    selectedCount: selectedNames.length,
+    selectedNames,
+    missing: expectedNames.filter((name) => !selectedNames.includes(name)),
+    unresolvedCount: null,
+    inferredFormation: null,
+    ocrTextBlockCount: null,
+    targetedRecoverySlotCount: null,
+    targetedRecoveryTextBlockCount: null,
+    confidence: null,
+  };
+}
+
 async function runScreenshot(cdp, sessionId, screenshotPath) {
   const formation = getFormationFromPath(screenshotPath);
   const expectedNames = expectedByFormation[formation];
@@ -234,8 +251,11 @@ async function runScreenshot(cdp, sessionId, screenshotPath) {
       if (key.includes("fantasyIqHistory")) localStorage.removeItem(key);
       if (key.includes("fantasyIqScreenshotFeedback")) localStorage.removeItem(key);
     });
+    localStorage.removeItem(${JSON.stringify(playerDataKey)});
     localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "screenshot-check-token", userId: "screenshot-check-user", username: "ScreenshotCheck" }));
-    localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
+    if (${JSON.stringify(useSampleData)}) {
+      localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
+    }
     localStorage.setItem("activeView", "fantasyHelp");
   `);
   await cdp.send("Page.navigate", { url: appUrl }, sessionId).catch(() => {});
@@ -252,11 +272,11 @@ async function runScreenshot(cdp, sessionId, screenshotPath) {
   await cdp.send("DOM.setFileInputFiles", { nodeId: inputNode.nodeId, files: [screenshotPath] }, sessionId);
   await waitFor(cdp, sessionId, "document.body.innerText.includes('Ready to analyse')", 10000);
   await evaluate(cdp, sessionId, clickButtonExpression("Analyse Screenshot"));
-  await waitFor(cdp, sessionId, "window.__predictionAddictionFantasyScreenshotImportState === 'needs review' || window.__predictionAddictionFantasyScreenshotImportState === 'failed'", 180000);
+  await waitFor(cdp, sessionId, "window.__predictionAddictionFantasyScreenshotImportState === 'needs review' || window.__predictionAddictionFantasyScreenshotImportState === 'failed' || document.body.innerText.includes('Ready for review') || document.body.innerText.includes('could not read') || document.body.innerText.includes('Only a few players')", 180000);
 
   const review = await evaluate(cdp, sessionId, "window.__predictionAddictionFantasyScreenshotReview");
   const text = await evaluate(cdp, sessionId, "document.body.innerText");
-  const summary = summariseReview(review, expectedNames);
+  const summary = review ? summariseReview(review, expectedNames) : summarisePageText(text, expectedNames);
   summary.formation = formation;
   summary.screenshot = screenshotPath;
   summary.statusLines = String(text || "")
@@ -278,6 +298,23 @@ async function main() {
   await cdp.send("Runtime.enable", {}, sessionId);
   await cdp.send("Page.enable", {}, sessionId);
   await cdp.send("DOM.enable", {}, sessionId);
+  await cdp.send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `
+      try {
+        Object.keys(localStorage).forEach((key) => {
+          if (key.includes("fantasyIqSquad")) localStorage.removeItem(key);
+          if (key.includes("fantasyIqHistory")) localStorage.removeItem(key);
+          if (key.includes("fantasyIqScreenshotFeedback")) localStorage.removeItem(key);
+        });
+        localStorage.removeItem(${JSON.stringify(playerDataKey)});
+        localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "screenshot-check-token", userId: "screenshot-check-user", username: "ScreenshotCheck" }));
+        if (${JSON.stringify(useSampleData)}) {
+          localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
+        }
+        localStorage.setItem("activeView", "fantasyHelp");
+      } catch (error) {}
+    `,
+  }, sessionId);
   await cdp.send("Emulation.setDeviceMetricsOverride", {
     width: 390,
     height: 844,

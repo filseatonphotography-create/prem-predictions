@@ -341,6 +341,18 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(candidates[0].rawSquadRole).toBe("bench");
   });
 
+  test("keeps slot OCR fixture labels as review candidates without player matches", () => {
+    const layoutSlots = getFantasyScreenshotFormationLayoutSlots("5-4-1", 1080, 2340);
+    const candidates = parseFantasyScreenshotCandidates([
+      { text: "Van de Ven BRE A", confidence: 0.84, strictSlotOcr: true, lineIndex: 1 },
+      { text: "Richarlison BRE A", confidence: 0.81, strictSlotOcr: true, lineIndex: 10 },
+      { text: "Dovin ARS A", confidence: 0.79, strictSlotOcr: true, lineIndex: 11 },
+    ], { imageHeight: 2340, layoutSlots, players: [] });
+
+    expect(candidates.map((candidate) => candidate.rawName)).toEqual(["Van de Ven", "Richarlison", "Dovin"]);
+    expect(candidates.map((candidate) => candidate.rawSquadRole)).toEqual(["starter", "starter", "bench"]);
+  });
+
   test("unknown role remains editable", () => {
     const candidates = parseFantasyScreenshotCandidates([
       { text: "Gabriel ARS DEF", confidence: 0.8, boundingBox: { x: 0, y: 0, width: 0, height: 0 } },
