@@ -21,6 +21,7 @@ import {
   convertFantasyScreenshotReviewToSquad,
   decodeFantasyScreenshotImage,
   getFantasyScreenshotFormationReviewLayout,
+  inferFantasyScreenshotFormationFromReviewSlots,
   removeFantasyScreenshotReviewSlot,
   runFantasyScreenshotOcrWithFallback,
   updateFantasyScreenshotReviewSlot,
@@ -12281,8 +12282,11 @@ useEffect(() => {
     const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
-    const fantasyScreenshotDisplayReviewLayout = fantasyScreenshotReviewSummary.formation
-      ? getFantasyScreenshotFormationReviewLayout(fantasyScreenshotReviewSummary.formation)
+    const fantasyScreenshotReviewDisplayFormation =
+      fantasyScreenshotReviewSummary.formation ||
+      inferFantasyScreenshotFormationFromReviewSlots(fantasyScreenshotReviewSlots);
+    const fantasyScreenshotDisplayReviewLayout = fantasyScreenshotReviewDisplayFormation
+      ? getFantasyScreenshotFormationReviewLayout(fantasyScreenshotReviewDisplayFormation)
       : fantasyScreenshotReview?.imageMetadata?.reviewSlotLayout || undefined;
     const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(
       fantasyScreenshotReviewSlots,

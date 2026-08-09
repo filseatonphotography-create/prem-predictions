@@ -699,6 +699,28 @@ export function inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots = [])
     .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label))[0]?.label || null;
 }
 
+export function inferFantasyScreenshotFormationFromReviewSlots(slots = []) {
+  const counts = { DEF: 0, MID: 0, FWD: 0 };
+  (slots || []).forEach((slot) => {
+    const role = ["starter", "bench"].includes(slot?.role) ? slot.role : slot?.extracted?.rawSquadRole || "";
+    if (role !== "starter") return;
+    const position = String(slot?.selectedPlayer?.position || slot?.extracted?.rawPosition || "").toUpperCase();
+    if (counts[position] == null) return;
+    counts[position] += 1;
+  });
+  const outfieldCount = counts.DEF + counts.MID + counts.FWD;
+  if (outfieldCount < 8) return null;
+  return FPL_PITCH_SCREENSHOT_FORMATIONS
+    .map((formation) => ({
+      label: formation.label,
+      distance:
+        Math.abs(formation.counts.DEF - counts.DEF) +
+        Math.abs(formation.counts.MID - counts.MID) +
+        Math.abs(formation.counts.FWD - counts.FWD),
+    }))
+    .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label))[0]?.label || null;
+}
+
 function getBestFantasyScreenshotLayoutSlots(layoutSlots = [], width = 0, height = 0, viewport = null) {
   const inferredFormation = inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots);
   if (!inferredFormation) return getFantasyScreenshotFormationLayoutSlots("3-4-3", width, height, viewport);
@@ -1327,6 +1349,45 @@ function dedupeSelectedScreenshotPlayers(slots = []) {
   return (slots || []).filter((slot) => !slot.selectedPlayerId || retainedSlotIds.has(slot.id));
 }
 
+function isSameScreenshotRow(a = {}, b = {}) {
+  const ay = getReviewSlotY(a);
+  const by = getReviewSlotY(b);
+  const aHeight = Number(a.extracted?.sourceRegion?.boundingBox?.height ?? 0);
+  const bHeight = Number(b.extracted?.sourceRegion?.boundingBox?.height ?? 0);
+  const rowTolerance = Math.max(18, Math.min(42, Math.max(aHeight, bHeight) * 1.4));
+  return Math.abs(ay - by) <= rowTolerance;
+}
+
+function removePartialDuplicateScreenshotSlots(slots = []) {
+  const kept = [];
+  (slots || [])
+    .slice()
+    .sort((a, b) => getReviewSlotQuality(b) - getReviewSlotQuality(a))
+    .forEach((slot) => {
+      const rawName = normaliseFantasyPlayerName(slot.extracted?.rawName);
+      if (!rawName) return;
+      const rawCompact = rawName.replace(/\s+/g, "");
+      const role = ["starter", "bench"].includes(slot.role) ? slot.role : slot.extracted?.rawSquadRole || "";
+      const position = slot.selectedPlayer?.position || slot.extracted?.rawPosition || "";
+      const isDuplicate = kept.some((existing) => {
+        const existingName = normaliseFantasyPlayerName(existing.extracted?.rawName);
+        const existingCompact = existingName.replace(/\s+/g, "");
+        const existingRole = ["starter", "bench"].includes(existing.role) ? existing.role : existing.extracted?.rawSquadRole || "";
+        const existingPosition = existing.selectedPlayer?.position || existing.extracted?.rawPosition || "";
+        const sameSelectedPlayer = slot.selectedPlayerId && existing.selectedPlayerId && slot.selectedPlayerId === existing.selectedPlayerId;
+        const sameArea = boxesOverlap(slot.extracted?.sourceRegion?.boundingBox, existing.extracted?.sourceRegion?.boundingBox) || isSameScreenshotRow(slot, existing);
+        const compatibleSlot = (!role || !existingRole || role === existingRole) && (!position || !existingPosition || position === existingPosition);
+        const partialName =
+          rawCompact === existingCompact ||
+          (rawCompact.length >= 4 && existingCompact.length > rawCompact.length && existingCompact.includes(rawCompact)) ||
+          (existingCompact.length >= 4 && rawCompact.length > existingCompact.length && rawCompact.includes(existingCompact));
+        return sameSelectedPlayer || (sameArea && compatibleSlot && partialName);
+      });
+      if (!isDuplicate) kept.push(slot);
+    });
+  return kept.sort(sortReviewSlotsByPosition);
+}
+
 function rebalanceScreenshotRoles(slots = []) {
   const selected = slots.filter((slot) => slot.selectedPlayerId);
   if (selected.length !== 11 && selected.length !== 15) return slots;
@@ -1350,7 +1411,9 @@ function rebalanceScreenshotRoles(slots = []) {
 }
 
 function normaliseFantasyScreenshotReviewSlots(slots = []) {
-  const cleaned = dedupeSelectedScreenshotPlayers(trimScreenshotNoiseSlots(slots)).filter((slot) => !isCrowdedOcrNoiseSlot(slot));
+  const cleaned = removePartialDuplicateScreenshotSlots(
+    dedupeSelectedScreenshotPlayers(trimScreenshotNoiseSlots(slots))
+  ).filter((slot) => !isCrowdedOcrNoiseSlot(slot));
   return rebalanceScreenshotRoles(cleaned).slice(0, 15);
 }
 

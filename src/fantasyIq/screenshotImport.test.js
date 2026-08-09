@@ -15,6 +15,7 @@ import {
   getFantasyScreenshotTesseractOptions,
   hasExternalTesseractAssetPaths,
   inferFantasyScreenshotFormationFromLayoutSlots,
+  inferFantasyScreenshotFormationFromReviewSlots,
   mergeDuplicateFantasyScreenshotCandidates,
   normaliseOcrBlocks,
   parseFantasyScreenshotCandidates,
@@ -953,6 +954,39 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
 
     expect(display.filter((item) => item.type === "missing" && item.role === "starter" && item.position === "FWD")).toHaveLength(0);
     expect(display.filter((item) => item.role === "starter" && item.position === "FWD")).toHaveLength(1);
+  });
+
+  test("review slot formation inference ignores bench forwards for a 5-4-1", () => {
+    const starters = [
+      ["GK", "starter"],
+      ["DEF", "starter"],
+      ["DEF", "starter"],
+      ["DEF", "starter"],
+      ["DEF", "starter"],
+      ["DEF", "starter"],
+      ["MID", "starter"],
+      ["MID", "starter"],
+      ["MID", "starter"],
+      ["MID", "starter"],
+      ["FWD", "starter"],
+      ["GK", "bench"],
+      ["FWD", "bench"],
+      ["FWD", "bench"],
+      ["MID", "bench"],
+    ].map(([position, role], index) => ({
+      id: `review-slot-${index}`,
+      role,
+      selectedPlayerId: `player-${index}`,
+      selectedPlayer: { id: `player-${index}`, position },
+      extracted: {
+        rawName: `Player ${index}`,
+        rawPosition: position,
+        rawSquadRole: role,
+        sourceRegion: { boundingBox: { x: index * 10, y: index < 11 ? index * 20 : 800 } },
+      },
+    }));
+
+    expect(inferFantasyScreenshotFormationFromReviewSlots(starters)).toBe("5-4-1");
   });
 
   test("detected wide labels infer the matching formation for targeted OCR", () => {
