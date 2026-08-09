@@ -255,6 +255,31 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(candidates[1].rawViceCaptainMarker).toBe("VC");
   });
 
+  test("uses adjacent trailing captain markers but ignores stray trailing letters on player rows", () => {
+    const defenderPlayers = [
+      { id: "def:1", displayName: "De Cuyper", name: "De Cuyper", webName: "De Cuyper", normalisedName: "de cuyper", teamCode: "BHA", position: "DEF" },
+      { id: "def:2", displayName: "Thiaw", name: "Thiaw", webName: "Thiaw", normalisedName: "thiaw", teamCode: "NEW", position: "DEF" },
+      { id: "def:3", displayName: "Henry", name: "Henry", webName: "Henry", normalisedName: "henry", teamCode: "BRE", position: "DEF" },
+    ];
+    const layoutSlots = [
+      { id: "starter-def-four-3", role: "starter", position: "DEF", boundingBox: { x: 300, y: 300, width: 100, height: 24 } },
+      { id: "starter-def-four-4", role: "starter", position: "DEF", boundingBox: { x: 420, y: 300, width: 100, height: 24 } },
+    ];
+    const captainCandidates = parseFantasyScreenshotCandidates([
+      { text: "RC I i per C", confidence: 0.5, strictSlotOcr: true, slotOcrCropVariant: "padded-label", lineIndex: 0 },
+      { text: "Henry TOT H", confidence: 0.9, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 1 },
+    ], { layoutSlots, players: defenderPlayers });
+    const ignoredCandidates = parseFantasyScreenshotCandidates([
+      { text: "HEIR AN De Cuyper AVL H c", confidence: 0.5, strictSlotOcr: true, slotOcrCropVariant: "padded-label", lineIndex: 0 },
+      { text: "Thiaw LIV H", confidence: 0.9, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 1 },
+    ], { layoutSlots, players: defenderPlayers });
+
+    const henry = captainCandidates.find((candidate) => candidate.rawName === "Henry");
+    const thiaw = ignoredCandidates.find((candidate) => candidate.rawName === "Thiaw");
+    expect(henry.rawCaptainMarker).toBe("C");
+    expect(thiaw.rawCaptainMarker).toBe("");
+  });
+
   test("drops sponsor and venue OCR words instead of treating them as player names", () => {
     const candidates = parseFantasyScreenshotCandidates([
       { text: "EXPRESS", confidence: 0.9, boundingBox: { x: 0, y: 20, width: 120, height: 30 } },

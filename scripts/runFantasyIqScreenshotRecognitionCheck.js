@@ -194,6 +194,16 @@ function summariseReview(review, expectedNames) {
   const summary = {
     selectedCount: selectedNames.length,
     selectedNames,
+    captain: slots.find((slot) => slot.isCaptain)?.selectedPlayer?.webName ||
+      slots.find((slot) => slot.isCaptain)?.selectedPlayer?.displayName ||
+      slots.find((slot) => slot.isCaptain)?.selectedPlayer?.name ||
+      slots.find((slot) => slot.isCaptain)?.extracted?.rawName ||
+      null,
+    viceCaptain: slots.find((slot) => slot.isViceCaptain)?.selectedPlayer?.webName ||
+      slots.find((slot) => slot.isViceCaptain)?.selectedPlayer?.displayName ||
+      slots.find((slot) => slot.isViceCaptain)?.selectedPlayer?.name ||
+      slots.find((slot) => slot.isViceCaptain)?.extracted?.rawName ||
+      null,
     missing,
     unresolvedCount: review?.unresolvedCount || 0,
     inferredFormation: review?.imageMetadata?.inferredFormation || null,
@@ -210,6 +220,8 @@ function summariseReview(review, expectedNames) {
       position: slot.selectedPlayer?.position || slot.extracted?.rawPosition || "",
       role: slot.role || slot.extracted?.rawSquadRole || "",
       status: slot.status || "",
+      isCaptain: !!slot.isCaptain,
+      isViceCaptain: !!slot.isViceCaptain,
       textPreview: slot.extracted?.sourceRegion?.textPreview || "",
       issues: slot.issues || [],
     }));

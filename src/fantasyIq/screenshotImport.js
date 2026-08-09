@@ -44,6 +44,7 @@ export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.6-local-ocr-v1";
 
 const FPL_PITCH_SCREENSHOT_REFERENCE_ASPECT = 2048 / 945;
 const FPL_PITCH_SCREENSHOT_REFERENCE_PITCH_TOP = 0.163;
+const FANTASY_SCREENSHOT_VISUAL_CAPTAIN_MARKERS_ENABLED = false;
 
 const FPL_PITCH_SCREENSHOT_ROW_X = {
   1: [0.41],
@@ -555,6 +556,15 @@ function detectCaptainMarker(text = "") {
   return { captain: false, viceCaptain: false };
 }
 
+function detectTrailingCaptainMarker(text = "") {
+  const cleaned = safeText(text).toUpperCase();
+  const match = cleaned.match(/(?:^|\s)(VC|V\/C|VICE|V|C)\s*$/);
+  if (!match) return { captain: false, viceCaptain: false };
+  return match[1] === "C"
+    ? { captain: true, viceCaptain: false }
+    : { captain: false, viceCaptain: true };
+}
+
 function stripNonNameTokens(tokens = [], { keepTeamCodeLikeTokens = false } = {}) {
   return tokens.filter((token) => {
     const normalisedToken = normaliseFantasyPlayerName(token);
@@ -910,7 +920,9 @@ export function detectFantasyScreenshotNameLayoutSlots(canvas, context, viewport
       canvas.height
     ).boundingBox;
     const detectedBox = detectWhiteNameLabelBox(context, searchBox);
-    const captainMarkerBoundingBox = detectCaptainMarkerBox(context, searchBox);
+    const captainMarkerBoundingBox = FANTASY_SCREENSHOT_VISUAL_CAPTAIN_MARKERS_ENABLED
+      ? detectCaptainMarkerBox(context, searchBox)
+      : null;
     const { ocrFallbackBoundingBox, ...primaryDetectedBox } = detectedBox || {};
     return {
       id: slot.id,
@@ -1108,6 +1120,19 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     if (!block?.strictSlotMarker || !Number.isInteger(block.lineIndex)) return;
     const marker = detectCaptainMarker(block.text);
     if (marker.captain || marker.viceCaptain) markerByLineIndex.set(block.lineIndex, marker);
+  });
+  (ocrBlocks || []).forEach((block) => {
+    if (block?.strictSlotMarker || !block?.strictSlotOcr || block.slotOcrCropVariant !== "padded-label" || !Number.isInteger(block.lineIndex)) return;
+    const sourceSlot = layoutSlots[block.lineIndex];
+    if (sourceSlot?.role !== "starter") return;
+    const marker = detectTrailingCaptainMarker(block.text);
+    if (!marker.captain && !marker.viceCaptain) return;
+    if (findPlayerMentionsInLayoutText(block.text, players, sourceSlot.position, { allowLoose: false }).length) return;
+    const nextSlot = layoutSlots[block.lineIndex + 1];
+    const sameRowNextSlot = nextSlot?.role === sourceSlot.role &&
+      nextSlot?.position === sourceSlot.position &&
+      Math.abs(Number(nextSlot.boundingBox?.y || 0) - Number(sourceSlot.boundingBox?.y || 0)) <= Math.max(8, Number(sourceSlot.boundingBox?.height || 0) * 3);
+    markerByLineIndex.set(sameRowNextSlot ? block.lineIndex + 1 : block.lineIndex, marker);
   });
   (ocrBlocks || []).forEach((block) => {
     if (block?.strictSlotMarker) return;
@@ -2253,36 +2278,41 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
         }
       }
       if (slot.captainMarkerBoundingBox) {
-        await worker.setParameters?.({
-          tessedit_pageseg_mode: "10",
-          tessedit_char_whitelist: "CV",
-        });
         const markerBox = slot.captainMarkerBoundingBox;
-        const markerResult = await worker.recognize(imageSource, {
-          rectangle: {
-            left: Math.max(0, Math.round(Number(markerBox.x || 0))),
-            top: Math.max(0, Math.round(Number(markerBox.y || 0))),
-            width: Math.max(1, Math.round(Number(markerBox.width || 0))),
-            height: Math.max(1, Math.round(Number(markerBox.height || 0))),
-          },
-        }, { text: true, blocks: true });
-        const markerText = safeText(markerResult?.data?.text || normaliseOcrBlocks(markerResult).map((block) => block.text).join(" "));
+        let markerText = safeText(markerBox.markerType || "");
+        let markerConfidence = markerText ? 0.82 : 0;
+        if (!markerText) {
+          await worker.setParameters?.({
+            tessedit_pageseg_mode: "10",
+            tessedit_char_whitelist: "CV",
+          });
+          const markerResult = await worker.recognize(imageSource, {
+            rectangle: {
+              left: Math.max(0, Math.round(Number(markerBox.x || 0))),
+              top: Math.max(0, Math.round(Number(markerBox.y || 0))),
+              width: Math.max(1, Math.round(Number(markerBox.width || 0))),
+              height: Math.max(1, Math.round(Number(markerBox.height || 0))),
+            },
+          }, { text: true, blocks: true });
+          markerText = safeText(markerResult?.data?.text || normaliseOcrBlocks(markerResult).map((block) => block.text).join(" "));
+          markerConfidence = Math.max(0, Math.min(1, Number(markerResult?.data?.confidence ?? 55) / 100));
+          await worker.setParameters?.({
+            tessedit_pageseg_mode: pageSegModes[0] || "7",
+            tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'- ",
+          });
+        }
         if (/[CV]/i.test(markerText)) {
           blocks.push({
             text: markerText,
-            confidence: Math.max(0, Math.min(1, Number(markerResult?.data?.confidence ?? 55) / 100)),
+            confidence: markerConfidence,
             boundingBox: markerBox,
             strictSlotMarker: true,
-            slotOcrPageSegMode: "10",
-            slotOcrCropVariant: "captain-marker",
+            slotOcrPageSegMode: markerBox.markerType ? "visual" : "10",
+            slotOcrCropVariant: markerBox.markerType ? "captain-marker-visual" : "captain-marker",
             lineIndex: index,
             wordIndex: 9000 + index,
           });
         }
-        await worker.setParameters?.({
-          tessedit_pageseg_mode: pageSegModes[0] || "7",
-          tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'- ",
-        });
       }
     }
     return {
