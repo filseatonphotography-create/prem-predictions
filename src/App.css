@@ -18,6 +18,26 @@
   }
 }
 
+.fantasy-screenshot-progress-fill {
+  transform-origin: left center;
+  animation: fantasy-screenshot-progress-fill 42s linear forwards;
+}
+
+@keyframes fantasy-screenshot-progress-fill {
+  0% {
+    transform: scaleX(0.08);
+  }
+  18% {
+    transform: scaleX(0.32);
+  }
+  55% {
+    transform: scaleX(0.72);
+  }
+  100% {
+    transform: scaleX(0.96);
+  }
+}
+
 /* Global Styles */
 body {
   font-family: 'Arial', sans-serif; /* More bold + readable */

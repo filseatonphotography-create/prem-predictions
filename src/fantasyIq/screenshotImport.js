@@ -123,15 +123,24 @@ const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
 ];
 
 const FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT = [
+  { id: "starter-def-four-1", role: "starter", position: "DEF", optional: true, box: { x: 0.055, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-four-2", role: "starter", position: "DEF", optional: true, box: { x: 0.29, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-four-3", role: "starter", position: "DEF", optional: true, box: { x: 0.529, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-four-4", role: "starter", position: "DEF", optional: true, box: { x: 0.767, y: 0.344, width: 0.18, height: 0.02 } },
   { id: "starter-def-wide-1", role: "starter", position: "DEF", optional: true, box: { x: 0.016, y: 0.344, width: 0.18, height: 0.02 } },
   { id: "starter-def-wide-2", role: "starter", position: "DEF", optional: true, box: { x: 0.205, y: 0.344, width: 0.18, height: 0.02 } },
   { id: "starter-def-wide-4", role: "starter", position: "DEF", optional: true, box: { x: 0.607, y: 0.344, width: 0.18, height: 0.02 } },
   { id: "starter-def-wide-5", role: "starter", position: "DEF", optional: true, box: { x: 0.795, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-three-1", role: "starter", position: "MID", optional: true, box: { x: 0.11, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-three-2", role: "starter", position: "MID", optional: true, box: { x: 0.41, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-three-3", role: "starter", position: "MID", optional: true, box: { x: 0.705, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-1", role: "starter", position: "MID", optional: true, box: { x: 0.016, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-2", role: "starter", position: "MID", optional: true, box: { x: 0.205, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-3", role: "starter", position: "MID", optional: true, box: { x: 0.41, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-4", role: "starter", position: "MID", optional: true, box: { x: 0.607, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-5", role: "starter", position: "MID", optional: true, box: { x: 0.795, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-fwd-two-1", role: "starter", position: "FWD", optional: true, box: { x: 0.205, y: 0.6, width: 0.18, height: 0.02 } },
+  { id: "starter-fwd-two-2", role: "starter", position: "FWD", optional: true, box: { x: 0.607, y: 0.6, width: 0.18, height: 0.02 } },
 ];
 
 const FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT = [
@@ -580,6 +589,11 @@ function clampLayoutSlotToImage(slot = {}, width = 0, height = 0) {
   const y = Math.max(0, Math.round(Number(box.y || 0)));
   const x2 = Math.min(Number(width || 0), Math.round(Number(box.x || 0) + Number(box.width || 0)));
   const y2 = Math.min(Number(height || 0), Math.round(Number(box.y || 0) + Number(box.height || 0)));
+  const fallbackBox = slot.ocrFallbackBoundingBox || null;
+  const fallbackX = Math.max(0, Math.round(Number(fallbackBox?.x || 0)));
+  const fallbackY = Math.max(0, Math.round(Number(fallbackBox?.y || 0)));
+  const fallbackX2 = Math.min(Number(width || 0), Math.round(Number(fallbackBox?.x || 0) + Number(fallbackBox?.width || 0)));
+  const fallbackY2 = Math.min(Number(height || 0), Math.round(Number(fallbackBox?.y || 0) + Number(fallbackBox?.height || 0)));
   return {
     ...slot,
     boundingBox: {
@@ -588,6 +602,14 @@ function clampLayoutSlotToImage(slot = {}, width = 0, height = 0) {
       width: Math.max(0, x2 - x),
       height: Math.max(0, y2 - y),
     },
+    ...(fallbackBox ? {
+      ocrFallbackBoundingBox: {
+        x: fallbackX,
+        y: fallbackY,
+        width: Math.max(0, fallbackX2 - fallbackX),
+        height: Math.max(0, fallbackY2 - fallbackY),
+      },
+    } : {}),
   };
 }
 
@@ -761,12 +783,24 @@ function detectWhiteNameLabelBox(context, searchBox = {}) {
     .sort((a, b) => (b.y1 - b.y0) - (a.y1 - a.y0) || b.peak - a.peak)[0];
   if (!bestRun) return null;
   const labelHeight = Math.max(10, bestRun.y1 - bestRun.y0);
+  const searchY = Math.max(0, Number(searchBox.y || 0));
+  const searchBottom = searchY + Math.max(1, Number(searchBox.height || 0));
+  const paddedY = Math.max(searchY, bestRun.y0 - Math.round(labelHeight * 1.15));
+  const paddedBottom = Math.min(searchBottom, bestRun.y1 + Math.round(labelHeight * 1.15));
   const insetX = Math.max(4, Math.round(Number(searchBox.width || 0) * 0.08));
+  const x = Math.max(0, Math.round(Number(searchBox.x || 0) + insetX));
+  const width = Math.max(1, Math.round(Number(searchBox.width || 0) - insetX * 2));
   return {
-    x: Math.max(0, Math.round(Number(searchBox.x || 0) + insetX)),
+    x,
     y: Math.max(0, bestRun.y0),
-    width: Math.max(1, Math.round(Number(searchBox.width || 0) - insetX * 2)),
+    width,
     height: labelHeight,
+    ocrFallbackBoundingBox: {
+      x,
+      y: Math.max(0, paddedY),
+      width,
+      height: Math.max(labelHeight, Math.round(paddedBottom - paddedY)),
+    },
   };
 }
 
@@ -780,17 +814,19 @@ export function detectFantasyScreenshotNameLayoutSlots(canvas, context, viewport
       canvas.height
     ).boundingBox;
     const detectedBox = detectWhiteNameLabelBox(context, searchBox);
+    const { ocrFallbackBoundingBox, ...primaryDetectedBox } = detectedBox || {};
     return {
       id: slot.id,
       role: slot.role,
       position: slot.position,
       optional: !!slot.optional,
-      boundingBox: detectedBox || getAbsoluteLayoutBox(
+      boundingBox: detectedBox ? primaryDetectedBox : getAbsoluteLayoutBox(
         FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.find((item) => item.id === slot.id)?.box || slot.box,
         canvas.width,
         canvas.height,
         layoutViewport
       ),
+      ...(ocrFallbackBoundingBox ? { ocrFallbackBoundingBox } : {}),
       layoutViewport,
       detectedLabel: !!detectedBox,
     };
@@ -953,7 +989,7 @@ function createLayoutCandidate({ rawName, slot, block, confidence = 0.62, issue 
   return {
     rawName: cleanedName,
     rawTeamCode: "",
-    rawPosition: slot?.position || "",
+    rawPosition: slot?.role === "bench" ? "" : slot?.position || "",
     rawSquadRole: slot?.role || "unknown",
     rawCaptainMarker: "",
     rawViceCaptainMarker: "",
@@ -981,7 +1017,10 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     const compactCleanedText = normaliseFantasyPlayerName(cleanedText).replace(/\s+/g, "");
     const allowLooseSlotMatch = !strictSlotOcr || compactCleanedText.length >= 7;
     const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "", { allowLoose: allowLooseSlotMatch });
-    const slots = expandLayoutSlotsForMergedText(block, layoutSlots, Math.max(1, mentions.length));
+    const directStrictSlot = strictSlotOcr && Number.isInteger(block.lineIndex) ? layoutSlots[block.lineIndex] : null;
+    const slots = directStrictSlot
+      ? [directStrictSlot]
+      : expandLayoutSlotsForMergedText(block, layoutSlots, Math.max(1, mentions.length));
     if (!slots.length || !mentions.length) return;
     const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const positionMentionsBySlot = orderedSlots.map((slot) =>
@@ -990,7 +1029,10 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     orderedSlots.forEach((slot, slotIndex) => {
       const slotMentions = positionMentionsBySlot[slotIndex];
       const orderedMention = slots.length > 1 ? mentions[slotIndex] : null;
-      const mention = orderedMention && (!slot.position || orderedMention.player.position === slot.position)
+      const slotAllowsAnyPosition = slot.role === "bench";
+      const mention = slotAllowsAnyPosition
+        ? mentions[slotIndex] || mentions[0] || null
+        : orderedMention && (!slot.position || orderedMention.player.position === slot.position)
         ? orderedMention
         : slotMentions[slotIndex] || slotMentions[0] || null;
       const candidate = mention
@@ -1302,7 +1344,10 @@ export function mergeDuplicateFantasyScreenshotCandidates(candidates = []) {
         item.rawTeamCode || "",
         item.rawPosition || "",
       ].join("|");
-      return itemKey === key || boxesOverlap(item.sourceRegion?.boundingBox, candidate.sourceRegion?.boundingBox);
+      const itemSourceId = item.sourceRegion?.id || "";
+      const candidateSourceId = candidate.sourceRegion?.id || "";
+      const canMergeByOverlap = !itemSourceId || !candidateSourceId || itemSourceId === candidateSourceId;
+      return itemKey === key || (canMergeByOverlap && boxesOverlap(item.sourceRegion?.boundingBox, candidate.sourceRegion?.boundingBox));
     });
     if (existingIndex < 0) {
       merged.push(candidate);
@@ -1646,6 +1691,10 @@ async function recoverFantasyScreenshotMissingLayoutSlots({
       targetedRecoverySlotCount: missingLayoutSlots.length,
       targetedRecoveryTextBlockCount: recoveryOcr.blocks?.length || 0,
       ocrTextBlockCount: combinedBlocks.length,
+      ocrDebug: {
+        ...(attempt?.review?.imageMetadata?.ocrDebug || {}),
+        targetedRecovery: recoveryOcr.raw || null,
+      },
     },
   });
   const quality = scoreFantasyScreenshotOcrQuality({ blocks: combinedBlocks, candidates, review });
@@ -1914,8 +1963,11 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
       if (message?.status) onStatus(message.status);
     },
   });
+  const pageSegModes = (Array.isArray(pageSegMode) ? pageSegMode : [pageSegMode])
+    .map((mode) => String(mode || "7"))
+    .filter((mode, index, modes) => modes.indexOf(mode) === index);
   await worker.setParameters?.({
-    tessedit_pageseg_mode: String(pageSegMode || "7"),
+    tessedit_pageseg_mode: pageSegModes[0] || "7",
     preserve_interword_spaces: "1",
     tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'- ",
   });
@@ -1941,31 +1993,58 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
       if (!Number(box.width) || !Number(box.height)) continue;
       if (signal?.aborted) throw new DOMException("OCR cancelled", "AbortError");
       onStatus(`Reading player slot ${index + 1} of ${layoutSlots.length}`);
-      const result = await worker.recognize(imageSource, {
-        rectangle: {
-          left: Math.max(0, Math.round(Number(box.x || 0))),
-          top: Math.max(0, Math.round(Number(box.y || 0))),
-          width: Math.max(1, Math.round(Number(box.width || 0))),
-          height: Math.max(1, Math.round(Number(box.height || 0))),
-        },
-      }, { text: true, blocks: true });
-      const text = safeText(result?.data?.text || normaliseOcrBlocks(result).map((block) => block.text).join(" "));
-      if (!text) continue;
-      blocks.push({
-        text,
-        confidence: Math.max(0, Math.min(1, Number(result?.data?.confidence ?? 55) / 100)),
-        boundingBox: box,
-        strictSlotOcr: true,
-        lineIndex: index,
-        wordIndex: 0,
-      });
+      const rectangles = [
+        { box, variant: "label" },
+        ...(slot.ocrFallbackBoundingBox &&
+          (Math.abs(Number(slot.ocrFallbackBoundingBox.y || 0) - Number(box.y || 0)) > 1 ||
+            Math.abs(Number(slot.ocrFallbackBoundingBox.height || 0) - Number(box.height || 0)) > 1)
+          ? [{ box: slot.ocrFallbackBoundingBox, variant: "padded-label" }]
+          : []),
+      ];
+      for (let rectangleIndex = 0; rectangleIndex < rectangles.length; rectangleIndex += 1) {
+        const rectangle = rectangles[rectangleIndex];
+        for (let modeIndex = 0; modeIndex < pageSegModes.length; modeIndex += 1) {
+          const mode = pageSegModes[modeIndex];
+          if (modeIndex > 0 || rectangleIndex > 0) {
+            await worker.setParameters?.({ tessedit_pageseg_mode: mode });
+          }
+          const cropBox = rectangle.box || {};
+          const result = await worker.recognize(imageSource, {
+            rectangle: {
+              left: Math.max(0, Math.round(Number(cropBox.x || 0))),
+              top: Math.max(0, Math.round(Number(cropBox.y || 0))),
+              width: Math.max(1, Math.round(Number(cropBox.width || 0))),
+              height: Math.max(1, Math.round(Number(cropBox.height || 0))),
+            },
+          }, { text: true, blocks: true });
+          const text = safeText(result?.data?.text || normaliseOcrBlocks(result).map((block) => block.text).join(" "));
+          if (!text) continue;
+          blocks.push({
+            text,
+            confidence: Math.max(0, Math.min(1, Number(result?.data?.confidence ?? 55) / 100)),
+            boundingBox: cropBox,
+            strictSlotOcr: true,
+            slotOcrPageSegMode: mode,
+            slotOcrCropVariant: rectangle.variant,
+            lineIndex: index,
+            wordIndex: rectangleIndex * pageSegModes.length + modeIndex,
+          });
+        }
+      }
     }
     return {
       blocks,
       raw: process.env.NODE_ENV === "development"
         ? {
             slotCount: layoutSlots.length,
+            pageSegModes,
             textLength: blocks.reduce((sum, block) => sum + safeText(block.text).length, 0),
+            slotTextPreviews: blocks.map((block) => ({
+              slotId: layoutSlots[block.lineIndex]?.id || "",
+              text: safeText(block.text).slice(0, 80),
+              pageSegMode: block.slotOcrPageSegMode,
+              cropVariant: block.slotOcrCropVariant,
+            })),
           }
         : null,
     };
@@ -2027,7 +2106,9 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         : [];
       const inferredFormation = inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots);
       const layoutSlots = plan.layout === "fpl-pitch"
-        ? getBestFantasyScreenshotLayoutSlots(rawLayoutSlots, parseWidth, parseHeight, preprocessed.layoutViewport)
+        ? plan.slotLayout
+          ? rawLayoutSlots
+          : getBestFantasyScreenshotLayoutSlots(rawLayoutSlots, parseWidth, parseHeight, preprocessed.layoutViewport)
         : [];
       const parseLayoutSlots = plan.slotLayout
         ? layoutSlots
@@ -2064,7 +2145,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
         attempt = await recoverFantasyScreenshotMissingLayoutSlots({
           attempt,
           imageSource: preprocessed.source || decoded?.url,
-          layoutSlots: inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots) ? layoutSlots : rawLayoutSlots,
+          layoutSlots: rawLayoutSlots,
           players,
           teams,
           parseHeight,
@@ -2072,7 +2153,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
           signal,
           slotOcrRunner,
           canUseDefaultSlotOcr: ocrRunner === runFantasyScreenshotOcr,
-          pageSegMode: "6",
+          pageSegMode: ["6", "7", "13"],
         });
       }
       attempts.push(attempt);

@@ -765,6 +765,21 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(mockTerminate).toHaveBeenCalledTimes(1);
   });
 
+  test("slot OCR can retry the same missing slot with multiple page segmentation modes", async () => {
+    mockRecognize
+      .mockResolvedValueOnce({ data: { text: "", confidence: 15, words: [] } })
+      .mockResolvedValueOnce({ data: { text: "Richarlison", confidence: 88, words: [] } });
+    const result = await runFantasyScreenshotSlotOcr("fixture.png", [
+      { id: "slot-1", boundingBox: { x: 10, y: 20, width: 150, height: 54 } },
+    ], { pageSegMode: ["6", "7"] });
+
+    expect(mockSetParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_pageseg_mode: "6" }));
+    expect(mockSetParameters).toHaveBeenCalledWith(expect.objectContaining({ tessedit_pageseg_mode: "7" }));
+    expect(mockRecognize).toHaveBeenCalledTimes(2);
+    expect(result.blocks.map((block) => block.text)).toEqual(["Richarlison"]);
+    expect(result.blocks[0].slotOcrPageSegMode).toBe("7");
+  });
+
   test("detects shifted white FPL name labels instead of using shirt-area boxes", () => {
     const canvas = { width: 1200, height: 1800 };
     const labelY = 500;
@@ -788,9 +803,10 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     const gkSlot = slots.find((slot) => slot.id === "starter-gk-1");
 
     expect(gkSlot.detectedLabel).toBe(true);
-    expect(gkSlot.boundingBox.y).toBeGreaterThan(490);
+    expect(gkSlot.boundingBox.y).toBeGreaterThan(labelY - 2);
     expect(gkSlot.boundingBox.y).toBeLessThan(510);
-    expect(gkSlot.boundingBox.height).toBeGreaterThan(40);
+    expect(gkSlot.ocrFallbackBoundingBox.y).toBeLessThan(labelY);
+    expect(gkSlot.ocrFallbackBoundingBox.height).toBeGreaterThan(labelHeight);
   });
 
   test("detects name labels in a top-cropped tall mobile screenshot", () => {
@@ -817,8 +833,10 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     const gkSlot = slots.find((slot) => slot.id === "starter-gk-1");
 
     expect(gkSlot.detectedLabel).toBe(true);
-    expect(gkSlot.boundingBox.y).toBeGreaterThan(100);
+    expect(gkSlot.boundingBox.y).toBeGreaterThan(labelY - 2);
     expect(gkSlot.boundingBox.y).toBeLessThan(120);
+    expect(gkSlot.ocrFallbackBoundingBox.y).toBeLessThan(labelY);
+    expect(gkSlot.ocrFallbackBoundingBox.height).toBeGreaterThan(labelHeight);
     expect(gkSlot.boundingBox.y).toBeLessThan(Math.round(canvas.height * 0.216));
   });
 
@@ -1065,7 +1083,7 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["Raya", "Gabriel", "Saliba"]));
   });
 
-  test("slot OCR starts with 15 canonical slots when formation cannot be inferred", async () => {
+  test("slot OCR starts with expanded plausible slots when formation cannot be inferred", async () => {
     const slotCalls = [];
     const slotOcrRunner = jest.fn(async (imageSource, layoutSlots) => {
       slotCalls.push(layoutSlots.map((slot) => slot.id));
@@ -1078,8 +1096,8 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
       { players: [], imageMetadata: { width: 1200, height: 1800 }, ocrRunner, slotOcrRunner }
     );
 
-    expect(slotCalls[0]).toHaveLength(15);
-    expect(slotCalls[0].some((slotId) => /wide/.test(slotId))).toBe(false);
+    expect(slotCalls[0].length).toBeGreaterThan(15);
+    expect(slotCalls[0]).toEqual(expect.arrayContaining(["starter-def-wide-5", "starter-mid-wide-5"]));
   });
 
   test("primary quality below threshold requests fallback", () => {

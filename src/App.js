@@ -5301,6 +5301,18 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyScreenshotFeedbackNote, setFantasyScreenshotFeedbackNote] = useState("");
   const [fantasyScreenshotPostImportSummary, setFantasyScreenshotPostImportSummary] = useState(() => loadFantasyScreenshotFeedbackSummary());
   const [fantasyScreenshotPreviewCollapsed, setFantasyScreenshotPreviewCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return undefined;
+    window.__predictionAddictionFantasyScreenshotReview = fantasyScreenshotReview;
+    window.__predictionAddictionFantasyScreenshotImportState = fantasyScreenshotImportState;
+    window.__predictionAddictionFantasyScreenshotImportSummary = fantasyScreenshotImportSummary;
+    return () => {
+      delete window.__predictionAddictionFantasyScreenshotReview;
+      delete window.__predictionAddictionFantasyScreenshotImportState;
+      delete window.__predictionAddictionFantasyScreenshotImportSummary;
+    };
+  }, [fantasyScreenshotImportState, fantasyScreenshotImportSummary, fantasyScreenshotReview]);
   const [fantasyTransferIqState, setFantasyTransferIqState] = useState(null);
   const [fantasyTransferOutFilter, setFantasyTransferOutFilter] = useState("ALL");
   const [fantasyTransferRoleFilter, setFantasyTransferRoleFilter] = useState("ALL");
@@ -13601,12 +13613,12 @@ useEffect(() => {
           <div aria-live="polite" style={{ display: "grid", gap: 7 }}>
             <div style={{ height: 9, borderRadius: 999, background: "rgba(255,255,255,0.08)", border: `1px solid ${theme.line}`, overflow: "hidden" }}>
               <div
+                className="fantasy-screenshot-progress-fill"
                 style={{
-                  width: `${Math.max(8, Math.min(100, fantasyScreenshotProgress || 8))}%`,
+                  width: "100%",
                   height: "100%",
                   borderRadius: 999,
                   background: `linear-gradient(90deg, ${theme.accent}, ${theme.accent2})`,
-                  transition: "width 260ms ease",
                 }}
               />
             </div>
