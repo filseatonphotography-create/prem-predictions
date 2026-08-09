@@ -1208,6 +1208,7 @@ function isLikelyFantasyScreenshotPlayerName(rawName = "", { hasTeamCode = false
   const tokens = normalised.split(/\s+/).filter(Boolean);
   if (!tokens.length) return false;
   if (tokens.some((token) => SCREENSHOT_NON_PLAYER_WORDS.has(token))) return false;
+  if (tokens.every((token) => token.length <= 2)) return false;
   if (/\b\d+\s*(gk|gkp|def|mid|fwd|for)\b/i.test(normalised)) return false;
   if (!hasTeamCode && !hasPosition) {
     const repeatedLetterTokens = tokens.filter((token) => /^([a-z])\1{1,}$/.test(token));

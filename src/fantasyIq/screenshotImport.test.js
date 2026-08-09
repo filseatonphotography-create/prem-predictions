@@ -309,6 +309,16 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(candidates[0].rawName).toBe("Erling Haaland");
   });
 
+  test("drops short two-token OCR fragments even when they look like fixture labels", () => {
+    const candidates = parseFantasyScreenshotCandidates([
+      { text: "al BL FUL A", confidence: 0.72, strictSlotOcr: true, slotOcrCropVariant: "padded-label", lineIndex: 0 },
+    ], {
+      layoutSlots: [{ id: "starter-mid-wide-4", role: "starter", position: "MID", boundingBox: { x: 600, y: 500, width: 120, height: 24 } }],
+      players,
+    });
+    expect(candidates).toEqual([]);
+  });
+
   test("matches screenshot names without treating fixture codes as player clubs", () => {
     const fixturePlayers = [
       ...players,
