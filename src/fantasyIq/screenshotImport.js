@@ -42,36 +42,93 @@ export const FANTASY_SCREENSHOT_TESSERACT_ASSETS = {
 
 export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.5-local-ocr-v1";
 
+const FPL_PITCH_SCREENSHOT_ROW_X = {
+  1: [0.41],
+  2: [0.205, 0.607],
+  3: [0.11, 0.41, 0.705],
+  4: [0.055, 0.29, 0.529, 0.767],
+  5: [0.016, 0.205, 0.41, 0.607, 0.795],
+};
+
+const FPL_PITCH_SCREENSHOT_ROW_Y = {
+  GK: 0.216,
+  DEF: 0.344,
+  MID: 0.473,
+  FWD: 0.6,
+};
+
+const FPL_PITCH_SCREENSHOT_FORMATIONS = [
+  { label: "3-4-3", counts: { DEF: 3, MID: 4, FWD: 3 } },
+  { label: "3-5-2", counts: { DEF: 3, MID: 5, FWD: 2 } },
+  { label: "4-3-3", counts: { DEF: 4, MID: 3, FWD: 3 } },
+  { label: "4-4-2", counts: { DEF: 4, MID: 4, FWD: 2 } },
+  { label: "4-5-1", counts: { DEF: 4, MID: 5, FWD: 1 } },
+  { label: "5-3-2", counts: { DEF: 5, MID: 3, FWD: 2 } },
+  { label: "5-4-1", counts: { DEF: 5, MID: 4, FWD: 1 } },
+];
+
+function makeStarterLayoutRow(position, count) {
+  return (FPL_PITCH_SCREENSHOT_ROW_X[count] || []).map((x, index) => ({
+    id: `starter-${position.toLowerCase()}-${index + 1}`,
+    role: "starter",
+    position,
+    box: { x, y: FPL_PITCH_SCREENSHOT_ROW_Y[position], width: 0.18, height: 0.02 },
+  }));
+}
+
+function makeFormationNameLayout(formation) {
+  return [
+    { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.41, y: 0.216, width: 0.18, height: 0.02 } },
+    ...makeStarterLayoutRow("DEF", formation.counts.DEF),
+    ...makeStarterLayoutRow("MID", formation.counts.MID),
+    ...makeStarterLayoutRow("FWD", formation.counts.FWD),
+  ];
+}
+
+const FPL_PITCH_SCREENSHOT_FORMATION_BENCH_POSITIONS = {
+  "3-4-3": ["GK", "MID", "DEF", "DEF"],
+  "3-5-2": ["GK", "FWD", "DEF", "DEF"],
+  "4-3-3": ["GK", "MID", "MID", "DEF"],
+  "4-4-2": ["GK", "MID", "FWD", "DEF"],
+  "4-5-1": ["GK", "FWD", "FWD", "DEF"],
+  "5-3-2": ["GK", "FWD", "MID", "MID"],
+  "5-4-1": ["GK", "FWD", "FWD", "MID"],
+};
+
+function makeFormationBenchLayout(formation) {
+  const positions = FPL_PITCH_SCREENSHOT_FORMATION_BENCH_POSITIONS[formation.label] || FPL_PITCH_SCREENSHOT_FORMATION_BENCH_POSITIONS["3-4-3"];
+  const xValues = [0.063, 0.294, 0.527, 0.754];
+  return positions.map((position, index) => ({
+    id: `bench-${position.toLowerCase()}-${positions.slice(0, index + 1).filter((item) => item === position).length}`,
+    role: "bench",
+    position,
+    box: { x: xValues[index], y: 0.771, width: 0.18, height: 0.02 },
+  }));
+}
+
+const FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS = Object.fromEntries(
+  FPL_PITCH_SCREENSHOT_FORMATIONS.map((formation) => [formation.label, makeFormationNameLayout(formation)])
+);
+
+const FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS = Object.fromEntries(
+  FPL_PITCH_SCREENSHOT_FORMATIONS.map((formation) => [formation.label, makeFormationBenchLayout(formation)])
+);
+
 const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
-  { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.41, y: 0.216, width: 0.18, height: 0.02 } },
-  { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.11, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-def-2", role: "starter", position: "DEF", box: { x: 0.41, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-def-3", role: "starter", position: "DEF", box: { x: 0.705, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-1", role: "starter", position: "MID", box: { x: 0.055, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-2", role: "starter", position: "MID", box: { x: 0.29, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-3", role: "starter", position: "MID", box: { x: 0.529, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-4", role: "starter", position: "MID", box: { x: 0.767, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-fwd-1", role: "starter", position: "FWD", box: { x: 0.116, y: 0.6, width: 0.18, height: 0.02 } },
-  { id: "starter-fwd-2", role: "starter", position: "FWD", box: { x: 0.41, y: 0.6, width: 0.18, height: 0.02 } },
-  { id: "starter-fwd-3", role: "starter", position: "FWD", box: { x: 0.706, y: 0.6, width: 0.18, height: 0.02 } },
-  { id: "bench-gk-1", role: "bench", position: "GK", box: { x: 0.063, y: 0.771, width: 0.18, height: 0.02 } },
-  { id: "bench-mid-1", role: "bench", position: "MID", box: { x: 0.294, y: 0.771, width: 0.18, height: 0.02 } },
-  { id: "bench-def-1", role: "bench", position: "DEF", box: { x: 0.527, y: 0.771, width: 0.18, height: 0.02 } },
-  { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.754, y: 0.771, width: 0.18, height: 0.02 } },
+  ...FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS["3-4-3"],
+  ...FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS["3-4-3"],
 ];
 
 const FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT = [
-  { id: "starter-def-wide-1", role: "starter", position: "DEF", optional: true, box: { x: 0.02, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-1", role: "starter", position: "DEF", optional: true, box: { x: 0.016, y: 0.344, width: 0.18, height: 0.02 } },
   { id: "starter-def-wide-2", role: "starter", position: "DEF", optional: true, box: { x: 0.205, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-def-wide-3", role: "starter", position: "DEF", optional: true, box: { x: 0.529, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-def-wide-4", role: "starter", position: "DEF", optional: true, box: { x: 0.767, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-def-wide-5", role: "starter", position: "DEF", optional: true, box: { x: 0.8, y: 0.344, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-wide-1", role: "starter", position: "MID", optional: true, box: { x: 0.02, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-4", role: "starter", position: "DEF", optional: true, box: { x: 0.607, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-def-wide-5", role: "starter", position: "DEF", optional: true, box: { x: 0.795, y: 0.344, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-1", role: "starter", position: "MID", optional: true, box: { x: 0.016, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-2", role: "starter", position: "MID", optional: true, box: { x: 0.205, y: 0.473, width: 0.18, height: 0.02 } },
   { id: "starter-mid-wide-3", role: "starter", position: "MID", optional: true, box: { x: 0.41, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-wide-4", role: "starter", position: "MID", optional: true, box: { x: 0.615, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-mid-wide-5", role: "starter", position: "MID", optional: true, box: { x: 0.8, y: 0.473, width: 0.18, height: 0.02 } },
-  { id: "starter-fwd-wide-3", role: "starter", position: "FWD", optional: true, box: { x: 0.767, y: 0.6, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-4", role: "starter", position: "MID", optional: true, box: { x: 0.607, y: 0.473, width: 0.18, height: 0.02 } },
+  { id: "starter-mid-wide-5", role: "starter", position: "MID", optional: true, box: { x: 0.795, y: 0.473, width: 0.18, height: 0.02 } },
 ];
 
 const FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT = [
@@ -79,33 +136,27 @@ const FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT = [
   ...FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT,
 ];
 
+function makeCardSearchLayout(slot) {
+  return {
+    ...slot,
+    box: {
+      x: Math.max(0, slot.box.x - 0.02),
+      y: Math.max(0, slot.box.y - 0.024),
+      width: Math.min(0.24, slot.box.width + 0.04),
+      height: slot.role === "bench" ? 0.12 : 0.11,
+    },
+  };
+}
+
 const FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT = [
-  { id: "starter-gk-1", role: "starter", position: "GK", box: { x: 0.39, y: 0.2, width: 0.22, height: 0.1 } },
-  { id: "starter-def-1", role: "starter", position: "DEF", box: { x: 0.09, y: 0.32, width: 0.22, height: 0.11 } },
-  { id: "starter-def-2", role: "starter", position: "DEF", box: { x: 0.39, y: 0.32, width: 0.22, height: 0.11 } },
-  { id: "starter-def-3", role: "starter", position: "DEF", box: { x: 0.685, y: 0.32, width: 0.22, height: 0.11 } },
-  { id: "starter-mid-1", role: "starter", position: "MID", box: { x: 0.035, y: 0.45, width: 0.22, height: 0.11 } },
-  { id: "starter-mid-2", role: "starter", position: "MID", box: { x: 0.27, y: 0.45, width: 0.22, height: 0.11 } },
-  { id: "starter-mid-3", role: "starter", position: "MID", box: { x: 0.509, y: 0.45, width: 0.22, height: 0.11 } },
-  { id: "starter-mid-4", role: "starter", position: "MID", box: { x: 0.747, y: 0.45, width: 0.22, height: 0.11 } },
-  { id: "starter-fwd-1", role: "starter", position: "FWD", box: { x: 0.096, y: 0.58, width: 0.22, height: 0.11 } },
-  { id: "starter-fwd-2", role: "starter", position: "FWD", box: { x: 0.39, y: 0.58, width: 0.22, height: 0.11 } },
-  { id: "starter-fwd-3", role: "starter", position: "FWD", box: { x: 0.686, y: 0.58, width: 0.22, height: 0.11 } },
+  ...FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS["3-4-3"].map(makeCardSearchLayout),
   { id: "bench-gk-1", role: "bench", position: "GK", box: { x: 0.043, y: 0.75, width: 0.22, height: 0.12 } },
   { id: "bench-mid-1", role: "bench", position: "MID", box: { x: 0.274, y: 0.75, width: 0.22, height: 0.12 } },
   { id: "bench-def-1", role: "bench", position: "DEF", box: { x: 0.507, y: 0.75, width: 0.22, height: 0.12 } },
   { id: "bench-def-2", role: "bench", position: "DEF", box: { x: 0.734, y: 0.75, width: 0.22, height: 0.12 } },
 ];
 
-const FPL_PITCH_SCREENSHOT_OPTIONAL_CARD_SEARCH_LAYOUT = FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT.map((slot) => ({
-  ...slot,
-  box: {
-    x: Math.max(0, slot.box.x - 0.02),
-    y: Math.max(0, slot.box.y - 0.024),
-    width: Math.min(0.24, slot.box.width + 0.04),
-    height: 0.11,
-  },
-}));
+const FPL_PITCH_SCREENSHOT_OPTIONAL_CARD_SEARCH_LAYOUT = FPL_PITCH_SCREENSHOT_OPTIONAL_NAME_LAYOUT.map(makeCardSearchLayout);
 
 const FPL_PITCH_SCREENSHOT_EXPANDED_CARD_SEARCH_LAYOUT = [
   ...FPL_PITCH_SCREENSHOT_CARD_SEARCH_LAYOUT,
@@ -511,6 +562,72 @@ function getFantasyScreenshotNameLayoutSlots(width = 0, height = 0) {
   return FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.map((slot) => ({
     ...slot,
     boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
+  }));
+}
+
+export function getFantasyScreenshotFormationLayoutSlots(formationLabel = "3-4-3", width = 0, height = 0) {
+  const numericWidth = Number(width || 0);
+  const numericHeight = Number(height || 0);
+  const starterLayout = FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS[formationLabel] || FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS["3-4-3"];
+  const benchLayout = FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS[formationLabel] || FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS["3-4-3"];
+  if (!numericWidth || !numericHeight) return [];
+  return [
+    ...starterLayout,
+    ...benchLayout,
+  ].map((slot) => ({
+    ...slot,
+    formation: formationLabel,
+    boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
+  }));
+}
+
+function getDetectedStarterRowCounts(layoutSlots = []) {
+  return ["DEF", "MID", "FWD"].reduce((out, position) => {
+    const detectedCount = layoutSlots.filter((slot) =>
+      slot.role === "starter" &&
+      slot.position === position &&
+      slot.detectedLabel
+    ).length;
+    out[position] = detectedCount;
+    return out;
+  }, {});
+}
+
+export function inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots = []) {
+  const counts = getDetectedStarterRowCounts(layoutSlots);
+  const detectedOutfieldCount = counts.DEF + counts.MID + counts.FWD;
+  if (detectedOutfieldCount < 8) return null;
+  return FPL_PITCH_SCREENSHOT_FORMATIONS
+    .map((formation) => {
+      const distance = Math.abs(formation.counts.DEF - counts.DEF) +
+        Math.abs(formation.counts.MID - counts.MID) +
+        Math.abs(formation.counts.FWD - counts.FWD);
+      const rightEdgeBonus = ["DEF", "MID", "FWD"].reduce((sum, position) => {
+        const requiredCount = formation.counts[position];
+        const rightMostSlot = FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS[formation.label]
+          ?.filter((slot) => slot.position === position)
+          ?.sort((a, b) => b.box.x - a.box.x)[0];
+        const detectedRightMost = layoutSlots.some((slot) =>
+          slot.detectedLabel &&
+          slot.position === position &&
+          Math.abs(Number(slot.box?.x || 0) - Number(rightMostSlot?.box?.x || 0)) < 0.025 &&
+          requiredCount >= 4
+        );
+        return sum + (detectedRightMost ? 0.25 : 0);
+      }, 0);
+      return { label: formation.label, distance: distance - rightEdgeBonus };
+    })
+    .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label))[0]?.label || null;
+}
+
+function getBestFantasyScreenshotLayoutSlots(layoutSlots = [], width = 0, height = 0) {
+  const inferredFormation = inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots);
+  if (!inferredFormation) return layoutSlots;
+  const byId = new Map((layoutSlots || []).map((slot) => [slot.id, slot]));
+  return getFantasyScreenshotFormationLayoutSlots(inferredFormation, width, height).map((slot) => ({
+    ...slot,
+    detectedLabel: byId.get(slot.id)?.detectedLabel || false,
+    boundingBox: byId.get(slot.id)?.detectedLabel ? byId.get(slot.id).boundingBox : slot.boundingBox,
   }));
 }
 
@@ -1807,8 +1924,11 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       onStatus(index === 0 ? "Reading player names" : `Trying ${plan.region} image cleanup`);
       const parseWidth = preprocessed.width || imageMetadata?.width || decoded?.width;
       const parseHeight = preprocessed.height || imageMetadata?.height || decoded?.height;
-      const layoutSlots = plan.layout === "fpl-pitch"
+      const rawLayoutSlots = plan.layout === "fpl-pitch"
         ? (preprocessed.layoutSlots?.length ? preprocessed.layoutSlots : getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight))
+        : [];
+      const layoutSlots = plan.layout === "fpl-pitch"
+        ? getBestFantasyScreenshotLayoutSlots(rawLayoutSlots, parseWidth, parseHeight)
         : [];
       const parseLayoutSlots = plan.slotLayout
         ? layoutSlots
@@ -1834,6 +1954,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
           screenshotLayout: plan.layout || null,
           ocrTextBlockCount: ocr.blocks.length,
           ocrDebug: ocr.raw,
+          inferredFormation: inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots),
         },
       });
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });

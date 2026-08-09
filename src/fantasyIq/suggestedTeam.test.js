@@ -609,6 +609,74 @@ describe("Prediction Addiction suggested team", () => {
     expect(attacking.reasons.join(" ")).toMatch(/cheap outfield bench enabler/);
   });
 
+  test("attacking style does not start low-minute premium rotation forwards", () => {
+    const marmoushProfile = makePlayer("omar-marmoush-profile", "FWD", "MCI", 9, {
+      externalMetadata: {
+        form: 9,
+        pointsPerGame: 8,
+        selectedByPercent: 35,
+        minutes: 500,
+        starts: 5,
+      },
+    });
+
+    const attacking = createFantasySuggestedTeam({
+      players: [marmoushProfile, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "attacking",
+    });
+
+    expect(attacking.status).toBe("ready");
+    expect(attacking.starters.some((player) => player.id === marmoushProfile.id)).toBe(false);
+  });
+
+  test("defensive single-forward shapes start a premium forward with good fixtures", () => {
+    const premiumFixtureForward = makePlayer("premium-fixture-forward", "FWD", "ARS", 12.5, {
+      externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+    });
+    const cheapForward = makePlayer("cheap-fixture-forward", "FWD", "MCI", 5, {
+      externalMetadata: { form: 8, pointsPerGame: 7, selectedByPercent: 30, minutes: 900, starts: 10 },
+    });
+
+    const defensive = createFantasySuggestedTeam({
+      players: [premiumFixtureForward, cheapForward, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+    const forwardStarters = defensive.starters.filter((player) => player.position === "FWD");
+
+    expect(defensive.status).toBe("ready");
+    if (forwardStarters.length === 1) {
+      expect(forwardStarters[0].price).toBeGreaterThanOrEqual(FANTASY_SUGGESTED_TEAM_CONFIG.premiumForwardPrice);
+      expect(forwardStarters[0].suggestedFixtureScore).toBeGreaterThanOrEqual(62);
+    }
+  });
+
+  test("balanced style starts selected premium attackers instead of leaving them on the bench", () => {
+    const joaoPedroProfile = makePlayer("joao-pedro-profile", "FWD", "CHE", 8.5, {
+      externalMetadata: { form: 8, pointsPerGame: 7, selectedByPercent: 30, minutes: 850, starts: 9 },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [joaoPedroProfile, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    const selected = balanced.players.find((player) => player.id === joaoPedroProfile.id);
+    if (selected) expect(selected.squadRole).toBe("starter");
+  });
+
   test("avoids tripling up on clubs when comparable alternatives exist", () => {
     const suggestion = createFantasySuggestedTeam({
       players: makePool(),

@@ -9,9 +9,11 @@ import {
   correctFantasyTeamCodeFromOcr,
   decodeFantasyScreenshotImage,
   detectFantasyScreenshotNameLayoutSlots,
+  getFantasyScreenshotFormationLayoutSlots,
   getFantasyScreenshotCombinedConfidence,
   getFantasyScreenshotTesseractOptions,
   hasExternalTesseractAssetPaths,
+  inferFantasyScreenshotFormationFromLayoutSlots,
   mergeDuplicateFantasyScreenshotCandidates,
   normaliseOcrBlocks,
   parseFantasyScreenshotCandidates,
@@ -813,6 +815,46 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(wideMidSlot.detectedLabel).toBe(true);
     expect(wideMidSlot.optional).toBe(true);
     expect(wideMidSlot.boundingBox.x).toBeGreaterThan(900);
+  });
+
+  test("formation layouts cover every supplied FPL pitch formation in screenshot order", () => {
+    const expected = {
+      "3-4-3": ["GK", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "FWD", "FWD", "FWD", "GK", "MID", "DEF", "DEF"],
+      "3-5-2": ["GK", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "MID", "FWD", "FWD", "GK", "FWD", "DEF", "DEF"],
+      "4-3-3": ["GK", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "FWD", "FWD", "FWD", "GK", "MID", "MID", "DEF"],
+      "4-4-2": ["GK", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "FWD", "FWD", "GK", "MID", "FWD", "DEF"],
+      "4-5-1": ["GK", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "MID", "FWD", "GK", "FWD", "FWD", "DEF"],
+      "5-3-2": ["GK", "DEF", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "FWD", "FWD", "GK", "FWD", "MID", "MID"],
+      "5-4-1": ["GK", "DEF", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "FWD", "GK", "FWD", "FWD", "MID"],
+    };
+
+    Object.entries(expected).forEach(([formation, positions]) => {
+      const slots = getFantasyScreenshotFormationLayoutSlots(formation, 945, 2048);
+      expect(slots).toHaveLength(15);
+      expect(slots.map((slot) => slot.position)).toEqual(positions);
+      expect(slots.slice(0, 11).map((slot) => slot.role).every((role) => role === "starter")).toBe(true);
+      expect(slots.slice(11).map((slot) => slot.role).every((role) => role === "bench")).toBe(true);
+      expect(slots.map((slot) => slot.boundingBox).every((box) => box.x >= 0 && box.x + box.width <= 945)).toBe(true);
+    });
+  });
+
+  test("formation layouts explicitly include far-right starter labels", () => {
+    const fiveDef = getFantasyScreenshotFormationLayoutSlots("5-4-1", 945, 2048);
+    const fiveMid = getFantasyScreenshotFormationLayoutSlots("4-5-1", 945, 2048);
+    const threeFwd = getFantasyScreenshotFormationLayoutSlots("3-4-3", 945, 2048);
+
+    expect(fiveDef.find((slot) => slot.id === "starter-def-5").boundingBox.x).toBeGreaterThan(730);
+    expect(fiveMid.find((slot) => slot.id === "starter-mid-5").boundingBox.x).toBeGreaterThan(730);
+    expect(threeFwd.find((slot) => slot.id === "starter-fwd-3").boundingBox.x).toBeGreaterThan(650);
+  });
+
+  test("detected wide labels infer the matching formation for targeted OCR", () => {
+    const layoutSlots = [
+      ...getFantasyScreenshotFormationLayoutSlots("5-4-1", 945, 2048).slice(0, 11).map((slot) => ({ ...slot, detectedLabel: true })),
+      ...getFantasyScreenshotFormationLayoutSlots("5-4-1", 945, 2048).slice(11),
+    ];
+
+    expect(inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots)).toBe("5-4-1");
   });
 
   test("worker terminates after OCR failure", async () => {
