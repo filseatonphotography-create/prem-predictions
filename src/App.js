@@ -20,6 +20,7 @@ import {
   createFantasyScreenshotImportSummary,
   convertFantasyScreenshotReviewToSquad,
   decodeFantasyScreenshotImage,
+  getFantasyScreenshotFormationReviewLayout,
   removeFantasyScreenshotReviewSlot,
   runFantasyScreenshotOcrWithFallback,
   updateFantasyScreenshotReviewSlot,
@@ -12280,9 +12281,12 @@ useEffect(() => {
     const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
+    const fantasyScreenshotDisplayReviewLayout = fantasyScreenshotReviewSummary.formation
+      ? getFantasyScreenshotFormationReviewLayout(fantasyScreenshotReviewSummary.formation)
+      : fantasyScreenshotReview?.imageMetadata?.reviewSlotLayout || undefined;
     const fantasyScreenshotReviewDisplaySlots = buildFantasyScreenshotReviewDisplaySlots(
       fantasyScreenshotReviewSlots,
-      fantasyScreenshotReview?.imageMetadata?.reviewSlotLayout || undefined
+      fantasyScreenshotDisplayReviewLayout
     );
     const fantasyScreenshotAvailabilityRisks = fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId))
@@ -13305,8 +13309,9 @@ useEffect(() => {
       const candidateChoices = (slot.matchResult?.candidates || [])
         .filter((candidate) => candidate.id !== selectedPlayer?.id)
         .slice(0, 3);
-      const searchedPlayers = !selectedPlayer && normalisedSlotSearch
+      const searchedPlayers = normalisedSlotSearch
         ? fantasyIqAvailablePlayers
+            .filter((player) => player.id !== selectedPlayer?.id)
             .filter((player) =>
               normaliseFantasyPlayerName(player.displayName || player.name).includes(normalisedSlotSearch) ||
               normaliseFantasyPlayerName(player.webName).includes(normalisedSlotSearch) ||
@@ -13389,11 +13394,6 @@ useEffect(() => {
               Remove
             </button>
           </div>
-          {!!slot.issues?.length && (
-            <div style={{ color: theme.warn, fontSize: 11, lineHeight: 1.35 }}>
-              {slot.issues.slice(0, 2).join(" ")}
-            </div>
-          )}
           {!!candidateChoices.length && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
               {candidateChoices.map((candidate) => (
@@ -13413,41 +13413,39 @@ useEffect(() => {
               ))}
             </div>
           )}
-          {!selectedPlayer && (
-            <div style={{ display: "grid", gap: 6 }}>
-              <input
-                value={slotSearch}
-                onChange={(event) => setFantasyScreenshotSlotSearch((current) => ({
-                  ...current,
-                  [slot.id]: event.target.value,
-                }))}
-                placeholder="Search player"
-                style={{ ...probInput, textAlign: "left", padding: "7px 9px", fontSize: 12 }}
-              />
-              {!!normalisedSlotSearch && (
-                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 6 }}>
-                  {searchedPlayers.length ? searchedPlayers.map((player) => (
-                    <button
-                      key={`${slot.id}-search-${player.id}`}
-                      type="button"
-                      onClick={() => {
-                        markFantasyScreenshotManualCorrection();
-                        updateFantasyScreenshotReview((review) =>
-                          updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: player.id }, fantasyIqAvailablePlayers)
-                        );
-                        setFantasyScreenshotSlotSearch((current) => ({ ...current, [slot.id]: "" }));
-                      }}
-                      style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, textAlign: "left" }}
-                    >
-                      {player.displayName || player.name} · {player.teamCode} · {player.position}
-                    </button>
-                  )) : (
-                    <div style={{ color: theme.muted, fontSize: 11 }}>No players match that search.</div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          <div style={{ display: "grid", gap: 6 }}>
+            <input
+              value={slotSearch}
+              onChange={(event) => setFantasyScreenshotSlotSearch((current) => ({
+                ...current,
+                [slot.id]: event.target.value,
+              }))}
+              placeholder={selectedPlayer ? "Search to replace player" : "Search player"}
+              style={{ ...probInput, textAlign: "left", padding: "7px 9px", fontSize: 12 }}
+            />
+            {!!normalisedSlotSearch && (
+              <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))", gap: 6 }}>
+                {searchedPlayers.length ? searchedPlayers.map((player) => (
+                  <button
+                    key={`${slot.id}-search-${player.id}`}
+                    type="button"
+                    onClick={() => {
+                      markFantasyScreenshotManualCorrection();
+                      updateFantasyScreenshotReview((review) =>
+                        updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: player.id }, fantasyIqAvailablePlayers)
+                      );
+                      setFantasyScreenshotSlotSearch((current) => ({ ...current, [slot.id]: "" }));
+                    }}
+                    style={{ ...pillBtn(false), padding: "6px 8px", fontSize: 11, textAlign: "left" }}
+                  >
+                    {player.displayName || player.name} · {player.teamCode} · {player.position}
+                  </button>
+                )) : (
+                  <div style={{ color: theme.muted, fontSize: 11 }}>No players match that search.</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       );
     };
@@ -13671,6 +13669,9 @@ useEffect(() => {
                   {fantasyScreenshotReviewValidation.errors.slice(0, 3).join(" ")}
                 </div>
               )}
+              <div style={{ color: theme.warn, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
+                Please check every player, captain, vice-captain and bench order before importing. Use the search box on any row to replace an incorrect player.
+              </div>
               {fantasyScreenshotReadySummaryText && (
                 <div style={{ color: theme.accent2, fontSize: 11, fontWeight: 850, lineHeight: 1.35 }}>
                   {fantasyScreenshotReadySummaryText}

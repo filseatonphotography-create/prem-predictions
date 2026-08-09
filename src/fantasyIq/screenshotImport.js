@@ -1046,13 +1046,17 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const positionMentionsBySlot = orderedSlots.map((slot) =>
       findPlayerMentionsInLayoutText(cleanedText, players, slot.position, { allowLoose: allowLooseSlotMatch })
+        .filter((mention) => !strictSlotOcr || Number(mention.confidence || 0) >= 0.86)
     );
     orderedSlots.forEach((slot, slotIndex) => {
       const slotMentions = positionMentionsBySlot[slotIndex];
-      const orderedMention = slots.length > 1 ? mentions[slotIndex] : null;
+      const usableMentions = strictSlotOcr
+        ? mentions.filter((item) => Number(item.confidence || 0) >= 0.86)
+        : mentions;
+      const orderedMention = slots.length > 1 ? usableMentions[slotIndex] : null;
       const slotAllowsAnyPosition = slot.role === "bench";
       const mention = slotAllowsAnyPosition
-        ? mentions[slotIndex] || mentions[0] || null
+        ? usableMentions[slotIndex] || usableMentions[0] || null
         : orderedMention && (!slot.position || orderedMention.player.position === slot.position)
         ? orderedMention
         : slotMentions[slotIndex] || slotMentions[0] || null;
@@ -1162,8 +1166,19 @@ function getReviewSlotY(slot = {}) {
 function sortReviewSlotsByPosition(a = {}, b = {}) {
   const ay = getReviewSlotY(a);
   const by = getReviewSlotY(b);
+  const aHeight = Number(a.extracted?.sourceRegion?.boundingBox?.height ?? 0);
+  const bHeight = Number(b.extracted?.sourceRegion?.boundingBox?.height ?? 0);
+  const rowTolerance = Math.max(18, Math.min(42, Math.max(aHeight, bHeight) * 1.4));
+  if (Math.abs(ay - by) > rowTolerance) return ay - by;
+  const ax = Number(a.extracted?.sourceRegion?.boundingBox?.x ?? 999);
+  const bx = Number(b.extracted?.sourceRegion?.boundingBox?.x ?? 999);
+  if (ax !== bx) return ax - bx;
   if (ay !== by) return ay - by;
   return String(a.id).localeCompare(String(b.id));
+}
+
+function sortReviewSlotsByScreenshotPosition(a = {}, b = {}) {
+  return sortReviewSlotsByPosition(a, b);
 }
 
 const FANTASY_SCREENSHOT_NOISE_WORDS = new Set([
@@ -1592,6 +1607,20 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
   const assignedSlotIds = new Set();
   const assignedLayoutIds = new Set();
   const slotByExplicitLayoutId = new Map();
+  const requiredCounts = layoutSlots
+    .filter((slot) => !slot.optional)
+    .reduce((out, slot) => {
+      const key = `${slot.role || ""}:${slot.position || ""}`;
+      out[key] = (out[key] || 0) + 1;
+      return out;
+    }, {});
+  const detectedCounts = (slots || []).reduce((out, slot) => {
+    const role = ["starter", "bench"].includes(slot.role) ? slot.role : slot.extracted?.rawSquadRole || "";
+    const position = slot.selectedPlayer?.position || slot.extracted?.rawPosition || "";
+    const key = `${role}:${position}`;
+    out[key] = (out[key] || 0) + 1;
+    return out;
+  }, {});
 
   (slots || []).forEach((slot) => {
     const layoutId = slot?.extracted?.sourceRegion?.id;
@@ -1608,10 +1637,12 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
       return { type: "slot", id: explicitSlot.id, slot: explicitSlot, layoutSlot };
     }
     if (layoutSlot.optional) return null;
+    const countKey = `${layoutSlot.role || ""}:${layoutSlot.position || ""}`;
+    if ((detectedCounts[countKey] || 0) >= (requiredCounts[countKey] || 0)) return null;
     return { type: "missing", id: `missing-review-slot-${layoutSlot.id}`, role: layoutSlot.role, position: layoutSlot.position, layoutSlot };
   }).filter(Boolean);
 
-  (slots || []).forEach((slot) => {
+  (slots || []).slice().sort(sortReviewSlotsByScreenshotPosition).forEach((slot) => {
     if (!slot?.id || assignedSlotIds.has(slot.id)) return;
     const slotRole = ["starter", "bench"].includes(slot.role) ? slot.role : slot.extracted?.rawSquadRole;
     const slotPosition = slot.selectedPlayer?.position || slot.extracted?.rawPosition;

@@ -933,6 +933,28 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(display.filter((item) => item.role === "starter" && item.position === "FWD")).toHaveLength(1);
   });
 
+  test("review display does not add extra missing forwards when formation count is filled", () => {
+    const layout = getFantasyScreenshotFormationReviewLayout("5-4-1");
+    const display = buildFantasyScreenshotReviewDisplaySlots([
+      {
+        id: "review-richarlison",
+        extracted: {
+          rawName: "Richarlison",
+          rawPosition: "FWD",
+          rawSquadRole: "starter",
+          sourceRegion: { id: "starter-fwd-1" },
+        },
+        selectedPlayerId: "fpl:richarlison",
+        selectedPlayer: { id: "fpl:richarlison", position: "FWD", displayName: "Richarlison" },
+        role: "starter",
+        status: "matched",
+      },
+    ], layout);
+
+    expect(display.filter((item) => item.type === "missing" && item.role === "starter" && item.position === "FWD")).toHaveLength(0);
+    expect(display.filter((item) => item.role === "starter" && item.position === "FWD")).toHaveLength(1);
+  });
+
   test("detected wide labels infer the matching formation for targeted OCR", () => {
     const layoutSlots = [
       ...getFantasyScreenshotFormationLayoutSlots("5-4-1", 945, 2048).slice(0, 11).map((slot) => ({ ...slot, detectedLabel: true })),
