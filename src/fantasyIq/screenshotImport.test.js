@@ -956,6 +956,46 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(display.filter((item) => item.role === "starter" && item.position === "FWD")).toHaveLength(1);
   });
 
+  test("review display maps optional wide defenders into the final 5-4-1 defender row", () => {
+    const layout = getFantasyScreenshotFormationReviewLayout("5-4-1");
+    const slots = [
+      ["starter-gk-1", "GK", "Vicario"],
+      ["starter-def-wide-1", "DEF", "Van de Ven"],
+      ["starter-def-wide-2", "DEF", "Ballard"],
+      ["starter-def-2", "DEF", "De Cuyper"],
+      ["starter-def-wide-4", "DEF", "Thiaw"],
+      ["starter-def-wide-5", "DEF", "Henry"],
+      ["starter-mid-1", "MID", "Wirtz"],
+      ["starter-mid-2", "MID", "Foden"],
+      ["starter-mid-3", "MID", "Rice"],
+      ["starter-mid-4", "MID", "Palmer"],
+      ["starter-fwd-1", "FWD", "Richarlison"],
+    ].map(([sourceId, position, name], index) => ({
+      id: `review-${index}`,
+      role: "starter",
+      selectedPlayerId: `player-${index}`,
+      selectedPlayer: { id: `player-${index}`, position, displayName: name },
+      extracted: {
+        rawName: name,
+        rawPosition: position,
+        rawSquadRole: "starter",
+        sourceRegion: { id: sourceId, boundingBox: { x: index * 100, y: position === "DEF" ? 300 : position === "MID" ? 500 : 700, width: 80, height: 30 } },
+      },
+      status: "matched",
+    }));
+    const display = buildFantasyScreenshotReviewDisplaySlots(slots, layout);
+    const starterItems = display.filter((item) => item.type === "slot" && item.role === "starter");
+
+    expect(starterItems.map((item) => item.position)).toEqual(["GK", "DEF", "DEF", "DEF", "DEF", "DEF", "MID", "MID", "MID", "MID", "FWD"]);
+    expect(starterItems.slice(1, 6).map((item) => item.layoutSlot.id)).toEqual([
+      "starter-def-1",
+      "starter-def-2",
+      "starter-def-3",
+      "starter-def-4",
+      "starter-def-5",
+    ]);
+  });
+
   test("review slot formation inference ignores bench forwards for a 5-4-1", () => {
     const starters = [
       ["GK", "starter"],

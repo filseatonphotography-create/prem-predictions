@@ -550,7 +550,7 @@ function inferRoleFromBlock(block, imageHeight = 0) {
 
 function detectCaptainMarker(text = "") {
   const cleaned = safeText(text).toUpperCase();
-  if (/\b(VC|V\/C|VICE)\b/.test(cleaned)) return { captain: false, viceCaptain: true };
+  if (/\b(VC|V\/C|VICE|V)\b/.test(cleaned)) return { captain: false, viceCaptain: true };
   if (/\b(C|CAP|CAPTAIN)\b/.test(cleaned)) return { captain: true, viceCaptain: false };
   return { captain: false, viceCaptain: false };
 }
@@ -847,6 +847,59 @@ function detectWhiteNameLabelBox(context, searchBox = {}) {
   };
 }
 
+function detectCaptainMarkerBox(context, searchBox = {}) {
+  const canvas = context?.canvas || {};
+  const searchX = Math.max(0, Math.round(Number(searchBox.x || 0)));
+  const searchY = Math.max(0, Math.round(Number(searchBox.y || 0)));
+  const searchWidth = Math.max(1, Math.round(Number(searchBox.width || 0)));
+  const searchHeight = Math.max(1, Math.round(Number(searchBox.height || 0)));
+  const markerSize = Math.max(14, Math.round(searchWidth * 0.18));
+  const markerSearchBox = {
+    x: Math.max(0, searchX + Math.round(searchWidth * 0.05)),
+    y: Math.max(0, searchY + Math.round(searchHeight * 0.02)),
+    width: Math.min(Math.round(searchWidth * 0.42), Math.max(1, Number(canvas.width || 0) - searchX)),
+    height: Math.min(Math.round(searchHeight * 0.45), Math.max(1, Number(canvas.height || 0) - searchY)),
+  };
+  const x0 = Math.round(markerSearchBox.x);
+  const y0 = Math.round(markerSearchBox.y);
+  const width = Math.max(1, Math.round(markerSearchBox.width));
+  const height = Math.max(1, Math.round(markerSearchBox.height));
+  const imageData = context.getImageData(x0, y0, width, height);
+  const data = imageData.data;
+  let darkMinX = width;
+  let darkMinY = height;
+  let darkMaxX = 0;
+  let darkMaxY = 0;
+  let darkCount = 0;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const red = data[offset];
+      const green = data[offset + 1];
+      const blue = data[offset + 2];
+      if (red <= 80 && green <= 55 && blue <= 90) {
+        darkMinX = Math.min(darkMinX, x);
+        darkMinY = Math.min(darkMinY, y);
+        darkMaxX = Math.max(darkMaxX, x);
+        darkMaxY = Math.max(darkMaxY, y);
+        darkCount += 1;
+      }
+    }
+  }
+  if (darkCount < Math.max(18, markerSize * markerSize * 0.18)) return null;
+  const boxWidth = darkMaxX - darkMinX + 1;
+  const boxHeight = darkMaxY - darkMinY + 1;
+  const ratio = boxWidth / Math.max(1, boxHeight);
+  if (boxWidth < markerSize * 0.55 || boxHeight < markerSize * 0.55 || ratio < 0.55 || ratio > 1.8) return null;
+  const pad = Math.max(4, Math.round(Math.max(boxWidth, boxHeight) * 0.25));
+  return {
+    x: Math.max(0, x0 + darkMinX - pad),
+    y: Math.max(0, y0 + darkMinY - pad),
+    width: Math.min(Number(canvas.width || 0), boxWidth + pad * 2),
+    height: Math.min(Number(canvas.height || 0), boxHeight + pad * 2),
+  };
+}
+
 export function detectFantasyScreenshotNameLayoutSlots(canvas, context, viewport = null) {
   if (!canvas || !context) return [];
   const layoutViewport = viewport || detectFantasyScreenshotLayoutViewport(canvas, context);
@@ -857,6 +910,7 @@ export function detectFantasyScreenshotNameLayoutSlots(canvas, context, viewport
       canvas.height
     ).boundingBox;
     const detectedBox = detectWhiteNameLabelBox(context, searchBox);
+    const captainMarkerBoundingBox = detectCaptainMarkerBox(context, searchBox);
     const { ocrFallbackBoundingBox, ...primaryDetectedBox } = detectedBox || {};
     return {
       id: slot.id,
@@ -870,6 +924,7 @@ export function detectFantasyScreenshotNameLayoutSlots(canvas, context, viewport
         layoutViewport
       ),
       ...(ocrFallbackBoundingBox ? { ocrFallbackBoundingBox } : {}),
+      ...(captainMarkerBoundingBox ? { captainMarkerBoundingBox } : {}),
       layoutViewport,
       detectedLabel: !!detectedBox,
     };
@@ -1026,7 +1081,7 @@ function findPlayerMentionsInLayoutText(text = "", players = [], position = "", 
     .sort((a, b) => a.index - b.index || b.confidence - a.confidence);
 }
 
-function createLayoutCandidate({ rawName, slot, block, confidence = 0.62, issue = "" } = {}) {
+function createLayoutCandidate({ rawName, slot, block, confidence = 0.62, issue = "", marker = null } = {}) {
   const cleanedName = safeText(rawName);
   if (!cleanedName) return null;
   return {
@@ -1034,8 +1089,8 @@ function createLayoutCandidate({ rawName, slot, block, confidence = 0.62, issue 
     rawTeamCode: "",
     rawPosition: slot?.role === "bench" ? "" : slot?.position || "",
     rawSquadRole: slot?.role || "unknown",
-    rawCaptainMarker: "",
-    rawViceCaptainMarker: "",
+    rawCaptainMarker: marker?.captain ? "C" : "",
+    rawViceCaptainMarker: marker?.viceCaptain ? "VC" : "",
     sourceRegion: {
       id: slot?.id || block?.sourceRegion?.id || "",
       boundingBox: slot?.boundingBox || block?.boundingBox || null,
@@ -1048,7 +1103,14 @@ function createLayoutCandidate({ rawName, slot, block, confidence = 0.62, issue 
 
 function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], players = []) {
   const candidatesBySlotId = new Map();
+  const markerByLineIndex = new Map();
   (ocrBlocks || []).forEach((block) => {
+    if (!block?.strictSlotMarker || !Number.isInteger(block.lineIndex)) return;
+    const marker = detectCaptainMarker(block.text);
+    if (marker.captain || marker.viceCaptain) markerByLineIndex.set(block.lineIndex, marker);
+  });
+  (ocrBlocks || []).forEach((block) => {
+    if (block?.strictSlotMarker) return;
     const text = safeText(block.text);
     if (!text) return;
     const tokens = stripNonNameTokens(text.split(/\s+/).filter(Boolean), { keepTeamCodeLikeTokens: true });
@@ -1083,6 +1145,7 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
         ? orderedMention
         : slotMentions[slotIndex] || slotMentions[0] || null;
       const fallbackRawName = mention ? "" : extractFantasyScreenshotNameFromFixtureLabel(text);
+      const marker = Number.isInteger(block.lineIndex) ? markerByLineIndex.get(block.lineIndex) : null;
       const candidate = mention
         ? createLayoutCandidate({
             rawName: mention.player.webName || mention.player.displayName || mention.player.name,
@@ -1090,6 +1153,7 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
             block,
             confidence: Math.max(Number(block.confidence || 0.6), mention.confidence),
             issue: mentions.length > 1 ? "Player name split from a merged OCR label row." : "",
+            marker,
           })
         : isLikelyFantasyScreenshotPlayerName(fallbackRawName, { hasPosition: !!slot.position })
         ? createLayoutCandidate({
@@ -1098,6 +1162,7 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
             block,
             confidence: Math.min(0.74, Math.max(0.58, Number(block.confidence || 0.6))),
             issue: "OCR name could not be matched automatically. Check this player before importing.",
+            marker,
           })
         : null;
       if (!candidate) return;
@@ -1662,6 +1727,10 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
   const assignedSlotIds = new Set();
   const assignedLayoutIds = new Set();
   const slotByExplicitLayoutId = new Map();
+  const layoutById = new Map(layoutSlots.map((slot) => [slot.id, slot]));
+  const sortedReviewSlots = (slots || []).slice().sort(sortReviewSlotsByScreenshotPosition);
+  const slotToLayoutId = new Map();
+  const shouldProjectIntoFormationLayout = layoutSlots.length > 0 && !layoutSlots.some((slot) => slot.optional);
   const requiredCounts = layoutSlots
     .filter((slot) => !slot.optional)
     .reduce((out, slot) => {
@@ -1677,15 +1746,44 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
     return out;
   }, {});
 
-  (slots || []).forEach((slot) => {
+  const layoutGroups = shouldProjectIntoFormationLayout ? layoutSlots
+    .filter((slot) => !slot.optional)
+    .reduce((out, layoutSlot) => {
+      const key = `${layoutSlot.role || ""}:${layoutSlot.position || ""}`;
+      if (!out[key]) out[key] = [];
+      out[key].push(layoutSlot);
+      return out;
+    }, {}) : {};
+  Object.values(layoutGroups).forEach((group) => {
+    group.sort((a, b) => Number(a.box?.y || 0) - Number(b.box?.y || 0) || Number(a.box?.x || 0) - Number(b.box?.x || 0));
+  });
+  const reviewGroups = shouldProjectIntoFormationLayout ? sortedReviewSlots.reduce((out, slot) => {
+    const role = ["starter", "bench"].includes(slot.role) ? slot.role : slot.extracted?.rawSquadRole || "";
+    const position = slot.selectedPlayer?.position || slot.extracted?.rawPosition || "";
+    const key = `${role}:${position}`;
+    if (!out[key]) out[key] = [];
+    out[key].push(slot);
+    return out;
+  }, {}) : {};
+  Object.entries(reviewGroups).forEach(([key, group]) => {
+    const matchingLayouts = layoutGroups[key] || [];
+    group.slice(0, matchingLayouts.length).forEach((slot, index) => {
+      slotToLayoutId.set(slot.id, matchingLayouts[index].id);
+    });
+  });
+
+  sortedReviewSlots.forEach((slot) => {
     const layoutId = slot?.extracted?.sourceRegion?.id;
     if (!layoutId || slotByExplicitLayoutId.has(layoutId)) return;
     if (!layoutSlots.some((layoutSlot) => layoutSlot.id === layoutId)) return;
+    const mappedLayoutId = slotToLayoutId.get(slot.id);
+    if (mappedLayoutId && mappedLayoutId !== layoutId) return;
     slotByExplicitLayoutId.set(layoutId, slot);
+    slotToLayoutId.set(slot.id, layoutId);
   });
 
   const items = layoutSlots.map((layoutSlot) => {
-    const explicitSlot = slotByExplicitLayoutId.get(layoutSlot.id);
+    const explicitSlot = slotByExplicitLayoutId.get(layoutSlot.id) || sortedReviewSlots.find((slot) => slotToLayoutId.get(slot.id) === layoutSlot.id);
     if (explicitSlot) {
       assignedSlotIds.add(explicitSlot.id);
       assignedLayoutIds.add(layoutSlot.id);
@@ -1697,8 +1795,15 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
     return { type: "missing", id: `missing-review-slot-${layoutSlot.id}`, role: layoutSlot.role, position: layoutSlot.position, layoutSlot };
   }).filter(Boolean);
 
-  (slots || []).slice().sort(sortReviewSlotsByScreenshotPosition).forEach((slot) => {
+  sortedReviewSlots.forEach((slot) => {
     if (!slot?.id || assignedSlotIds.has(slot.id)) return;
+    const mappedLayout = layoutById.get(slotToLayoutId.get(slot.id));
+    if (mappedLayout && !assignedLayoutIds.has(mappedLayout.id)) {
+      items.push({ type: "slot", id: slot.id, slot, layoutSlot: mappedLayout });
+      assignedLayoutIds.add(mappedLayout.id);
+      assignedSlotIds.add(slot.id);
+      return;
+    }
     const slotRole = ["starter", "bench"].includes(slot.role) ? slot.role : slot.extracted?.rawSquadRole;
     const slotPosition = slot.selectedPlayer?.position || slot.extracted?.rawPosition;
     const itemIndex = items.findIndex((item) => {
@@ -2146,6 +2251,38 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
             wordIndex: rectangleIndex * pageSegModes.length + modeIndex,
           });
         }
+      }
+      if (slot.captainMarkerBoundingBox) {
+        await worker.setParameters?.({
+          tessedit_pageseg_mode: "10",
+          tessedit_char_whitelist: "CV",
+        });
+        const markerBox = slot.captainMarkerBoundingBox;
+        const markerResult = await worker.recognize(imageSource, {
+          rectangle: {
+            left: Math.max(0, Math.round(Number(markerBox.x || 0))),
+            top: Math.max(0, Math.round(Number(markerBox.y || 0))),
+            width: Math.max(1, Math.round(Number(markerBox.width || 0))),
+            height: Math.max(1, Math.round(Number(markerBox.height || 0))),
+          },
+        }, { text: true, blocks: true });
+        const markerText = safeText(markerResult?.data?.text || normaliseOcrBlocks(markerResult).map((block) => block.text).join(" "));
+        if (/[CV]/i.test(markerText)) {
+          blocks.push({
+            text: markerText,
+            confidence: Math.max(0, Math.min(1, Number(markerResult?.data?.confidence ?? 55) / 100)),
+            boundingBox: markerBox,
+            strictSlotMarker: true,
+            slotOcrPageSegMode: "10",
+            slotOcrCropVariant: "captain-marker",
+            lineIndex: index,
+            wordIndex: 9000 + index,
+          });
+        }
+        await worker.setParameters?.({
+          tessedit_pageseg_mode: pageSegModes[0] || "7",
+          tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'- ",
+        });
       }
     }
     return {
