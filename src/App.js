@@ -5530,6 +5530,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     fantasyScreenshotAbortRef.current = controller;
     const startedAt = performance.now();
     let decoded = null;
+    let progressTimer = null;
     try {
       setFantasyScreenshotError("");
       setFantasyScreenshotReview(null);
@@ -5541,6 +5542,10 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
       setFantasyScreenshotImportState("extracting text");
       setFantasyScreenshotProgress(32);
+      progressTimer = window.setInterval(() => {
+        if (runId !== fantasyScreenshotImportRunIdRef.current) return;
+        setFantasyScreenshotProgress((progress) => Math.min(92, Math.max(32, Number(progress) || 32) + 2));
+      }, 900);
       const ocrAttempt = await runFantasyScreenshotOcrWithFallback({
         ...decoded,
         url: fantasyScreenshotPreviewUrl,
@@ -5549,9 +5554,15 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         teams: fantasyPlayerData.teams || [],
         imageMetadata: fantasyScreenshotImageMetadata,
         signal: controller.signal,
-        onStatus: () => {},
+        onStatus: () => {
+          setFantasyScreenshotProgress((progress) => Math.min(92, Math.max(32, Number(progress) || 32) + 1));
+        },
       });
       if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
+      if (progressTimer) {
+        window.clearInterval(progressTimer);
+        progressTimer = null;
+      }
       setFantasyScreenshotImportState("matching players");
       setFantasyScreenshotProgress(82);
       const review = {
@@ -5604,6 +5615,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         setFantasyScreenshotStatusText("Try again or use manual entry.");
       }
     } finally {
+      if (progressTimer) window.clearInterval(progressTimer);
       decoded?.revoke?.();
       if (runId === fantasyScreenshotImportRunIdRef.current) {
         fantasyScreenshotAbortRef.current = null;

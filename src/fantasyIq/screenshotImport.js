@@ -749,14 +749,12 @@ function detectWhiteNameLabelBox(context, searchBox = {}) {
     .sort((a, b) => (b.y1 - b.y0) - (a.y1 - a.y0) || b.peak - a.peak)[0];
   if (!bestRun) return null;
   const labelHeight = Math.max(10, bestRun.y1 - bestRun.y0);
-  const nameTop = bestRun.y0 + Math.round(labelHeight * 0.03);
-  const nameHeight = Math.max(12, Math.round(labelHeight * 0.48));
   const insetX = Math.max(4, Math.round(Number(searchBox.width || 0) * 0.08));
   return {
     x: Math.max(0, Math.round(Number(searchBox.x || 0) + insetX)),
-    y: Math.max(0, nameTop),
+    y: Math.max(0, bestRun.y0),
     width: Math.max(1, Math.round(Number(searchBox.width || 0) - insetX * 2)),
-    height: nameHeight,
+    height: labelHeight,
   };
 }
 
@@ -968,12 +966,14 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
     if (!isLikelyFantasyScreenshotPlayerName(cleanedText, { hasPosition: true })) return;
 
     const strictSlotOcr = !!block.strictSlotOcr;
-    const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "", { allowLoose: !strictSlotOcr });
+    const compactCleanedText = normaliseFantasyPlayerName(cleanedText).replace(/\s+/g, "");
+    const allowLooseSlotMatch = !strictSlotOcr || compactCleanedText.length >= 7;
+    const mentions = findPlayerMentionsInLayoutText(cleanedText, players, "", { allowLoose: allowLooseSlotMatch });
     const slots = expandLayoutSlotsForMergedText(block, layoutSlots, Math.max(1, mentions.length));
     if (!slots.length || !mentions.length) return;
     const orderedSlots = slots.slice().sort((a, b) => Number(a.boundingBox?.x || 0) - Number(b.boundingBox?.x || 0));
     const positionMentionsBySlot = orderedSlots.map((slot) =>
-      findPlayerMentionsInLayoutText(cleanedText, players, slot.position, { allowLoose: !strictSlotOcr })
+      findPlayerMentionsInLayoutText(cleanedText, players, slot.position, { allowLoose: allowLooseSlotMatch })
     );
     orderedSlots.forEach((slot, slotIndex) => {
       const slotMentions = positionMentionsBySlot[slotIndex];

@@ -789,7 +789,7 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(gkSlot.detectedLabel).toBe(true);
     expect(gkSlot.boundingBox.y).toBeGreaterThan(490);
     expect(gkSlot.boundingBox.y).toBeLessThan(510);
-    expect(gkSlot.boundingBox.height).toBeLessThan(labelHeight);
+    expect(gkSlot.boundingBox.height).toBeGreaterThan(40);
   });
 
   test("detects name labels in a top-cropped tall mobile screenshot", () => {
@@ -1215,6 +1215,40 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     });
 
     expect(candidates).toEqual([]);
+  });
+
+  test("strict slot OCR can recover longer player names with minor OCR errors", () => {
+    const candidates = parseFantasyScreenshotCandidates([
+      {
+        text: "De Cuypar AVL H",
+        confidence: 0.82,
+        strictSlotOcr: true,
+        boundingBox: { x: Math.round(1200 * 0.795), y: Math.round(1800 * 0.344), width: 180, height: 56 },
+      },
+    ], {
+      imageHeight: 1800,
+      layoutSlots: [
+        { id: "starter-def-5", role: "starter", position: "DEF", boundingBox: { x: Math.round(1200 * 0.795), y: Math.round(1800 * 0.344), width: 180, height: 56 } },
+      ],
+      players: [{
+        id: "layout:de-cuyper",
+        sourceId: 89,
+        firstName: "Maxim",
+        lastName: "De Cuyper",
+        displayName: "Maxim De Cuyper",
+        name: "Maxim De Cuyper",
+        webName: "De Cuyper",
+        normalisedName: "maxim de cuyper",
+        teamCode: "BHA",
+        teamName: "Test",
+        position: "DEF",
+        positionId: 2,
+        dataSource: "test",
+      }],
+    });
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].rawName).toBe("De Cuyper");
   });
 
   test("duplicate selected players are not kept in multiple screenshot slots", () => {
