@@ -155,6 +155,46 @@ describe("Fantasy IQ player data adapter", () => {
       expect.objectContaining({ gameweek: 6, name: "Gameweek 6", deadline: "2026-09-12T10:30:00Z", isNext: true }),
     ]);
   });
+
+  test("maps recent gameweek starts into player metadata", () => {
+    const payload = {
+      ...clone(basePayload),
+      recentStartsByElement: {
+        101: [1, 1, 1, 1, 1],
+        102: [0, 0, 0, 0, 0],
+        201: [1, 0, 1, 1, 0],
+      },
+      recentStartsMetadata: {
+        source: "official-fpl-event-live",
+        gameweeks: [9, 8, 7, 6, 5],
+        order: "newest-first",
+      },
+    };
+    const result = adaptFantasyBootstrapPayload(payload);
+    const saka = result.dataset.players.find((player) => player.id === "fpl:101");
+    const gabriel = result.dataset.players.find((player) => player.id === "fpl:102");
+    const salah = result.dataset.players.find((player) => player.id === "fpl:201");
+
+    expect(saka.externalMetadata).toMatchObject({
+      recentStarts: 5,
+      startsLast5: 5,
+      consecutiveStarts: 5,
+      consecutiveNonStarts: 0,
+      recentStartGameweeks: [9, 8, 7, 6, 5],
+    });
+    expect(gabriel.externalMetadata).toMatchObject({
+      recentStarts: 0,
+      startsLast5: 0,
+      consecutiveStarts: 0,
+      consecutiveNonStarts: 5,
+    });
+    expect(salah.externalMetadata).toMatchObject({
+      recentStarts: 3,
+      startsLast5: 3,
+      consecutiveStarts: 1,
+      consecutiveNonStarts: 0,
+    });
+  });
 });
 
 describe("Fantasy IQ name and team matching", () => {

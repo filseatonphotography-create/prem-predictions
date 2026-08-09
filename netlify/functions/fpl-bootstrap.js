@@ -1,32 +1,97 @@
-export async function handler() {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+const FPL_BASE_URL = "https://fantasy.premierleague.com/api";
+const MAX_RESPONSE_BYTES = 3_000_000;
+const RECENT_START_GAMEWEEK_COUNT = 5;
 
-    const res = await fetch("https://fantasy.premierleague.com/api/bootstrap-static/", {
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+async function fetchJson(url, signal) {
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    const error = new Error(`FPL request failed with status ${res.status}`);
+    error.status = res.status;
+    error.details = errorText.slice(0, 500);
+    throw error;
+  }
+  const text = await res.text();
+  if (text.length > MAX_RESPONSE_BYTES) {
+    throw new Error("FPL response exceeded size limit");
+  }
+  return JSON.parse(text);
+}
+
+function getRecentFinishedEvents(events = []) {
+  return (Array.isArray(events) ? events : [])
+    .filter((event) => event?.finished && event?.data_checked !== false)
+    .map((event) => ({ id: toNumber(event.id), name: event.name || `GW ${event.id}` }))
+    .filter((event) => event.id)
+    .sort((a, b) => b.id - a.id)
+    .slice(0, RECENT_START_GAMEWEEK_COUNT);
+}
+
+function getStartedFlag(element = {}) {
+  const starts = toNumber(element?.stats?.starts);
+  if (starts != null) return starts > 0 ? 1 : 0;
+  const minutes = toNumber(element?.stats?.minutes);
+  if (minutes == null) return null;
+  return minutes >= 60 ? 1 : 0;
+}
+
+function attachRecentStarts(bootstrapPayload = {}, eventLivePayloads = []) {
+  const recentStartsByElement = {};
+  const gameweeks = [];
+  eventLivePayloads.forEach(({ event, payload }) => {
+    gameweeks.push(event.id);
+    (payload?.elements || []).forEach((element) => {
+      const id = toNumber(element?.id);
+      const started = getStartedFlag(element);
+      if (!id || started == null) return;
+      const key = String(id);
+      if (!recentStartsByElement[key]) recentStartsByElement[key] = [];
+      recentStartsByElement[key].push(started);
     });
+  });
+  return {
+    ...bootstrapPayload,
+    recentStartsByElement,
+    recentStartsMetadata: {
+      source: "official-fpl-event-live",
+      gameweeks,
+      order: "newest-first",
+    },
+  };
+}
 
-    clearTimeout(timeoutId);
+export async function handler() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  try {
+    const bootstrapPayload = await fetchJson(`${FPL_BASE_URL}/bootstrap-static/`, controller.signal);
+    const recentEvents = getRecentFinishedEvents(bootstrapPayload.events);
+    const eventLiveResults = await Promise.allSettled(
+      recentEvents.map(async (event) => ({
+        event,
+        payload: await fetchJson(`${FPL_BASE_URL}/event/${event.id}/live/`, controller.signal),
+      }))
+    );
 
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      return {
-        statusCode: res.status,
-        body: JSON.stringify({ error: "FPL player data error", details: errorText.slice(0, 500) }),
-      };
-    }
-
-    const text = await res.text();
-    if (text.length > 3_000_000) {
+    const eventLivePayloads = eventLiveResults
+      .filter((result) => result.status === "fulfilled")
+      .map((result) => result.value);
+    const enrichedPayload = attachRecentStarts(bootstrapPayload, eventLivePayloads);
+    const text = JSON.stringify(enrichedPayload);
+    if (text.length > MAX_RESPONSE_BYTES) {
       return {
         statusCode: 502,
         body: JSON.stringify({ error: "FPL player data response exceeded size limit" }),
       };
     }
-
-    JSON.parse(text);
 
     return {
       statusCode: 200,
@@ -45,5 +110,7 @@ export async function handler() {
         error: isTimeout ? "Upstream timeout" : "Internal server error",
       }),
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

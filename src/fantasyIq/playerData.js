@@ -18,8 +18,8 @@ export {
 
 /* global globalThis */
 
-export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 2;
-export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v2";
+export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 3;
+export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v3";
 export const FANTASY_PLAYER_DATA_SOURCE = "official-fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_ENDPOINT = "/.netlify/functions/fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_DIRECT_ENDPOINT = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -62,6 +62,52 @@ function getPlayerPriceTenths(record = {}) {
   const nowCost = toNumber(record?.now_cost ?? record?.nowCost);
   if (!nowCost || nowCost <= 0) return null;
   return Math.round(nowCost);
+}
+
+function getRecentStartsForPlayer(payload = {}, sourceId) {
+  const startsByElement = payload?.recentStartsByElement || payload?.recent_starts_by_element || {};
+  const rawStarts = startsByElement?.[sourceId] ?? startsByElement?.[String(sourceId)];
+  return Array.isArray(rawStarts)
+    ? rawStarts
+        .map((value) => {
+          const number = toNumber(value);
+          return number == null ? null : number > 0 ? 1 : 0;
+        })
+        .filter((value) => value != null)
+    : [];
+}
+
+function getConsecutiveRecentStarts(recentStarts = [], targetValue = 1) {
+  let count = 0;
+  for (const value of recentStarts) {
+    if (value !== targetValue) break;
+    count += 1;
+  }
+  return count;
+}
+
+function buildRecentStartMetadata(payload = {}, sourceId) {
+  const recentStarts = getRecentStartsForPlayer(payload, sourceId);
+  if (!recentStarts.length) {
+    return {
+      recentStarts: null,
+      startsLast5: null,
+      startsLast6: null,
+      consecutiveStarts: null,
+      consecutiveNonStarts: null,
+      recentStartGameweeks: payload?.recentStartsMetadata?.gameweeks || null,
+    };
+  }
+  const startsLast5Values = recentStarts.slice(0, 5);
+  const startsLast6Values = recentStarts.slice(0, 6);
+  return {
+    recentStarts: startsLast5Values.reduce((sum, value) => sum + value, 0),
+    startsLast5: startsLast5Values.length >= 5 ? startsLast5Values.reduce((sum, value) => sum + value, 0) : null,
+    startsLast6: startsLast6Values.length >= 6 ? startsLast6Values.reduce((sum, value) => sum + value, 0) : null,
+    consecutiveStarts: getConsecutiveRecentStarts(recentStarts, 1),
+    consecutiveNonStarts: getConsecutiveRecentStarts(recentStarts, 0),
+    recentStartGameweeks: payload?.recentStartsMetadata?.gameweeks || null,
+  };
 }
 
 function makeDiagnostics() {
@@ -268,6 +314,7 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
     }
 
     seenIds.add(id);
+    const recentStartMetadata = buildRecentStartMetadata(payload, sourceId);
     players.push({
       id,
       sourceId,
@@ -298,6 +345,12 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
         selectedByPercent: toNumber(record.selected_by_percent),
         minutes: toNumber(record.minutes),
         starts: toNumber(record.starts),
+        recentStarts: recentStartMetadata.recentStarts,
+        startsLast5: recentStartMetadata.startsLast5,
+        startsLast6: recentStartMetadata.startsLast6,
+        consecutiveStarts: recentStartMetadata.consecutiveStarts,
+        consecutiveNonStarts: recentStartMetadata.consecutiveNonStarts,
+        recentStartGameweeks: recentStartMetadata.recentStartGameweeks,
         totalPoints: toNumber(record.total_points),
       },
       dataSource: FANTASY_PLAYER_DATA_SOURCE,

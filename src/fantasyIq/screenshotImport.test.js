@@ -792,6 +792,35 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(gkSlot.boundingBox.height).toBeLessThan(labelHeight);
   });
 
+  test("detects name labels in a top-cropped tall mobile screenshot", () => {
+    const canvas = { width: 945, height: 1700 };
+    const labelY = 108;
+    const labelHeight = 48;
+    const context = {
+      canvas,
+      getImageData: jest.fn((x, y, width, height) => {
+        const isLabelRow = y >= labelY && y <= labelY + labelHeight;
+        const isPitchRow = y >= 0 && y <= 930;
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let index = 0; index < data.length; index += 4) {
+          data[index] = isLabelRow ? 248 : isPitchRow ? 20 : 45;
+          data[index + 1] = isLabelRow ? 248 : isPitchRow ? 150 : 15;
+          data[index + 2] = isLabelRow ? 248 : isPitchRow ? 70 : 50;
+          data[index + 3] = 255;
+        }
+        return { data };
+      }),
+    };
+
+    const slots = detectFantasyScreenshotNameLayoutSlots(canvas, context);
+    const gkSlot = slots.find((slot) => slot.id === "starter-gk-1");
+
+    expect(gkSlot.detectedLabel).toBe(true);
+    expect(gkSlot.boundingBox.y).toBeGreaterThan(100);
+    expect(gkSlot.boundingBox.y).toBeLessThan(120);
+    expect(gkSlot.boundingBox.y).toBeLessThan(Math.round(canvas.height * 0.216));
+  });
+
   test("detects optional wide formation name labels for far-right players", () => {
     const canvas = { width: 1200, height: 1800 };
     const context = {
@@ -1240,7 +1269,7 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     });
     const serialised = JSON.stringify(summary);
     expect(summary).toMatchObject({
-      importVersion: "chunk-5.5-local-ocr-v1",
+      importVersion: "chunk-5.6-local-ocr-v1",
       imageWidth: 1200,
       imageHeight: 1800,
       processingDurationMs: 1234,

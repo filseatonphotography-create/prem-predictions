@@ -5,7 +5,7 @@ const chromeVersionUrl = "http://127.0.0.1:9222/json/version";
 const appUrl = process.env.FANTASY_IQ_SMOKE_APP_URL || "http://localhost:3000";
 const fixturePath = `${process.cwd()}/src/fantasyIq/fixtures/screenshot-import/mobile-portrait-full-squad.png`;
 const authKey = "pl_prediction_auth_v1";
-const playerDataKey = "predictionAddiction:fplPlayerData:v1";
+const playerDataKey = "predictionAddiction:fplPlayerData:v3";
 const squadKey = "predictionAddiction:fantasyIqSquad:v1:browser-smoke-user";
 const historyKey = "predictionAddiction:fantasyIqHistory:v1:browser-smoke-user";
 
@@ -36,7 +36,7 @@ function makeDataset() {
     aliases: [code],
   }));
   return {
-    schemaVersion: 1,
+    schemaVersion: 3,
     source: "browser-smoke-fixture",
     fetchedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3600000).toISOString(),

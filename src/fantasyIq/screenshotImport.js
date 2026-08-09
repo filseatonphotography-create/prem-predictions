@@ -40,7 +40,10 @@ export const FANTASY_SCREENSHOT_TESSERACT_ASSETS = {
   langPath: "/vendor/tesseract/7.0.0/lang/eng/4.0.0_best_int",
 };
 
-export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.5-local-ocr-v1";
+export const FANTASY_SCREENSHOT_IMPORT_VERSION = "chunk-5.6-local-ocr-v1";
+
+const FPL_PITCH_SCREENSHOT_REFERENCE_ASPECT = 2048 / 945;
+const FPL_PITCH_SCREENSHOT_REFERENCE_PITCH_TOP = 0.163;
 
 const FPL_PITCH_SCREENSHOT_ROW_X = {
   1: [0.41],
@@ -546,26 +549,47 @@ function stripNonNameTokens(tokens = [], { keepTeamCodeLikeTokens = false } = {}
   });
 }
 
-function getAbsoluteLayoutBox(box = {}, width = 0, height = 0) {
+function getAbsoluteLayoutBox(box = {}, width = 0, height = 0, viewport = null) {
+  const originX = Number(viewport?.x ?? 0);
+  const originY = Number(viewport?.y ?? 0);
+  const layoutWidth = Number(viewport?.width || width || 0);
+  const layoutHeight = Number(viewport?.height || height || 0);
   return {
-    x: Math.round(Number(box.x || 0) * width),
-    y: Math.round(Number(box.y || 0) * height),
-    width: Math.round(Number(box.width || 0) * width),
-    height: Math.round(Number(box.height || 0) * height),
+    x: Math.round(originX + Number(box.x || 0) * layoutWidth),
+    y: Math.round(originY + Number(box.y || 0) * layoutHeight),
+    width: Math.round(Number(box.width || 0) * layoutWidth),
+    height: Math.round(Number(box.height || 0) * layoutHeight),
   };
 }
 
-function getFantasyScreenshotNameLayoutSlots(width = 0, height = 0) {
+function clampLayoutSlotToImage(slot = {}, width = 0, height = 0) {
+  const box = slot.boundingBox || {};
+  const x = Math.max(0, Math.round(Number(box.x || 0)));
+  const y = Math.max(0, Math.round(Number(box.y || 0)));
+  const x2 = Math.min(Number(width || 0), Math.round(Number(box.x || 0) + Number(box.width || 0)));
+  const y2 = Math.min(Number(height || 0), Math.round(Number(box.y || 0) + Number(box.height || 0)));
+  return {
+    ...slot,
+    boundingBox: {
+      x,
+      y,
+      width: Math.max(0, x2 - x),
+      height: Math.max(0, y2 - y),
+    },
+  };
+}
+
+function getFantasyScreenshotNameLayoutSlots(width = 0, height = 0, viewport = null) {
   const numericWidth = Number(width || 0);
   const numericHeight = Number(height || 0);
   if (!numericWidth || !numericHeight) return [];
   return FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.map((slot) => ({
     ...slot,
-    boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
-  }));
+    boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight, viewport),
+  })).map((slot) => clampLayoutSlotToImage(slot, numericWidth, numericHeight));
 }
 
-export function getFantasyScreenshotFormationLayoutSlots(formationLabel = "3-4-3", width = 0, height = 0) {
+export function getFantasyScreenshotFormationLayoutSlots(formationLabel = "3-4-3", width = 0, height = 0, viewport = null) {
   const numericWidth = Number(width || 0);
   const numericHeight = Number(height || 0);
   const starterLayout = FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS[formationLabel] || FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS["3-4-3"];
@@ -577,8 +601,8 @@ export function getFantasyScreenshotFormationLayoutSlots(formationLabel = "3-4-3
   ].map((slot) => ({
     ...slot,
     formation: formationLabel,
-    boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight),
-  }));
+    boundingBox: getAbsoluteLayoutBox(slot.box, numericWidth, numericHeight, viewport),
+  })).map((slot) => clampLayoutSlotToImage(slot, numericWidth, numericHeight));
 }
 
 function getDetectedStarterRowCounts(layoutSlots = []) {
@@ -620,15 +644,66 @@ export function inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots = [])
     .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label))[0]?.label || null;
 }
 
-function getBestFantasyScreenshotLayoutSlots(layoutSlots = [], width = 0, height = 0) {
+function getBestFantasyScreenshotLayoutSlots(layoutSlots = [], width = 0, height = 0, viewport = null) {
   const inferredFormation = inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots);
-  if (!inferredFormation) return getFantasyScreenshotFormationLayoutSlots("3-4-3", width, height);
+  if (!inferredFormation) return getFantasyScreenshotFormationLayoutSlots("3-4-3", width, height, viewport);
   const byId = new Map((layoutSlots || []).map((slot) => [slot.id, slot]));
-  return getFantasyScreenshotFormationLayoutSlots(inferredFormation, width, height).map((slot) => ({
+  return getFantasyScreenshotFormationLayoutSlots(inferredFormation, width, height, viewport).map((slot) => ({
     ...slot,
     detectedLabel: byId.get(slot.id)?.detectedLabel || false,
     boundingBox: byId.get(slot.id)?.detectedLabel ? byId.get(slot.id).boundingBox : slot.boundingBox,
   }));
+}
+
+function getGreenPitchPixelRatio(context, rowY = 0, rowHeight = 2) {
+  const canvas = context.canvas || {};
+  const y = Math.max(0, Math.round(rowY));
+  const height = Math.max(1, Math.min(Math.round(rowHeight), Number(canvas.height || y + 1) - y));
+  const width = Math.max(1, Number(canvas.width || 1));
+  const imageData = context.getImageData(0, y, width, height);
+  const data = imageData.data;
+  let green = 0;
+  const total = Math.max(1, data.length / 4);
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const greenChannel = data[index + 1];
+    const blue = data[index + 2];
+    if (greenChannel >= 95 && red <= 90 && blue <= 130 && greenChannel - red >= 35) green += 1;
+  }
+  return green / total;
+}
+
+function detectFantasyScreenshotLayoutViewport(canvas, context) {
+  if (!canvas || !context) return null;
+  const width = Number(canvas.width || 0);
+  const height = Number(canvas.height || 0);
+  if (!width || !height) return null;
+  if (height / width < 1.75) return null;
+  const rowStep = Math.max(4, Math.round(height / 180));
+  const greenRows = [];
+  let peak = 0;
+  for (let y = 0; y < height; y += rowStep) {
+    const ratio = getGreenPitchPixelRatio(context, y, rowStep);
+    if (ratio >= 0.35) {
+      greenRows.push(y);
+      peak = Math.max(peak, ratio);
+    }
+  }
+  if (greenRows.length < 6) return null;
+  const pitchTop = Math.min(...greenRows);
+  const pitchBottom = Math.max(...greenRows) + rowStep;
+  if (pitchBottom - pitchTop < height * 0.2) return null;
+  const referenceHeight = width * FPL_PITCH_SCREENSHOT_REFERENCE_ASPECT;
+  const y = Math.round(pitchTop - referenceHeight * FPL_PITCH_SCREENSHOT_REFERENCE_PITCH_TOP);
+  return {
+    x: 0,
+    y,
+    width,
+    height: referenceHeight,
+    detectedPitchTop: pitchTop,
+    detectedPitchBottom: pitchBottom,
+    detectedPitchPeak: peak,
+  };
 }
 
 function getAverageBrightPixelRatio(context, box = {}, rowY = 0, rowHeight = 2) {
@@ -685,10 +760,15 @@ function detectWhiteNameLabelBox(context, searchBox = {}) {
   };
 }
 
-export function detectFantasyScreenshotNameLayoutSlots(canvas, context) {
+export function detectFantasyScreenshotNameLayoutSlots(canvas, context, viewport = null) {
   if (!canvas || !context) return [];
+  const layoutViewport = viewport || detectFantasyScreenshotLayoutViewport(canvas, context);
   return FPL_PITCH_SCREENSHOT_EXPANDED_CARD_SEARCH_LAYOUT.map((slot) => {
-    const searchBox = getAbsoluteLayoutBox(slot.box, canvas.width, canvas.height);
+    const searchBox = clampLayoutSlotToImage(
+      { boundingBox: getAbsoluteLayoutBox(slot.box, canvas.width, canvas.height, layoutViewport) },
+      canvas.width,
+      canvas.height
+    ).boundingBox;
     const detectedBox = detectWhiteNameLabelBox(context, searchBox);
     return {
       id: slot.id,
@@ -698,11 +778,13 @@ export function detectFantasyScreenshotNameLayoutSlots(canvas, context) {
       boundingBox: detectedBox || getAbsoluteLayoutBox(
         FPL_PITCH_SCREENSHOT_EXPANDED_NAME_LAYOUT.find((item) => item.id === slot.id)?.box || slot.box,
         canvas.width,
-        canvas.height
+        canvas.height,
+        layoutViewport
       ),
+      layoutViewport,
       detectedLabel: !!detectedBox,
     };
-  });
+  }).map((slot) => clampLayoutSlotToImage(slot, canvas.width, canvas.height));
 }
 
 function getBlockCenter(block = {}) {
@@ -1498,7 +1580,6 @@ function getFantasyScreenshotRecoveryLayoutSlots(review = {}, layoutSlots = []) 
     .filter((slot) => slot?.boundingBox && Number(slot.boundingBox.width) && Number(slot.boundingBox.height));
   const starterCount = (review.extractedSlots || []).filter((slot) => slot.role === "starter" && slot.selectedPlayerId).length;
   if (starterCount >= 11) return recoverySlots;
-  if (starterCount < 8) return recoverySlots;
   const seenLayoutIds = new Set((review.extractedSlots || []).map((slot) => slot.extracted?.sourceRegion?.id).filter(Boolean));
   const recoveryIds = new Set(recoverySlots.map((slot) => slot.id));
   (layoutSlots || [])
@@ -1741,6 +1822,7 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
     canvas = masked.canvas;
     context = masked.context;
   }
+  const layoutViewport = detectLayout ? detectFantasyScreenshotLayoutViewport(canvas, context) : null;
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const processed = variant === "threshold-sharpened"
     ? applyThresholdSharpen(imageData)
@@ -1748,7 +1830,7 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
     ? imageData
     : applyGrayscaleContrast(imageData);
   context.putImageData(processed, 0, 0);
-  const layoutSlots = detectLayout ? detectFantasyScreenshotNameLayoutSlots(canvas, context) : [];
+  const layoutSlots = detectLayout ? detectFantasyScreenshotNameLayoutSlots(canvas, context, layoutViewport) : [];
   return {
     source: canvas.toDataURL("image/png"),
     variant,
@@ -1756,6 +1838,7 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
     width: canvas.width,
     height: canvas.height,
     layoutSlots,
+    layoutViewport,
     cleanup: () => disposeCanvas(canvas),
   };
 }
@@ -1926,10 +2009,10 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
       const parseWidth = preprocessed.width || imageMetadata?.width || decoded?.width;
       const parseHeight = preprocessed.height || imageMetadata?.height || decoded?.height;
       const rawLayoutSlots = plan.layout === "fpl-pitch"
-        ? (preprocessed.layoutSlots?.length ? preprocessed.layoutSlots : getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight))
+        ? (preprocessed.layoutSlots?.length ? preprocessed.layoutSlots : getFantasyScreenshotNameLayoutSlots(parseWidth, parseHeight, preprocessed.layoutViewport))
         : [];
       const layoutSlots = plan.layout === "fpl-pitch"
-        ? getBestFantasyScreenshotLayoutSlots(rawLayoutSlots, parseWidth, parseHeight)
+        ? getBestFantasyScreenshotLayoutSlots(rawLayoutSlots, parseWidth, parseHeight, preprocessed.layoutViewport)
         : [];
       const parseLayoutSlots = plan.slotLayout
         ? layoutSlots
@@ -1956,6 +2039,7 @@ export async function runFantasyScreenshotOcrWithFallback(decoded, {
           ocrTextBlockCount: ocr.blocks.length,
           ocrDebug: ocr.raw,
           inferredFormation: inferFantasyScreenshotFormationFromLayoutSlots(rawLayoutSlots),
+          layoutViewport: preprocessed.layoutViewport,
         },
       });
       const quality = scoreFantasyScreenshotOcrQuality({ blocks: ocr.blocks, candidates, review });

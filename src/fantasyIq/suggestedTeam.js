@@ -2,7 +2,6 @@ import {
   getFantasyAvailabilityChance,
   hasActionableFantasyAvailabilityRisk,
 } from "./availability";
-import { normaliseFantasyPlayerName } from "./playerData";
 
 export const FANTASY_SUGGESTED_TEAM_VERSION = "suggested-team-v1";
 
@@ -42,16 +41,11 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
   minimumReliablePointsPerGame: 2.5,
   minimumStarterMinutes: 650,
   minimumStarterStarts: 6,
+  minimumRecentStarterStarts: 3,
+  consecutiveStartThreshold: 5,
+  consecutiveNonStartThreshold: 5,
   premiumAttackerPrice: 8,
   premiumForwardPrice: 8.5,
-  starterRoleDoubtNames: [
-    "nico gonzalez",
-    "niko gonzalez",
-    "mikel merino",
-    "omar marmoush",
-    "martin zubimendi",
-    "zubimendi",
-  ],
   softPlayersPerClub: 2,
   thirdClubPlayerRequiredEdge: 18,
   thirdClubPlayerPenalty: 7,
@@ -195,23 +189,64 @@ function hasWeakStartingEvidence(player = {}, config = FANTASY_SUGGESTED_TEAM_CO
   return [lowStarts, lowMinutes, ignoredByManagers, lowOutput, noForm].filter(Boolean).length >= 3;
 }
 
+function getRecentStartSignals(player = {}) {
+  const meta = player.externalMetadata || {};
+  const startsLast5 = numberOrNull(meta.startsLast5 ?? meta.lastFiveStarts);
+  const startsLast6 = numberOrNull(meta.startsLast6 ?? meta.lastSixStarts);
+  const recentStarts = numberOrNull(
+    meta.recentStarts ??
+    startsLast5 ??
+    startsLast6
+  );
+  return {
+    startsLast5,
+    startsLast6,
+    recentStarts,
+    consecutiveStarts: numberOrNull(
+      meta.consecutiveStarts ??
+      meta.currentConsecutiveStarts ??
+      meta.recentConsecutiveStarts
+    ),
+    consecutiveNonStarts: numberOrNull(
+      meta.consecutiveNonStarts ??
+      meta.currentConsecutiveNonStarts ??
+      meta.recentConsecutiveNonStarts
+    ),
+  };
+}
+
+function hasStrongRecentStarterEvidence(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  const threshold = Number(config.consecutiveStartThreshold || 5);
+  const { consecutiveStarts, startsLast5 } = getRecentStartSignals(player);
+  return (
+    (consecutiveStarts != null && consecutiveStarts >= threshold) ||
+    (startsLast5 != null && startsLast5 >= threshold)
+  );
+}
+
+function hasClearRecentNonStarterEvidence(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
+  const threshold = Number(config.consecutiveNonStartThreshold || 5);
+  const { consecutiveNonStarts, startsLast5 } = getRecentStartSignals(player);
+  return (
+    (consecutiveNonStarts != null && consecutiveNonStarts >= threshold) ||
+    (startsLast5 != null && startsLast5 <= 0)
+  );
+}
+
 function hasStarterRoleDoubt(player = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
-  const playerName = normaliseFantasyPlayerName(player.webName || player.displayName || player.name || "");
-  const roleDoubtNames = config.starterRoleDoubtNames || [];
-  if (roleDoubtNames.some((name) => {
-    const normalisedName = normaliseFantasyPlayerName(name);
-    return normalisedName && (playerName === normalisedName || playerName.includes(normalisedName));
-  })) {
-    return true;
-  }
+  if (hasStrongRecentStarterEvidence(player, config)) return false;
+  if (hasClearRecentNonStarterEvidence(player, config)) return true;
   const meta = player.externalMetadata || {};
   const starts = numberOrNull(meta.starts);
   const minutes = numberOrNull(meta.minutes);
   const pointsPerGame = numberOrNull(meta.pointsPerGame);
   const selectedByPercent = numberOrNull(meta.selectedByPercent);
+  const { recentStarts } = getRecentStartSignals(player);
   const minimumStarts = Number(config.minimumStarterStarts || 6);
   const minimumMinutes = Number(config.minimumStarterMinutes || 650);
+  const minimumRecentStarts = Number(config.minimumRecentStarterStarts || 3);
   const knownRoleSignals = [starts, minutes].filter((value) => value != null).length;
+  if (recentStarts != null && recentStarts < minimumRecentStarts) return true;
   if (!knownRoleSignals) return false;
   if (starts != null && starts < minimumStarts) return true;
   if (minutes != null && minutes < minimumMinutes) return true;
@@ -253,7 +288,7 @@ function getFixtureScore(position, clubOutlook = {}, styleConfig = {}) {
   return clubOutlook.overallScore;
 }
 
-function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}) {
+function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
   const position = String(player.position || "").toUpperCase();
   const price = getPlayerPrice(player);
   const fixtureScore = getFixtureScore(position, clubOutlook, styleConfig);
@@ -265,8 +300,8 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
   const premiumScore = scale(price, 4, position === "GK" ? 7 : position === "DEF" ? 8 : 14, 40) * (styleConfig.premiumBias?.[position] || 1);
   const availabilityChance = getFantasyAvailabilityChance(player);
   const risk = hasActionableFantasyAvailabilityRisk(player);
-  const weakStartingEvidence = hasWeakStartingEvidence(player);
-  const starterRoleDoubt = hasStarterRoleDoubt(player);
+  const weakStartingEvidence = hasWeakStartingEvidence(player, config);
+  const starterRoleDoubt = hasStarterRoleDoubt(player, config);
   const availabilityPenalty = risk ? 100 - (availabilityChance ?? 35) : 0;
   const rotationPenalty = weakStartingEvidence ? 28 : 0;
   const roleDoubtPenalty = starterRoleDoubt ? 18 : 0;
@@ -295,7 +330,7 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
     availabilityRisk: risk,
     weakStartingEvidence,
     starterRoleDoubt,
-    benchEnablerEligible: isAttackingBenchEnablerCandidate(player, styleConfig),
+    benchEnablerEligible: isAttackingBenchEnablerCandidate(player, styleConfig, config),
     clubOutlook,
     predictionOutlook,
   };
@@ -380,6 +415,7 @@ function hasStyleStarterEvidence(player = {}, styleConfig = {}, config = FANTASY
   if (player.benchEnablerEligible) return false;
   if (Number(player.starterLikelihoodScore || 0) < Number(config.minimumStartingXiLikelihood || 0)) return false;
   if (player.starterRoleDoubt || hasStarterRoleDoubt(player, config)) return false;
+  if (hasStrongRecentStarterEvidence(player, config)) return true;
   const minutes = numberOrNull(player.externalMetadata?.minutes);
   const starts = numberOrNull(player.externalMetadata?.starts);
   const minimumMinutes = numberOrNull(styleConfig.starterMinimumMinutes) ?? numberOrNull(config.minimumStarterMinutes);
@@ -809,12 +845,14 @@ export function createFantasySuggestedTeam({
     .filter((player) => !player?.temporary)
     .filter((player) => config.positions[String(player?.position || "").toUpperCase()])
     .filter((player) => !hasActionableFantasyAvailabilityRisk(player))
+    .filter((player) => !hasClearRecentNonStarterEvidence(player, config) || isAttackingBenchEnablerCandidate(player, styleConfig, config))
     .filter((player) => !hasWeakStartingEvidence(player, config) || isAttackingBenchEnablerCandidate(player, styleConfig, config))
     .map((player) => scoreCandidate(
       player,
       clubOutlooks[String(player.teamCode || "").toUpperCase()],
       predictionOutlooks[String(player.teamCode || "").toUpperCase()],
-      styleConfig
+      styleConfig,
+      config
     ))
     .filter(Boolean)
     .filter((player) => player.benchEnablerEligible || player.starterLikelihoodScore >= config.minimumSquadLikelihood);

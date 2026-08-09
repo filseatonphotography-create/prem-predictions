@@ -5293,6 +5293,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyScreenshotReview, setFantasyScreenshotReview] = useState(null);
   const [fantasyScreenshotError, setFantasyScreenshotError] = useState("");
   const [fantasyScreenshotStatusText, setFantasyScreenshotStatusText] = useState("");
+  const [fantasyScreenshotProgress, setFantasyScreenshotProgress] = useState(0);
   const [fantasyScreenshotReplacePending, setFantasyScreenshotReplacePending] = useState(false);
   const [fantasyScreenshotSlotSearch, setFantasyScreenshotSlotSearch] = useState({});
   const [fantasyScreenshotImportSummary, setFantasyScreenshotImportSummary] = useState(null);
@@ -5445,6 +5446,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyScreenshotReview(null);
     setFantasyScreenshotError("");
     setFantasyScreenshotStatusText("");
+    setFantasyScreenshotProgress(0);
     setFantasyScreenshotReplacePending(false);
     setFantasyScreenshotSlotSearch({});
     setFantasyScreenshotImportSummary(null);
@@ -5506,6 +5508,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       setFantasyScreenshotImageMetadata(metadata);
       setFantasyScreenshotImportState("image selected");
       setFantasyScreenshotStatusText("Ready to analyse");
+      setFantasyScreenshotProgress(0);
     } catch (error) {
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
@@ -5532,10 +5535,12 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       setFantasyScreenshotReview(null);
       setFantasyScreenshotImportSummary(null);
       setFantasyScreenshotImportState("preprocessing");
-      setFantasyScreenshotStatusText("Preparing image");
+      setFantasyScreenshotStatusText("");
+      setFantasyScreenshotProgress(12);
       decoded = await decodeFantasyScreenshotImage(fantasyScreenshotFile);
       if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
       setFantasyScreenshotImportState("extracting text");
+      setFantasyScreenshotProgress(32);
       const ocrAttempt = await runFantasyScreenshotOcrWithFallback({
         ...decoded,
         url: fantasyScreenshotPreviewUrl,
@@ -5544,11 +5549,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         teams: fantasyPlayerData.teams || [],
         imageMetadata: fantasyScreenshotImageMetadata,
         signal: controller.signal,
-        onStatus: (status) => setFantasyScreenshotStatusText(status || "Reading player names"),
+        onStatus: () => {},
       });
       if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
       setFantasyScreenshotImportState("matching players");
-      setFantasyScreenshotStatusText("Matching clubs and positions");
+      setFantasyScreenshotProgress(82);
       const review = {
         ...ocrAttempt.review,
         imageMetadata: {
@@ -5574,6 +5579,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       setFantasyScreenshotReview(review);
       setFantasyScreenshotImportSummary(importSummary);
       setFantasyScreenshotImportState(review.extractedSlots.length ? "needs review" : "failed");
+      setFantasyScreenshotProgress(100);
       setFantasyScreenshotStatusText(
         review.extractedSlots.length
           ? "Ready for review"
@@ -5589,9 +5595,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       }));
       if (error?.name === "AbortError") {
         setFantasyScreenshotImportState("cancelled");
+        setFantasyScreenshotProgress(0);
         setFantasyScreenshotStatusText("Analysis cancelled. Replace the screenshot or retry.");
       } else {
         setFantasyScreenshotImportState("failed");
+        setFantasyScreenshotProgress(0);
         setFantasyScreenshotError(error?.message || "Screenshot analysis failed.");
         setFantasyScreenshotStatusText("Try again or use manual entry.");
       }
@@ -13574,9 +13582,29 @@ useEffect(() => {
             </div>
           </div>
         )}
-        <div aria-live="polite" style={{ color: fantasyScreenshotError ? theme.warn : theme.muted, fontSize: 12, lineHeight: 1.35 }}>
-          {fantasyScreenshotError || fantasyScreenshotStatusText || `State: ${fantasyScreenshotImportState}`}
-        </div>
+        {["preprocessing", "extracting text", "matching players"].includes(fantasyScreenshotImportState) && (
+          <div aria-live="polite" style={{ display: "grid", gap: 7 }}>
+            <div style={{ height: 9, borderRadius: 999, background: "rgba(255,255,255,0.08)", border: `1px solid ${theme.line}`, overflow: "hidden" }}>
+              <div
+                style={{
+                  width: `${Math.max(8, Math.min(100, fantasyScreenshotProgress || 8))}%`,
+                  height: "100%",
+                  borderRadius: 999,
+                  background: `linear-gradient(90deg, ${theme.accent}, ${theme.accent2})`,
+                  transition: "width 260ms ease",
+                }}
+              />
+            </div>
+            <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+              Analysing screenshot
+            </div>
+          </div>
+        )}
+        {!["preprocessing", "extracting text", "matching players"].includes(fantasyScreenshotImportState) && (
+          <div aria-live="polite" style={{ color: fantasyScreenshotError ? theme.warn : theme.muted, fontSize: 12, lineHeight: 1.35 }}>
+            {fantasyScreenshotError || fantasyScreenshotStatusText || `State: ${fantasyScreenshotImportState}`}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <button
             type="button"

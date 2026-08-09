@@ -610,7 +610,7 @@ describe("Prediction Addiction suggested team", () => {
   });
 
   test("attacking style does not start low-minute premium rotation forwards", () => {
-    const marmoushProfile = makePlayer("omar-marmoush-profile", "FWD", "MCI", 9, {
+    const rotationForward = makePlayer("low-minute-premium-forward", "FWD", "MCI", 9, {
       externalMetadata: {
         form: 9,
         pointsPerGame: 8,
@@ -621,7 +621,7 @@ describe("Prediction Addiction suggested team", () => {
     });
 
     const attacking = createFantasySuggestedTeam({
-      players: [marmoushProfile, ...makePool()],
+      players: [rotationForward, ...makePool()],
       clubOutlooks: makeOutlooks(),
       validateSquad,
       scoreReport,
@@ -630,7 +630,7 @@ describe("Prediction Addiction suggested team", () => {
     });
 
     expect(attacking.status).toBe("ready");
-    expect(attacking.starters.some((player) => player.id === marmoushProfile.id)).toBe(false);
+    expect(attacking.starters.some((player) => player.id === rotationForward.id)).toBe(false);
   });
 
   test("known low-minute midfielders are not used as recommended starters", () => {
@@ -657,30 +657,20 @@ describe("Prediction Addiction suggested team", () => {
     expect(balanced.starters.some((player) => player.id === lowMinuteMidfielder.id)).toBe(false);
   });
 
-  test("named role-doubt midfielders are not used as balanced starters", () => {
-    const roleDoubtPlayers = [
-      makePlayer("nico-gonzalez", "MID", "MCI", 6, {
-        displayName: "Nico Gonzalez",
-        name: "Nico Gonzalez",
-        webName: "Nico Gonzalez",
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 15, minutes: 900, starts: 9 },
-      }),
-      makePlayer("mikel-merino", "MID", "ARS", 6.5, {
-        displayName: "Mikel Merino",
-        name: "Mikel Merino",
-        webName: "Mikel Merino",
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 15, minutes: 900, starts: 9 },
-      }),
-      makePlayer("zubimendi", "MID", "ARS", 5.8, {
-        displayName: "Martin Zubimendi",
-        name: "Martin Zubimendi",
-        webName: "Zubimendi",
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 15, minutes: 900, starts: 9 },
-      }),
-    ];
+  test("weak recent starts prevent players starting even with good season totals", () => {
+    const weakRecentStarter = makePlayer("weak-recent-starter", "MID", "MCI", 7, {
+      externalMetadata: {
+        form: 8,
+        pointsPerGame: 6,
+        selectedByPercent: 25,
+        minutes: 900,
+        starts: 9,
+        recentStarts: 1,
+      },
+    });
 
     const balanced = createFantasySuggestedTeam({
-      players: [...roleDoubtPlayers, ...makePool()],
+      players: [weakRecentStarter, ...makePool()],
       clubOutlooks: makeOutlooks(),
       validateSquad,
       scoreReport,
@@ -689,7 +679,97 @@ describe("Prediction Addiction suggested team", () => {
     });
 
     expect(balanced.status).toBe("ready");
-    expect(balanced.starters.map((player) => player.id)).not.toEqual(expect.arrayContaining(roleDoubtPlayers.map((player) => player.id)));
+    expect(balanced.starters.some((player) => player.id === weakRecentStarter.id)).toBe(false);
+  });
+
+  test("five recent starts can return a low-minute player to starter consideration", () => {
+    const recentStarter = makePlayer("recent-starter-midfielder", "MID", "TOT", 8, {
+      externalMetadata: {
+        form: 10,
+        pointsPerGame: 8,
+        selectedByPercent: 40,
+        minutes: 500,
+        starts: 5,
+        startsLast5: 5,
+        consecutiveStarts: 5,
+      },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [recentStarter, ...makePool()],
+      clubOutlooks: {
+        ...makeOutlooks(),
+        TOT: {
+          overallScore: 96,
+          attackScore: 98,
+          defenceScore: 92,
+          fixtureCount: 3,
+          fixtures: [{ overallScore: 96, attackScore: 98, defenceScore: 92 }],
+        },
+      },
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.starters.some((player) => player.id === recentStarter.id)).toBe(true);
+  });
+
+  test("five recent non-starts exclude players from balanced recommendations", () => {
+    const recentNonStarter = makePlayer("recent-non-starter-midfielder", "MID", "MCI", 7, {
+      externalMetadata: {
+        form: 9,
+        pointsPerGame: 7,
+        selectedByPercent: 30,
+        minutes: 1100,
+        starts: 12,
+        startsLast5: 0,
+        consecutiveNonStarts: 5,
+      },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [recentNonStarter, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.players.some((player) => player.id === recentNonStarter.id)).toBe(false);
+  });
+
+  test("player names alone do not exclude recommendations", () => {
+    const namedRecentStarter = makePlayer("mikel-merino", "MID", "MCI", 7, {
+      displayName: "Mikel Merino",
+      name: "Mikel Merino",
+      webName: "Merino",
+      externalMetadata: {
+        form: 9,
+        pointsPerGame: 7,
+        selectedByPercent: 24,
+        minutes: 500,
+        starts: 5,
+        startsLast5: 5,
+        consecutiveStarts: 5,
+      },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [namedRecentStarter, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.players.some((player) => player.id === namedRecentStarter.id)).toBe(true);
   });
 
   test("defensive single-forward shapes start a premium forward with good fixtures", () => {
