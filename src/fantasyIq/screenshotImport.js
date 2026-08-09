@@ -1770,9 +1770,9 @@ function applyThresholdSharpen(imageData, contrast = 1.35) {
   return imageData;
 }
 
-function applyScreenshotRegionMask(canvas, context, regions = []) {
+function applyScreenshotRegionMask(canvas, context, regions = [], layoutViewport = null) {
   const absoluteRegions = (regions || [])
-    .map((region) => getAbsoluteLayoutBox(region, canvas.width, canvas.height))
+    .map((region) => getAbsoluteLayoutBox(region, canvas.width, canvas.height, layoutViewport))
     .filter((region) => region.width > 0 && region.height > 0);
   if (!absoluteRegions.length || typeof document === "undefined") return { canvas, context };
 
@@ -1817,12 +1817,12 @@ export async function preprocessFantasyScreenshotImage(decoded, variant = FANTAS
       context = cropContext;
     }
   }
+  const layoutViewport = detectLayout ? detectFantasyScreenshotLayoutViewport(canvas, context) : null;
   if (maskRegions?.length) {
-    const masked = applyScreenshotRegionMask(canvas, context, maskRegions);
+    const masked = applyScreenshotRegionMask(canvas, context, maskRegions, layoutViewport);
     canvas = masked.canvas;
     context = masked.context;
   }
-  const layoutViewport = detectLayout ? detectFantasyScreenshotLayoutViewport(canvas, context) : null;
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const processed = variant === "threshold-sharpened"
     ? applyThresholdSharpen(imageData)

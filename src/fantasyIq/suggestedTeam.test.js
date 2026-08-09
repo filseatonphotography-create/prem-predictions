@@ -23,9 +23,19 @@ function makePlayer(id, position, teamCode, price = 5, options = {}) {
       selectedByPercent: 8,
       minutes: 650,
       starts: 7,
+      startsLast5: 5,
+      consecutiveStarts: 5,
     },
     dataSource: "test",
     ...options,
+  };
+}
+
+function recentStarterMetadata(metadata = {}) {
+  return {
+    ...metadata,
+    startsLast5: metadata.startsLast5 ?? 5,
+    consecutiveStarts: metadata.consecutiveStarts ?? 5,
   };
 }
 
@@ -42,6 +52,8 @@ function makePool() {
             selectedByPercent: Math.max(1, 25 - teamIndex),
             minutes: 800 - index * 35,
             starts: 8 - (index % 2),
+            startsLast5: 5,
+            consecutiveStarts: 5,
           },
         })
       )
@@ -163,13 +175,13 @@ describe("Prediction Addiction suggested team", () => {
   test("uses budget for premium players when they have stronger role and upside", () => {
     const premiumPlayers = [
       makePlayer("premium-fwd", "FWD", "ARS", 13, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-mid", "MID", "MCI", 12, {
-        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 42, minutes: 890, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8.5, pointsPerGame: 7.5, selectedByPercent: 42, minutes: 890, starts: 10 }),
       }),
       makePlayer("premium-def", "DEF", "LIV", 7.5, {
-        externalMetadata: { form: 7.5, pointsPerGame: 6.5, selectedByPercent: 35, minutes: 880, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 7.5, pointsPerGame: 6.5, selectedByPercent: 35, minutes: 880, starts: 10 }),
       }),
     ];
     const suggestion = createFantasySuggestedTeam({
@@ -261,16 +273,16 @@ describe("Prediction Addiction suggested team", () => {
     const players = [
       ...makePool(),
       makePlayer("premium-att-mid", "MID", "MCI", 12, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 40, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 40, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-att-fwd", "FWD", "LIV", 13, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 40, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 40, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-def-gk", "GK", "NEW", 6.5, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 35, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 35, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-def-def", "DEF", "AVL", 7.5, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 35, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 35, minutes: 900, starts: 10 }),
       }),
     ];
     const clubOutlooks = makeOutlooks();
@@ -301,19 +313,19 @@ describe("Prediction Addiction suggested team", () => {
     const players = [
       ...makePool(),
       makePlayer("premium-mid-a", "MID", "MCI", 12.5, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-mid-b", "MID", "LIV", 11.5, {
-        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-fwd", "FWD", "ARS", 13, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-def", "DEF", "NEW", 7.5, {
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-gk", "GK", "AVL", 6.2, {
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 24, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8, pointsPerGame: 6, selectedByPercent: 24, minutes: 900, starts: 10 }),
       }),
     ];
 
@@ -336,13 +348,13 @@ describe("Prediction Addiction suggested team", () => {
     const players = [
       ...makePool(),
       makePlayer("premium-mid-a", "MID", "MCI", 12.5, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-mid-b", "MID", "LIV", 11.5, {
-        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-fwd", "FWD", "ARS", 13, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 }),
       }),
     ];
     const balanced = createFantasySuggestedTeam({
@@ -372,16 +384,16 @@ describe("Prediction Addiction suggested team", () => {
     const players = [
       ...makePool(),
       makePlayer("premium-def", "DEF", "NEW", 7.5, {
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-mid", "MID", "MCI", 11.5, {
-        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-gk", "GK", "AVL", 6.2, {
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 24, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8, pointsPerGame: 6, selectedByPercent: 24, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-fwd", "FWD", "ARS", 13, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 }),
       }),
     ];
     const defensive = createFantasySuggestedTeam({
@@ -402,7 +414,7 @@ describe("Prediction Addiction suggested team", () => {
     const players = [
       ...makePool(),
       makePlayer("premium-fwd-a", "FWD", "MCI", 12.5, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-fwd-b", "FWD", "LIV", 11.5, {
         externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 38, minutes: 880, starts: 10 },
@@ -503,16 +515,16 @@ describe("Prediction Addiction suggested team", () => {
   test("balanced style spends closer to the full budget when strong upgrades are available", () => {
     const premiumUpgrades = [
       makePlayer("premium-mid-a", "MID", "MCI", 12.5, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-mid-b", "MID", "LIV", 11.5, {
-        externalMetadata: { form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8.5, pointsPerGame: 7.5, selectedByPercent: 40, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-fwd", "FWD", "ARS", 13, {
-        externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 50, minutes: 900, starts: 10 }),
       }),
       makePlayer("premium-def", "DEF", "NEW", 7.5, {
-        externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 8, pointsPerGame: 6, selectedByPercent: 28, minutes: 900, starts: 10 }),
       }),
     ];
     const balanced = createFantasySuggestedTeam({
@@ -528,7 +540,7 @@ describe("Prediction Addiction suggested team", () => {
     expect(balanced.totalCost).toBeGreaterThanOrEqual(98);
   });
 
-  test("starting XI requires stronger minutes evidence than bench", () => {
+  test("balanced style excludes weak starter evidence instead of hiding it on the bench", () => {
     const benchCover = makePlayer("bench-cover", "MID", "MCI", 4.5, {
       externalMetadata: { form: 8, pointsPerGame: 6, selectedByPercent: 10, minutes: 450, starts: 5 },
     });
@@ -553,8 +565,8 @@ describe("Prediction Addiction suggested team", () => {
       style: "balanced",
     });
 
-    expect(suggestion.players.some((player) => player.id === benchCover.id)).toBe(true);
-    expect(suggestion.starters.some((player) => player.id === benchCover.id)).toBe(false);
+    expect((suggestion.players || []).some((player) => player.id === benchCover.id)).toBe(false);
+    expect((suggestion.starters || []).some((player) => player.id === benchCover.id)).toBe(false);
   });
 
   test("attacking style can carry one cheap non-starting outfield bench enabler", () => {
@@ -743,6 +755,30 @@ describe("Prediction Addiction suggested team", () => {
     expect(balanced.players.some((player) => player.id === recentNonStarter.id)).toBe(false);
   });
 
+  test("missing recent-start data needs a strong season starter baseline", () => {
+    const uncertainStarter = makePlayer("uncertain-no-recent-data-midfielder", "MID", "MCI", 6, {
+      externalMetadata: {
+        form: 7,
+        pointsPerGame: 5,
+        selectedByPercent: 12,
+        minutes: 1561,
+        starts: 17,
+      },
+    });
+
+    const balanced = createFantasySuggestedTeam({
+      players: [uncertainStarter, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "balanced",
+    });
+
+    expect(balanced.status).toBe("ready");
+    expect(balanced.players.some((player) => player.id === uncertainStarter.id)).toBe(false);
+  });
+
   test("player names alone do not exclude recommendations", () => {
     const namedRecentStarter = makePlayer("mikel-merino", "MID", "MCI", 7, {
       displayName: "Mikel Merino",
@@ -774,7 +810,7 @@ describe("Prediction Addiction suggested team", () => {
 
   test("defensive single-forward shapes start a premium forward with good fixtures", () => {
     const premiumFixtureForward = makePlayer("premium-fixture-forward", "FWD", "ARS", 12.5, {
-      externalMetadata: { form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 },
+      externalMetadata: recentStarterMetadata({ form: 9, pointsPerGame: 8, selectedByPercent: 45, minutes: 900, starts: 10 }),
     });
     const cheapForward = makePlayer("cheap-fixture-forward", "FWD", "MCI", 5, {
       externalMetadata: { form: 8, pointsPerGame: 7, selectedByPercent: 30, minutes: 900, starts: 10 },
@@ -851,13 +887,13 @@ describe("Prediction Addiction suggested team", () => {
   test("allows a third club player when the outlook clearly warrants it", () => {
     const standoutPlayers = [
       makePlayer("ars-premium-fwd", "FWD", "ARS", 13, {
-        externalMetadata: { form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 }),
       }),
       makePlayer("ars-premium-mid", "MID", "ARS", 12, {
-        externalMetadata: { form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 }),
       }),
       makePlayer("ars-premium-def", "DEF", "ARS", 7.5, {
-        externalMetadata: { form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 },
+        externalMetadata: recentStarterMetadata({ form: 10, pointsPerGame: 8, selectedByPercent: 55, minutes: 900, starts: 10 }),
       }),
     ];
     const outlooks = {
