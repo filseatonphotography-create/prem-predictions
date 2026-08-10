@@ -265,7 +265,7 @@ export function matchFantasyPlayerCandidate({
   return {
     status: highConfidence ? "high-confidence" : "ambiguous",
     player: highConfidence ? best.player : null,
-    candidates: scored.slice(0, 5).map((entry) => entry.player),
+    candidates: highConfidence ? [best.player] : scored.slice(0, 5).map((entry) => entry.player),
     confidence: Number(best.confidence.toFixed(2)),
     reasons: [
       ...reasons,

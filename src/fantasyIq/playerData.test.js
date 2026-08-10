@@ -254,6 +254,7 @@ describe("Fantasy IQ name and team matching", () => {
 
     expect(result.status).toBe("high-confidence");
     expect(result.player.id).toBe("fpl:de-cuyper");
+    expect(result.candidates.map((player) => player.id)).toEqual(["fpl:de-cuyper"]);
   });
 
   test("minor OCR typo with exact team and position produces candidates", () => {

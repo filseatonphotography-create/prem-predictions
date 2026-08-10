@@ -13312,9 +13312,10 @@ useEffect(() => {
       const roleValue = slot.isCaptain ? "captain" : slot.isViceCaptain ? "vice" : slot.role === "starter" ? "starter" : "bench";
       const slotSearch = fantasyScreenshotSlotSearch[slot.id] || "";
       const normalisedSlotSearch = normaliseFantasyPlayerName(slotSearch);
-      const candidateChoices = (slot.matchResult?.candidates || [])
+      const shouldShowCandidateChoices = !selectedPlayer || ["ambiguous", "unmatched"].includes(slot.status);
+      const candidateChoices = shouldShowCandidateChoices ? (slot.matchResult?.candidates || [])
         .filter((candidate) => candidate.id !== selectedPlayer?.id)
-        .slice(0, 3);
+        .slice(0, 3) : [];
       const searchedPlayers = normalisedSlotSearch
         ? fantasyIqAvailablePlayers
             .filter((player) => player.id !== selectedPlayer?.id)
