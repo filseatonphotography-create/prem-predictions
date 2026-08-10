@@ -1763,6 +1763,58 @@ export function removeFantasyScreenshotReviewSlot(review, slotId) {
   };
 }
 
+function getReviewSlotReferenceBox(slot = {}, layoutById = new Map()) {
+  const sourceId = slot?.extracted?.sourceRegion?.id || "";
+  return layoutById.get(sourceId) ||
+    FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT.find((layoutSlot) => layoutSlot.id === sourceId) ||
+    null;
+}
+
+function getReviewSlotProjectedX(slot = {}, layoutById = new Map()) {
+  const referenceBox = getReviewSlotReferenceBox(slot, layoutById)?.box;
+  if (referenceBox && Number.isFinite(Number(referenceBox.x))) return Number(referenceBox.x);
+  return null;
+}
+
+function projectReviewGroupIntoNearestLayoutSlots(group = [], matchingLayouts = [], layoutById = new Map()) {
+  const fallbackSlots = group.slice(0, matchingLayouts.length);
+  const candidates = [];
+  group.forEach((slot) => {
+    const slotX = getReviewSlotProjectedX(slot, layoutById);
+    if (slotX == null) return;
+    matchingLayouts.forEach((layoutSlot) => {
+      candidates.push({
+        slot,
+        layoutSlot,
+        distance: Math.abs(slotX - Number(layoutSlot.box?.x || 0)),
+      });
+    });
+  });
+  if (!candidates.length) {
+    return fallbackSlots.map((slot, index) => [slot, matchingLayouts[index]]).filter((pair) => pair[1]);
+  }
+  const assignedSlots = new Set();
+  const assignedLayouts = new Set();
+  const assignments = [];
+  candidates
+    .sort((a, b) => a.distance - b.distance || Number(a.layoutSlot.index || 0) - Number(b.layoutSlot.index || 0))
+    .forEach(({ slot, layoutSlot }) => {
+      if (assignedSlots.has(slot.id) || assignedLayouts.has(layoutSlot.id)) return;
+      assignedSlots.add(slot.id);
+      assignedLayouts.add(layoutSlot.id);
+      assignments.push([slot, layoutSlot]);
+    });
+  fallbackSlots.forEach((slot) => {
+    if (assignedSlots.has(slot.id)) return;
+    const layoutSlot = matchingLayouts.find((item) => !assignedLayouts.has(item.id));
+    if (!layoutSlot) return;
+    assignedSlots.add(slot.id);
+    assignedLayouts.add(layoutSlot.id);
+    assignments.push([slot, layoutSlot]);
+  });
+  return assignments;
+}
+
 export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FANTASY_SCREENSHOT_REVIEW_SLOT_LAYOUT) {
   const layoutSlots = (layout || []).map((slot, index) => ({ ...slot, index }));
   const assignedSlotIds = new Set();
@@ -1808,8 +1860,8 @@ export function buildFantasyScreenshotReviewDisplaySlots(slots = [], layout = FA
   }, {}) : {};
   Object.entries(reviewGroups).forEach(([key, group]) => {
     const matchingLayouts = layoutGroups[key] || [];
-    group.slice(0, matchingLayouts.length).forEach((slot, index) => {
-      slotToLayoutId.set(slot.id, matchingLayouts[index].id);
+    projectReviewGroupIntoNearestLayoutSlots(group, matchingLayouts, layoutById).forEach(([slot, layoutSlot]) => {
+      slotToLayoutId.set(slot.id, layoutSlot.id);
     });
   });
 

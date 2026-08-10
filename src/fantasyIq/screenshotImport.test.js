@@ -1031,6 +1031,51 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     ]);
   });
 
+  test("review display keeps a missing middle 5-4-1 defender in the middle defender slot", () => {
+    const layout = getFantasyScreenshotFormationReviewLayout("5-4-1");
+    const slots = [
+      ["starter-gk-1", "GK", "Vicario"],
+      ["starter-def-wide-1", "DEF", "Van de Ven"],
+      ["starter-def-wide-2", "DEF", "Ballard"],
+      ["starter-def-wide-4", "DEF", "Thiaw"],
+      ["starter-def-four-4", "DEF", "Henry"],
+      ["starter-mid-1", "MID", "Wirtz"],
+      ["starter-mid-2", "MID", "Foden"],
+      ["starter-mid-3", "MID", "Rice"],
+      ["starter-mid-4", "MID", "Palmer"],
+      ["starter-fwd-1", "FWD", "Richarlison"],
+      ["bench-gk-1", "GK", "Dovin", "bench"],
+      ["bench-mid-1", "FWD", "Osula", "bench"],
+      ["bench-def-1", "FWD", "Wood", "bench"],
+      ["bench-def-2", "MID", "Gakpo", "bench"],
+    ].map(([sourceId, position, name, role = "starter"], index) => ({
+      id: `review-missing-de-cuyper-${index}`,
+      role,
+      selectedPlayerId: `player-${index}`,
+      selectedPlayer: { id: `player-${index}`, position, displayName: name },
+      extracted: {
+        rawName: name,
+        rawPosition: position,
+        rawSquadRole: role,
+        sourceRegion: { id: sourceId, boundingBox: { x: index * 100, y: role === "bench" ? 900 : position === "DEF" ? 300 : position === "MID" ? 500 : 700, width: 80, height: 30 } },
+      },
+      status: "matched",
+    }));
+    const display = buildFantasyScreenshotReviewDisplaySlots(slots, layout);
+    const missingDefenders = display.filter((item) => item.type === "missing" && item.role === "starter" && item.position === "DEF");
+    const starterDefenders = display.filter((item) => item.role === "starter" && item.position === "DEF");
+
+    expect(missingDefenders).toHaveLength(1);
+    expect(missingDefenders[0].layoutSlot.id).toBe("starter-def-3");
+    expect(starterDefenders.map((item) => item.type === "missing" ? item.layoutSlot.id : item.slot.selectedPlayer.displayName)).toEqual([
+      "Van de Ven",
+      "Ballard",
+      "starter-def-3",
+      "Thiaw",
+      "Henry",
+    ]);
+  });
+
   test("review slot formation inference ignores bench forwards for a 5-4-1", () => {
     const starters = [
       ["GK", "starter"],

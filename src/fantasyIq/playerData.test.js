@@ -233,6 +233,29 @@ describe("Fantasy IQ name and team matching", () => {
     expect(result.player.id).toBe("fpl:201");
   });
 
+  test("distinctive multi-token FPL web name plus position produces high-confidence match without fixture team code", () => {
+    const extra = [
+      ...players,
+      {
+        id: "fpl:de-cuyper",
+        sourceId: 777,
+        firstName: "Maxim",
+        lastName: "De Cuyper",
+        displayName: "Maxim De Cuyper",
+        name: "Maxim De Cuyper",
+        webName: "De Cuyper",
+        normalisedName: "maxim de cuyper",
+        teamCode: "BHA",
+        teamName: "Brighton",
+        position: "DEF",
+      },
+    ];
+    const result = matchFantasyPlayerCandidate({ rawName: "De Cuyper", rawPosition: "DEF", players: extra });
+
+    expect(result.status).toBe("high-confidence");
+    expect(result.player.id).toBe("fpl:de-cuyper");
+  });
+
   test("minor OCR typo with exact team and position produces candidates", () => {
     const result = matchFantasyPlayerCandidate({ rawName: "Bukayo Sakae", rawTeamCode: "ARS", rawPosition: "MID", players });
     expect(["high-confidence", "ambiguous"]).toContain(result.status);
