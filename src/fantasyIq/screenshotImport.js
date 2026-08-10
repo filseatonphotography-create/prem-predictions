@@ -1966,6 +1966,23 @@ function getFantasyScreenshotRecoveryLayoutSlots(review = {}, layoutSlots = []) 
   return recoverySlots;
 }
 
+function getFantasyScreenshotRecoveryParseLayout(review = {}, layoutSlots = []) {
+  const inferredFormation = inferFantasyScreenshotFormationFromReviewSlots(review?.extractedSlots || []);
+  const metadataFormation = review?.imageMetadata?.inferredFormation;
+  const formation =
+    (isFantasyScreenshotFormationLabel(inferredFormation) && inferredFormation) ||
+    (isFantasyScreenshotFormationLabel(metadataFormation) && metadataFormation);
+  const width = Number(review?.imageMetadata?.width || 0);
+  const height = Number(review?.imageMetadata?.height || 0);
+  if (!formation || !width || !height) return layoutSlots;
+  return getFantasyScreenshotFormationLayoutSlots(
+    formation,
+    width,
+    height,
+    review?.imageMetadata?.layoutViewport || null
+  );
+}
+
 async function recoverFantasyScreenshotMissingLayoutSlots({
   attempt,
   imageSource,
@@ -1979,7 +1996,8 @@ async function recoverFantasyScreenshotMissingLayoutSlots({
   canUseDefaultSlotOcr = true,
   pageSegMode = "7",
 } = {}) {
-  const missingLayoutSlots = getFantasyScreenshotRecoveryLayoutSlots(attempt?.review, layoutSlots);
+  const recoveryLayoutSlots = getFantasyScreenshotRecoveryParseLayout(attempt?.review, layoutSlots);
+  const missingLayoutSlots = getFantasyScreenshotRecoveryLayoutSlots(attempt?.review, recoveryLayoutSlots);
   if (!missingLayoutSlots.length) return attempt;
   if (!slotOcrRunner && !canUseDefaultSlotOcr) return attempt;
 
@@ -1990,12 +2008,13 @@ async function recoverFantasyScreenshotMissingLayoutSlots({
     pageSegMode,
   });
   const combinedBlocks = [...(attempt?.ocr?.blocks || []), ...(recoveryOcr.blocks || [])];
-  const candidates = parseFantasyScreenshotCandidates(combinedBlocks, {
+  const recoveryCandidates = parseFantasyScreenshotCandidates(recoveryOcr.blocks || [], {
     players,
     teams,
     imageHeight: parseHeight,
-    layoutSlots,
+    layoutSlots: missingLayoutSlots,
   });
+  const candidates = [...(attempt?.candidates || []), ...recoveryCandidates];
   const review = buildFantasyScreenshotReview({
     extractedSlots: candidates,
     players,

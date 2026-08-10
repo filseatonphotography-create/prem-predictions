@@ -1306,6 +1306,89 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["Raya", "Gabriel", "Saliba"]));
   });
 
+  test("targeted recovery uses review-inferred 5-4-1 layout for missing middle defender", async () => {
+    const fixturePlayers = [
+      ["Vicario", "GK"],
+      ["Van de Ven", "DEF"],
+      ["Ballard", "DEF"],
+      ["De Cuyper", "DEF"],
+      ["Thiaw", "DEF"],
+      ["Henry", "DEF"],
+      ["Wirtz", "MID"],
+      ["Foden", "MID"],
+      ["Rice", "MID"],
+      ["Palmer", "MID"],
+      ["Richarlison", "FWD"],
+      ["Dovin", "GK"],
+      ["Osula", "FWD"],
+      ["Wood", "FWD"],
+      ["Gakpo", "MID"],
+    ].map(([name, position], index) => ({
+      id: `targeted-541:${index + 1}`,
+      sourceId: index + 1,
+      firstName: name,
+      lastName: name,
+      displayName: name,
+      name,
+      webName: name,
+      normalisedName: name.toLowerCase(),
+      teamCode: "BHA",
+      teamName: "Test",
+      position,
+      positionId: position === "GK" ? 1 : position === "DEF" ? 2 : position === "MID" ? 3 : 4,
+      dataSource: "test",
+    }));
+    const slotCalls = [];
+    const slotOcrRunner = jest.fn(async (imageSource, layoutSlots) => {
+      slotCalls.push(layoutSlots.map((slot) => slot.id));
+      const block = (slotId, text) => {
+        const slot = layoutSlots.find((item) => item.id === slotId);
+        return {
+          text,
+          confidence: 0.9,
+          strictSlotOcr: true,
+          slotOcrCropVariant: "label",
+          lineIndex: layoutSlots.findIndex((item) => item.id === slotId),
+          boundingBox: slot?.boundingBox || { x: 0, y: 0, width: 120, height: 24 },
+        };
+      };
+      if (slotCalls.length === 1) {
+        return {
+          blocks: [
+            block("starter-gk-1", "Vicario"),
+            block("starter-def-wide-1", "Van de Ven"),
+            block("starter-def-wide-2", "Ballard"),
+            block("starter-def-wide-4", "Thiaw"),
+            block("starter-def-wide-5", "Henry"),
+            block("starter-mid-1", "Wirtz"),
+            block("starter-mid-2", "Foden"),
+            block("starter-mid-3", "Rice"),
+            block("starter-mid-4", "Palmer"),
+            block("starter-fwd-1", "Richarlison"),
+            block("bench-gk-1", "Dovin"),
+            block("bench-mid-1", "Osula"),
+            block("bench-def-1", "Wood"),
+            block("bench-def-2", "Gakpo"),
+          ],
+          raw: null,
+        };
+      }
+      if (layoutSlots.some((slot) => slot.id === "starter-def-3")) {
+        return { blocks: [block("starter-def-3", "De Cuyper")], raw: null };
+      }
+      return { blocks: [], raw: null };
+    });
+    const ocrRunner = jest.fn().mockResolvedValue({ blocks: [], raw: null });
+
+    const best = await runFantasyScreenshotOcrWithFallback(
+      { url: "fixture.png", width: 1200, height: 1800 },
+      { players: fixturePlayers, imageMetadata: { width: 1200, height: 1800 }, ocrRunner, slotOcrRunner }
+    );
+
+    expect(slotCalls.some((call) => call.includes("starter-def-3"))).toBe(true);
+    expect(best.review.extractedSlots.map((slot) => slot.extracted.rawName)).toEqual(expect.arrayContaining(["De Cuyper"]));
+  });
+
   test("slot OCR starts with expanded plausible slots when formation cannot be inferred", async () => {
     const slotCalls = [];
     const slotOcrRunner = jest.fn(async (imageSource, layoutSlots) => {
