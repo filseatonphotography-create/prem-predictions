@@ -257,6 +257,43 @@ describe("Fantasy IQ name and team matching", () => {
     expect(result.candidates.map((player) => player.id)).toEqual(["fpl:de-cuyper"]);
   });
 
+  test("minor OCR typo in distinctive multi-token web name still resolves to the selected player only", () => {
+    const extra = [
+      ...players,
+      {
+        id: "fpl:de-cuyper",
+        sourceId: 777,
+        firstName: "Maxim",
+        lastName: "De Cuyper",
+        displayName: "Maxim De Cuyper",
+        name: "Maxim De Cuyper",
+        webName: "De Cuyper",
+        normalisedName: "maxim de cuyper",
+        teamCode: "BHA",
+        teamName: "Brighton",
+        position: "DEF",
+      },
+      {
+        id: "fpl:igor",
+        sourceId: 778,
+        firstName: "Igor",
+        lastName: "Julio",
+        displayName: "Igor Julio",
+        name: "Igor Julio",
+        webName: "Igor",
+        normalisedName: "igor julio",
+        teamCode: "BHA",
+        teamName: "Brighton",
+        position: "DEF",
+      },
+    ];
+    const result = matchFantasyPlayerCandidate({ rawName: "De Cruyper", rawPosition: "DEF", players: extra });
+
+    expect(result.status).toBe("high-confidence");
+    expect(result.player.id).toBe("fpl:de-cuyper");
+    expect(result.candidates.map((player) => player.id)).toEqual(["fpl:de-cuyper"]);
+  });
+
   test("minor OCR typo with exact team and position produces candidates", () => {
     const result = matchFantasyPlayerCandidate({ rawName: "Bukayo Sakae", rawTeamCode: "ARS", rawPosition: "MID", players });
     expect(["high-confidence", "ambiguous"]).toContain(result.status);

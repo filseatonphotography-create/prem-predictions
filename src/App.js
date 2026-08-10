@@ -12273,6 +12273,11 @@ useEffect(() => {
     const fantasyScreenshotReviewValidation = validateFantasyIqSquad(fantasyScreenshotReviewSquad);
     const fantasyScreenshotReviewSummary = fantasyScreenshotReviewValidation.summary || {};
     const fantasyScreenshotConfirmBlockingErrors = fantasyScreenshotReviewValidation.errors || [];
+    const fantasyScreenshotConfirmMessages = fantasyScreenshotConfirmBlockingErrors.map((error) => {
+      if (/^Captain missing\.$/i.test(error)) return "Please confirm Captain.";
+      if (/^Vice-captain missing\.$/i.test(error)) return "Please confirm Vice-Captain.";
+      return error;
+    });
     const fantasyScreenshotReadySummaryText = fantasyScreenshotReviewValidation.isValid
       ? `15 players confirmed. Formation: ${fantasyScreenshotReviewSummary.formation || "Valid"}. Captain selected. Vice-captain selected. Ready to import.`
       : "";
@@ -13555,9 +13560,6 @@ useEffect(() => {
         <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
           Upload a screenshot showing your starting XI and bench. Keep player names and three-letter team codes visible.
         </div>
-        <div style={{ color: theme.accent2, fontSize: 11, lineHeight: 1.35 }}>
-          Your screenshot is processed on this device and is not uploaded or saved. OCR runtime files load from this app.
-        </div>
         <label
           onDragOver={(event) => event.preventDefault()}
           onDrop={(event) => {
@@ -13723,13 +13725,13 @@ useEffect(() => {
               }}
             >
               <div style={{ color: fantasyScreenshotReviewValidation.isValid ? theme.accent2 : theme.warn, fontSize: 12, fontWeight: 950 }}>
-                {fantasyScreenshotReviewValidation.isValid ? "Ready to confirm." : "Before confirming:"}
+                {fantasyScreenshotReviewValidation.isValid ? "Ready to confirm." : "Please confirm:"}
               </div>
               {!fantasyScreenshotReviewValidation.isValid && (
                 <div style={{ display: "grid", gap: 4 }} role="alert">
-                  {fantasyScreenshotConfirmBlockingErrors.map((error) => (
-                    <div key={error} style={{ color: theme.text, fontSize: 12, lineHeight: 1.35 }}>
-                      {error}
+                  {fantasyScreenshotConfirmMessages.map((message) => (
+                    <div key={message} style={{ color: theme.text, fontSize: 12, lineHeight: 1.35 }}>
+                      {message}
                     </div>
                   ))}
                 </div>

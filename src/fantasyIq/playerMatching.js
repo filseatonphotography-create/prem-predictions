@@ -137,17 +137,18 @@ function getPlayerNameScore(rawName, player) {
   const webName = normaliseFantasyPlayerName(player?.webName);
   const surname = getFantasyPlayerSurname(player);
 
-  if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: false };
-  if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false, prefixName: false };
-  if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false };
-  if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true, prefixName: false };
+  if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
+  if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
+  if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
+  if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true, prefixName: false, fuzzyDistinctiveWeb: false };
   const prefixName = normalisedRaw.length >= 7 && [displayName, webName, surname]
     .filter(Boolean)
     .some((name) => name.startsWith(normalisedRaw));
-  if (prefixName) return { score: 0.88, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: true };
+  if (prefixName) return { score: 0.88, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: true, fuzzyDistinctiveWeb: false };
 
   const displaySimilarity = getNameSimilarity(normalisedRaw, displayName);
   const webSimilarity = getNameSimilarity(normalisedRaw, webName);
+  const fuzzyDistinctiveWeb = webName.includes(" ") && normalisedRaw.length >= 7 && webSimilarity >= 0.87;
   const tokenOverlap = getTokenOverlapScore(rawName, player);
   return {
     score: Math.max(displaySimilarity, webSimilarity, tokenOverlap * 0.92),
@@ -155,6 +156,7 @@ function getPlayerNameScore(rawName, player) {
     exactWeb: false,
     exactSurname: false,
     prefixName: false,
+    fuzzyDistinctiveWeb,
   };
 }
 
@@ -259,7 +261,7 @@ export function matchFantasyPlayerCandidate({
 
   const highConfidence =
     (best.confidence >= FANTASY_PLAYER_MATCH_CONFIG.highConfidenceThreshold ||
-      (!runnerUp && (best.nameScore.exactDisplay || best.nameScore.exactWeb || best.nameScore.exactSurname || best.nameScore.prefixName))) &&
+      (!runnerUp && (best.nameScore.exactDisplay || best.nameScore.exactWeb || best.nameScore.exactSurname || best.nameScore.prefixName || best.nameScore.fuzzyDistinctiveWeb))) &&
     (!teamCode || best.teamCode === teamCode) &&
     (!position || best.position === position);
   return {
