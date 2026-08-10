@@ -12287,9 +12287,9 @@ useEffect(() => {
     const fantasyScreenshotMetadataFormation = fantasyScreenshotReview?.imageMetadata?.inferredFormation;
     const fantasyScreenshotInferredFormation = inferFantasyScreenshotFormationFromReviewSlots(fantasyScreenshotReviewSlots);
     const fantasyScreenshotReviewDisplayFormation =
-      (isFantasyScreenshotFormationLabel(fantasyScreenshotValidationFormation) && fantasyScreenshotValidationFormation) ||
+      (isFantasyScreenshotFormationLabel(fantasyScreenshotInferredFormation) && fantasyScreenshotInferredFormation) ||
       (isFantasyScreenshotFormationLabel(fantasyScreenshotMetadataFormation) && fantasyScreenshotMetadataFormation) ||
-      (isFantasyScreenshotFormationLabel(fantasyScreenshotInferredFormation) && fantasyScreenshotInferredFormation);
+      (isFantasyScreenshotFormationLabel(fantasyScreenshotValidationFormation) && fantasyScreenshotValidationFormation);
     const fantasyScreenshotDisplayReviewLayout = fantasyScreenshotReviewDisplayFormation
       ? getFantasyScreenshotFormationReviewLayout(fantasyScreenshotReviewDisplayFormation)
       : fantasyScreenshotReview?.imageMetadata?.reviewSlotLayout || undefined;
@@ -13671,7 +13671,7 @@ useEffect(() => {
                   : " Check the squad before importing."}
               </div>
               <div style={{ color: theme.muted, fontSize: 11 }}>
-                Starters {fantasyScreenshotReviewSummary.starters || 0}/11 · Bench {fantasyScreenshotReviewSummary.bench || 0}/4 · Formation {fantasyScreenshotReviewSummary.formation || "Incomplete"} · Import confidence {fantasyScreenshotReview.confidence?.label || "low"}
+                Starters {fantasyScreenshotReviewSummary.starters || 0}/11 · Bench {fantasyScreenshotReviewSummary.bench || 0}/4 · Formation {fantasyScreenshotReviewDisplayFormation || fantasyScreenshotReviewSummary.formation || "Incomplete"} · Import confidence {fantasyScreenshotReview.confidence?.label || "low"}
               </div>
               {!!fantasyScreenshotReviewValidation.errors.length && (
                 <div style={{ color: theme.warn, fontSize: 11, lineHeight: 1.35 }}>
