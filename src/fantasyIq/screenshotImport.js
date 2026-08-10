@@ -118,6 +118,10 @@ const FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS = Object.fromEntries(
   FPL_PITCH_SCREENSHOT_FORMATIONS.map((formation) => [formation.label, makeFormationBenchLayout(formation)])
 );
 
+export function isFantasyScreenshotFormationLabel(formationLabel = "") {
+  return Object.prototype.hasOwnProperty.call(FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS, String(formationLabel || ""));
+}
+
 const FPL_PITCH_SCREENSHOT_NAME_LAYOUT = [
   ...FPL_PITCH_SCREENSHOT_FORMATION_NAME_LAYOUTS["3-4-3"],
   ...FPL_PITCH_SCREENSHOT_FORMATION_BENCH_LAYOUTS["3-4-3"],
@@ -711,23 +715,34 @@ export function inferFantasyScreenshotFormationFromLayoutSlots(layoutSlots = [])
 
 export function inferFantasyScreenshotFormationFromReviewSlots(slots = []) {
   const counts = { DEF: 0, MID: 0, FWD: 0 };
+  const benchPositions = [];
   (slots || []).forEach((slot) => {
     const role = ["starter", "bench"].includes(slot?.role) ? slot.role : slot?.extracted?.rawSquadRole || "";
-    if (role !== "starter") return;
     const position = String(slot?.selectedPlayer?.position || slot?.extracted?.rawPosition || "").toUpperCase();
-    if (counts[position] == null) return;
-    counts[position] += 1;
+    if (role === "starter") {
+      if (counts[position] == null) return;
+      counts[position] += 1;
+    } else if (role === "bench" && ["GK", "DEF", "MID", "FWD"].includes(position)) {
+      benchPositions.push(position);
+    }
   });
   const outfieldCount = counts.DEF + counts.MID + counts.FWD;
   if (outfieldCount < 8) return null;
   return FPL_PITCH_SCREENSHOT_FORMATIONS
-    .map((formation) => ({
-      label: formation.label,
-      distance:
+    .map((formation) => {
+      const expectedBench = FPL_PITCH_SCREENSHOT_FORMATION_BENCH_POSITIONS[formation.label] || [];
+      const benchDistance = benchPositions.length
+        ? expectedBench.reduce((sum, position, index) => sum + (benchPositions[index] && benchPositions[index] !== position ? 1 : 0), 0)
+        : 0;
+      return {
+        label: formation.label,
+        distance:
         Math.abs(formation.counts.DEF - counts.DEF) +
-        Math.abs(formation.counts.MID - counts.MID) +
-        Math.abs(formation.counts.FWD - counts.FWD),
-    }))
+          Math.abs(formation.counts.MID - counts.MID) +
+          Math.abs(formation.counts.FWD - counts.FWD) +
+          benchDistance * 0.5,
+      };
+    })
     .sort((a, b) => a.distance - b.distance || a.label.localeCompare(b.label))[0]?.label || null;
 }
 

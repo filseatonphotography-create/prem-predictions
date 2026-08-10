@@ -1064,6 +1064,41 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(inferFantasyScreenshotFormationFromReviewSlots(starters)).toBe("5-4-1");
   });
 
+  test("partial 5-4-1 review inference uses bench pattern instead of adding starter forward slots", () => {
+    const slots = [
+      ["GK", "starter", "Vicario"],
+      ["DEF", "starter", "Van de Ven"],
+      ["DEF", "starter", "Ballard"],
+      ["DEF", "starter", "De Cuyper"],
+      ["MID", "starter", "Wirtz"],
+      ["MID", "starter", "Foden"],
+      ["MID", "starter", "Rice"],
+      ["MID", "starter", "Palmer"],
+      ["FWD", "starter", "Richarlison"],
+      ["GK", "bench", "Dovin"],
+      ["FWD", "bench", "Osula"],
+      ["FWD", "bench", "Wood"],
+      ["MID", "bench", "Gakpo"],
+    ].map(([position, role, name], index) => ({
+      id: `partial-541-${index}`,
+      role,
+      selectedPlayerId: `player-${index}`,
+      selectedPlayer: { id: `player-${index}`, position, displayName: name },
+      extracted: {
+        rawName: name,
+        rawPosition: position,
+        rawSquadRole: role,
+        sourceRegion: { boundingBox: { x: index * 10, y: role === "bench" ? 800 : index * 40 } },
+      },
+    }));
+    const inferredFormation = inferFantasyScreenshotFormationFromReviewSlots(slots);
+    const display = buildFantasyScreenshotReviewDisplaySlots(slots, getFantasyScreenshotFormationReviewLayout(inferredFormation));
+
+    expect(inferredFormation).toBe("5-4-1");
+    expect(display.filter((item) => item.type === "missing" && item.role === "starter" && item.position === "FWD")).toHaveLength(0);
+    expect(display.filter((item) => item.type === "missing" && item.role === "starter" && item.position === "DEF")).toHaveLength(2);
+  });
+
   test("detected wide labels infer the matching formation for targeted OCR", () => {
     const layoutSlots = [
       ...getFantasyScreenshotFormationLayoutSlots("5-4-1", 945, 2048).slice(0, 11).map((slot) => ({ ...slot, detectedLabel: true })),

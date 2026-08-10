@@ -22,6 +22,7 @@ import {
   decodeFantasyScreenshotImage,
   getFantasyScreenshotFormationReviewLayout,
   inferFantasyScreenshotFormationFromReviewSlots,
+  isFantasyScreenshotFormationLabel,
   removeFantasyScreenshotReviewSlot,
   runFantasyScreenshotOcrWithFallback,
   updateFantasyScreenshotReviewSlot,
@@ -12282,9 +12283,13 @@ useEffect(() => {
     const fantasyScreenshotSelectedPlayerIds = new Set(fantasyScreenshotReviewSlots
       .map((slot) => slot.selectedPlayerId)
       .filter(Boolean));
+    const fantasyScreenshotValidationFormation = fantasyScreenshotReviewSummary.formation;
+    const fantasyScreenshotMetadataFormation = fantasyScreenshotReview?.imageMetadata?.inferredFormation;
+    const fantasyScreenshotInferredFormation = inferFantasyScreenshotFormationFromReviewSlots(fantasyScreenshotReviewSlots);
     const fantasyScreenshotReviewDisplayFormation =
-      fantasyScreenshotReviewSummary.formation ||
-      inferFantasyScreenshotFormationFromReviewSlots(fantasyScreenshotReviewSlots);
+      (isFantasyScreenshotFormationLabel(fantasyScreenshotValidationFormation) && fantasyScreenshotValidationFormation) ||
+      (isFantasyScreenshotFormationLabel(fantasyScreenshotMetadataFormation) && fantasyScreenshotMetadataFormation) ||
+      (isFantasyScreenshotFormationLabel(fantasyScreenshotInferredFormation) && fantasyScreenshotInferredFormation);
     const fantasyScreenshotDisplayReviewLayout = fantasyScreenshotReviewDisplayFormation
       ? getFantasyScreenshotFormationReviewLayout(fantasyScreenshotReviewDisplayFormation)
       : fantasyScreenshotReview?.imageMetadata?.reviewSlotLayout || undefined;
@@ -12300,10 +12305,7 @@ useEffect(() => {
       : "";
     const fantasyIqTeamWorkflowActive = fantasyIqBuilderOpen || fantasyScreenshotImportOpen;
     const fantasyScreenshotReviewIssueCount = fantasyScreenshotReview
-      ? Math.max(
-          fantasyScreenshotReview.unresolvedCount || 0,
-          fantasyScreenshotReviewValidation.errors.filter((error) => !/Captain|Vice-captain/i.test(error)).length
-        )
+      ? fantasyScreenshotReview.unresolvedCount || 0
       : 0;
     const getFantasyTransferPlayerOutlook = (player) => getFantasyIqPlayerOutlook(
       player,
@@ -13663,7 +13665,10 @@ useEffect(() => {
               }}
             >
               <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
-                {fantasyScreenshotSelectedCount} of 15 players selected. {fantasyScreenshotReviewIssueCount} need player review.
+                {fantasyScreenshotSelectedCount} of 15 players selected.
+                {fantasyScreenshotReviewIssueCount > 0
+                  ? ` ${fantasyScreenshotReviewIssueCount} ${fantasyScreenshotReviewIssueCount === 1 ? "player needs" : "players need"} review.`
+                  : " Check the squad before importing."}
               </div>
               <div style={{ color: theme.muted, fontSize: 11 }}>
                 Starters {fantasyScreenshotReviewSummary.starters || 0}/11 · Bench {fantasyScreenshotReviewSummary.bench || 0}/4 · Formation {fantasyScreenshotReviewSummary.formation || "Incomplete"} · Import confidence {fantasyScreenshotReview.confidence?.label || "low"}
