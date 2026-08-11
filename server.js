@@ -2372,6 +2372,8 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
         id: w.raw.id,
         name: w.raw.name,
         joinCode: w.joinCode,
+        members: w.members,
+        memberUserIds: w.members,
         memberCount: w.members.length,
       }));
 
@@ -2487,6 +2489,8 @@ app.post("/api/league/create", authMiddleware, (req, res) => {
         id: newLeague.id,
         name: newLeague.name,
         joinCode: newLeague.joinCode,
+        members: newLeague.members,
+        memberUserIds: newLeague.members,
         memberCount: newLeague.members.length,
       },
     });
@@ -2530,6 +2534,8 @@ app.post("/api/league/join", authMiddleware, (req, res) => {
         id: league.id,
         name: league.name,
         joinCode: league.joinCode || league.inviteCode || "",
+        members: league.members,
+        memberUserIds: league.members,
         memberCount: league.members.length,
       },
     });

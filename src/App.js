@@ -220,6 +220,12 @@ const positiveBadgeCount = (value) => {
 const isOriginalsFounder = (name = "", userId = "") =>
   ORIGINALS_LEAGUE_PLAYERS.has(String(name || "").trim()) ||
   ORIGINALS_LEAGUE_USER_IDS.has(String(userId || "").trim());
+const isOriginalsMiniLeague = (league = {}) => {
+  const name = String(league?.name || "").trim().toLowerCase();
+  const code = String(league?.joinCode || league?.inviteCode || "").trim().toUpperCase();
+  const id = String(league?.id || "").trim();
+  return name === "the originals" || code === "ORIGINALS" || id === "lg_mi35amos";
+};
 const BADGE_DEFINITIONS = [
   {
     id: "founder",
@@ -7401,11 +7407,12 @@ useEffect(() => {
         }
       );
 
-            // 3) Keys = legacy PLAYERS + league members (mapped)
+      // 3) Keys = league members (mapped). The legacy Originals league keeps
+      // its historical player rows, but new private leagues must not inherit them.
       const memberKeys = leagueUsers.map(toLegacyKey);
-      const keys = isWorldCupMode
-        ? Array.from(new Set(memberKeys))
-        : Array.from(new Set([...PLAYERS, ...memberKeys]));
+      const keys = !isWorldCupMode && isOriginalsMiniLeague(leagueObj)
+        ? Array.from(new Set([...PLAYERS, ...memberKeys]))
+        : Array.from(new Set(memberKeys));
 
       // 4) Build predictions for calculation:
       //    start with any local preds for these keys, then overlay remote
