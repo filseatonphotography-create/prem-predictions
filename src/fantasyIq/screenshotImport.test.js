@@ -903,6 +903,36 @@ describe("Fantasy screenshot OCR runtime and privacy safeguards", () => {
     expect(gkSlot.ocrFallbackBoundingBox.height).toBeGreaterThan(labelHeight);
   });
 
+  test("detects the upper player-name strip when fixture strip is also visible", () => {
+    const canvas = { width: 945, height: 2048 };
+    const nameY = 1072;
+    const fixtureY = 1128;
+    const labelHeight = 38;
+    const context = {
+      canvas,
+      getImageData: jest.fn((x, y, width, height) => {
+        const isNameRow = y >= nameY && y <= nameY + labelHeight;
+        const isFixtureRow = y >= fixtureY && y <= fixtureY + labelHeight + 8;
+        const isPitchRow = y >= 300 && y <= 1500;
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let index = 0; index < data.length; index += 4) {
+          data[index] = isNameRow || isFixtureRow ? 248 : isPitchRow ? 20 : 45;
+          data[index + 1] = isNameRow || isFixtureRow ? 248 : isPitchRow ? 150 : 15;
+          data[index + 2] = isNameRow || isFixtureRow ? 248 : isPitchRow ? 70 : 50;
+          data[index + 3] = 255;
+        }
+        return { data };
+      }),
+    };
+
+    const slots = detectFantasyScreenshotNameLayoutSlots(canvas, context);
+    const midSlot = slots.find((slot) => slot.id === "starter-mid-wide-2");
+
+    expect(midSlot.detectedLabel).toBe(true);
+    expect(midSlot.boundingBox.y).toBeGreaterThanOrEqual(nameY);
+    expect(midSlot.boundingBox.y).toBeLessThan(fixtureY);
+  });
+
   test("detects name labels in a top-cropped tall mobile screenshot", () => {
     const canvas = { width: 945, height: 1700 };
     const labelY = 108;

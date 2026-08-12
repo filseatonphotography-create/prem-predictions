@@ -848,7 +848,7 @@ function detectWhiteNameLabelBox(context, searchBox = {}) {
   if (current && current.y1 - current.y0 >= minimumRunHeight) runs.push(current);
   const bestRun = runs
     .filter((run) => run.peak >= 0.55 || run.y1 - run.y0 >= minimumRunHeight * 1.5)
-    .sort((a, b) => (b.y1 - b.y0) - (a.y1 - a.y0) || b.peak - a.peak)[0];
+    .sort((a, b) => a.y0 - b.y0 || (b.y1 - b.y0) - (a.y1 - a.y0) || b.peak - a.peak)[0];
   if (!bestRun) return null;
   const labelHeight = Math.max(10, bestRun.y1 - bestRun.y0);
   const searchY = Math.max(0, Number(searchBox.y || 0));
