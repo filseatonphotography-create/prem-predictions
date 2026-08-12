@@ -150,16 +150,18 @@ function getPlayerNameScore(rawName, player) {
     .map((alias) => normaliseFantasyPlayerName(alias))
     .filter(Boolean);
 
-  if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
-  if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
-  if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
-  if (initialSurnameAliases.includes(normalisedRaw)) return { score: 0.91, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
-  if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true, prefixName: false, fuzzyDistinctiveWeb: false };
+  if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: false, initialSurnamePrefix: false, fuzzyDistinctiveWeb: false };
+  if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false, prefixName: false, initialSurnamePrefix: false, fuzzyDistinctiveWeb: false };
+  if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, initialSurnamePrefix: false, fuzzyDistinctiveWeb: false };
+  if (initialSurnameAliases.includes(normalisedRaw)) return { score: 0.91, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, initialSurnamePrefix: false, fuzzyDistinctiveWeb: false };
+  if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true, prefixName: false, initialSurnamePrefix: false, fuzzyDistinctiveWeb: false };
+  const initialSurnamePrefix = normalisedRaw.length >= 6 && initialSurnameAliases.some((name) => name.startsWith(normalisedRaw));
+  if (initialSurnamePrefix) return { score: 0.93, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: true, initialSurnamePrefix: true, fuzzyDistinctiveWeb: false };
   const prefixName = normalisedRaw.length >= 7 && [displayName, webName, surname]
     .concat(initialSurnameAliases)
     .filter(Boolean)
     .some((name) => name.startsWith(normalisedRaw));
-  if (prefixName) return { score: 0.88, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: true, fuzzyDistinctiveWeb: false };
+  if (prefixName) return { score: 0.88, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: true, initialSurnamePrefix: false, fuzzyDistinctiveWeb: false };
 
   const displaySimilarity = getNameSimilarity(normalisedRaw, displayName);
   const webSimilarity = getNameSimilarity(normalisedRaw, webName);
@@ -171,6 +173,7 @@ function getPlayerNameScore(rawName, player) {
     exactWeb: false,
     exactSurname: false,
     prefixName: false,
+    initialSurnamePrefix: false,
     fuzzyDistinctiveWeb,
   };
 }
@@ -261,9 +264,17 @@ export function matchFantasyPlayerCandidate({
 
   const best = scored[0];
   const runnerUp = scored[1];
+  const hasDistinctExactWeb =
+    best.nameScore.exactWeb &&
+    (!runnerUp || !runnerUp.nameScore.exactWeb || best.confidence - runnerUp.confidence >= 0.08);
+  const hasDistinctInitialSurnamePrefix =
+    best.nameScore.initialSurnamePrefix &&
+    (!runnerUp || !runnerUp.nameScore.initialSurnamePrefix || best.confidence - runnerUp.confidence >= 0.08);
   const isAmbiguous =
-    (runnerUp && best.confidence - runnerUp.confidence < 0.08) ||
-    (!teamCode && scored.filter((entry) => entry.nameScore.exactSurname || entry.nameScore.exactWeb).length > 1);
+    !hasDistinctExactWeb &&
+    !hasDistinctInitialSurnamePrefix &&
+    ((runnerUp && best.confidence - runnerUp.confidence < 0.08) ||
+      (!teamCode && scored.filter((entry) => entry.nameScore.exactSurname || entry.nameScore.exactWeb).length > 1));
   if (isAmbiguous) {
     return {
       status: "ambiguous",
@@ -276,6 +287,8 @@ export function matchFantasyPlayerCandidate({
 
   const highConfidence =
     (best.confidence >= FANTASY_PLAYER_MATCH_CONFIG.highConfidenceThreshold ||
+      hasDistinctExactWeb ||
+      hasDistinctInitialSurnamePrefix ||
       (!runnerUp && (best.nameScore.exactDisplay || best.nameScore.exactWeb || best.nameScore.exactSurname || best.nameScore.prefixName || best.nameScore.fuzzyDistinctiveWeb))) &&
     (!teamCode || best.teamCode === teamCode) &&
     (!position || best.position === position);

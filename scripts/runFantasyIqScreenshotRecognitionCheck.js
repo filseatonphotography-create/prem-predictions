@@ -16,6 +16,7 @@ const debugAppUrl = (() => {
 const screenshotDir = process.env.FANTASY_IQ_SCREENSHOT_DIR || "/Users/pse2/Downloads/screenshotformations";
 const verboseOutput = /^(1|true|yes)$/i.test(String(process.env.FANTASY_IQ_VERBOSE || ""));
 const useSampleData = !/^(0|false|no)$/i.test(String(process.env.FANTASY_IQ_USE_SAMPLE_DATA || "true"));
+const playerDataFile = process.env.FANTASY_IQ_PLAYER_DATA_FILE || "";
 const authKey = "pl_prediction_auth_v1";
 const playerDataKey = "predictionAddiction:fplPlayerData:v5";
 
@@ -53,6 +54,9 @@ function normaliseName(value) {
 }
 
 function makeDataset() {
+  if (playerDataFile) {
+    return JSON.parse(fs.readFileSync(playerDataFile, "utf8"));
+  }
   const teams = Array.from(new Set(samplePlayers.map((player) => player[1]))).map((code, index) => ({
     id: `team:${code}`,
     sourceId: index + 1,
@@ -288,7 +292,7 @@ async function runScreenshot(cdp, sessionId, screenshotPath) {
     });
     localStorage.removeItem(${JSON.stringify(playerDataKey)});
     localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "screenshot-check-token", userId: "screenshot-check-user", username: "ScreenshotCheck" }));
-    if (${JSON.stringify(useSampleData)}) {
+    if (${JSON.stringify(useSampleData || !!playerDataFile)}) {
       localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
     }
     localStorage.setItem("activeView", "fantasyHelp");
@@ -346,7 +350,7 @@ async function main() {
         });
         localStorage.removeItem(${JSON.stringify(playerDataKey)});
         localStorage.setItem(${JSON.stringify(authKey)}, JSON.stringify({ token: "screenshot-check-token", userId: "screenshot-check-user", username: "ScreenshotCheck" }));
-        if (${JSON.stringify(useSampleData)}) {
+        if (${JSON.stringify(useSampleData || !!playerDataFile)}) {
           localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
         }
         localStorage.setItem("activeView", "fantasyHelp");

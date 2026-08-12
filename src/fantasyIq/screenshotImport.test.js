@@ -402,14 +402,29 @@ describe("Fantasy screenshot OCR parsing", () => {
         positionId: 3,
         dataSource: "test",
       },
+      {
+        id: "fpl:mateus",
+        sourceId: 3,
+        firstName: "Mateus",
+        lastName: "Fernandes",
+        displayName: "Mateus Fernandes",
+        name: "Mateus Fernandes",
+        webName: "Fernandes",
+        normalisedName: "mateus fernandes",
+        teamCode: "TOT",
+        teamName: "Tottenham Hotspur",
+        position: "MID",
+        positionId: 3,
+        dataSource: "test",
+      },
     ];
     const layoutSlots = [
       { id: "starter-mid-wide-2", role: "starter", position: "MID", boundingBox: { x: 270, y: 930, width: 175, height: 42 } },
       { id: "starter-mid-wide-3", role: "starter", position: "MID", boundingBox: { x: 498, y: 930, width: 175, height: 42 } },
     ];
     const candidates = parseFantasyScreenshotCandidates([
-      { text: "B.Fernan...", confidence: 0.78, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 0 },
-      { text: "Anderson", confidence: 0.82, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 1 },
+      { text: "B.Fernan... HUL A", confidence: 0.78, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 0 },
+      { text: "Anderson BOU H", confidence: 0.82, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 1 },
     ], { layoutSlots, players: fixturePlayers });
     const review = buildFantasyScreenshotReview({ extractedSlots: candidates, players: fixturePlayers });
 

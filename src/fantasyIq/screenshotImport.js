@@ -1190,9 +1190,21 @@ function createLayoutCandidatesFromOcrBlocks(ocrBlocks = [], layoutSlots = [], p
         : orderedMention && (!slot.position || orderedMention.player.position === slot.position)
         ? orderedMention
         : slotMentions[slotIndex] || slotMentions[0] || null;
-      const fallbackRawName = mention ? "" : extractFantasyScreenshotNameFromFixtureLabel(text);
+      const fixtureLabelRawName = extractFantasyScreenshotNameFromFixtureLabel(text);
+      const fallbackRawName = mention ? "" : fixtureLabelRawName;
       const marker = Number.isInteger(block.lineIndex) ? markerByLineIndex.get(block.lineIndex) : null;
-      const candidate = mention
+      const candidate = strictSlotOcr &&
+        !mention &&
+        fixtureLabelRawName &&
+        isLikelyFantasyScreenshotPlayerName(fixtureLabelRawName, { hasPosition: !!slot.position })
+        ? createLayoutCandidate({
+            rawName: fixtureLabelRawName,
+            slot,
+            block,
+            confidence: Math.max(0.72, Number(block.confidence || 0.6)),
+            marker,
+          })
+        : mention
         ? createLayoutCandidate({
             rawName: mention.player.webName || mention.player.displayName || mention.player.name,
             slot,
