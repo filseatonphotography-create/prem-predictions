@@ -68,6 +68,55 @@ function attachRecentStarts(bootstrapPayload = {}, eventLivePayloads = []) {
   };
 }
 
+function trimBootstrapPayload(payload = {}) {
+  return {
+    elements: (Array.isArray(payload.elements) ? payload.elements : []).map((player) => ({
+      id: player.id,
+      first_name: player.first_name,
+      second_name: player.second_name,
+      web_name: player.web_name,
+      team: player.team,
+      element_type: player.element_type,
+      now_cost: player.now_cost,
+      code: player.code,
+      removed: player.removed,
+      status: player.status,
+      news: player.news,
+      news_added: player.news_added,
+      chance_of_playing_next_round: player.chance_of_playing_next_round,
+      chance_of_playing_this_round: player.chance_of_playing_this_round,
+      form: player.form,
+      points_per_game: player.points_per_game,
+      selected_by_percent: player.selected_by_percent,
+      minutes: player.minutes,
+      starts: player.starts,
+      total_points: player.total_points,
+    })),
+    teams: (Array.isArray(payload.teams) ? payload.teams : []).map((team) => ({
+      id: team.id,
+      name: team.name,
+      short_name: team.short_name,
+    })),
+    element_types: (Array.isArray(payload.element_types) ? payload.element_types : []).map((position) => ({
+      id: position.id,
+      singular_name: position.singular_name,
+      plural_name: position.plural_name,
+      singular_name_short: position.singular_name_short,
+    })),
+    events: (Array.isArray(payload.events) ? payload.events : []).map((event) => ({
+      id: event.id,
+      name: event.name,
+      deadline_time: event.deadline_time,
+      finished: event.finished,
+      is_current: event.is_current,
+      is_next: event.is_next,
+      data_checked: event.data_checked,
+    })),
+    recentStartsByElement: payload.recentStartsByElement || {},
+    recentStartsMetadata: payload.recentStartsMetadata || null,
+  };
+}
+
 export async function handler() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -84,7 +133,7 @@ export async function handler() {
     const eventLivePayloads = eventLiveResults
       .filter((result) => result.status === "fulfilled")
       .map((result) => result.value);
-    const enrichedPayload = attachRecentStarts(bootstrapPayload, eventLivePayloads);
+    const enrichedPayload = trimBootstrapPayload(attachRecentStarts(bootstrapPayload, eventLivePayloads));
     const text = JSON.stringify(enrichedPayload);
     if (text.length > MAX_RESPONSE_BYTES) {
       return {

@@ -18,13 +18,13 @@ export {
 
 /* global globalThis */
 
-export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 4;
-export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v4";
+export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 5;
+export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v5";
 export const FANTASY_PLAYER_DATA_SOURCE = "official-fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_ENDPOINT = "/.netlify/functions/fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_DIRECT_ENDPOINT = "https://fantasy.premierleague.com/api/bootstrap-static/";
 export const FANTASY_PLAYER_DATA_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-export const FANTASY_PLAYER_DATA_FETCH_TIMEOUT_MS = 12000;
+export const FANTASY_PLAYER_DATA_FETCH_TIMEOUT_MS = 25000;
 export const FANTASY_IQ_TEMP_PLAYER_DATA_NOTICE =
   "Temporary development player list in use. It is incomplete and not official FPL data.";
 export const FANTASY_PLAYER_SCREENSHOT_IMPORT_PRIVACY_NOTE =

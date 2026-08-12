@@ -8,7 +8,7 @@ const screenshotDir = process.env.FANTASY_IQ_SCREENSHOT_DIR || "/Users/pse2/Down
 const verboseOutput = /^(1|true|yes)$/i.test(String(process.env.FANTASY_IQ_VERBOSE || ""));
 const useSampleData = !/^(0|false|no)$/i.test(String(process.env.FANTASY_IQ_USE_SAMPLE_DATA || "true"));
 const authKey = "pl_prediction_auth_v1";
-const playerDataKey = "predictionAddiction:fplPlayerData:v4";
+const playerDataKey = "predictionAddiction:fplPlayerData:v5";
 
 const expectedByFormation = {
   "3-4-3": ["Vicario", "Van de Ven", "Ballard", "De Cuyper", "Wirtz", "Foden", "Palmer", "Gakpo", "Osula", "Wood", "Richarlison", "Dovin", "Rice", "Thiaw", "Henry"],
@@ -54,7 +54,7 @@ function makeDataset() {
     aliases: [code],
   }));
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     source: "screenshot-recognition-check",
     fetchedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3600000).toISOString(),
