@@ -83,6 +83,13 @@ function getFantasyPlayerSurname(player) {
   return "";
 }
 
+function getFantasyPlayerInitialSurnameAliases(player = {}) {
+  const firstTokens = tokeniseFantasyPlayerName(player?.firstName);
+  const surname = getFantasyPlayerSurname(player);
+  if (!firstTokens.length || !surname || surname.length < 3) return [];
+  return [`${firstTokens[0][0]} ${surname}`];
+}
+
 function levenshteinDistance(a, b) {
   const left = normaliseFantasyPlayerName(a);
   const right = normaliseFantasyPlayerName(b);
@@ -136,12 +143,17 @@ function getPlayerNameScore(rawName, player) {
   const displayName = player?.normalisedName || normaliseFantasyPlayerName(player?.displayName || player?.name);
   const webName = normaliseFantasyPlayerName(player?.webName);
   const surname = getFantasyPlayerSurname(player);
+  const initialSurnameAliases = getFantasyPlayerInitialSurnameAliases(player)
+    .map((alias) => normaliseFantasyPlayerName(alias))
+    .filter(Boolean);
 
   if (!normalisedRaw) return { score: 0, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
   if (normalisedRaw === displayName) return { score: 1, exactDisplay: true, exactWeb: false, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
   if (normalisedRaw === webName && webName) return { score: 0.94, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
+  if (initialSurnameAliases.includes(normalisedRaw)) return { score: 0.91, exactDisplay: false, exactWeb: true, exactSurname: false, prefixName: false, fuzzyDistinctiveWeb: false };
   if (normalisedRaw === surname && surname) return { score: 0.9, exactDisplay: false, exactWeb: false, exactSurname: true, prefixName: false, fuzzyDistinctiveWeb: false };
   const prefixName = normalisedRaw.length >= 7 && [displayName, webName, surname]
+    .concat(initialSurnameAliases)
     .filter(Boolean)
     .some((name) => name.startsWith(normalisedRaw));
   if (prefixName) return { score: 0.88, exactDisplay: false, exactWeb: false, exactSurname: false, prefixName: true, fuzzyDistinctiveWeb: false };

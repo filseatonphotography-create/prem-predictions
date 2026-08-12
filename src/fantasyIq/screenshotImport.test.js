@@ -370,6 +370,52 @@ describe("Fantasy screenshot OCR parsing", () => {
     expect(review.extractedSlots[0]).toMatchObject({ selectedPlayerId: "fpl:998", status: "likely" });
   });
 
+  test("matches ellipsized mobile midfield labels in their strict slots", () => {
+    const fixturePlayers = [
+      {
+        id: "fpl:bruno",
+        sourceId: 1,
+        firstName: "Bruno",
+        lastName: "Fernandes",
+        displayName: "Bruno Fernandes",
+        name: "Bruno Fernandes",
+        webName: "Bruno Fernandes",
+        normalisedName: "bruno fernandes",
+        teamCode: "MUN",
+        teamName: "Manchester United",
+        position: "MID",
+        positionId: 3,
+        dataSource: "test",
+      },
+      {
+        id: "fpl:anderson",
+        sourceId: 2,
+        firstName: "Elliot",
+        lastName: "Anderson",
+        displayName: "Elliot Anderson",
+        name: "Elliot Anderson",
+        webName: "Anderson",
+        normalisedName: "elliot anderson",
+        teamCode: "NFO",
+        teamName: "Nottingham Forest",
+        position: "MID",
+        positionId: 3,
+        dataSource: "test",
+      },
+    ];
+    const layoutSlots = [
+      { id: "starter-mid-wide-2", role: "starter", position: "MID", boundingBox: { x: 270, y: 930, width: 175, height: 42 } },
+      { id: "starter-mid-wide-3", role: "starter", position: "MID", boundingBox: { x: 498, y: 930, width: 175, height: 42 } },
+    ];
+    const candidates = parseFantasyScreenshotCandidates([
+      { text: "B.Fernan...", confidence: 0.78, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 0 },
+      { text: "Anderson", confidence: 0.82, strictSlotOcr: true, slotOcrCropVariant: "label", lineIndex: 1 },
+    ], { layoutSlots, players: fixturePlayers });
+    const review = buildFantasyScreenshotReview({ extractedSlots: candidates, players: fixturePlayers });
+
+    expect(review.extractedSlots.map((slot) => slot.selectedPlayerId)).toEqual(["fpl:bruno", "fpl:anderson"]);
+  });
+
   test("infers bench role from lower image region", () => {
     const candidates = parseFantasyScreenshotCandidates([
       { text: "Gabriel ARS DEF", confidence: 0.8, boundingBox: { x: 0, y: 900, width: 120, height: 30 } },

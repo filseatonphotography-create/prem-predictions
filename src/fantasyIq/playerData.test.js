@@ -235,6 +235,29 @@ describe("Fantasy IQ name and team matching", () => {
     expect(result.player.id).toBe("fpl:201");
   });
 
+  test("mobile initial-plus-surname truncation produces high-confidence match", () => {
+    const extra = [
+      ...players,
+      {
+        id: "fpl:bruno",
+        sourceId: 777,
+        firstName: "Bruno",
+        lastName: "Fernandes",
+        displayName: "Bruno Fernandes",
+        name: "Bruno Fernandes",
+        webName: "Bruno Fernandes",
+        normalisedName: "bruno fernandes",
+        teamCode: "MUN",
+        teamName: "Manchester United",
+        position: "MID",
+      },
+    ];
+    const result = matchFantasyPlayerCandidate({ rawName: "B.Fernan", rawPosition: "MID", players: extra });
+
+    expect(result.status).toBe("high-confidence");
+    expect(result.player.id).toBe("fpl:bruno");
+  });
+
   test("distinctive multi-token FPL web name plus position produces high-confidence match without fixture team code", () => {
     const extra = [
       ...players,

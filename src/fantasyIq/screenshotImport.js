@@ -1040,10 +1040,14 @@ function expandLayoutSlotsForMergedText(block = {}, layoutSlots = [], minimumCou
 }
 
 function getPlayerMentionSearchNames(player = {}) {
+  const firstName = normaliseFantasyPlayerName(player.firstName);
+  const lastName = normaliseFantasyPlayerName(player.lastName);
+  const initialSurnameAlias = firstName && lastName && lastName.length >= 3 ? `${firstName[0]} ${lastName}` : "";
   return [
     player.webName,
     player.displayName,
     player.name,
+    initialSurnameAlias,
   ]
     .map((name) => normaliseFantasyPlayerName(name))
     .filter((name, index, names) => name && name.length >= 4 && names.indexOf(name) === index);
