@@ -27,7 +27,7 @@ const basePayload = {
     { id: 4, singular_name: "Forward", plural_name: "Forwards", singular_name_short: "FWD" },
   ],
   elements: [
-    { id: 101, first_name: "Bukayo", second_name: "Saka", web_name: "Saka", team: 1, element_type: 3, status: "a", now_cost: 105 },
+    { id: 101, code: 223340, first_name: "Bukayo", second_name: "Saka", web_name: "Saka", team: 1, element_type: 3, status: "a", now_cost: 105 },
     { id: 102, first_name: "Gabriel", second_name: "Magalhaes", web_name: "Gabriel", team: 1, element_type: 2, status: "d", now_cost: 62 },
     { id: 201, first_name: "Mohamed", second_name: "Salah", web_name: "Salah", team: 2, element_type: 3, status: "a", now_cost: 145 },
     { id: 301, first_name: "Erling", second_name: "Haaland", web_name: "Haaland", team: 3, element_type: 4, status: "a", now_cost: 150 },
@@ -77,6 +77,8 @@ describe("Fantasy IQ player data adapter", () => {
       position: "MID",
       price: 10.5,
       priceTenths: 105,
+      photoCode: 223340,
+      photoUrl: "https://resources.premierleague.com/premierleague/photos/players/110x140/p223340.png",
       availabilityStatus: "available",
       dataSource: "official-fpl-bootstrap",
     });

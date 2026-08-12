@@ -18,8 +18,8 @@ export {
 
 /* global globalThis */
 
-export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 3;
-export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v3";
+export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 4;
+export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v4";
 export const FANTASY_PLAYER_DATA_SOURCE = "official-fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_ENDPOINT = "/.netlify/functions/fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_DIRECT_ENDPOINT = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -291,6 +291,10 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
     const webName = safeString(record?.web_name);
     const displayName = safeString(`${firstName} ${lastName}`) || webName;
     const priceTenths = getPlayerPriceTenths(record);
+    const photoCode = toNumber(record?.code);
+    const photoUrl = photoCode
+      ? `https://resources.premierleague.com/premierleague/photos/players/110x140/p${photoCode}.png`
+      : "";
 
     if (!sourceId || !displayName || !webName) {
       diagnostics.rejectedPlayerCount += 1;
@@ -331,10 +335,14 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
       positionId: position.id,
       price: priceTenths == null ? null : priceTenths / 10,
       priceTenths,
+      photoCode,
+      photoUrl,
       active: !record.removed,
       availabilityStatus: getAvailabilityStatus(record),
       externalMetadata: {
         nowCost: priceTenths,
+        photoCode,
+        photoUrl,
         rawStatus: safeString(record.status),
         news: safeString(record.news),
         newsAdded: record.news_added || null,

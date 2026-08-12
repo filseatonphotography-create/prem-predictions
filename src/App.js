@@ -1635,6 +1635,23 @@ function formatFantasyIqBudget(value) {
   return Number.isFinite(Number(value)) ? `£${Number(value).toFixed(1)}m` : "NA";
 }
 
+function getFantasyPlayerPhotoUrl(player = {}) {
+  const directUrl = String(player.photoUrl || player.externalMetadata?.photoUrl || "").trim();
+  if (directUrl) return directUrl;
+  const photoCode = Number(player.photoCode || player.externalMetadata?.photoCode || 0);
+  if (Number.isFinite(photoCode) && photoCode > 0) {
+    return `https://resources.premierleague.com/premierleague/photos/players/110x140/p${photoCode}.png`;
+  }
+  return "";
+}
+
+function getFantasyPlayerInitials(player = {}) {
+  const name = String(player.displayName || player.name || player.webName || "").trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
+
 function getFantasyIqPlayerValueScore(player = {}) {
   const playerScore = Number(player.fantasyIqScore);
   const price = getFantasyIqPlayerPrice(player);
@@ -12636,59 +12653,120 @@ useEffect(() => {
         </div>
       );
     };
-    const renderFantasySuggestedTeamPlayer = (player) => (
-      <div
-        key={`suggested-team-${player.id}`}
-        style={{
-          background: "rgba(255,255,255,0.04)",
-          border: `1px solid ${player.isCaptain ? theme.warn : player.isViceCaptain ? theme.accent : theme.line}`,
-          borderRadius: 8,
-          padding: "7px 8px",
-          display: "grid",
-          gap: 4,
-          minWidth: 0,
-        }}
-      >
-        <div style={{ color: theme.text, fontSize: 12, fontWeight: 950, overflowWrap: "anywhere" }}>
-          {player.displayName || player.name}
-          {player.isCaptain ? " C" : ""}
-          {player.isViceCaptain ? " V" : ""}
-        </div>
-        <div style={{ color: theme.muted, fontSize: 10, fontWeight: 850 }}>
-          {player.teamCode} · {player.position} · {formatFantasyIqBudget(player.price)}
-        </div>
-        <div style={{ color: theme.muted, fontSize: 10 }}>
-          Pick {Math.round(Number(player.suggestedTeamScore || 0))}/100 · Start {Math.round(Number(player.suggestedStarterLikelihoodScore || 0))} · Fixture {Math.round(Number(player.suggestedFixtureScore || 0))}
-        </div>
-      </div>
-    );
-    const renderFantasySuggestedTeamLayout = (players, title) => {
-      const groups = FANTASY_IQ_POSITIONS.map((position) => ({
-        position,
-        players: (players || []).filter((player) => player.position === position),
-      })).filter((group) => group.players.length);
+    const renderFantasyPitchPlayerCard = (player, options = {}) => {
+      const photoUrl = getFantasyPlayerPhotoUrl(player);
+      const compactTile = options.compactTile || isMobile || compact;
       return (
-        <div style={{ display: "grid", gap: 8 }}>
-          <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>{title}</div>
+        <div
+          key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
+          style={{
+            minWidth: 0,
+            display: "grid",
+            justifyItems: "center",
+            gap: 4,
+          }}
+        >
           <div
             style={{
-              background: "linear-gradient(180deg, rgba(34,197,94,0.12), rgba(15,23,42,0.88))",
-              border: `1px solid ${theme.line}`,
+              width: compactTile ? 48 : 58,
+              height: compactTile ? 58 : 70,
               borderRadius: 10,
-              padding: 10,
+              border: `1px solid ${player?.isCaptain ? theme.warn : player?.isViceCaptain ? theme.accent : "rgba(255,255,255,0.35)"}`,
+              background: `linear-gradient(180deg, rgba(255,255,255,0.18), ${theme.panelHi})`,
+              overflow: "hidden",
               display: "grid",
-              gap: 8,
+              placeItems: "center",
+              position: "relative",
+              boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
             }}
           >
-            {groups.map((group) => (
-              <div key={`suggested-row-${title}-${group.position}`} style={{ display: "grid", gap: 5 }}>
-                <div style={{ color: theme.muted, fontSize: 10, fontWeight: 950 }}>{group.position}</div>
-                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`, gap: 6 }}>
-                  {group.players.map(renderFantasySuggestedTeamPlayer)}
+            <span style={{ color: theme.muted, fontSize: 15, fontWeight: 950 }}>
+              {getFantasyPlayerInitials(player)}
+            </span>
+            {photoUrl && (
+              <img
+                src={photoUrl}
+                alt=""
+                aria-hidden="true"
+                loading="lazy"
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center top",
+                }}
+              />
+            )}
+          </div>
+          <div
+            title={player?.displayName || player?.name || ""}
+            style={{
+              maxWidth: compactTile ? 74 : 96,
+              padding: "3px 5px",
+              borderRadius: 6,
+              background: "rgba(8,13,28,0.76)",
+              color: theme.text,
+              fontSize: compactTile ? 10 : 11,
+              fontWeight: 950,
+              lineHeight: 1.1,
+              textAlign: "center",
+              overflowWrap: "anywhere",
+            }}
+          >
+            {player?.webName || player?.displayName || player?.name || "Player"}
+            {player?.isCaptain ? " C" : player?.isViceCaptain ? " V" : ""}
+          </div>
+          {!options.hideMeta && (
+            <div style={{ color: theme.muted, fontSize: 9, fontWeight: 850, textAlign: "center" }}>
+              {player?.teamCode || "TBC"} · {player?.position || "POS"} · {formatFantasyIqBudget(player?.price)}
+            </div>
+          )}
+        </div>
+      );
+    };
+    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard }) => {
+      const starterGroups = FANTASY_IQ_POSITIONS.map((position) => ({
+        position,
+        players: (starters || []).filter((player) => player.position === position),
+      })).filter((group) => group.players.length);
+      return (
+        <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ color: theme.text, fontSize: 13, fontWeight: 950, textAlign: "center" }}>{title}</div>
+          <div
+            style={{
+              background: "linear-gradient(180deg, rgba(34,197,94,0.22), rgba(20,83,45,0.38) 45%, rgba(15,23,42,0.92))",
+              border: `1px solid ${theme.line}`,
+              borderRadius: 10,
+              padding: isMobile || compact ? "12px 8px" : "16px 14px",
+              display: "grid",
+              gap: isMobile || compact ? 12 : 16,
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <div aria-hidden="true" style={{ position: "absolute", inset: "8px 10px", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, pointerEvents: "none" }} />
+            {starterGroups.map((group) => (
+              <div key={`pitch-row-${title}-${group.position}`} style={{ display: "grid", gap: 6, position: "relative" }}>
+                <div style={{ color: "rgba(255,255,255,0.68)", fontSize: 10, fontWeight: 950, textAlign: "center" }}>{group.position}</div>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`, gap: isMobile || compact ? 6 : 10, alignItems: "start" }}>
+                  {group.players.map((player) => renderPlayer(player))}
                 </div>
               </div>
             ))}
           </div>
+          {!!bench.length && (
+            <div style={{ display: "grid", gap: 6 }}>
+              <div style={{ color: theme.text, fontSize: 12, fontWeight: 950 }}>Bench</div>
+              <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "repeat(2, minmax(0, 1fr))" : `repeat(${bench.length}, minmax(0, 1fr))`, gap: 8 }}>
+                {bench.map((player) => renderPlayer(player, { compactTile: true }))}
+              </div>
+            </div>
+          )}
         </div>
       );
     };
@@ -12747,8 +12825,19 @@ useEffect(() => {
             {renderFantasyIqMetric("Style / Formation", `${suggestion.styleLabel || "Balanced"} · ${suggestion.formation || "NA"}`, theme.muted)}
             {renderFantasyIqMetric("Captain", suggestion.captain?.displayName || suggestion.captain?.name || "NA", theme.warn)}
           </div>
-          {renderFantasySuggestedTeamLayout(suggestion.starters, "Suggested Starting XI")}
-          {renderFantasySuggestedTeamLayout(suggestion.bench, "Suggested Bench")}
+          {renderFantasyPitchLayout({
+            starters: suggestion.starters,
+            bench: suggestion.bench,
+            title: "Suggested Team",
+            renderPlayer: (player, options = {}) => (
+              <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5 }}>
+                {renderFantasyPitchPlayerCard(player, options)}
+                <div style={{ color: theme.muted, fontSize: 9, textAlign: "center", lineHeight: 1.2 }}>
+                  Pick {Math.round(Number(player.suggestedTeamScore || 0))} · Start {Math.round(Number(player.suggestedStarterLikelihoodScore || 0))} · Fixture {Math.round(Number(player.suggestedFixtureScore || 0))}
+                </div>
+              </div>
+            ),
+          })}
           <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))", gap: 10 }}>
             {renderFantasyIqNotes("Why These Picks", suggestion.reasons, theme.accent2)}
             {renderFantasyIqNotes("Availability / Data", suggestion.warnings, theme.warn)}
@@ -13722,6 +13811,181 @@ useEffect(() => {
         </div>
       );
     };
+    const renderFantasyScreenshotPitchItem = (item, options = {}) => {
+      if (item.type === "missing") {
+        const slotId = item.id;
+        const role = item.role || "bench";
+        const slotSearch = fantasyScreenshotSlotSearch[slotId] || "";
+        const normalisedSlotSearch = normaliseFantasyPlayerName(slotSearch);
+        const searchedPlayers = normalisedSlotSearch
+          ? fantasyIqAvailablePlayers
+              .filter((player) => !fantasyScreenshotSelectedPlayerIds.has(player.id))
+              .filter((player) => !item.position || player.position === item.position)
+              .filter((player) =>
+                normaliseFantasyPlayerName(player.displayName || player.name).includes(normalisedSlotSearch) ||
+                normaliseFantasyPlayerName(player.webName).includes(normalisedSlotSearch) ||
+                String(player.teamCode || "").toLowerCase().includes(slotSearch.toLowerCase())
+              )
+              .slice(0, 4)
+          : [];
+        return (
+          <div key={slotId} style={{ display: "grid", gap: 5, minWidth: 0 }}>
+            {renderFantasyPitchPlayerCard({
+              id: slotId,
+              displayName: `${item.position || "Player"} ${item.positionNumber || ""}`,
+              webName: item.position || "Add",
+              position: item.position,
+              teamCode: role === "starter" ? "XI" : "BEN",
+            }, { ...options, hideMeta: true })}
+            <input
+              value={slotSearch}
+              onChange={(event) => setFantasyScreenshotSlotSearch((current) => ({ ...current, [slotId]: event.target.value }))}
+              placeholder="Search"
+              style={{ ...probInput, textAlign: "left", padding: "5px 6px", fontSize: 10 }}
+            />
+            {!!normalisedSlotSearch && (
+              <div style={{ display: "grid", gap: 4 }}>
+                {searchedPlayers.length ? searchedPlayers.map((player) => (
+                  <button
+                    key={`${slotId}-pitch-search-${player.id}`}
+                    type="button"
+                    onClick={() => {
+                      markFantasyScreenshotManualCorrection();
+                      updateFantasyScreenshotReview((review) => addFantasyScreenshotReviewPlayer(review, player, role));
+                      setFantasyScreenshotSlotSearch((current) => ({ ...current, [slotId]: "" }));
+                    }}
+                    style={{ ...pillBtn(false), padding: "4px 5px", fontSize: 9, textAlign: "center" }}
+                  >
+                    {player.webName || player.displayName}
+                  </button>
+                )) : (
+                  <div style={{ color: theme.muted, fontSize: 9, textAlign: "center" }}>No match</div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      const slot = item.slot;
+      const selectedPlayer = slot.selectedPlayer || fantasyIqAvailablePlayers.find((player) => player.id === slot.selectedPlayerId);
+      const roleValue = slot.isCaptain ? "captain" : slot.isViceCaptain ? "vice" : slot.role === "starter" ? "starter" : "bench";
+      const playerLabel = selectedPlayer?.displayName || selectedPlayer?.name || slot.extracted.rawName || "Choose player";
+      const slotSearch = fantasyScreenshotSlotSearch[slot.id] || "";
+      const normalisedSlotSearch = normaliseFantasyPlayerName(slotSearch);
+      const searchedPlayers = normalisedSlotSearch
+        ? fantasyIqAvailablePlayers
+            .filter((player) => player.id !== selectedPlayer?.id)
+            .filter((player) =>
+              normaliseFantasyPlayerName(player.displayName || player.name).includes(normalisedSlotSearch) ||
+              normaliseFantasyPlayerName(player.webName).includes(normalisedSlotSearch) ||
+              String(player.teamCode || "").toLowerCase().includes(slotSearch.toLowerCase())
+            )
+            .slice(0, 4)
+        : [];
+      const setRole = (value) => {
+        if (value === "captain") {
+          setFantasyScreenshotReviewCaptain(slot.id, "captain");
+          updateFantasyScreenshotReview((review) =>
+            updateFantasyScreenshotReviewSlot(review, slot.id, { role: "starter" }, fantasyIqAvailablePlayers)
+          );
+          return;
+        }
+        if (value === "vice") {
+          setFantasyScreenshotReviewCaptain(slot.id, "vice");
+          updateFantasyScreenshotReview((review) =>
+            updateFantasyScreenshotReviewSlot(review, slot.id, { role: "starter" }, fantasyIqAvailablePlayers)
+          );
+          return;
+        }
+        markFantasyScreenshotManualCorrection();
+        updateFantasyScreenshotReview((review) =>
+          updateFantasyScreenshotReviewSlot(review, slot.id, {
+            role: value,
+            isCaptain: false,
+            isViceCaptain: false,
+          }, fantasyIqAvailablePlayers)
+        );
+      };
+
+      return (
+        <div key={slot.id} style={{ display: "grid", gap: 5, minWidth: 0 }}>
+          {renderFantasyPitchPlayerCard({
+            ...(selectedPlayer || {}),
+            id: selectedPlayer?.id || slot.id,
+            displayName: playerLabel,
+            webName: selectedPlayer?.webName || playerLabel,
+            position: selectedPlayer?.position || item.position || slot.extracted.rawPosition,
+            teamCode: selectedPlayer?.teamCode || "TBC",
+            isCaptain: slot.isCaptain,
+            isViceCaptain: slot.isViceCaptain,
+          }, { ...options, hideMeta: true })}
+          <select
+            aria-label={`Set role for ${playerLabel}`}
+            value={roleValue}
+            onChange={(event) => setRole(event.target.value)}
+            style={{ ...probInput, padding: "5px 6px", fontSize: 10 }}
+          >
+            <option value="starter">Starter</option>
+            <option value="bench">Bench</option>
+            <option value="captain">Captain</option>
+            <option value="vice">Vice</option>
+          </select>
+          <input
+            value={slotSearch}
+            onChange={(event) => setFantasyScreenshotSlotSearch((current) => ({ ...current, [slot.id]: event.target.value }))}
+            placeholder="Replace"
+            style={{ ...probInput, textAlign: "left", padding: "5px 6px", fontSize: 10 }}
+          />
+          {!!normalisedSlotSearch && (
+            <div style={{ display: "grid", gap: 4 }}>
+              {searchedPlayers.length ? searchedPlayers.map((player) => (
+                <button
+                  key={`${slot.id}-pitch-search-${player.id}`}
+                  type="button"
+                  onClick={() => {
+                    markFantasyScreenshotManualCorrection();
+                    updateFantasyScreenshotReview((review) =>
+                      updateFantasyScreenshotReviewSlot(review, slot.id, { selectedPlayerId: player.id }, fantasyIqAvailablePlayers)
+                    );
+                    setFantasyScreenshotSlotSearch((current) => ({ ...current, [slot.id]: "" }));
+                  }}
+                  style={{ ...pillBtn(false), padding: "4px 5px", fontSize: 9, textAlign: "center" }}
+                >
+                  {player.webName || player.displayName}
+                </button>
+              )) : (
+                <div style={{ color: theme.muted, fontSize: 9, textAlign: "center" }}>No match</div>
+              )}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              markFantasyScreenshotManualCorrection();
+              updateFantasyScreenshotReview((review) => removeFantasyScreenshotReviewSlot(review, slot.id));
+            }}
+            style={{ ...pillBtn(false), padding: "4px 5px", fontSize: 9, color: theme.danger }}
+          >
+            Remove
+          </button>
+        </div>
+      );
+    };
+    const renderFantasyScreenshotReviewPitch = () => {
+      const starters = fantasyScreenshotReviewDisplaySlots
+        .filter((item) => item.role === "starter")
+        .map((item) => ({ ...item, id: item.id, position: item.position || item.slot?.selectedPlayer?.position || item.slot?.extracted?.rawPosition || "" }));
+      const bench = fantasyScreenshotReviewDisplaySlots
+        .filter((item) => item.role !== "starter")
+        .map((item) => ({ ...item, id: item.id, position: item.position || item.slot?.selectedPlayer?.position || item.slot?.extracted?.rawPosition || "" }));
+      return renderFantasyPitchLayout({
+        starters,
+        bench,
+        title: "Screenshot Review",
+        renderPlayer: renderFantasyScreenshotPitchItem,
+      });
+    };
     const renderFantasyScreenshotImport = () => (
       <div
         style={{
@@ -13883,13 +14147,7 @@ useEffect(() => {
                 </div>
               )}
             </div>
-            <div style={{ display: "grid", gap: 8 }}>
-              {fantasyScreenshotReviewDisplaySlots.map((item) =>
-                item.type === "slot"
-                  ? renderFantasyScreenshotReviewSlot(item.slot)
-                  : renderFantasyScreenshotMissingPlayerSlot(item)
-              )}
-            </div>
+            {renderFantasyScreenshotReviewPitch()}
             <div
               style={{
                 background: fantasyScreenshotReviewValidation.isValid ? "rgba(34,197,94,0.08)" : "rgba(245,158,11,0.08)",
