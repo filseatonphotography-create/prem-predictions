@@ -1645,13 +1645,6 @@ function getFantasyPlayerPhotoUrl(player = {}) {
   return "";
 }
 
-function getFantasyPlayerInitials(player = {}) {
-  const name = String(player.displayName || player.name || player.webName || "").trim();
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (!parts.length) return "?";
-  return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase();
-}
-
 function getFantasyIqPlayerValueScore(player = {}) {
   const playerScore = Number(player.fantasyIqScore);
   const price = getFantasyIqPlayerPrice(player);
@@ -12680,9 +12673,49 @@ useEffect(() => {
               boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
             }}
           >
-            <span style={{ color: theme.muted, fontSize: 15, fontWeight: 950 }}>
-              {getFantasyPlayerInitials(player)}
-            </span>
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "grid",
+                placeItems: "center",
+                background: "linear-gradient(180deg, #6B7280, #374151)",
+              }}
+            >
+              <div
+                style={{
+                  width: "64%",
+                  height: "76%",
+                  position: "relative",
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "6%",
+                    left: "50%",
+                    width: "42%",
+                    aspectRatio: "1 / 1",
+                    transform: "translateX(-50%)",
+                    borderRadius: "50%",
+                    background: "#D1D5DB",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    bottom: "0",
+                    width: "82%",
+                    height: "52%",
+                    transform: "translateX(-50%)",
+                    borderRadius: "999px 999px 18px 18px",
+                    background: "#D1D5DB",
+                  }}
+                />
+              </div>
+            </div>
             {photoUrl && (
               <img
                 src={photoUrl}
