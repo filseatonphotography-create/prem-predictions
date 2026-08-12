@@ -5355,17 +5355,6 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyScreenshotPostImportSummary, setFantasyScreenshotPostImportSummary] = useState(() => loadFantasyScreenshotFeedbackSummary());
   const [fantasyScreenshotPreviewCollapsed, setFantasyScreenshotPreviewCollapsed] = useState(false);
 
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return undefined;
-    window.__predictionAddictionFantasyScreenshotReview = fantasyScreenshotReview;
-    window.__predictionAddictionFantasyScreenshotImportState = fantasyScreenshotImportState;
-    window.__predictionAddictionFantasyScreenshotImportSummary = fantasyScreenshotImportSummary;
-    return () => {
-      delete window.__predictionAddictionFantasyScreenshotReview;
-      delete window.__predictionAddictionFantasyScreenshotImportState;
-      delete window.__predictionAddictionFantasyScreenshotImportSummary;
-    };
-  }, [fantasyScreenshotImportState, fantasyScreenshotImportSummary, fantasyScreenshotReview]);
   const [fantasyTransferIqState, setFantasyTransferIqState] = useState(null);
   const [fantasyTransferOutFilter, setFantasyTransferOutFilter] = useState("ALL");
   const [fantasyTransferRoleFilter, setFantasyTransferRoleFilter] = useState("ALL");
@@ -5403,6 +5392,35 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     error: null,
   }));
   const [fantasyPlayerDataRefreshing, setFantasyPlayerDataRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const debugEnabled =
+      process.env.NODE_ENV === "development" ||
+      new URLSearchParams(window.location.search || "").get("fantasyIqDebug") === "1" ||
+      window.localStorage?.getItem?.("predictionAddiction:fantasyIqDebug") === "1";
+    if (!debugEnabled) return undefined;
+    window.__predictionAddictionFantasyScreenshotReview = fantasyScreenshotReview;
+    window.__predictionAddictionFantasyScreenshotImportState = fantasyScreenshotImportState;
+    window.__predictionAddictionFantasyScreenshotImportSummary = fantasyScreenshotImportSummary;
+    window.__predictionAddictionFantasyPlayerData = {
+      status: fantasyPlayerData.status,
+      cacheStatus: fantasyPlayerData.cacheStatus,
+      source: fantasyPlayerData.source,
+      fetchedAt: fantasyPlayerData.fetchedAt,
+      playerCount: fantasyPlayerData.players?.length || 0,
+      teamCount: fantasyPlayerData.teams?.length || 0,
+      schemaVersion: FANTASY_PLAYER_DATA_SCHEMA_VERSION,
+      cacheKey: FANTASY_PLAYER_DATA_CACHE_KEY,
+      error: fantasyPlayerData.error || null,
+    };
+    return () => {
+      delete window.__predictionAddictionFantasyScreenshotReview;
+      delete window.__predictionAddictionFantasyScreenshotImportState;
+      delete window.__predictionAddictionFantasyScreenshotImportSummary;
+      delete window.__predictionAddictionFantasyPlayerData;
+    };
+  }, [fantasyPlayerData, fantasyScreenshotImportState, fantasyScreenshotImportSummary, fantasyScreenshotReview]);
   const fantasyIqSquadValidation = useMemo(
     () => validateFantasyIqSquad(fantasyIqSquad),
     [fantasyIqSquad]
@@ -5606,6 +5624,25 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       setFantasyScreenshotImportState("preprocessing");
       setFantasyScreenshotStatusText("");
       setFantasyScreenshotProgress(12);
+      let screenshotPlayerData = fantasyPlayerData;
+      if (
+        fantasyPlayerData.status === "loading" ||
+        fantasyPlayerData.cacheStatus === "fallback" ||
+        !(fantasyPlayerData.players || []).length
+      ) {
+        setFantasyScreenshotStatusText("Updating player list");
+        screenshotPlayerData = await refreshFantasyPlayerData({
+          forceRefresh: fantasyPlayerData.cacheStatus === "fallback" || !(fantasyPlayerData.players || []).length,
+          signal: controller.signal,
+        });
+        if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
+      }
+      if (
+        screenshotPlayerData.cacheStatus === "fallback" ||
+        screenshotPlayerData.source === "temporary-development-fallback"
+      ) {
+        throw new Error("Live FPL player data could not be loaded. Refresh the player list and try the screenshot again.");
+      }
       decoded = await decodeFantasyScreenshotImage(fantasyScreenshotFile);
       if (runId !== fantasyScreenshotImportRunIdRef.current) throw new DOMException("OCR cancelled", "AbortError");
       setFantasyScreenshotImportState("extracting text");
@@ -5618,8 +5655,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         ...decoded,
         url: fantasyScreenshotPreviewUrl,
       }, {
-        players: fantasyPlayerData.players || [],
-        teams: fantasyPlayerData.teams || [],
+        players: screenshotPlayerData.players || [],
+        teams: screenshotPlayerData.teams || [],
         imageMetadata: fantasyScreenshotImageMetadata,
         signal: controller.signal,
         onStatus: () => {

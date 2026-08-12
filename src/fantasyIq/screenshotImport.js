@@ -2147,6 +2147,19 @@ function disposeCanvas(canvas) {
   canvas.height = 1;
 }
 
+function isFantasyScreenshotDebugEnabled() {
+  if (process.env.NODE_ENV === "development") return true;
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      new URLSearchParams(window.location.search || "").get("fantasyIqDebug") === "1" ||
+      window.localStorage?.getItem?.("predictionAddiction:fantasyIqDebug") === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function applyGrayscaleContrast(imageData, contrast = FANTASY_SCREENSHOT_IMPORT_CONFIG.preprocessing.contrast) {
   const data = imageData.data;
   for (let index = 0; index < data.length; index += 4) {
@@ -2424,7 +2437,7 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
     }
     return {
       blocks,
-      raw: process.env.NODE_ENV === "development"
+      raw: isFantasyScreenshotDebugEnabled()
         ? {
             slotCount: layoutSlots.length,
             pageSegModes,

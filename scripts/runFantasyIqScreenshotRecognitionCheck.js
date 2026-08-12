@@ -4,6 +4,15 @@ const WebSocket = require("ws");
 
 const chromeVersionUrl = process.env.CHROME_DEBUG_URL || "http://127.0.0.1:9222/json/version";
 const appUrl = process.env.FANTASY_IQ_SMOKE_APP_URL || "http://localhost:3000";
+const debugAppUrl = (() => {
+  try {
+    const url = new URL(appUrl);
+    url.searchParams.set("fantasyIqDebug", "1");
+    return url.toString();
+  } catch {
+    return appUrl;
+  }
+})();
 const screenshotDir = process.env.FANTASY_IQ_SCREENSHOT_DIR || "/Users/pse2/Downloads/screenshotformations";
 const verboseOutput = /^(1|true|yes)$/i.test(String(process.env.FANTASY_IQ_VERBOSE || ""));
 const useSampleData = !/^(0|false|no)$/i.test(String(process.env.FANTASY_IQ_USE_SAMPLE_DATA || "true"));
@@ -269,7 +278,7 @@ async function runScreenshot(cdp, sessionId, screenshotPath) {
   if (!expectedNames) throw new Error(`No expected-name map for ${formation}`);
   if (!fs.existsSync(screenshotPath)) throw new Error(`Missing screenshot ${screenshotPath}`);
 
-  await cdp.send("Page.navigate", { url: appUrl }, sessionId).catch(() => {});
+  await cdp.send("Page.navigate", { url: debugAppUrl }, sessionId).catch(() => {});
   await waitFor(cdp, sessionId, "document.readyState === 'complete'", 30000);
   await evaluate(cdp, sessionId, `
     Object.keys(localStorage).forEach((key) => {
@@ -283,8 +292,9 @@ async function runScreenshot(cdp, sessionId, screenshotPath) {
       localStorage.setItem(${JSON.stringify(playerDataKey)}, ${JSON.stringify(JSON.stringify(makeDataset()))});
     }
     localStorage.setItem("activeView", "fantasyHelp");
+    localStorage.setItem("predictionAddiction:fantasyIqDebug", "1");
   `);
-  await cdp.send("Page.navigate", { url: appUrl }, sessionId).catch(() => {});
+  await cdp.send("Page.navigate", { url: debugAppUrl }, sessionId).catch(() => {});
   await waitFor(cdp, sessionId, "document.body && document.body.innerText.includes('Fantasy IQ')", 30000);
   await evaluate(cdp, sessionId, clickButtonExpression("Fantasy IQ"));
   await waitFor(cdp, sessionId, "document.body.innerText.includes('Analyse Your Fantasy Team') || document.body.innerText.includes('Analyse Your Fantasy Squad')", 15000);
@@ -301,8 +311,10 @@ async function runScreenshot(cdp, sessionId, screenshotPath) {
   await waitFor(cdp, sessionId, "window.__predictionAddictionFantasyScreenshotImportState === 'needs review' || window.__predictionAddictionFantasyScreenshotImportState === 'failed' || document.body.innerText.includes('Ready for review') || document.body.innerText.includes('could not read') || document.body.innerText.includes('Only a few players')", 180000);
 
   const review = await evaluate(cdp, sessionId, "window.__predictionAddictionFantasyScreenshotReview");
+  const playerData = await evaluate(cdp, sessionId, "window.__predictionAddictionFantasyPlayerData || null").catch(() => null);
   const text = await evaluate(cdp, sessionId, "document.body.innerText");
   const summary = review ? summariseReview(review, expectedNames) : summarisePageText(text, expectedNames);
+  summary.playerData = playerData;
   summary.formation = formation;
   summary.screenshot = screenshotPath;
   summary.statusLines = String(text || "")

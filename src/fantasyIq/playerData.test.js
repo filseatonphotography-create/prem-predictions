@@ -241,18 +241,18 @@ describe("Fantasy IQ name and team matching", () => {
       {
         id: "fpl:bruno",
         sourceId: 777,
-        firstName: "",
-        lastName: "",
-        displayName: "Bruno Fernandes",
-        name: "Bruno Fernandes",
-        webName: "Bruno Fernandes",
-        normalisedName: "bruno fernandes",
+        firstName: "Bruno",
+        lastName: "Borges Fernandes",
+        displayName: "Bruno Borges Fernandes",
+        name: "Bruno Borges Fernandes",
+        webName: "B.Fernandes",
+        normalisedName: "bruno borges fernandes",
         teamCode: "MUN",
         teamName: "Manchester United",
         position: "MID",
       },
     ];
-    const result = matchFantasyPlayerCandidate({ rawName: "B.Fernan", rawPosition: "MID", players: extra });
+    const result = matchFantasyPlayerCandidate({ rawName: "B.Fernan", rawTeamCode: "MUN", rawPosition: "MID", players: extra });
 
     expect(result.status).toBe("high-confidence");
     expect(result.player.id).toBe("fpl:bruno");
