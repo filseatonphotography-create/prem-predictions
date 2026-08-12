@@ -12682,6 +12682,7 @@ useEffect(() => {
       const kit = getFantasyKitStyle(player);
       const compactTile = options.compactTile || isMobile || compact;
       const shirtPatternId = `kit-${kit.teamCode}-${player?.id || player?.displayName || "slot"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+      const kitCode = String(kit.teamCode || "TBC").slice(0, 3).toUpperCase();
       return (
         <div
           key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
@@ -12694,8 +12695,8 @@ useEffect(() => {
         >
           <div
             style={{
-              width: compactTile ? 48 : 58,
-              height: compactTile ? 58 : 70,
+              width: compactTile ? 56 : 70,
+              height: compactTile ? 66 : 82,
               borderRadius: 10,
               border: `1px solid ${player?.isCaptain ? theme.warn : player?.isViceCaptain ? theme.accent : "rgba(255,255,255,0.35)"}`,
               background: `linear-gradient(180deg, rgba(255,255,255,0.18), ${theme.panelHi})`,
@@ -12718,7 +12719,7 @@ useEffect(() => {
                   <stop offset="100%" stopColor="rgba(0,0,0,0.18)" />
                 </linearGradient>
                 <clipPath id={`${shirtPatternId}-clip`}>
-                  <path d="M31 15 C37 20 63 20 69 15 L88 26 L78 50 L70 45 L70 104 L30 104 L30 45 L22 50 L12 26 Z" />
+                  <path d="M27 15 C36 21 64 21 73 15 L91 27 L82 52 L73 47 L76 106 L24 106 L27 47 L18 52 L9 27 Z" />
                 </clipPath>
               </defs>
               <g clipPath={`url(#${shirtPatternId}-clip)`}>
@@ -12732,8 +12733,8 @@ useEffect(() => {
                 )}
                 {kit.pattern === "sleeves" && (
                   <>
-                    <path d="M12 26 L31 15 L30 45 L22 50 Z" fill={kit.secondary} />
-                    <path d="M69 15 L88 26 L78 50 L70 45 Z" fill={kit.secondary} />
+                    <path d="M9 27 L27 15 L27 47 L18 52 Z" fill={kit.secondary} />
+                    <path d="M73 15 L91 27 L82 52 L73 47 Z" fill={kit.secondary} />
                   </>
                 )}
                 {kit.pattern === "sash" && (
@@ -12741,7 +12742,7 @@ useEffect(() => {
                 )}
                 <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-shade)`} />
               </g>
-              <path d="M31 15 C37 20 63 20 69 15 L88 26 L78 50 L70 45 L70 104 L30 104 L30 45 L22 50 L12 26 Z" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+              <path d="M27 15 C36 21 64 21 73 15 L91 27 L82 52 L73 47 L76 106 L24 106 L27 47 L18 52 L9 27 Z" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
               <ellipse cx="50" cy="18" rx="15" ry="10" fill="rgba(15,23,42,0.42)" stroke="rgba(255,255,255,0.28)" strokeWidth="2" />
               <text
                 x="50"
@@ -12749,12 +12750,14 @@ useEffect(() => {
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fill={kit.text}
-                fontSize="22"
+                fontSize={kitCode.length >= 3 ? "20" : "22"}
                 fontWeight="900"
-                letterSpacing="1"
+                letterSpacing="0"
+                textLength="48"
+                lengthAdjust="spacingAndGlyphs"
                 style={{ paintOrder: "stroke", stroke: "rgba(0,0,0,0.28)", strokeWidth: 2 }}
               >
-                {kit.teamCode}
+                {kitCode}
               </text>
             </svg>
           </div>
