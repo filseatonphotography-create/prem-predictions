@@ -8,7 +8,7 @@ const screenshotDir = process.env.FANTASY_IQ_SCREENSHOT_DIR || "/Users/pse2/Down
 const verboseOutput = /^(1|true|yes)$/i.test(String(process.env.FANTASY_IQ_VERBOSE || ""));
 const useSampleData = !/^(0|false|no)$/i.test(String(process.env.FANTASY_IQ_USE_SAMPLE_DATA || "true"));
 const authKey = "pl_prediction_auth_v1";
-const playerDataKey = "predictionAddiction:fplPlayerData:v3";
+const playerDataKey = "predictionAddiction:fplPlayerData:v4";
 
 const expectedByFormation = {
   "3-4-3": ["Vicario", "Van de Ven", "Ballard", "De Cuyper", "Wirtz", "Foden", "Palmer", "Gakpo", "Osula", "Wood", "Richarlison", "Dovin", "Rice", "Thiaw", "Henry"],
@@ -20,12 +20,19 @@ const expectedByFormation = {
   "5-4-1": ["Vicario", "Van de Ven", "Ballard", "De Cuyper", "Thiaw", "Henry", "Wirtz", "Foden", "Rice", "Palmer", "Richarlison", "Dovin", "Osula", "Wood", "Gakpo"],
 };
 
-const samplePlayers = [
+if (process.env.FANTASY_IQ_EXPECTED_NAMES) {
+  expectedByFormation["3-4-3"] = process.env.FANTASY_IQ_EXPECTED_NAMES.split(",").map((name) => name.trim()).filter(Boolean);
+}
+
+const defaultSamplePlayers = [
   ["Vicario", "TOT", "GK"], ["Dovin", "COV", "GK"],
   ["Van de Ven", "TOT", "DEF"], ["Ballard", "SUN", "DEF"], ["De Cuyper", "BHA", "DEF"], ["Thiaw", "NEW", "DEF"], ["Henry", "BRE", "DEF"],
   ["Wirtz", "LIV", "MID"], ["Foden", "MCI", "MID"], ["Palmer", "CHE", "MID"], ["Gakpo", "LIV", "MID"], ["Rice", "ARS", "MID"],
   ["Richarlison", "TOT", "FWD"], ["Osula", "NEW", "FWD"], ["Wood", "NFO", "FWD"],
 ];
+const samplePlayers = process.env.FANTASY_IQ_SAMPLE_PLAYERS
+  ? process.env.FANTASY_IQ_SAMPLE_PLAYERS.split(",").map((row) => row.split("|").map((item) => item.trim())).filter((row) => row.length >= 3)
+  : defaultSamplePlayers;
 
 function normaliseName(value) {
   return String(value || "")
@@ -47,7 +54,7 @@ function makeDataset() {
     aliases: [code],
   }));
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     source: "screenshot-recognition-check",
     fetchedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 3600000).toISOString(),
@@ -211,6 +218,9 @@ function summariseReview(review, expectedNames) {
     targetedRecoverySlotCount: review?.imageMetadata?.targetedRecoverySlotCount || 0,
     targetedRecoveryTextBlockCount: review?.imageMetadata?.targetedRecoveryTextBlockCount || 0,
     confidence: review?.confidence?.label || null,
+    ocrRegion: review?.imageMetadata?.ocrRegion || null,
+    pageSegMode: review?.imageMetadata?.pageSegMode || null,
+    preprocessingVariant: review?.imageMetadata?.preprocessingVariant || null,
   };
   if (verboseOutput || missing.length) {
     summary.slots = slots.map((slot) => ({
@@ -228,6 +238,10 @@ function summariseReview(review, expectedNames) {
     summary.slotTextPreviews = [
       ...(review?.imageMetadata?.ocrDebug?.slotTextPreviews || []),
       ...(review?.imageMetadata?.ocrDebug?.targetedRecovery?.slotTextPreviews || []),
+    ];
+    summary.slotAttempts = [
+      ...(review?.imageMetadata?.ocrDebug?.slotAttempts || []),
+      ...(review?.imageMetadata?.ocrDebug?.targetedRecovery?.slotAttempts || []),
     ];
   }
   return summary;

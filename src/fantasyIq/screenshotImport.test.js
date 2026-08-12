@@ -375,8 +375,8 @@ describe("Fantasy screenshot OCR parsing", () => {
       {
         id: "fpl:bruno",
         sourceId: 1,
-        firstName: "Bruno",
-        lastName: "Fernandes",
+        firstName: "",
+        lastName: "",
         displayName: "Bruno Fernandes",
         name: "Bruno Fernandes",
         webName: "Bruno Fernandes",

@@ -1040,9 +1040,11 @@ function expandLayoutSlotsForMergedText(block = {}, layoutSlots = [], minimumCou
 }
 
 function getPlayerMentionSearchNames(player = {}) {
-  const firstName = normaliseFantasyPlayerName(player.firstName);
-  const lastName = normaliseFantasyPlayerName(player.lastName);
-  const initialSurnameAlias = firstName && lastName && lastName.length >= 3 ? `${firstName[0]} ${lastName}` : "";
+  const fullNameTokens = [
+    normaliseFantasyPlayerName([player.firstName, player.lastName].filter(Boolean).join(" ")).split(/\s+/).filter(Boolean),
+    normaliseFantasyPlayerName(player.displayName || player.name).split(/\s+/).filter(Boolean),
+  ].find((tokens) => tokens.length >= 2) || [];
+  const initialSurnameAlias = fullNameTokens.length >= 2 ? `${fullNameTokens[0][0]} ${fullNameTokens[fullNameTokens.length - 1]}` : "";
   return [
     player.webName,
     player.displayName,
@@ -2324,6 +2326,7 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
   }
   try {
     const blocks = [];
+    const slotAttempts = [];
     for (let index = 0; index < (layoutSlots || []).length; index += 1) {
       const slot = layoutSlots[index];
       const box = slot.boundingBox || {};
@@ -2355,6 +2358,19 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
             },
           }, { text: true, blocks: true });
           const text = safeText(result?.data?.text || normaliseOcrBlocks(result).map((block) => block.text).join(" "));
+          slotAttempts.push({
+            slotId: slot.id,
+            textPreview: text.slice(0, 80),
+            confidence: Math.max(0, Math.min(1, Number(result?.data?.confidence ?? 55) / 100)),
+            rectangle: {
+              left: Math.max(0, Math.round(Number(cropBox.x || 0))),
+              top: Math.max(0, Math.round(Number(cropBox.y || 0))),
+              width: Math.max(1, Math.round(Number(cropBox.width || 0))),
+              height: Math.max(1, Math.round(Number(cropBox.height || 0))),
+            },
+            pageSegMode: mode,
+            cropVariant: rectangle.variant,
+          });
           if (!text) continue;
           blocks.push({
             text,
@@ -2413,6 +2429,7 @@ export async function runFantasyScreenshotSlotOcr(imageSource, layoutSlots = [],
             slotCount: layoutSlots.length,
             pageSegModes,
             textLength: blocks.reduce((sum, block) => sum + safeText(block.text).length, 0),
+            slotAttempts,
             slotTextPreviews: blocks.map((block) => ({
               slotId: layoutSlots[block.lineIndex]?.id || "",
               text: safeText(block.text).slice(0, 80),

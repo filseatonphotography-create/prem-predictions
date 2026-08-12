@@ -241,8 +241,8 @@ describe("Fantasy IQ name and team matching", () => {
       {
         id: "fpl:bruno",
         sourceId: 777,
-        firstName: "Bruno",
-        lastName: "Fernandes",
+        firstName: "",
+        lastName: "",
         displayName: "Bruno Fernandes",
         name: "Bruno Fernandes",
         webName: "Bruno Fernandes",

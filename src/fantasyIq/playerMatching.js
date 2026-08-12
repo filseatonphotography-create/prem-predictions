@@ -84,10 +84,13 @@ function getFantasyPlayerSurname(player) {
 }
 
 function getFantasyPlayerInitialSurnameAliases(player = {}) {
-  const firstTokens = tokeniseFantasyPlayerName(player?.firstName);
-  const surname = getFantasyPlayerSurname(player);
-  if (!firstTokens.length || !surname || surname.length < 3) return [];
-  return [`${firstTokens[0][0]} ${surname}`];
+  const fullNameTokens = [
+    tokeniseFantasyPlayerName([player?.firstName, player?.lastName].filter(Boolean).join(" ")),
+    tokeniseFantasyPlayerName(player?.displayName || player?.name),
+  ].find((tokens) => tokens.length >= 2) || [];
+  const surname = getFantasyPlayerSurname(player) || fullNameTokens[fullNameTokens.length - 1] || "";
+  if (!fullNameTokens.length || !surname || surname.length < 3) return [];
+  return [`${fullNameTokens[0][0]} ${surname}`];
 }
 
 function levenshteinDistance(a, b) {
