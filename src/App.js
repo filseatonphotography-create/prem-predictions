@@ -450,6 +450,12 @@ function formatUsernameForDisplay(username, maxLength = USERNAME_DISPLAY_LENGTH)
   return `${name.slice(0, Math.max(1, maxLength - 3))}...`;
 }
 
+function formatCompactFantasyPitchName(name, maxLength = 9) {
+  const label = String(name || "").trim();
+  if (label.length <= maxLength) return label;
+  return `${label.slice(0, Math.max(1, maxLength - 3))}...`;
+}
+
 function formatProfileDate(value) {
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return "Unknown";
@@ -12720,6 +12726,8 @@ useEffect(() => {
       const compactTile = options.compactTile || isMobile || compact;
       const shirtPatternId = `kit-${kit.teamCode}-${player?.id || player?.displayName || "slot"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
       const kitCode = String(kit.teamCode || "TBC").slice(0, 3).toUpperCase();
+      const fullPlayerLabel = player?.webName || player?.displayName || player?.name || "Player";
+      const pitchPlayerLabel = formatCompactFantasyPitchName(fullPlayerLabel, compactTile ? 9 : 12);
       return (
         <div
           key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
@@ -12827,7 +12835,7 @@ useEffect(() => {
             </svg>
           </div>
           <div
-            title={player?.displayName || player?.name || ""}
+            title={player?.displayName || player?.name || fullPlayerLabel}
             style={{
               maxWidth: compactTile ? 74 : 96,
               padding: "3px 5px",
@@ -12838,10 +12846,12 @@ useEffect(() => {
               fontWeight: 950,
               lineHeight: 1.1,
               textAlign: "center",
-              overflowWrap: "anywhere",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
-            {player?.webName || player?.displayName || player?.name || "Player"}
+            {pitchPlayerLabel}
             {player?.isCaptain ? " C" : player?.isViceCaptain ? " V" : ""}
           </div>
           {!options.hideMeta && (
