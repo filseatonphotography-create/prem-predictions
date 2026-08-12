@@ -3,6 +3,7 @@ import {
   buildFantasyIqTransferSquad,
   compareFantasyIqReports,
   createFantasyTransferIqComparison,
+  createFantasyTransferIqRecommendations,
   getFantasyTransferLegalBlocker,
   requiresFantasyTransferAvailabilityAcknowledgement,
 } from "./transferIq";
@@ -113,6 +114,12 @@ const incomingMid = { id: "in-mid", name: "Incoming Mid", displayName: "Incoming
 const incomingDef = { id: "in-def", name: "Incoming Def", displayName: "Incoming Def", teamCode: "CHE", teamName: "Chelsea", position: "DEF", active: true, availabilityStatus: "available" };
 const incomingGk = { id: "in-gk", name: "Incoming GK", displayName: "Incoming GK", teamCode: "CHE", teamName: "Chelsea", position: "GK", active: true, availabilityStatus: "available" };
 const doubtfulMid = { ...incomingMid, id: "in-doubt", availabilityStatus: "doubtful" };
+const recommendationPool = [
+  { ...incomingMid, id: "in-mid-a", displayName: "Incoming Mid A", price: 7.2, priceTenths: 72, teamCode: "CHE", externalMetadata: { form: "7", pointsPerGame: "6", starts: 10, minutes: 900, selectedByPercent: "18" } },
+  { ...incomingMid, id: "in-mid-b", displayName: "Incoming Mid B", price: 6.4, priceTenths: 64, teamCode: "TOT", externalMetadata: { form: "6", pointsPerGame: "5", starts: 9, minutes: 820, selectedByPercent: "12" } },
+  { ...incomingDef, id: "in-def-a", displayName: "Incoming Def A", price: 5.1, priceTenths: 51, teamCode: "CHE", externalMetadata: { form: "6", pointsPerGame: "5", starts: 10, minutes: 900, selectedByPercent: "15" } },
+  { ...incomingDef, id: "in-def-b", displayName: "Incoming Def B", price: 4.8, priceTenths: 48, teamCode: "TOT", externalMetadata: { form: "5", pointsPerGame: "4", starts: 8, minutes: 760, selectedByPercent: "10" } },
+];
 
 describe("Transfer IQ squad building", () => {
   test("valid same-position replacement creates a proposed squad", () => {
@@ -375,5 +382,50 @@ describe("Transfer IQ report comparison", () => {
     const scoreReport = jest.fn(() => makeReport());
     createFantasyTransferIqComparison({ currentSquad: makeSquad(), outgoingPlayerId: "p6", incomingPlayer: incomingMid, normaliseSquad, validateSquad, scoreReport });
     expect(scoreReport).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Transfer IQ recommendations", () => {
+  test("generates legal budget-aware multi-transfer suggestions", () => {
+    const scoreReport = jest.fn(({ squad }) => {
+      const hasBestMid = squad.players.some((player) => player.id === "in-mid-a");
+      const hasBestDef = squad.players.some((player) => player.id === "in-def-a");
+      return makeReport({ overallScore: 70 + (hasBestMid ? 8 : 0) + (hasBestDef ? 5 : 0) });
+    });
+    const result = createFantasyTransferIqRecommendations({
+      currentSquad: makeSquad(),
+      availablePlayers: recommendationPool,
+      transferCount: "2",
+      normaliseSquad,
+      validateSquad,
+      scoreReport,
+      scoreContext: {
+        clubOutlooks: {
+          CHE: { overallScore: 86, attackScore: 88, defenceScore: 84 },
+          TOT: { overallScore: 78, attackScore: 77, defenceScore: 79 },
+        },
+      },
+    });
+    expect(result.status).toBe("ready");
+    expect(result.recommendations[0].actualCount).toBe(2);
+    expect(result.recommendations[0].validation.isValid).toBe(true);
+    expect(result.recommendations[0].proposedSquad.players).toHaveLength(15);
+    expect(result.recommendations[0].impact.overallDelta).toBeGreaterThan(0);
+  });
+
+  test("does not suggest transferring out captaincy players automatically", () => {
+    const result = createFantasyTransferIqRecommendations({
+      currentSquad: makeSquad(),
+      availablePlayers: recommendationPool,
+      transferCount: "1",
+      normaliseSquad,
+      validateSquad,
+      scoreReport: jest.fn(() => makeReport()),
+    });
+    const outgoingIds = result.recommendations.flatMap((recommendation) =>
+      recommendation.transfers.map((transfer) => transfer.outgoingPlayerId)
+    );
+    expect(outgoingIds).not.toContain("p5");
+    expect(outgoingIds).not.toContain("p2");
   });
 });

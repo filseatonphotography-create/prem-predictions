@@ -31,9 +31,11 @@ import {
 } from "./fantasyIq/screenshotImport";
 import {
   FANTASY_TRANSFER_IQ_CATEGORY_LABELS,
+  FANTASY_TRANSFER_RECOMMENDATION_COUNTS,
   FANTASY_TRANSFER_IQ_VERSION,
   buildFantasyIqTransferSquad,
   createFantasyTransferIqComparison,
+  createFantasyTransferIqRecommendations,
   getFantasyTransferLegalBlocker,
   requiresFantasyTransferAvailabilityAcknowledgement,
 } from "./fantasyIq/transferIq";
@@ -5330,6 +5332,9 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [fantasyTransferInTeamFilter, setFantasyTransferInTeamFilter] = useState("ALL");
   const [fantasyTransferShowAllCategories, setFantasyTransferShowAllCategories] = useState(false);
   const [fantasyTransferApplyPending, setFantasyTransferApplyPending] = useState(false);
+  const [fantasyTransferRecommendationCount, setFantasyTransferRecommendationCount] = useState("1");
+  const [fantasyTransferRecommendations, setFantasyTransferRecommendations] = useState(null);
+  const [fantasyTransferRecommendationApplyId, setFantasyTransferRecommendationApplyId] = useState("");
   const [fantasyLineupIqState, setFantasyLineupIqState] = useState(null);
   const [fantasyLineupApplyMode, setFantasyLineupApplyMode] = useState(null);
   const [fantasyLineupManualMode, setFantasyLineupManualMode] = useState(false);
@@ -5951,12 +5956,14 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyTransferInTeamFilter("ALL");
     setFantasyTransferShowAllCategories(false);
     setFantasyTransferApplyPending(false);
+    setFantasyTransferRecommendations(null);
+    setFantasyTransferRecommendationApplyId("");
   };
 
   const getFantasyTransferScoreContext = () => {
     const currentPredictions = predictions[currentPredictionKey] || {};
     return {
-      clubOutlooks: buildFantasyIqClubOutlooks(activeFixtures, results, leaguePerformanceContext),
+      clubOutlooks: buildFantasyIqClubOutlooks(activeFixtures, results, leaguePerformanceContext, { horizon: 5 }),
       predictionOutlooks: buildFantasyIqPredictionOutlooks(activeFixtures, currentPredictions, selectedGameweek),
       playerDataStatus: fantasyPlayerData,
     };
@@ -6010,6 +6017,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     });
     setFantasyTransferShowAllCategories(false);
     setFantasyTransferApplyPending(false);
+    setFantasyTransferRecommendations(null);
+    setFantasyTransferRecommendationApplyId("");
     setFantasyIqSquadStatus("");
   };
 
@@ -6033,6 +6042,58 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     setFantasyTransferInTeamFilter("ALL");
     setFantasyTransferShowAllCategories(false);
     setFantasyTransferApplyPending(false);
+    setFantasyTransferRecommendationApplyId("");
+  };
+
+  const generateFantasyTransferRecommendations = () => {
+    if (!fantasyIqSquad?.confirmed) {
+      setFantasyIqSquadStatus("Confirm your fantasy squad before generating transfer suggestions.");
+      return;
+    }
+    const recommendations = createFantasyTransferIqRecommendations({
+      currentSquad: fantasyIqSquad,
+      availablePlayers: fantasyPlayerData.players || [],
+      transferCount: fantasyTransferRecommendationCount,
+      normaliseSquad: normaliseFantasyIqSquad,
+      validateSquad: validateFantasyIqSquad,
+      scoreReport: buildFantasyIqScoredReport,
+      scoreContext: getFantasyTransferScoreContext(),
+      maxResults: 5,
+    });
+    setFantasyTransferRecommendations(recommendations);
+    setFantasyTransferRecommendationApplyId("");
+    setFantasyIqSquadStatus(
+      recommendations.recommendations?.length
+        ? `Transfer IQ found ${recommendations.recommendations.length} legal suggestion${recommendations.recommendations.length === 1 ? "" : "s"}.`
+        : recommendations.warnings?.[0] || "No legal transfer suggestions found."
+    );
+  };
+
+  const handleApplyFantasyTransferRecommendation = (recommendation) => {
+    if (!recommendation?.proposedSquad || recommendation.status !== "recommended") return;
+    const riskyIncoming = (recommendation.transfers || [])
+      .map((transfer) => transfer.incomingPlayer)
+      .find(requiresFantasyTransferAvailabilityAcknowledgement);
+    if (riskyIncoming) {
+      setFantasyIqSquadStatus("This recommendation includes an availability concern. Check team news before applying it to your Fantasy IQ squad.");
+      return;
+    }
+    if (fantasyTransferRecommendationApplyId !== recommendation.id) {
+      setFantasyTransferRecommendationApplyId(recommendation.id);
+      setFantasyIqSquadStatus("Apply this recommendation to your saved Fantasy IQ squad? This only updates your squad inside Prediction Addiction.");
+      return;
+    }
+    const saved = saveFantasyIqSquad(fantasyIqUserIdentifier, {
+      ...recommendation.proposedSquad,
+      confirmed: true,
+      source: "transfer-iq-recommendation",
+      updatedAt: new Date().toISOString(),
+    });
+    setFantasyIqSquad(saved);
+    setFantasyIqEditingSquad(saved);
+    resetFantasyTransferIq();
+    setFantasyIqSquadStatus("Transfer IQ recommendation applied to your Fantasy IQ squad.");
+    queueFantasyIqHistoryPrompt("Your Transfer IQ recommendation changed your Fantasy IQ squad.");
   };
 
   const selectFantasyTransferIncomingPlayer = (player) => {
@@ -6075,6 +6136,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     });
     setFantasyTransferShowAllCategories(false);
     setFantasyTransferApplyPending(false);
+    setFantasyTransferRecommendationApplyId("");
   };
 
   const setFantasyTransferReplacementCaptain = (type, playerId) => {
@@ -10226,6 +10288,7 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
     : profile.coinsProfit !== null
     ? `${Number(profile.coinsProfit || 0).toFixed(2)} season profit`
     : "No coins data";
+  const fullPlayerName = row.player || displayPlayerName;
 
   return (
     <div
@@ -10295,6 +10358,9 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
             gap: 8,
           }}
         >
+          <div style={{ gridColumn: "1 / -1", textAlign: "center", color: theme.text, fontSize: 16, fontWeight: 950, overflowWrap: "anywhere" }}>
+            {fullPlayerName}
+          </div>
           {[
             { label: "Member since", value: profile.memberSince },
             { label: isWorldCupMode ? "Favourite country" : "Favourite team", value: profile.favorite },
@@ -12407,7 +12473,7 @@ useEffect(() => {
                 {player.availabilityStatus && player.availabilityStatus !== "available" ? ` · ${player.availabilityStatus}` : ""}
               </div>
               <div style={{ color: theme.muted, fontSize: 11 }}>
-                Three-week outlook {formatFantasyIqScore(outlook?.fantasyIqScore) || "Locked"} · {["GK", "DEF"].includes(player.position) ? "Defence" : "Attack"} {formatFantasyIqScore(relevantScore) || "Locked"}
+                Five-gameweek outlook {formatFantasyIqScore(outlook?.fantasyIqScore) || "Locked"} · {["GK", "DEF"].includes(player.position) ? "Defence" : "Attack"} {formatFantasyIqScore(relevantScore) || "Locked"}
               </div>
             </>
           )}
@@ -12444,6 +12510,63 @@ useEffect(() => {
         )}
       </div>
     );
+    const renderFantasyTransferRecommendation = (recommendation, index) => {
+      const impact = recommendation.impact || {};
+      const budget = recommendation.validation?.summary?.budget;
+      const riskyIncoming = (recommendation.transfers || [])
+        .map((transfer) => transfer.incomingPlayer)
+        .find(requiresFantasyTransferAvailabilityAcknowledgement);
+      const isApplyPending = fantasyTransferRecommendationApplyId === recommendation.id;
+      return (
+        <div
+          key={recommendation.id}
+          style={{
+            border: `1px solid ${index === 0 ? theme.accent2 : theme.line}`,
+            borderRadius: 10,
+            background: index === 0 ? "rgba(34,197,94,0.1)" : "rgba(255,255,255,0.04)",
+            padding: 10,
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto", gap: 8, alignItems: "center" }}>
+            <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>
+              Option {index + 1}: {recommendation.actualCount} transfer{recommendation.actualCount === 1 ? "" : "s"}
+            </div>
+            <div style={{ color: Number(impact.overallDelta) > 0 ? theme.accent2 : Number(impact.overallDelta) < 0 ? theme.warn : theme.muted, fontSize: 13, fontWeight: 950 }}>
+              Fantasy IQ {impact.overall?.current ?? "NA"} → {impact.overall?.proposed ?? "NA"} · {formatFantasyTransferDelta(impact.overallDelta)}
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 5 }}>
+            {(recommendation.transfers || []).map((transfer) => (
+              <div key={`${recommendation.id}-${transfer.outgoingPlayerId}-${transfer.incomingPlayerId}`} style={{ color: theme.text, fontSize: 12, lineHeight: 1.35 }}>
+                {(transfer.outgoingPlayer?.displayName || transfer.outgoingPlayer?.name || "Player out")} to {(transfer.incomingPlayer?.displayName || transfer.incomingPlayer?.name || "Player in")}
+                <span style={{ color: theme.muted }}> · {transfer.incomingPlayer?.teamCode || "TBC"} · {transfer.incomingPlayer?.position || "POS"} · {formatFantasyIqBudget(transfer.incomingPlayer?.price)}</span>
+                {transfer.incomingPlayer?.availabilityStatus && transfer.incomingPlayer.availabilityStatus !== "available" ? <span style={{ color: theme.warn }}> · {transfer.incomingPlayer.availabilityStatus}</span> : null}
+              </div>
+            ))}
+          </div>
+          <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+            {impact.verdict || "Compared"} · Budget {budget?.totalCost == null ? "NA" : `${formatFantasyIqBudget(budget.totalCost)} used`} · {(impact.recommendationSummary || []).slice(0, 1).join(" ")}
+          </div>
+          {riskyIncoming && (
+            <div style={{ color: theme.warn, fontSize: 11 }}>
+              Availability concern: {riskyIncoming.displayName || riskyIncoming.name}. Check official team news before acting.
+            </div>
+          )}
+          <div>
+            <button
+              type="button"
+              disabled={!!riskyIncoming}
+              onClick={() => handleApplyFantasyTransferRecommendation(recommendation)}
+              style={{ ...pillBtn(!riskyIncoming), padding: "7px 9px", fontSize: 11 }}
+            >
+              {isApplyPending ? "Confirm Apply Recommendation" : "Apply Recommendation"}
+            </button>
+          </div>
+        </div>
+      );
+    };
     const formatFantasyLineupScore = (value) => value == null ? "NA" : `${Math.round(Number(value))}`;
     const formatFantasyLineupDelta = (value) =>
       value == null ? "NA" : Number(value) > 0 ? `+${Math.round(Number(value))}` : `${Math.round(Number(value))}`;
@@ -12827,7 +12950,53 @@ useEffect(() => {
           ) : !comparison ? (
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ color: theme.muted, fontSize: 12, lineHeight: 1.35 }}>
-                See how one player change could affect your Fantasy IQ over the next three gameweeks.
+                Generate legal transfer suggestions for the next five gameweeks, or compare one specific transfer yourself.
+              </div>
+              <div
+                style={{
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 10,
+                  background: "rgba(255,255,255,0.04)",
+                  padding: 10,
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <div style={{ color: theme.text, fontSize: 13, fontWeight: 950 }}>Transfer suggestions</div>
+                <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "1fr" : "minmax(0, 1fr) auto", gap: 8 }}>
+                  <select
+                    aria-label="Number of transfer suggestions"
+                    value={fantasyTransferRecommendationCount}
+                    onChange={(event) => {
+                      setFantasyTransferRecommendationCount(event.target.value);
+                      setFantasyTransferRecommendations(null);
+                      setFantasyTransferRecommendationApplyId("");
+                    }}
+                    style={{ ...probInput, padding: "8px 10px", fontSize: 12 }}
+                  >
+                    {FANTASY_TRANSFER_RECOMMENDATION_COUNTS.map((count) => (
+                      <option key={`transfer-count-${count}`} value={count}>
+                        {count === "ALL" ? "All (Wildcard / Free Hit)" : `${count} transfer${count === "1" ? "" : "s"}`}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={generateFantasyTransferRecommendations} style={{ ...pillBtn(true), padding: "8px 10px", fontSize: 12 }}>
+                    Suggest Transfers
+                  </button>
+                </div>
+                <div style={{ color: theme.muted, fontSize: 11, lineHeight: 1.35 }}>
+                  Suggestions respect budget, position structure and the three-players-per-club limit, using fixtures, form, availability and playing-time data.
+                </div>
+                {fantasyTransferRecommendations?.warnings?.length ? (
+                  <div style={{ color: theme.warn, fontSize: 12 }}>
+                    {fantasyTransferRecommendations.warnings[0]}
+                  </div>
+                ) : null}
+                {fantasyTransferRecommendations?.recommendations?.length ? (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {fantasyTransferRecommendations.recommendations.map(renderFantasyTransferRecommendation)}
+                  </div>
+                ) : null}
               </div>
               <button type="button" onClick={openFantasyTransferIq} style={{ ...pillBtn(true), padding: "8px 10px", fontSize: 12 }}>
                 Compare a Transfer

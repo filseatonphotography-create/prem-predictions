@@ -443,6 +443,37 @@ describe("Prediction Addiction suggested team", () => {
     expect(defensive.starters.some((player) => player.id === premiumMidfielder.id)).toBe(true);
   });
 
+  test("defensive style does not bench an expensive playable midfielder behind cheaper attackers", () => {
+    const expensiveMidfielder = makePlayer("szoboszlai-style-mid", "MID", "LIV", 7.1, {
+      displayName: "Dominik Szoboszlai",
+      externalMetadata: recentStarterMetadata({
+        form: 6.8,
+        pointsPerGame: 5.8,
+        selectedByPercent: 22,
+        minutes: 900,
+        starts: 10,
+      }),
+    });
+    const defensive = createFantasySuggestedTeam({
+      players: [expensiveMidfielder, ...makePool()],
+      clubOutlooks: makeOutlooks(),
+      validateSquad,
+      scoreReport,
+      playerDataStatus: { status: "ready", cacheStatus: "live" },
+      style: "defensive",
+    });
+    const cheapestStartingAttacker = Math.min(
+      ...defensive.starters
+        .filter((player) => ["MID", "FWD"].includes(player.position))
+        .map((player) => Number(player.price || 0))
+    );
+
+    expect(defensive.status).toBe("ready");
+    expect(defensive.players.some((player) => player.id === expensiveMidfielder.id)).toBe(true);
+    expect(expensiveMidfielder.price).toBeGreaterThan(cheapestStartingAttacker);
+    expect(defensive.starters.some((player) => player.id === expensiveMidfielder.id)).toBe(true);
+  });
+
   test("defensive style does not pay premium forward prices for bench slots", () => {
     const players = [
       ...makePool(),

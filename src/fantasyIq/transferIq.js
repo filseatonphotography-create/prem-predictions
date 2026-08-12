@@ -24,6 +24,8 @@ export const FANTASY_TRANSFER_IQ_VERDICT_THRESHOLDS = {
   mixedCategoryMove: 10,
 };
 
+export const FANTASY_TRANSFER_RECOMMENDATION_COUNTS = ["1", "2", "3", "4", "5", "ALL"];
+
 function clone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
@@ -61,6 +63,10 @@ function defaultValidateSquad(squad) {
   return { isValid: true, valid: true, errors: [], messages: [], warnings: [], summary: {} };
 }
 
+function getPlayerName(player = {}) {
+  return player.displayName || player.name || player.webName || "Unknown player";
+}
+
 function toSquadPlayer(player = {}, outgoingPlayer = {}) {
   return {
     id: player.id,
@@ -90,6 +96,80 @@ function toSquadPlayer(player = {}, outgoingPlayer = {}) {
     reconciliationStatus: player.id ? "matched" : null,
     reconciliationConfidence: player.id ? 1 : null,
     temporary: !!player.temporary,
+  };
+}
+
+function getPlayerPrice(player = {}) {
+  const tenths = [
+    player.priceTenths,
+    player.externalMetadata?.nowCost,
+    player.externalMetadata?.now_cost,
+  ].find((value) => Number.isFinite(Number(value)) && Number(value) > 0);
+  if (tenths != null) return Number(tenths) / 10;
+  const price = Number(player.price ?? player.cost ?? player.externalMetadata?.price);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function scoreRecommendationPlayer(player = {}, clubOutlook = {}) {
+  const position = String(player.position || "").toUpperCase();
+  const fixtureScore = ["GK", "DEF"].includes(position)
+    ? clubOutlook.defenceScore ?? clubOutlook.overallScore
+    : clubOutlook.attackScore ?? clubOutlook.overallScore;
+  const form = Number(player.externalMetadata?.form ?? player.form);
+  const pointsPerGame = Number(player.externalMetadata?.pointsPerGame ?? player.externalMetadata?.points_per_game ?? player.pointsPerGame);
+  const selectedBy = Number(player.externalMetadata?.selectedByPercent ?? player.externalMetadata?.selected_by_percent ?? player.selectedByPercent);
+  const starts = Number(player.externalMetadata?.starts ?? player.starts);
+  const minutes = Number(player.externalMetadata?.minutes ?? player.minutes);
+  const price = getPlayerPrice(player);
+  const availabilityPenalty = hasActionableFantasyAvailabilityRisk(player) ? 18 : 0;
+  const starterScore =
+    (Number.isFinite(starts) ? Math.min(18, starts * 1.8) : 8) +
+    (Number.isFinite(minutes) ? Math.min(16, minutes / 120) : 6);
+  const dataScore =
+    (Number(fixtureScore) || 50) * 0.5 +
+    (Number.isFinite(form) ? Math.min(18, form * 2.4) : 8) +
+    (Number.isFinite(pointsPerGame) ? Math.min(18, pointsPerGame * 3) : 8) +
+    (Number.isFinite(selectedBy) ? Math.min(8, selectedBy / 5) : 3) +
+    starterScore;
+  const valueScore = price ? Math.max(-8, Math.min(8, (8 - price) * 1.5)) : 0;
+  return dataScore + valueScore - availabilityPenalty;
+}
+
+function transferSetKey(transfers = []) {
+  return transfers
+    .map((transfer) => `${transfer.outgoingPlayerId}->${transfer.incomingPlayerId}`)
+    .sort()
+    .join("|");
+}
+
+function applyTransferSet({
+  currentSquad,
+  transfers = [],
+  normaliseSquad = defaultNormaliseSquad,
+  validateSquad = defaultValidateSquad,
+  timestamp = nowIso(),
+} = {}) {
+  const current = normaliseSquad(clone(currentSquad));
+  const byOutgoingId = new Map(transfers.map((transfer) => [transfer.outgoingPlayerId, transfer]));
+  const proposedPlayers = (current.players || []).map((player) => {
+    const transfer = byOutgoingId.get(player.id);
+    if (!transfer) return { ...player };
+    return toSquadPlayer(transfer.incomingPlayer, player);
+  });
+  const proposedSquad = normaliseSquad({
+    ...current,
+    source: "transfer-iq",
+    players: proposedPlayers,
+    confirmed: true,
+    updatedAt: timestamp,
+    transferIqVersion: FANTASY_TRANSFER_IQ_VERSION,
+  });
+  const validation = validateSquad(proposedSquad);
+  return {
+    currentSquad: current,
+    proposedSquad,
+    validation,
+    status: validation?.isValid ? "ready" : "invalid",
   };
 }
 
@@ -267,8 +347,8 @@ function buildTransferExplanations({ outgoingPlayer, incomingPlayer, categoryDel
     addLine(improves, "attackOutlook", (delta) => `Attack Outlook improves by ${delta} points from stronger modelled scoring fixtures for ${incomingClub}.`);
     addLine(weakens, "attackOutlook", (delta) => `Attack Outlook reduces by ${Math.abs(delta)} points from weaker modelled scoring fixtures for ${incomingClub}.`);
   }
-  addLine(improves, "fixtureOutlook", (delta) => `Fixture Outlook improves by ${delta} points over the next three gameweeks.`);
-  addLine(weakens, "fixtureOutlook", (delta) => `Fixture Outlook reduces by ${Math.abs(delta)} points over the next three gameweeks.`);
+  addLine(improves, "fixtureOutlook", (delta) => `Fixture Outlook improves by ${delta} points over the next five gameweeks.`);
+  addLine(weakens, "fixtureOutlook", (delta) => `Fixture Outlook reduces by ${Math.abs(delta)} points over the next five gameweeks.`);
   addLine(improves, "captaincyOutlook", (delta) => `Captaincy Outlook improves by ${delta} points after the hypothetical captain and vice-captain setup.`);
   addLine(weakens, "captaincyOutlook", (delta) => `Captaincy Outlook reduces by ${Math.abs(delta)} points after the hypothetical captain and vice-captain setup.`);
   addLine(improves, "squadBalance", (delta) => `Squad Balance improves by ${delta} points through club and role distribution.`);
@@ -419,6 +499,191 @@ export function createFantasyTransferIqComparison({
       incomingPlayer,
     }),
     status: "compared",
+  };
+}
+
+export function createFantasyTransferIqRecommendations({
+  currentSquad,
+  availablePlayers = [],
+  transferCount = "1",
+  normaliseSquad = defaultNormaliseSquad,
+  validateSquad = defaultValidateSquad,
+  scoreReport,
+  scoreContext = {},
+  maxPlayersPerClub = 3,
+  maxResults = 5,
+  candidateLimitPerPosition = 12,
+  beamWidth = 24,
+  timestamp = nowIso(),
+} = {}) {
+  const current = normaliseSquad(clone(currentSquad));
+  const currentValidation = validateSquad(current);
+  const currentPlayers = Array.isArray(current.players) ? current.players : [];
+  const countLabel = String(transferCount || "1").toUpperCase();
+  const requestedCount = countLabel === "ALL"
+    ? Math.max(1, Math.min(15, currentPlayers.length))
+    : Math.max(1, Math.min(5, Math.round(Number(countLabel) || 1)));
+  const currentReport = typeof scoreReport === "function"
+    ? scoreReport({ squad: current, validation: currentValidation, ...scoreContext })
+    : null;
+
+  if (!currentPlayers.length || !currentValidation?.isValid || typeof scoreReport !== "function") {
+    return {
+      status: "locked",
+      transferCount: countLabel,
+      requestedCount,
+      currentSquad: current,
+      currentReport,
+      recommendations: [],
+      warnings: ["Confirm a valid Fantasy IQ squad before generating transfer suggestions."],
+      version: FANTASY_TRANSFER_IQ_VERSION,
+    };
+  }
+
+  const ownedIds = new Set(currentPlayers.map((player) => player.id));
+  const captainIds = new Set([
+    current.captainPlayerId,
+    current.viceCaptainPlayerId,
+    ...currentPlayers.filter((player) => player.isCaptain || player.isViceCaptain).map((player) => player.id),
+  ].filter(Boolean));
+  const clubOutlooks = scoreContext.clubOutlooks || {};
+  const outgoingCandidates = currentPlayers
+    .filter((player) => !captainIds.has(player.id))
+    .map((player) => ({
+      player,
+      score: scoreRecommendationPlayer(player, clubOutlooks[player.teamCode] || {}),
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, countLabel === "ALL" ? 15 : Math.max(6, requestedCount * 4))
+    .map((item) => item.player);
+  const incomingByPosition = {};
+  ["GK", "DEF", "MID", "FWD"].forEach((position) => {
+    incomingByPosition[position] = (availablePlayers || [])
+      .filter((player) => player?.id && player.active !== false)
+      .filter((player) => String(player.position || "").toUpperCase() === position)
+      .filter((player) => !ownedIds.has(player.id))
+      .map((player) => ({
+        player,
+        score: scoreRecommendationPlayer(player, clubOutlooks[player.teamCode] || {}),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, candidateLimitPerPosition)
+      .map((item) => item.player);
+  });
+
+  let beams = [{ transfers: [], squad: current, score: Number(currentReport?.overallScore) || 0 }];
+  const finished = [];
+  const seen = new Set();
+
+  for (let depth = 0; depth < requestedCount; depth += 1) {
+    const nextBeams = [];
+    beams.forEach((beam) => {
+      const usedOutgoingIds = new Set(beam.transfers.map((transfer) => transfer.outgoingPlayerId));
+      const usedIncomingIds = new Set(beam.transfers.map((transfer) => transfer.incomingPlayerId));
+      outgoingCandidates
+        .filter((outgoingPlayer) => !usedOutgoingIds.has(outgoingPlayer.id))
+        .forEach((outgoingPlayer) => {
+          const position = String(outgoingPlayer.position || "").toUpperCase();
+          (incomingByPosition[position] || [])
+            .filter((incomingPlayer) => !usedIncomingIds.has(incomingPlayer.id))
+            .forEach((incomingPlayer) => {
+              const blocker = getFantasyTransferLegalBlocker({
+                currentSquad: beam.squad,
+                outgoingPlayerId: outgoingPlayer.id,
+                incomingPlayer,
+                maxPlayersPerClub,
+              });
+              if (blocker) return;
+              const transfers = [
+                ...beam.transfers,
+                {
+                  outgoingPlayerId: outgoingPlayer.id,
+                  incomingPlayerId: incomingPlayer.id,
+                  outgoingPlayer,
+                  incomingPlayer,
+                },
+              ];
+              const key = transferSetKey(transfers);
+              if (seen.has(key)) return;
+              seen.add(key);
+              const built = applyTransferSet({
+                currentSquad: current,
+                transfers,
+                normaliseSquad,
+                validateSquad,
+                timestamp,
+              });
+              if (!built.validation?.isValid) return;
+              const proposedReport = scoreReport({
+                squad: built.proposedSquad,
+                validation: built.validation,
+                ...scoreContext,
+              });
+              const impact = compareFantasyIqReports(currentReport, proposedReport, {
+                outgoingPlayer,
+                incomingPlayer,
+              });
+              nextBeams.push({
+                transfers,
+                squad: built.proposedSquad,
+                validation: built.validation,
+                proposedReport,
+                impact,
+                score: Number(proposedReport?.overallScore) || 0,
+              });
+            });
+        });
+    });
+    nextBeams.sort((a, b) =>
+      (Number(b.impact?.overallDelta) || 0) - (Number(a.impact?.overallDelta) || 0) ||
+      b.score - a.score
+    );
+    beams = nextBeams.slice(0, beamWidth);
+    finished.push(...beams.filter((beam) => beam.transfers.length === requestedCount));
+    if (!beams.length) break;
+  }
+
+  const recommendations = (countLabel === "ALL" ? beams : finished)
+    .filter((beam) => beam.transfers.length > 0)
+    .sort((a, b) =>
+      (Number(b.impact?.overallDelta) || 0) - (Number(a.impact?.overallDelta) || 0) ||
+      b.score - a.score
+    )
+    .slice(0, maxResults)
+    .map((beam, index) => ({
+      id: `transfer-rec-${index + 1}-${transferSetKey(beam.transfers).replace(/[^a-zA-Z0-9]+/g, "-")}`,
+      createdAt: timestamp,
+      transferCount: countLabel,
+      requestedCount,
+      actualCount: beam.transfers.length,
+      transfers: beam.transfers.map((transfer) => ({
+        outgoingPlayerId: transfer.outgoingPlayerId,
+        incomingPlayerId: transfer.incomingPlayerId,
+        outgoingPlayer: transfer.outgoingPlayer,
+        incomingPlayer: transfer.incomingPlayer,
+        summary: `${getPlayerName(transfer.outgoingPlayer)} to ${getPlayerName(transfer.incomingPlayer)}`,
+      })),
+      currentSquad: current,
+      proposedSquad: beam.squad,
+      currentReport,
+      proposedReport: beam.proposedReport,
+      validation: beam.validation,
+      impact: beam.impact,
+      version: FANTASY_TRANSFER_IQ_VERSION,
+      status: "recommended",
+    }));
+
+  return {
+    status: recommendations.length ? "ready" : "empty",
+    transferCount: countLabel,
+    requestedCount,
+    currentSquad: current,
+    currentReport,
+    recommendations,
+    warnings: recommendations.length
+      ? []
+      : ["No legal transfer suggestions matched the selected transfer count, budget and team limits."],
+    version: FANTASY_TRANSFER_IQ_VERSION,
   };
 }
 

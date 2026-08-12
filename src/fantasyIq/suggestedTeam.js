@@ -103,6 +103,7 @@ export const FANTASY_SUGGESTED_TEAM_CONFIG = {
       singleForwardRequiresPremium: true,
       singleForwardMinimumFixtureScore: 62,
       premiumAttackerMustStart: true,
+      expensiveAttackerMustStart: true,
       maxStartingDefensivePlayersPerClub: 2,
     },
   },
@@ -482,9 +483,25 @@ function getBenchPremiumWaste(squad = {}, styleConfig = {}) {
 
 function getBenchedPremiumStarterAttackers(squad = {}, styleConfig = {}, config = FANTASY_SUGGESTED_TEAM_CONFIG) {
   if (!styleConfig.premiumAttackerMustStart) return [];
+  const startingAttackers = (squad.players || []).filter((player) =>
+    player.squadRole === "starter" &&
+    ["MID", "FWD"].includes(player.position)
+  );
+  const cheapestStartingAttackerPrice = Math.min(
+    ...startingAttackers.map((player) => Number(player.price || 0)).filter((price) => price > 0)
+  );
   return (squad.players || []).filter((player) =>
     player.squadRole === "bench" &&
-    (isPremiumAttacker(player, config) || isMustStartAttacker(player, config)) &&
+    (
+      isPremiumAttacker(player, config) ||
+      isMustStartAttacker(player, config) ||
+      (
+        styleConfig.expensiveAttackerMustStart &&
+        ["MID", "FWD"].includes(player.position) &&
+        Number.isFinite(cheapestStartingAttackerPrice) &&
+        Number(player.price || 0) > cheapestStartingAttackerPrice + 0.05
+      )
+    ) &&
     hasStyleStarterEvidence(player, styleConfig, config)
   );
 }
@@ -777,9 +794,22 @@ function chooseStarters(players = [], config = FANTASY_SUGGESTED_TEAM_CONFIG, st
       if (starters.length !== 11) return null;
       const styleFormationBonus = Math.max(0, 80 - (formationRank.get(formation.label) ?? 99) * 14);
       const starterIdSet = new Set(starters.map((player) => player.id));
+      const startingAttackers = starters.filter((player) => ["MID", "FWD"].includes(player.position));
+      const cheapestStartingAttackerPrice = Math.min(
+        ...startingAttackers.map((player) => Number(player.price || 0)).filter((price) => price > 0)
+      );
       const benchedPremiumAttackers = players.filter((player) =>
         !starterIdSet.has(player.id) &&
-        (isPremiumAttacker(player, config) || isMustStartAttacker(player, config)) &&
+        (
+          isPremiumAttacker(player, config) ||
+          isMustStartAttacker(player, config) ||
+          (
+            styleConfig.expensiveAttackerMustStart &&
+            ["MID", "FWD"].includes(player.position) &&
+            Number.isFinite(cheapestStartingAttackerPrice) &&
+            Number(player.price || 0) > cheapestStartingAttackerPrice + 0.05
+          )
+        ) &&
         hasStyleStarterEvidence(player, styleConfig, config)
       );
       const premiumBenchPenalty = styleConfig.premiumAttackerMustStart
