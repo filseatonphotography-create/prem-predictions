@@ -1635,14 +1635,46 @@ function formatFantasyIqBudget(value) {
   return Number.isFinite(Number(value)) ? `£${Number(value).toFixed(1)}m` : "NA";
 }
 
-function getFantasyPlayerPhotoUrl(player = {}) {
-  const directUrl = String(player.photoUrl || player.externalMetadata?.photoUrl || "").trim();
-  if (directUrl) return directUrl;
-  const photoCode = Number(player.photoCode || player.externalMetadata?.photoCode || 0);
-  if (Number.isFinite(photoCode) && photoCode > 0) {
-    return `https://resources.premierleague.com/premierleague/photos/players/110x140/p${photoCode}.png`;
-  }
-  return "";
+const FANTASY_KIT_STYLES_BY_TEAM = {
+  ARS: { primary: "#D71920", secondary: "#F8FAFC", text: "#FFFFFF", pattern: "sleeves" },
+  AVL: { primary: "#7A003C", secondary: "#95BFE5", text: "#FFFFFF", pattern: "sleeves" },
+  BOU: { primary: "#D71920", secondary: "#111827", text: "#FFFFFF", pattern: "stripes" },
+  BRE: { primary: "#E30613", secondary: "#FFFFFF", text: "#111827", pattern: "stripes" },
+  BHA: { primary: "#0057B8", secondary: "#FFFFFF", text: "#FFFFFF", pattern: "stripes" },
+  BUR: { primary: "#6C1D45", secondary: "#99D6EA", text: "#FFFFFF", pattern: "sleeves" },
+  CHE: { primary: "#034694", secondary: "#1D4ED8", text: "#FFFFFF", pattern: "solid" },
+  CRY: { primary: "#1B458F", secondary: "#C4122E", text: "#FFFFFF", pattern: "stripes" },
+  EVE: { primary: "#003399", secondary: "#FFFFFF", text: "#FFFFFF", pattern: "solid" },
+  FUL: { primary: "#F8FAFC", secondary: "#111827", text: "#111827", pattern: "sleeves" },
+  IPS: { primary: "#1D4ED8", secondary: "#F8FAFC", text: "#FFFFFF", pattern: "solid" },
+  LEE: { primary: "#F8FAFC", secondary: "#1D4ED8", text: "#1D4ED8", pattern: "solid" },
+  LEI: { primary: "#0053A0", secondary: "#FDBE11", text: "#FFFFFF", pattern: "solid" },
+  LIV: { primary: "#C8102E", secondary: "#B91C1C", text: "#FFFFFF", pattern: "solid" },
+  MCI: { primary: "#6CABDD", secondary: "#FFFFFF", text: "#1F2937", pattern: "sash" },
+  MUN: { primary: "#DA291C", secondary: "#111827", text: "#FFFFFF", pattern: "solid" },
+  NEW: { primary: "#111827", secondary: "#FFFFFF", text: "#FFFFFF", pattern: "stripes" },
+  NFO: { primary: "#DD0000", secondary: "#F8FAFC", text: "#FFFFFF", pattern: "solid" },
+  SUN: { primary: "#E30613", secondary: "#FFFFFF", text: "#111827", pattern: "stripes" },
+  TOT: { primary: "#F8FAFC", secondary: "#132257", text: "#132257", pattern: "solid" },
+  WHU: { primary: "#7A263A", secondary: "#1BB1E7", text: "#FFFFFF", pattern: "sleeves" },
+  WOL: { primary: "#FDB913", secondary: "#111827", text: "#111827", pattern: "solid" },
+  HUL: { primary: "#F59E0B", secondary: "#111827", text: "#111827", pattern: "stripes" },
+  COV: { primary: "#75C9E8", secondary: "#FFFFFF", text: "#1F2937", pattern: "stripes" },
+  XI: { primary: "#64748B", secondary: "#94A3B8", text: "#FFFFFF", pattern: "solid" },
+  BEN: { primary: "#475569", secondary: "#94A3B8", text: "#FFFFFF", pattern: "solid" },
+};
+
+function getFantasyKitStyle(player = {}) {
+  const teamCode = String(player.teamCode || "").trim().toUpperCase();
+  return {
+    teamCode: teamCode || "TBC",
+    ...(FANTASY_KIT_STYLES_BY_TEAM[teamCode] || {
+      primary: "#64748B",
+      secondary: "#94A3B8",
+      text: "#FFFFFF",
+      pattern: "solid",
+    }),
+  };
 }
 
 function getFantasyIqPlayerValueScore(player = {}) {
@@ -12647,8 +12679,9 @@ useEffect(() => {
       );
     };
     const renderFantasyPitchPlayerCard = (player, options = {}) => {
-      const photoUrl = getFantasyPlayerPhotoUrl(player);
+      const kit = getFantasyKitStyle(player);
       const compactTile = options.compactTile || isMobile || compact;
+      const shirtPatternId = `kit-${kit.teamCode}-${player?.id || player?.displayName || "slot"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
       return (
         <div
           key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
@@ -12673,68 +12706,57 @@ useEffect(() => {
               boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
             }}
           >
-            <div
+            <svg
               aria-hidden="true"
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "grid",
-                placeItems: "center",
-                background: "linear-gradient(180deg, #6B7280, #374151)",
-              }}
+              viewBox="0 0 100 120"
+              style={{ width: "100%", height: "100%", display: "block" }}
             >
-              <div
-                style={{
-                  width: "64%",
-                  height: "76%",
-                  position: "relative",
-                }}
+              <defs>
+                <linearGradient id={`${shirtPatternId}-shade`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.32)" />
+                  <stop offset="42%" stopColor="rgba(255,255,255,0.08)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.18)" />
+                </linearGradient>
+                <clipPath id={`${shirtPatternId}-clip`}>
+                  <path d="M31 15 C37 20 63 20 69 15 L88 26 L78 50 L70 45 L70 104 L30 104 L30 45 L22 50 L12 26 Z" />
+                </clipPath>
+              </defs>
+              <g clipPath={`url(#${shirtPatternId}-clip)`}>
+                <rect x="0" y="0" width="100" height="120" fill={kit.primary} />
+                {kit.pattern === "stripes" && (
+                  <>
+                    <rect x="16" y="0" width="14" height="120" fill={kit.secondary} opacity="0.95" />
+                    <rect x="44" y="0" width="14" height="120" fill={kit.secondary} opacity="0.95" />
+                    <rect x="72" y="0" width="14" height="120" fill={kit.secondary} opacity="0.95" />
+                  </>
+                )}
+                {kit.pattern === "sleeves" && (
+                  <>
+                    <path d="M12 26 L31 15 L30 45 L22 50 Z" fill={kit.secondary} />
+                    <path d="M69 15 L88 26 L78 50 L70 45 Z" fill={kit.secondary} />
+                  </>
+                )}
+                {kit.pattern === "sash" && (
+                  <path d="M16 106 L4 92 L84 12 L96 26 Z" fill={kit.secondary} opacity="0.9" />
+                )}
+                <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-shade)`} />
+              </g>
+              <path d="M31 15 C37 20 63 20 69 15 L88 26 L78 50 L70 45 L70 104 L30 104 L30 45 L22 50 L12 26 Z" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
+              <ellipse cx="50" cy="18" rx="15" ry="10" fill="rgba(15,23,42,0.42)" stroke="rgba(255,255,255,0.28)" strokeWidth="2" />
+              <text
+                x="50"
+                y="66"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill={kit.text}
+                fontSize="22"
+                fontWeight="900"
+                letterSpacing="1"
+                style={{ paintOrder: "stroke", stroke: "rgba(0,0,0,0.28)", strokeWidth: 2 }}
               >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "6%",
-                    left: "50%",
-                    width: "42%",
-                    aspectRatio: "1 / 1",
-                    transform: "translateX(-50%)",
-                    borderRadius: "50%",
-                    background: "#D1D5DB",
-                  }}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "50%",
-                    bottom: "0",
-                    width: "82%",
-                    height: "52%",
-                    transform: "translateX(-50%)",
-                    borderRadius: "999px 999px 18px 18px",
-                    background: "#D1D5DB",
-                  }}
-                />
-              </div>
-            </div>
-            {photoUrl && (
-              <img
-                src={photoUrl}
-                alt=""
-                aria-hidden="true"
-                loading="lazy"
-                onError={(event) => {
-                  event.currentTarget.style.display = "none";
-                }}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center top",
-                }}
-              />
-            )}
+                {kit.teamCode}
+              </text>
+            </svg>
           </div>
           <div
             title={player?.displayName || player?.name || ""}
