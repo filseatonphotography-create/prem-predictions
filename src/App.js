@@ -12713,16 +12713,33 @@ useEffect(() => {
               style={{ width: "100%", height: "100%", display: "block" }}
             >
               <defs>
+                <filter id={`${shirtPatternId}-lift`} x="-20%" y="-18%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="rgba(0,0,0,0.42)" />
+                </filter>
                 <linearGradient id={`${shirtPatternId}-shade`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="rgba(255,255,255,0.32)" />
-                  <stop offset="42%" stopColor="rgba(255,255,255,0.08)" />
-                  <stop offset="100%" stopColor="rgba(0,0,0,0.18)" />
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.38)" />
+                  <stop offset="24%" stopColor="rgba(255,255,255,0.12)" />
+                  <stop offset="70%" stopColor="rgba(0,0,0,0.04)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.3)" />
+                </linearGradient>
+                <radialGradient id={`${shirtPatternId}-chest`} cx="50%" cy="36%" r="58%">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.24)" />
+                  <stop offset="58%" stopColor="rgba(255,255,255,0.04)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.2)" />
+                </radialGradient>
+                <linearGradient id={`${shirtPatternId}-sideShade`} x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="rgba(0,0,0,0.22)" />
+                  <stop offset="18%" stopColor="rgba(255,255,255,0.06)" />
+                  <stop offset="50%" stopColor="rgba(255,255,255,0)" />
+                  <stop offset="82%" stopColor="rgba(255,255,255,0.06)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.24)" />
                 </linearGradient>
                 <clipPath id={`${shirtPatternId}-clip`}>
                   <path d="M27 15 C36 21 64 21 73 15 L91 27 L82 52 L73 47 L76 106 L24 106 L27 47 L18 52 L9 27 Z" />
                 </clipPath>
               </defs>
-              <g clipPath={`url(#${shirtPatternId}-clip)`}>
+              <ellipse cx="50" cy="111" rx="35" ry="6" fill="rgba(0,0,0,0.28)" />
+              <g clipPath={`url(#${shirtPatternId}-clip)`} filter={`url(#${shirtPatternId}-lift)`}>
                 <rect x="0" y="0" width="100" height="120" fill={kit.primary} />
                 {kit.pattern === "stripes" && (
                   <>
@@ -12740,10 +12757,21 @@ useEffect(() => {
                 {kit.pattern === "sash" && (
                   <path d="M16 106 L4 92 L84 12 L96 26 Z" fill={kit.secondary} opacity="0.9" />
                 )}
+                <path d="M26 20 C37 29 63 29 74 20 L72 39 C63 35 37 35 28 39 Z" fill="rgba(255,255,255,0.12)" />
+                <path d="M25 43 C31 56 33 79 30 106 L24 106 L27 47 Z" fill="rgba(0,0,0,0.16)" />
+                <path d="M75 43 C69 56 67 79 70 106 L76 106 L73 47 Z" fill="rgba(0,0,0,0.18)" />
+                <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-chest)`} />
+                <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-sideShade)`} />
                 <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-shade)`} />
+                <path d="M28 47 C31 64 31 86 29 105" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
+                <path d="M72 47 C69 64 69 86 71 105" fill="none" stroke="rgba(255,255,255,0.16)" strokeWidth="1.5" />
+                <path d="M12 30 L18 52 L27 47" fill="none" stroke="rgba(255,255,255,0.24)" strokeWidth="2" />
+                <path d="M88 30 L82 52 L73 47" fill="none" stroke="rgba(255,255,255,0.24)" strokeWidth="2" />
               </g>
-              <path d="M27 15 C36 21 64 21 73 15 L91 27 L82 52 L73 47 L76 106 L24 106 L27 47 L18 52 L9 27 Z" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="2" />
-              <ellipse cx="50" cy="18" rx="15" ry="10" fill="rgba(15,23,42,0.42)" stroke="rgba(255,255,255,0.28)" strokeWidth="2" />
+              <path d="M27 15 C36 21 64 21 73 15 L91 27 L82 52 L73 47 L76 106 L24 106 L27 47 L18 52 L9 27 Z" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" />
+              <path d="M32 16 C39 28 61 28 68 16" fill="none" stroke="rgba(0,0,0,0.26)" strokeWidth="7" strokeLinecap="round" />
+              <path d="M32 16 C39 25 61 25 68 16" fill="none" stroke="rgba(255,255,255,0.34)" strokeWidth="3" strokeLinecap="round" />
+              <ellipse cx="50" cy="18" rx="14" ry="8" fill="rgba(15,23,42,0.56)" stroke="rgba(255,255,255,0.34)" strokeWidth="2" />
               <text
                 x="50"
                 y="66"
