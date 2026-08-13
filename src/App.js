@@ -5022,6 +5022,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       [WORLD_CUP_MODE]: WORLD_CUP_GAMEWEEKS[0],
     };
   });
+  const [fixtureAdvanceWarningDismissedKey, setFixtureAdvanceWarningDismissedKey] = useState("");
   const modeSwitchSyncRef = useRef(false);
   const isWorldCupMode = gameMode === WORLD_CUP_MODE;
   const activeFixtures = useMemo(() => {
@@ -5037,6 +5038,18 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     () => (isWorldCupMode ? WORLD_CUP_GAMEWEEKS : GAMEWEEKS),
     [isWorldCupMode]
   );
+  const livePredictionGameweek = useMemo(
+    () => (
+      isWorldCupMode
+        ? null
+        : getPredictionLandingGameweek(activeFixtures, activeGameweeks)
+    ),
+    [isWorldCupMode, activeFixtures, activeGameweeks]
+  );
+  const fixtureAdvanceWarningKey =
+    !isWorldCupMode && livePredictionGameweek && selectedGameweek
+      ? `${livePredictionGameweek}:${selectedGameweek}`
+      : "";
   
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
@@ -5068,6 +5081,24 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
   });
+  const shouldShowFixtureAdvanceWarning = useMemo(() => {
+    if (!fixtureAdvanceWarningKey || activeView !== "predictions") return false;
+    const liveIndex = activeGameweeks.indexOf(livePredictionGameweek);
+    const selectedIndex = activeGameweeks.indexOf(selectedGameweek);
+    return (
+      liveIndex >= 0 &&
+      selectedIndex >= 0 &&
+      selectedIndex - liveIndex === 2 &&
+      fixtureAdvanceWarningDismissedKey !== fixtureAdvanceWarningKey
+    );
+  }, [
+    activeView,
+    activeGameweeks,
+    fixtureAdvanceWarningDismissedKey,
+    fixtureAdvanceWarningKey,
+    livePredictionGameweek,
+    selectedGameweek,
+  ]);
   const [historySectionsOpen, setHistorySectionsOpen] = useState({
     seasonWinners: true,
     weeklyScores: false,
@@ -16072,6 +16103,92 @@ if (!isLoggedIn) {
             {accountFavoriteTeamError && (
               <div style={{ fontSize: 12, color: theme.danger }}>{accountFavoriteTeamError}</div>
             )}
+          </div>
+        </div>
+      )}
+      {shouldShowFixtureAdvanceWarning && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="fixture-advance-warning-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.62)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9997,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 430,
+              background: "linear-gradient(135deg, #0f172a, #111827)",
+              border: "1px solid rgba(255,255,255,0.14)",
+              borderRadius: 16,
+              padding: isMobile ? 16 : 20,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.45)",
+              display: "grid",
+              gap: 12,
+              textAlign: "left",
+            }}
+          >
+            <div>
+              <div
+                id="fixture-advance-warning-title"
+                style={{ fontSize: 18, fontWeight: 900, color: theme.text }}
+              >
+                Fixture times can change
+              </div>
+              <div style={{ marginTop: 8, color: theme.muted, fontSize: 14, lineHeight: 1.45 }}>
+                As fixtures and kick-off times are subject to change, we don't recommend entering predictions too far in advance.
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedGameweek(livePredictionGameweek);
+                  setActiveView("predictions");
+                }}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${theme.line}`,
+                  background: theme.panelHi,
+                  color: theme.text,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setFixtureAdvanceWarningDismissedKey(fixtureAdvanceWarningKey)}
+                style={{
+                  padding: "9px 12px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: theme.accent,
+                  color: "#0b1220",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                }}
+              >
+                Predict anyway
+              </button>
+            </div>
           </div>
         </div>
       )}
