@@ -12844,9 +12844,7 @@ useEffect(() => {
       const boxedFixtureCard = !!options.boxedFixtureCard;
       const shirtPatternId = `kit-${kit.teamCode}-${player?.id || player?.displayName || "slot"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
       const kitCode = String(kit.teamCode || "TBC").slice(0, 3).toUpperCase();
-      const fullPlayerLabel = boxedFixtureCard
-        ? player?.displayName || player?.name || player?.webName || "Player"
-        : player?.webName || player?.displayName || player?.name || "Player";
+      const fullPlayerLabel = player?.webName || player?.displayName || player?.name || "Player";
       const pitchPlayerLabel = boxedFixtureCard ? fullPlayerLabel : formatCompactFantasyPitchName(fullPlayerLabel, compactTile ? 9 : 12);
       const fixturePreview = Array.isArray(player?.suggestedFixtures) ? player.suggestedFixtures : [];
       const nextFixture = player?.suggestedNextFixture || fixturePreview[0] || null;
@@ -12870,9 +12868,9 @@ useEffect(() => {
         <div
           key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
           style={{
-            width: boxedFixtureCard ? (compactTile ? 94 : 116) : "auto",
-            minWidth: boxedFixtureCard ? (compactTile ? 94 : 116) : 0,
-            maxWidth: boxedFixtureCard ? (compactTile ? 94 : 116) : "none",
+            width: boxedFixtureCard ? "100%" : "auto",
+            minWidth: 0,
+            maxWidth: boxedFixtureCard ? (compactTile ? 88 : 110) : "none",
             display: "grid",
             justifyItems: "center",
             gap: boxedFixtureCard ? 0 : 4,
@@ -12886,7 +12884,7 @@ useEffect(() => {
           <div
             style={{
               width: boxedFixtureCard ? "100%" : compactTile ? 56 : 70,
-              height: boxedFixtureCard ? (compactTile ? 82 : 104) : compactTile ? 66 : 82,
+              height: boxedFixtureCard ? (compactTile ? 72 : 92) : compactTile ? 66 : 82,
               borderRadius: boxedFixtureCard ? 0 : 10,
               border: boxedFixtureCard ? "none" : `1px solid ${player?.isCaptain ? theme.warn : player?.isViceCaptain ? theme.accent : "rgba(255,255,255,0.35)"}`,
               background: `linear-gradient(180deg, rgba(255,255,255,0.18), ${theme.panelHi})`,
@@ -12993,10 +12991,9 @@ useEffect(() => {
               fontWeight: 950,
               lineHeight: 1.08,
               textAlign: "center",
-              whiteSpace: boxedFixtureCard ? "normal" : "nowrap",
-              overflow: boxedFixtureCard ? "visible" : "hidden",
-              textOverflow: boxedFixtureCard ? "clip" : "ellipsis",
-              overflowWrap: "anywhere",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "clip",
             }}
           >
             {pitchPlayerLabel}
@@ -13013,7 +13010,7 @@ useEffect(() => {
                 background: "rgba(255,255,255,0.9)",
                 borderRadius: boxedFixtureCard ? 0 : 5,
                 padding: boxedFixtureCard ? "4px 5px" : "2px 5px",
-                fontSize: compactTile ? 11 : 13,
+                fontSize: compactTile ? 10 : 12,
                 fontWeight: 950,
                 lineHeight: 1.05,
                 textAlign: "center",
@@ -13050,8 +13047,8 @@ useEffect(() => {
                       background: meta.background,
                       color: meta.color,
                       borderRadius: boxedFixtureCard ? 3 : 4,
-                      padding: compactTile ? "4px 1px" : "5px 2px",
-                      fontSize: compactTile ? 8 : 9,
+                      padding: compactTile ? "4px 0" : "5px 1px",
+                      fontSize: compactTile ? 7 : 9,
                       fontWeight: 950,
                       lineHeight: 1,
                       textAlign: "center",
@@ -13074,7 +13071,7 @@ useEffect(() => {
         </div>
       );
     };
-    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard, fixedPlayerCards = false }) => {
+    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard }) => {
       const starterGroups = FANTASY_IQ_POSITIONS.map((position) => ({
         position,
         players: (starters || []).filter((player) => player.position === position),
@@ -13101,14 +13098,10 @@ useEffect(() => {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: fixedPlayerCards
-                      ? `repeat(${Math.max(1, group.players.length)}, max-content)`
-                      : `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`,
+                    gridTemplateColumns: `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`,
                     gap: isMobile || compact ? 6 : 10,
                     alignItems: "start",
-                    justifyContent: fixedPlayerCards ? "space-evenly" : "stretch",
-                    overflowX: fixedPlayerCards ? "auto" : "visible",
-                    paddingBottom: fixedPlayerCards ? 2 : 0,
+                    justifyContent: "stretch",
                   }}
                 >
                   {group.players.map((player) => renderPlayer(player))}
@@ -13122,15 +13115,11 @@ useEffect(() => {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: fixedPlayerCards
-                    ? `repeat(${bench.length}, max-content)`
-                    : isMobile || compact
+                  gridTemplateColumns: isMobile || compact
                     ? "repeat(2, minmax(0, 1fr))"
                     : `repeat(${bench.length}, minmax(0, 1fr))`,
                   gap: 8,
-                  justifyContent: fixedPlayerCards ? "space-evenly" : "stretch",
-                  overflowX: fixedPlayerCards ? "auto" : "visible",
-                  paddingBottom: fixedPlayerCards ? 2 : 0,
+                  justifyContent: "stretch",
                 }}
               >
                 {bench.map((player) => renderPlayer(player, { compactTile: true }))}
@@ -13199,7 +13188,6 @@ useEffect(() => {
             starters: suggestion.starters,
             bench: suggestion.bench,
             title: "Suggested Team",
-            fixedPlayerCards: true,
             renderPlayer: (player, options = {}) => (
               <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5 }}>
                 {renderFantasyPitchPlayerCard(player, { ...options, hideMeta: true, boxedFixtureCard: true })}
