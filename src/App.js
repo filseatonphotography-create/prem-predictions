@@ -4053,6 +4053,15 @@ function getDifficultyMeta(score) {
   return { label: band.label, color: band.color };
 }
 
+function getOfficialFplDifficultyMeta(score) {
+  const difficulty = Number(score);
+  if (difficulty <= 1) return { difficulty, label: "Very easy", color: "#00FF87", textColor: "#0B1220" };
+  if (difficulty <= 2) return { difficulty, label: "Easy", color: "#01FC7A", textColor: "#0B1220" };
+  if (difficulty <= 3) return { difficulty, label: "Average", color: "#E7E7E7", textColor: "#111827" };
+  if (difficulty <= 4) return { difficulty, label: "Hard", color: "#FF1751", textColor: "#FFFFFF" };
+  return { difficulty: Number.isFinite(difficulty) ? difficulty : null, label: "Very hard", color: "#861D46", textColor: "#FFFFFF" };
+}
+
 function getAttackDifficultyMeta(score) {
   const band = getBandMeta(score, ATTACK_DIFFICULTY_BANDS);
   return { label: band.label, color: band.color };
@@ -4711,6 +4720,8 @@ export function buildGeneratedModelOdds(fixtures = [], context = {}) {
 function buildPremierTeamInsights(teamName, results, context = {}) {
   const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
   const normalizedTeam = normalizeTeamName(canonicalTeamName);
+  const teamCode = getTeamCode(canonicalTeamName);
+  const officialUpcoming = context.officialFplFixtureOutlooks?.[teamCode]?.fixtures || [];
   const performanceByTeam = context.performanceByTeam || {};
 
   const form = FIXTURES.filter((fixture) => {
@@ -4746,13 +4757,16 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
   })
     .sort((a, b) => Date.parse(a.kickoff) - Date.parse(b.kickoff))
     .slice(0, 5)
-    .map((fixture) => {
+    .map((fixture, index) => {
       const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
       const opponent = isHome ? fixture.awayTeam : fixture.homeTeam;
       const model = buildFixtureModel(fixture, context);
+      const officialFixture = officialUpcoming[index] || null;
       const difficultyScore = isHome
         ? model.homeDifficultyScore
         : model.awayDifficultyScore;
+      const officialDifficultyScore = officialFixture?.officialDifficultyScore ?? null;
+      const displayDifficultyScore = officialDifficultyScore ?? difficultyScore;
       const attackDifficultyScore = isHome
         ? model.homeAttackDifficultyScore
         : model.awayAttackDifficultyScore;
@@ -4776,7 +4790,10 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
         opponentCode: getTeamCode(opponent),
         venue: isHome ? "H" : "A",
         kickoff: fixture.kickoff,
-        difficultyScore,
+        difficultyScore: displayDifficultyScore,
+        modelDifficultyScore: difficultyScore,
+        officialDifficultyScore,
+        difficultySource: officialDifficultyScore == null ? "model" : "official-fpl-fdr",
         attackDifficultyScore,
         defenceDifficultyScore,
         winProbability,
@@ -4785,7 +4802,7 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
         scoreTwoPlusProbability,
         confidence: model.confidence,
         confidenceScore: model.confidenceScore,
-        ...getDifficultyMeta(difficultyScore),
+        ...getOfficialFplDifficultyMeta(displayDifficultyScore),
       };
     });
 
@@ -9541,9 +9558,17 @@ const fantasyIqReport = useMemo(() => {
     .filter((row) => row.predictedFixtures)
     .sort((a, b) => b.avoidScore - a.avoidScore)
     .slice(0, 3);
+  const officialFplFixtureOutlooksForReport = buildOfficialFplFixtureOutlooks(
+    fantasyPlayerData,
+    { horizon: FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON }
+  );
+  const fixtureInsightContext = {
+    ...leaguePerformanceContext,
+    officialFplFixtureOutlooks: officialFplFixtureOutlooksForReport,
+  };
   const fixtureDifficultyRows = allTeams
     .map((team) => {
-      const insights = buildPremierTeamInsights(team, results, leaguePerformanceContext);
+      const insights = buildPremierTeamInsights(team, results, fixtureInsightContext);
       const upcoming = (insights.upcoming || []).slice(0, 3);
       const outlook = buildWeightedNextFixtureOutlook(upcoming);
       const fixtureCount = outlook.fixtureCount;
@@ -11843,9 +11868,10 @@ useEffect(() => {
             }}
           >
             {(row.upcoming || []).slice(0, 3).map((fixture, index) => {
-              const meta = getDifficultyMeta(Number(fixture.difficultyScore || 3));
+              const meta = getOfficialFplDifficultyMeta(Number(fixture.difficultyScore || 3));
               const titleParts = [
                 `${fixture.venue} v ${fixture.opponentCode || fixture.opponent}`,
+                fixture.difficultySource === "official-fpl-fdr" ? `Official FPL FDR ${fixture.officialDifficultyScore}` : `Model difficulty ${fixture.modelDifficultyScore || fixture.difficultyScore}`,
                 `Win ${Math.round((fixture.winProbability || 0) * 100)}%`,
                 `Est goals ${Number(fixture.expectedGoals || 0).toFixed(1)}`,
                 `CS ${Math.round((fixture.cleanSheetProbability || 0) * 100)}%`,
@@ -11858,7 +11884,7 @@ useEffect(() => {
                   title={titleParts.join(" | ")}
                   style={{
                     background: meta.color,
-                    color: Number(fixture.difficultyScore || 3) <= 2 ? "#0b1220" : "#ffffff",
+                    color: meta.textColor,
                     borderRadius: 8,
                     padding: "6px 4px",
                     minWidth: 0,
@@ -12858,11 +12884,8 @@ useEffect(() => {
       const getFplDifficultyMeta = (fixture) => {
         const difficulty = Number(fixture?.officialDifficultyScore ?? fixture?.difficultyScore);
         const source = fixture?.officialDifficultyScore != null ? "Official FPL FDR" : "Model difficulty";
-        if (difficulty <= 1) return { difficulty, source, background: "#00FF87", color: "#0B1220" };
-        if (difficulty <= 2) return { difficulty, source, background: "#01FC7A", color: "#0B1220" };
-        if (difficulty <= 3) return { difficulty, source, background: "#E7E7E7", color: "#111827" };
-        if (difficulty <= 4) return { difficulty, source, background: "#FF1751", color: "#FFFFFF" };
-        return { difficulty: Number.isFinite(difficulty) ? difficulty : null, source, background: "#861D46", color: "#FFFFFF" };
+        const meta = getOfficialFplDifficultyMeta(difficulty);
+        return { difficulty: meta.difficulty, source, background: meta.color, color: meta.textColor };
       };
       return (
         <div
@@ -12874,8 +12897,8 @@ useEffect(() => {
             display: "grid",
             gridTemplateRows: boxedFixtureCard
               ? compactTile
-                ? "72px repeat(3, 14px)"
-                : "92px repeat(3, 16px)"
+                ? "66px repeat(3, 14px)"
+                : "84px repeat(3, 16px)"
               : "none",
             justifyItems: "center",
             gap: boxedFixtureCard ? 0 : 4,
@@ -12889,7 +12912,7 @@ useEffect(() => {
           <div
             style={{
               width: boxedFixtureCard ? "100%" : compactTile ? 56 : 70,
-              height: boxedFixtureCard ? (compactTile ? 72 : 92) : compactTile ? 66 : 82,
+              height: boxedFixtureCard ? (compactTile ? 66 : 84) : compactTile ? 66 : 82,
               borderRadius: boxedFixtureCard ? 0 : 10,
               border: boxedFixtureCard ? "none" : `1px solid ${player?.isCaptain ? theme.warn : player?.isViceCaptain ? theme.accent : "rgba(255,255,255,0.35)"}`,
               background: `linear-gradient(180deg, rgba(255,255,255,0.18), ${theme.panelHi})`,
@@ -12898,12 +12921,12 @@ useEffect(() => {
               placeItems: "center",
               position: "relative",
               minHeight: 0,
-              boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
+              boxShadow: boxedFixtureCard ? "none" : "0 8px 18px rgba(0,0,0,0.22)",
             }}
           >
             <svg
               aria-hidden="true"
-              viewBox={boxedFixtureCard ? "4 10 92 100" : "0 0 100 120"}
+              viewBox={boxedFixtureCard ? "7 12 86 94" : "0 0 100 120"}
               style={{ width: "100%", height: "100%", display: "block" }}
             >
               <defs>
@@ -12937,7 +12960,7 @@ useEffect(() => {
                   <path d="M27 15 C36 21 64 21 73 15 L91 27 L82 52 L73 47 L76 106 L24 106 L27 47 L18 52 L9 27 Z" />
                 </clipPath>
               </defs>
-              <ellipse cx="50" cy="111" rx="35" ry="6" fill="rgba(0,0,0,0.28)" />
+              {!boxedFixtureCard && <ellipse cx="50" cy="111" rx="35" ry="6" fill="rgba(0,0,0,0.28)" />}
               <g clipPath={`url(#${shirtPatternId}-clip)`} filter={`url(#${shirtPatternId}-lift)`}>
                 <rect x="0" y="0" width="100" height="120" fill={kit.primary} />
                 {kit.pattern === "stripes" && (
