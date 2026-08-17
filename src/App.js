@@ -12870,8 +12870,13 @@ useEffect(() => {
           style={{
             width: boxedFixtureCard ? "100%" : "auto",
             minWidth: 0,
-            maxWidth: boxedFixtureCard ? (compactTile ? 88 : 110) : "none",
+            maxWidth: "none",
             display: "grid",
+            gridTemplateRows: boxedFixtureCard
+              ? compactTile
+                ? "72px 18px 19px 13px"
+                : "92px 20px 22px 16px"
+              : "none",
             justifyItems: "center",
             gap: boxedFixtureCard ? 0 : 4,
             background: boxedFixtureCard ? "rgba(255,255,255,0.92)" : "transparent",
@@ -12892,6 +12897,7 @@ useEffect(() => {
               display: "grid",
               placeItems: "center",
               position: "relative",
+              minHeight: 0,
               boxShadow: "0 8px 18px rgba(0,0,0,0.22)",
             }}
           >
@@ -12987,7 +12993,7 @@ useEffect(() => {
               borderRadius: boxedFixtureCard ? 0 : 6,
               background: boxedFixtureCard ? "#3B0441" : "rgba(8,13,28,0.76)",
               color: theme.text,
-              fontSize: compactTile ? 10 : 11,
+              fontSize: compactTile ? 9 : 11,
               fontWeight: 950,
               lineHeight: 1.08,
               textAlign: "center",
@@ -13009,8 +13015,8 @@ useEffect(() => {
                 color: "#0B1220",
                 background: "rgba(255,255,255,0.9)",
                 borderRadius: boxedFixtureCard ? 0 : 5,
-                padding: boxedFixtureCard ? "4px 5px" : "2px 5px",
-                fontSize: compactTile ? 10 : 12,
+                padding: boxedFixtureCard ? "3px 4px" : "2px 5px",
+                fontSize: compactTile ? 9 : 12,
                 fontWeight: 950,
                 lineHeight: 1.05,
                 textAlign: "center",
@@ -13028,10 +13034,10 @@ useEffect(() => {
               style={{
                 display: "grid",
                 gridTemplateColumns: `repeat(${Math.min(4, fixtureChips.length)}, minmax(0, 1fr))`,
-                gap: 1,
+                gap: boxedFixtureCard ? 0 : 1,
                 width: boxedFixtureCard ? "100%" : compactTile ? 112 : 124,
                 boxSizing: "border-box",
-                padding: boxedFixtureCard ? "0 2px 2px" : 0,
+                padding: boxedFixtureCard ? "0 1px 1px" : 0,
                 background: boxedFixtureCard ? "rgba(255,255,255,0.9)" : "transparent",
               }}
             >
@@ -13046,9 +13052,9 @@ useEffect(() => {
                       minWidth: 0,
                       background: meta.background,
                       color: meta.color,
-                      borderRadius: boxedFixtureCard ? 3 : 4,
-                      padding: compactTile ? "4px 0" : "5px 1px",
-                      fontSize: compactTile ? 7 : 9,
+                      borderRadius: boxedFixtureCard ? 1 : 4,
+                      padding: compactTile ? "3px 0" : "4px 0",
+                      fontSize: compactTile ? 6 : 8,
                       fontWeight: 950,
                       lineHeight: 1,
                       textAlign: "center",
@@ -13189,7 +13195,7 @@ useEffect(() => {
             bench: suggestion.bench,
             title: "Suggested Team",
             renderPlayer: (player, options = {}) => (
-              <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5 }}>
+              <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5, width: "100%", minWidth: 0 }}>
                 {renderFantasyPitchPlayerCard(player, { ...options, hideMeta: true, boxedFixtureCard: true })}
               </div>
             ),
