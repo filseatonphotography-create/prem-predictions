@@ -12841,12 +12841,16 @@ useEffect(() => {
     const renderFantasyPitchPlayerCard = (player, options = {}) => {
       const kit = getFantasyKitStyle(player);
       const compactTile = options.compactTile || isMobile || compact;
+      const boxedFixtureCard = !!options.boxedFixtureCard;
       const shirtPatternId = `kit-${kit.teamCode}-${player?.id || player?.displayName || "slot"}`.replace(/[^a-zA-Z0-9_-]/g, "-");
       const kitCode = String(kit.teamCode || "TBC").slice(0, 3).toUpperCase();
-      const fullPlayerLabel = player?.webName || player?.displayName || player?.name || "Player";
-      const pitchPlayerLabel = formatCompactFantasyPitchName(fullPlayerLabel, compactTile ? 9 : 12);
+      const fullPlayerLabel = boxedFixtureCard
+        ? player?.displayName || player?.name || player?.webName || "Player"
+        : player?.webName || player?.displayName || player?.name || "Player";
+      const pitchPlayerLabel = boxedFixtureCard ? fullPlayerLabel : formatCompactFantasyPitchName(fullPlayerLabel, compactTile ? 9 : 12);
       const fixturePreview = Array.isArray(player?.suggestedFixtures) ? player.suggestedFixtures : [];
       const nextFixture = player?.suggestedNextFixture || fixturePreview[0] || null;
+      const fixtureChips = nextFixture && fixturePreview.length > 1 ? fixturePreview.slice(1, 5) : fixturePreview.slice(0, 4);
       const formatFixtureLabel = (fixture) =>
         fixture?.opponentCode
           ? `${fixture.opponentCode} (${fixture.venue || "-"})`
@@ -12866,18 +12870,25 @@ useEffect(() => {
         <div
           key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
           style={{
-            minWidth: 0,
+            width: boxedFixtureCard ? (compactTile ? 94 : 116) : "auto",
+            minWidth: boxedFixtureCard ? (compactTile ? 94 : 116) : 0,
+            maxWidth: boxedFixtureCard ? (compactTile ? 94 : 116) : "none",
             display: "grid",
             justifyItems: "center",
-            gap: 4,
+            gap: boxedFixtureCard ? 0 : 4,
+            background: boxedFixtureCard ? "rgba(255,255,255,0.92)" : "transparent",
+            border: boxedFixtureCard ? "1px solid rgba(255,255,255,0.78)" : "none",
+            borderRadius: boxedFixtureCard ? 8 : 0,
+            overflow: boxedFixtureCard ? "hidden" : "visible",
+            boxShadow: boxedFixtureCard ? "0 8px 18px rgba(0,0,0,0.26)" : "none",
           }}
         >
           <div
             style={{
-              width: compactTile ? 56 : 70,
-              height: compactTile ? 66 : 82,
-              borderRadius: 10,
-              border: `1px solid ${player?.isCaptain ? theme.warn : player?.isViceCaptain ? theme.accent : "rgba(255,255,255,0.35)"}`,
+              width: boxedFixtureCard ? "100%" : compactTile ? 56 : 70,
+              height: boxedFixtureCard ? (compactTile ? 82 : 104) : compactTile ? 66 : 82,
+              borderRadius: boxedFixtureCard ? 0 : 10,
+              border: boxedFixtureCard ? "none" : `1px solid ${player?.isCaptain ? theme.warn : player?.isViceCaptain ? theme.accent : "rgba(255,255,255,0.35)"}`,
               background: `linear-gradient(180deg, rgba(255,255,255,0.18), ${theme.panelHi})`,
               overflow: "hidden",
               display: "grid",
@@ -12971,18 +12982,21 @@ useEffect(() => {
           <div
             title={player?.displayName || player?.name || fullPlayerLabel}
             style={{
-              maxWidth: compactTile ? 74 : 96,
-              padding: "3px 5px",
-              borderRadius: 6,
-              background: "rgba(8,13,28,0.76)",
+              width: boxedFixtureCard ? "100%" : "auto",
+              maxWidth: boxedFixtureCard ? "100%" : compactTile ? 74 : 96,
+              boxSizing: "border-box",
+              padding: boxedFixtureCard ? "4px 5px" : "3px 5px",
+              borderRadius: boxedFixtureCard ? 0 : 6,
+              background: boxedFixtureCard ? "#3B0441" : "rgba(8,13,28,0.76)",
               color: theme.text,
               fontSize: compactTile ? 10 : 11,
               fontWeight: 950,
-              lineHeight: 1.1,
+              lineHeight: 1.08,
               textAlign: "center",
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              whiteSpace: boxedFixtureCard ? "normal" : "nowrap",
+              overflow: boxedFixtureCard ? "visible" : "hidden",
+              textOverflow: boxedFixtureCard ? "clip" : "ellipsis",
+              overflowWrap: "anywhere",
             }}
           >
             {pitchPlayerLabel}
@@ -12992,12 +13006,14 @@ useEffect(() => {
             <div
               title={formatFixtureLabel(nextFixture)}
               style={{
-                maxWidth: compactTile ? 82 : 104,
+                width: boxedFixtureCard ? "100%" : "auto",
+                maxWidth: boxedFixtureCard ? "100%" : compactTile ? 82 : 104,
+                boxSizing: "border-box",
                 color: "#0B1220",
                 background: "rgba(255,255,255,0.9)",
-                borderRadius: 5,
-                padding: "2px 5px",
-                fontSize: compactTile ? 10 : 11,
+                borderRadius: boxedFixtureCard ? 0 : 5,
+                padding: boxedFixtureCard ? "4px 5px" : "2px 5px",
+                fontSize: compactTile ? 11 : 13,
                 fontWeight: 950,
                 lineHeight: 1.05,
                 textAlign: "center",
@@ -13009,17 +13025,20 @@ useEffect(() => {
               {formatFixtureLabel(nextFixture)}
             </div>
           )}
-          {!!fixturePreview.length && (
+          {!!fixtureChips.length && (
             <div
               aria-label="Upcoming fixtures"
               style={{
                 display: "grid",
-                gridTemplateColumns: `repeat(${Math.min(5, fixturePreview.length)}, minmax(0, 1fr))`,
-                gap: 2,
-                width: compactTile ? 88 : 112,
+                gridTemplateColumns: `repeat(${Math.min(4, fixtureChips.length)}, minmax(0, 1fr))`,
+                gap: 1,
+                width: boxedFixtureCard ? "100%" : compactTile ? 112 : 124,
+                boxSizing: "border-box",
+                padding: boxedFixtureCard ? "0 2px 2px" : 0,
+                background: boxedFixtureCard ? "rgba(255,255,255,0.9)" : "transparent",
               }}
             >
-              {fixturePreview.slice(0, 5).map((fixture, index) => {
+              {fixtureChips.map((fixture, index) => {
                 const meta = getFplDifficultyMeta(fixture);
                 const label = fixture?.opponentCode || getTeamCode(fixture?.opponent, gameMode) || "TBC";
                 return (
@@ -13030,14 +13049,14 @@ useEffect(() => {
                       minWidth: 0,
                       background: meta.background,
                       color: meta.color,
-                      borderRadius: 4,
-                      padding: compactTile ? "3px 2px" : "4px 2px",
+                      borderRadius: boxedFixtureCard ? 3 : 4,
+                      padding: compactTile ? "4px 1px" : "5px 2px",
                       fontSize: compactTile ? 8 : 9,
                       fontWeight: 950,
                       lineHeight: 1,
                       textAlign: "center",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
+                      textOverflow: "clip",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -13055,7 +13074,7 @@ useEffect(() => {
         </div>
       );
     };
-    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard }) => {
+    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard, fixedPlayerCards = false }) => {
       const starterGroups = FANTASY_IQ_POSITIONS.map((position) => ({
         position,
         players: (starters || []).filter((player) => player.position === position),
@@ -13079,7 +13098,19 @@ useEffect(() => {
             {starterGroups.map((group) => (
               <div key={`pitch-row-${title}-${group.position}`} style={{ display: "grid", gap: 6, position: "relative" }}>
                 <div style={{ color: "rgba(255,255,255,0.68)", fontSize: 10, fontWeight: 950, textAlign: "center" }}>{group.position}</div>
-                <div style={{ display: "grid", gridTemplateColumns: `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`, gap: isMobile || compact ? 6 : 10, alignItems: "start" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: fixedPlayerCards
+                      ? `repeat(${Math.max(1, group.players.length)}, max-content)`
+                      : `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`,
+                    gap: isMobile || compact ? 6 : 10,
+                    alignItems: "start",
+                    justifyContent: fixedPlayerCards ? "space-evenly" : "stretch",
+                    overflowX: fixedPlayerCards ? "auto" : "visible",
+                    paddingBottom: fixedPlayerCards ? 2 : 0,
+                  }}
+                >
                   {group.players.map((player) => renderPlayer(player))}
                 </div>
               </div>
@@ -13088,7 +13119,20 @@ useEffect(() => {
           {!!bench.length && (
             <div style={{ display: "grid", gap: 6 }}>
               <div style={{ color: theme.text, fontSize: 12, fontWeight: 950 }}>Bench</div>
-              <div style={{ display: "grid", gridTemplateColumns: isMobile || compact ? "repeat(2, minmax(0, 1fr))" : `repeat(${bench.length}, minmax(0, 1fr))`, gap: 8 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: fixedPlayerCards
+                    ? `repeat(${bench.length}, max-content)`
+                    : isMobile || compact
+                    ? "repeat(2, minmax(0, 1fr))"
+                    : `repeat(${bench.length}, minmax(0, 1fr))`,
+                  gap: 8,
+                  justifyContent: fixedPlayerCards ? "space-evenly" : "stretch",
+                  overflowX: fixedPlayerCards ? "auto" : "visible",
+                  paddingBottom: fixedPlayerCards ? 2 : 0,
+                }}
+              >
                 {bench.map((player) => renderPlayer(player, { compactTile: true }))}
               </div>
             </div>
@@ -13155,9 +13199,10 @@ useEffect(() => {
             starters: suggestion.starters,
             bench: suggestion.bench,
             title: "Suggested Team",
+            fixedPlayerCards: true,
             renderPlayer: (player, options = {}) => (
               <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5 }}>
-                {renderFantasyPitchPlayerCard(player, { ...options, hideMeta: true })}
+                {renderFantasyPitchPlayerCard(player, { ...options, hideMeta: true, boxedFixtureCard: true })}
               </div>
             ),
           })}
