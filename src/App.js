@@ -6877,17 +6877,25 @@ const isHistoricalPremierLeagueTable = premierLeagueTableView === PREMIER_TABLE_
 
 const premierLeagueInsights = useMemo(() => {
   const out = {};
+  const officialFplFixtureOutlooks = buildOfficialFplFixtureOutlooks(
+    fantasyPlayerData,
+    { horizon: FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON }
+  );
+  const insightContext = {
+    ...leaguePerformanceContext,
+    officialFplFixtureOutlooks,
+  };
   (displayedPremierLeagueTableRows || []).forEach((row) => {
     const teamName = row?.team?.name || row?.team?.shortName || row?.team?.tla || "";
     if (!teamName) return;
     out[normalizeTeamName(teamName)] = buildPremierTeamInsights(
       teamName,
       results,
-      leaguePerformanceContext
+      insightContext
     );
   });
   return out;
-}, [displayedPremierLeagueTableRows, results, leaguePerformanceContext]);
+}, [displayedPremierLeagueTableRows, results, leaguePerformanceContext, fantasyPlayerData]);
 
 // (debug logs removed)
 
@@ -19714,32 +19722,36 @@ const TABS = [
                               }}
                             >
                               {insights.upcoming.length > 0 ? (
-                                insights.upcoming.map((item) => (
-                                  <div
-                                    key={`upcoming-${item.fixtureId}`}
-                                    style={{
-                                      minWidth: 0,
-                                      width: "100%",
-                                      padding: isMobile ? "5px 3px" : "6px 8px",
-                                      borderRadius: 10,
-                                      background: item.color,
-                                      color: item.difficultyScore <= 2 ? "#0b1220" : "#ffffff",
-                                      display: "flex",
-                                      flexDirection: "column",
-                                      gap: 1,
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      minHeight: isMobile ? 36 : 48,
-                                      boxSizing: "border-box",
-                                    }}
-                                  >
-                                    <div style={{ fontWeight: 800, fontSize: isMobile ? 9 : 12, lineHeight: 1.05, textAlign: "center" }}>
-                                      {item.opponentCode}
-                                      <br />
-                                      {item.venue}
+                                insights.upcoming.map((item) => {
+                                  const difficultyMeta = getOfficialFplDifficultyMeta(item.difficultyScore);
+                                  return (
+                                    <div
+                                      key={`upcoming-${item.fixtureId}`}
+                                      title={`${item.opponentCode} (${item.venue}) · ${item.difficultySource === "official-fpl-fdr" ? "Official FPL FDR" : "Model difficulty"} ${difficultyMeta.difficulty ?? "-"}`}
+                                      style={{
+                                        minWidth: 0,
+                                        width: "100%",
+                                        padding: isMobile ? "5px 3px" : "6px 8px",
+                                        borderRadius: 10,
+                                        background: difficultyMeta.color,
+                                        color: difficultyMeta.textColor,
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: 1,
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        minHeight: isMobile ? 36 : 48,
+                                        boxSizing: "border-box",
+                                      }}
+                                    >
+                                      <div style={{ fontWeight: 800, fontSize: isMobile ? 9 : 12, lineHeight: 1.05, textAlign: "center" }}>
+                                        {item.opponentCode}
+                                        <br />
+                                        {item.venue}
+                                      </div>
                                     </div>
-                                  </div>
-                                ))
+                                  );
+                                })
                               ) : (
                                 <div style={{ fontSize: 12, color: theme.muted }}>
                                   No upcoming fixtures found.
