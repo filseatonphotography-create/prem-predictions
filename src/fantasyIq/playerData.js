@@ -18,8 +18,8 @@ export {
 
 /* global globalThis */
 
-export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 5;
-export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v5";
+export const FANTASY_PLAYER_DATA_SCHEMA_VERSION = 6;
+export const FANTASY_PLAYER_DATA_CACHE_KEY = "predictionAddiction:fplPlayerData:v6";
 export const FANTASY_PLAYER_DATA_SOURCE = "official-fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_ENDPOINT = "/.netlify/functions/fpl-bootstrap";
 export const FANTASY_PLAYER_DATA_DIRECT_ENDPOINT = "https://fantasy.premierleague.com/api/bootstrap-static/";
@@ -261,6 +261,36 @@ function adaptFantasyBootstrapEvents(rawEvents = []) {
     .filter(Boolean);
 }
 
+function adaptFantasyBootstrapFixtures(rawFixtures = [], teamMappings = {}) {
+  const byId = teamMappings.byId || {};
+  return (Array.isArray(rawFixtures) ? rawFixtures : [])
+    .map((fixture) => {
+      const id = toNumber(fixture?.id);
+      const homeTeam = byId[toNumber(fixture?.team_h ?? fixture?.teamH)];
+      const awayTeam = byId[toNumber(fixture?.team_a ?? fixture?.teamA)];
+      if (!id || !homeTeam || !awayTeam) return null;
+      return {
+        id,
+        code: toNumber(fixture?.code),
+        gameweek: toNumber(fixture?.event),
+        kickoff: fixture?.kickoff_time || fixture?.kickoffTime || null,
+        homeTeamId: homeTeam.sourceId,
+        awayTeamId: awayTeam.sourceId,
+        homeTeamCode: homeTeam.code,
+        awayTeamCode: awayTeam.code,
+        homeTeamName: homeTeam.name,
+        awayTeamName: awayTeam.name,
+        homeDifficulty: toNumber(fixture?.team_h_difficulty ?? fixture?.teamHDifficulty),
+        awayDifficulty: toNumber(fixture?.team_a_difficulty ?? fixture?.teamADifficulty),
+        started: !!fixture?.started,
+        finished: !!fixture?.finished,
+        finishedProvisional: !!(fixture?.finished_provisional ?? fixture?.finishedProvisional),
+        provisionalStartTime: !!(fixture?.provisional_start_time ?? fixture?.provisionalStartTime),
+      };
+    })
+    .filter(Boolean);
+}
+
 export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
   const fetchedAt = options.fetchedAt || nowIso();
   const diagnostics = makeDiagnostics();
@@ -380,6 +410,7 @@ export function adaptFantasyBootstrapPayload(payload = {}, options = {}) {
           teams: teamMappings.teams,
           positions: positionMappings.positions,
           events: adaptFantasyBootstrapEvents(payload.events),
+          officialFixtures: adaptFantasyBootstrapFixtures(payload.fixtures, teamMappings),
           diagnostics,
           cacheStatus: "live",
         }

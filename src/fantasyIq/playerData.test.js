@@ -158,6 +158,34 @@ describe("Fantasy IQ player data adapter", () => {
     ]);
   });
 
+  test("preserves official FPL fixture difficulty ratings", () => {
+    const payload = clone(basePayload);
+    payload.fixtures = [
+      {
+        id: 9001,
+        event: 1,
+        kickoff_time: "2026-08-15T11:30:00Z",
+        team_h: 1,
+        team_a: 2,
+        team_h_difficulty: 2,
+        team_a_difficulty: 4,
+        started: false,
+        finished: false,
+      },
+    ];
+    const result = adaptFantasyBootstrapPayload(payload);
+    expect(result.dataset.officialFixtures).toEqual([
+      expect.objectContaining({
+        id: 9001,
+        gameweek: 1,
+        homeTeamCode: "ARS",
+        awayTeamCode: "LIV",
+        homeDifficulty: 2,
+        awayDifficulty: 4,
+      }),
+    ]);
+  });
+
   test("maps recent gameweek starts into player metadata", () => {
     const payload = {
       ...clone(basePayload),

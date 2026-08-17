@@ -112,6 +112,20 @@ function trimBootstrapPayload(payload = {}) {
       is_next: event.is_next,
       data_checked: event.data_checked,
     })),
+    fixtures: (Array.isArray(payload.fixtures) ? payload.fixtures : []).map((fixture) => ({
+      id: fixture.id,
+      code: fixture.code,
+      event: fixture.event,
+      kickoff_time: fixture.kickoff_time,
+      team_h: fixture.team_h,
+      team_a: fixture.team_a,
+      team_h_difficulty: fixture.team_h_difficulty,
+      team_a_difficulty: fixture.team_a_difficulty,
+      started: fixture.started,
+      finished: fixture.finished,
+      finished_provisional: fixture.finished_provisional,
+      provisional_start_time: fixture.provisional_start_time,
+    })),
     recentStartsByElement: payload.recentStartsByElement || {},
     recentStartsMetadata: payload.recentStartsMetadata || null,
   };
@@ -122,6 +136,8 @@ export async function handler() {
   const timeoutId = setTimeout(() => controller.abort(), 12000);
   try {
     const bootstrapPayload = await fetchJson(`${FPL_BASE_URL}/bootstrap-static/`, controller.signal);
+    const fixturesPayload = await fetchJson(`${FPL_BASE_URL}/fixtures/`, controller.signal).catch(() => []);
+    bootstrapPayload.fixtures = Array.isArray(fixturesPayload) ? fixturesPayload : [];
     const recentEvents = getRecentFinishedEvents(bootstrapPayload.events);
     const eventLiveResults = await Promise.allSettled(
       recentEvents.map(async (event) => ({

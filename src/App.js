@@ -1787,6 +1787,85 @@ export function buildFantasyIqClubOutlooks(fixtures = [], results = {}, context 
   }, {});
 }
 
+function buildOfficialFplFixtureOutlooks(playerDataset = {}, options = {}) {
+  const horizon = Math.max(1, Math.round(Number(options.horizon) || 5));
+  const officialFixtures = Array.isArray(playerDataset?.officialFixtures) ? playerDataset.officialFixtures : [];
+  const rows = {};
+  officialFixtures
+    .filter((fixture) => !fixture.finished && !fixture.started)
+    .sort((a, b) => {
+      const aTime = Date.parse(a.kickoff || "");
+      const bTime = Date.parse(b.kickoff || "");
+      if (Number.isFinite(aTime) && Number.isFinite(bTime)) return aTime - bTime;
+      if (Number.isFinite(aTime)) return -1;
+      if (Number.isFinite(bTime)) return 1;
+      return Number(a.gameweek || 0) - Number(b.gameweek || 0);
+    })
+    .forEach((fixture) => {
+      [
+        {
+          teamCode: fixture.homeTeamCode,
+          opponentCode: fixture.awayTeamCode,
+          opponent: fixture.awayTeamName,
+          venue: "H",
+          difficultyScore: fixture.homeDifficulty,
+        },
+        {
+          teamCode: fixture.awayTeamCode,
+          opponentCode: fixture.homeTeamCode,
+          opponent: fixture.homeTeamName,
+          venue: "A",
+          difficultyScore: fixture.awayDifficulty,
+        },
+      ].forEach((side) => {
+        const teamCode = String(side.teamCode || "").toUpperCase();
+        if (!teamCode) return;
+        if (!rows[teamCode]) rows[teamCode] = { teamCode, fixtures: [] };
+        if (rows[teamCode].fixtures.length >= horizon) return;
+        rows[teamCode].fixtures.push({
+          fixtureId: fixture.id,
+          gameweek: fixture.gameweek,
+          kickoff: fixture.kickoff,
+          venue: side.venue,
+          opponent: side.opponent,
+          opponentCode: side.opponentCode,
+          difficultyScore: side.difficultyScore,
+          officialDifficultyScore: side.difficultyScore,
+          difficultySource: "official-fpl-fdr",
+          provisionalStartTime: fixture.provisionalStartTime,
+        });
+      });
+    });
+  return rows;
+}
+
+function mergeFantasyIqOfficialFixtureOutlooks(modelOutlooks = {}, officialOutlooks = {}) {
+  const merged = { ...(modelOutlooks || {}) };
+  Object.entries(officialOutlooks || {}).forEach(([teamCode, officialOutlook]) => {
+    const modelOutlook = merged[teamCode] || { teamCode };
+    const modelFixtures = Array.isArray(modelOutlook.fixtures) ? modelOutlook.fixtures : [];
+    const officialFixtures = Array.isArray(officialOutlook.fixtures) ? officialOutlook.fixtures : [];
+    merged[teamCode] = {
+      ...modelOutlook,
+      fixtures: modelFixtures.length
+        ? modelFixtures.map((fixture, index) => ({
+            ...fixture,
+            fixtureId: officialFixtures[index]?.fixtureId ?? fixture.fixtureId,
+            gameweek: officialFixtures[index]?.gameweek ?? fixture.gameweek,
+            kickoff: officialFixtures[index]?.kickoff ?? fixture.kickoff,
+            venue: officialFixtures[index]?.venue ?? fixture.venue,
+            opponent: officialFixtures[index]?.opponent ?? fixture.opponent,
+            opponentCode: officialFixtures[index]?.opponentCode ?? fixture.opponentCode,
+            officialDifficultyScore: officialFixtures[index]?.officialDifficultyScore ?? null,
+            difficultySource: officialFixtures[index]?.difficultySource || fixture.difficultySource || null,
+          }))
+        : officialFixtures,
+      officialFixtures,
+    };
+  });
+  return merged;
+}
+
 function buildFantasyIqPredictionOutlooks(fixtures = [], predictions = {}, selectedGameweek = null) {
   const getPred = (fixtureId) =>
     predictions[String(fixtureId)] !== undefined ? predictions[String(fixtureId)] : predictions[fixtureId];
@@ -9600,11 +9679,18 @@ const fantasyIqReport = useMemo(() => {
     results,
     leaguePerformanceContext
   );
-  const fantasySuggestedTeamClubOutlooks = buildFantasyIqClubOutlooks(
-    activeFixtures,
-    results,
-    leaguePerformanceContext,
+  const officialFplFixtureOutlooks = buildOfficialFplFixtureOutlooks(
+    fantasyPlayerData,
     { horizon: FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON }
+  );
+  const fantasySuggestedTeamClubOutlooks = mergeFantasyIqOfficialFixtureOutlooks(
+    buildFantasyIqClubOutlooks(
+      activeFixtures,
+      results,
+      leaguePerformanceContext,
+      { horizon: FANTASY_SUGGESTED_TEAM_FIXTURE_HORIZON }
+    ),
+    officialFplFixtureOutlooks
   );
   const fantasyIqPredictionOutlooks = buildFantasyIqPredictionOutlooks(
     activeFixtures,
@@ -12759,6 +12845,23 @@ useEffect(() => {
       const kitCode = String(kit.teamCode || "TBC").slice(0, 3).toUpperCase();
       const fullPlayerLabel = player?.webName || player?.displayName || player?.name || "Player";
       const pitchPlayerLabel = formatCompactFantasyPitchName(fullPlayerLabel, compactTile ? 9 : 12);
+      const fixturePreview = Array.isArray(player?.suggestedFixtures) ? player.suggestedFixtures : [];
+      const nextFixture = player?.suggestedNextFixture || fixturePreview[0] || null;
+      const formatFixtureLabel = (fixture) =>
+        fixture?.opponentCode
+          ? `${fixture.opponentCode} (${fixture.venue || "-"})`
+          : fixture?.opponent
+          ? `${getTeamCode(fixture.opponent, gameMode)} (${fixture.venue || "-"})`
+          : "";
+      const getFplDifficultyMeta = (fixture) => {
+        const difficulty = Number(fixture?.officialDifficultyScore ?? fixture?.difficultyScore);
+        const source = fixture?.officialDifficultyScore != null ? "Official FPL FDR" : "Model difficulty";
+        if (difficulty <= 1) return { difficulty, source, background: "#00FF87", color: "#0B1220" };
+        if (difficulty <= 2) return { difficulty, source, background: "#01FC7A", color: "#0B1220" };
+        if (difficulty <= 3) return { difficulty, source, background: "#E7E7E7", color: "#111827" };
+        if (difficulty <= 4) return { difficulty, source, background: "#FF1751", color: "#FFFFFF" };
+        return { difficulty: Number.isFinite(difficulty) ? difficulty : null, source, background: "#861D46", color: "#FFFFFF" };
+      };
       return (
         <div
           key={options.key || `fantasy-pitch-player-${player?.id || player?.displayName || player?.name}`}
@@ -12885,6 +12988,65 @@ useEffect(() => {
             {pitchPlayerLabel}
             {player?.isCaptain ? " C" : player?.isViceCaptain ? " V" : ""}
           </div>
+          {nextFixture && (
+            <div
+              title={formatFixtureLabel(nextFixture)}
+              style={{
+                maxWidth: compactTile ? 82 : 104,
+                color: "#0B1220",
+                background: "rgba(255,255,255,0.9)",
+                borderRadius: 5,
+                padding: "2px 5px",
+                fontSize: compactTile ? 10 : 11,
+                fontWeight: 950,
+                lineHeight: 1.05,
+                textAlign: "center",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {formatFixtureLabel(nextFixture)}
+            </div>
+          )}
+          {!!fixturePreview.length && (
+            <div
+              aria-label="Upcoming fixtures"
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${Math.min(5, fixturePreview.length)}, minmax(0, 1fr))`,
+                gap: 2,
+                width: compactTile ? 88 : 112,
+              }}
+            >
+              {fixturePreview.slice(0, 5).map((fixture, index) => {
+                const meta = getFplDifficultyMeta(fixture);
+                const label = fixture?.opponentCode || getTeamCode(fixture?.opponent, gameMode) || "TBC";
+                return (
+                  <div
+                    key={`${player?.id || player?.displayName || "player"}-fixture-${fixture.fixtureId || index}`}
+                    title={`${label} (${fixture?.venue || "-"}) · ${meta.source}${meta.difficulty == null ? "" : ` ${meta.difficulty}`}`}
+                    style={{
+                      minWidth: 0,
+                      background: meta.background,
+                      color: meta.color,
+                      borderRadius: 4,
+                      padding: compactTile ? "3px 2px" : "4px 2px",
+                      fontSize: compactTile ? 8 : 9,
+                      fontWeight: 950,
+                      lineHeight: 1,
+                      textAlign: "center",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {label}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {!options.hideMeta && (
             <div style={{ color: theme.muted, fontSize: 9, fontWeight: 850, textAlign: "center" }}>
               {player?.teamCode || "TBC"} · {player?.position || "POS"} · {formatFantasyIqBudget(player?.price)}
@@ -12995,10 +13157,7 @@ useEffect(() => {
             title: "Suggested Team",
             renderPlayer: (player, options = {}) => (
               <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5 }}>
-                {renderFantasyPitchPlayerCard(player, options)}
-                <div style={{ color: theme.muted, fontSize: 9, textAlign: "center", lineHeight: 1.2 }}>
-                  Pick {Math.round(Number(player.suggestedTeamScore || 0))} · Start {Math.round(Number(player.suggestedStarterLikelihoodScore || 0))} · Fixture {Math.round(Number(player.suggestedFixtureScore || 0))}
-                </div>
+                {renderFantasyPitchPlayerCard(player, { ...options, hideMeta: true })}
               </div>
             ),
           })}

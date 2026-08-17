@@ -354,6 +354,8 @@ function scoreCandidate(player, clubOutlook, predictionOutlook, styleConfig = {}
     benchEnablerEligible: isAttackingBenchEnablerCandidate(player, styleConfig, config),
     clubOutlook,
     predictionOutlook,
+    suggestedFixtures: Array.isArray(clubOutlook?.fixtures) ? clubOutlook.fixtures.slice(0, 5) : [],
+    suggestedNextFixture: Array.isArray(clubOutlook?.fixtures) ? clubOutlook.fixtures[0] || null : null,
   };
 }
 
@@ -880,6 +882,8 @@ function toSquad(players, formation) {
       suggestedStarterLikelihoodScore: player.starterLikelihoodScore,
       suggestedPremiumScore: player.premiumScore,
       suggestedBenchEnablerEligible: !!player.benchEnablerEligible,
+      suggestedFixtures: player.suggestedFixtures || [],
+      suggestedNextFixture: player.suggestedNextFixture || null,
     })),
   };
 }
