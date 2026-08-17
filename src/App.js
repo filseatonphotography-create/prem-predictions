@@ -13077,11 +13077,19 @@ useEffect(() => {
         </div>
       );
     };
-    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard }) => {
+    const renderFantasyPitchLayout = ({ starters = [], bench = [], title = "Squad", renderPlayer = renderFantasyPitchPlayerCard, fixedCardSlots = 0 }) => {
       const starterGroups = FANTASY_IQ_POSITIONS.map((position) => ({
         position,
         players: (starters || []).filter((player) => player.position === position),
       })).filter((group) => group.players.length);
+      const fixedGap = isMobile || compact ? 4 : 8;
+      const fixedCardStyle = fixedCardSlots > 0
+        ? {
+            flex: `0 1 calc((100% - ${fixedGap * (fixedCardSlots - 1)}px) / ${fixedCardSlots})`,
+            minWidth: 0,
+            maxWidth: `calc((100% - ${fixedGap * (fixedCardSlots - 1)}px) / ${fixedCardSlots})`,
+          }
+        : null;
       return (
         <div style={{ display: "grid", gap: 10 }}>
           <div style={{ color: theme.text, fontSize: 13, fontWeight: 950, textAlign: "center" }}>{title}</div>
@@ -13103,14 +13111,18 @@ useEffect(() => {
                 <div style={{ color: "rgba(255,255,255,0.68)", fontSize: 10, fontWeight: 950, textAlign: "center" }}>{group.position}</div>
                 <div
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`,
-                    gap: isMobile || compact ? 6 : 10,
+                    display: fixedCardSlots > 0 ? "flex" : "grid",
+                    gridTemplateColumns: fixedCardSlots > 0 ? undefined : `repeat(${Math.max(1, group.players.length)}, minmax(0, 1fr))`,
+                    gap: fixedCardSlots > 0 ? fixedGap : isMobile || compact ? 6 : 10,
                     alignItems: "start",
-                    justifyContent: "stretch",
+                    justifyContent: fixedCardSlots > 0 ? "space-evenly" : "stretch",
                   }}
                 >
-                  {group.players.map((player) => renderPlayer(player))}
+                  {group.players.map((player) => (
+                    <div key={`pitch-slot-${title}-${group.position}-${player?.id || player?.displayName || player?.name}`} style={fixedCardStyle || undefined}>
+                      {renderPlayer(player)}
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -13120,15 +13132,21 @@ useEffect(() => {
               <div style={{ color: theme.text, fontSize: 12, fontWeight: 950 }}>Bench</div>
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: isMobile || compact
+                  display: fixedCardSlots > 0 ? "flex" : "grid",
+                  gridTemplateColumns: fixedCardSlots > 0
+                    ? undefined
+                    : isMobile || compact
                     ? "repeat(2, minmax(0, 1fr))"
                     : `repeat(${bench.length}, minmax(0, 1fr))`,
-                  gap: 8,
-                  justifyContent: "stretch",
+                  gap: fixedCardSlots > 0 ? fixedGap : 8,
+                  justifyContent: fixedCardSlots > 0 ? "space-evenly" : "stretch",
                 }}
               >
-                {bench.map((player) => renderPlayer(player, { compactTile: true }))}
+                {bench.map((player) => (
+                  <div key={`pitch-slot-${title}-bench-${player?.id || player?.displayName || player?.name}`} style={fixedCardStyle || undefined}>
+                    {renderPlayer(player, { compactTile: true })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -13194,6 +13212,7 @@ useEffect(() => {
             starters: suggestion.starters,
             bench: suggestion.bench,
             title: "Suggested Team",
+            fixedCardSlots: 5,
             renderPlayer: (player, options = {}) => (
               <div key={`suggested-team-${player.id}`} style={{ display: "grid", gap: 5, width: "100%", minWidth: 0 }}>
                 {renderFantasyPitchPlayerCard(player, { ...options, hideMeta: true, boxedFixtureCard: true })}
