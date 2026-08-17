@@ -12874,8 +12874,8 @@ useEffect(() => {
             display: "grid",
             gridTemplateRows: boxedFixtureCard
               ? compactTile
-                ? "72px 18px 19px 13px"
-                : "92px 20px 22px 16px"
+                ? "72px repeat(3, 14px)"
+                : "92px repeat(3, 16px)"
               : "none",
             justifyItems: "center",
             gap: boxedFixtureCard ? 0 : 4,
@@ -12903,7 +12903,7 @@ useEffect(() => {
           >
             <svg
               aria-hidden="true"
-              viewBox="0 0 100 120"
+              viewBox={boxedFixtureCard ? "4 10 92 100" : "0 0 100 120"}
               style={{ width: "100%", height: "100%", display: "block" }}
             >
               <defs>
@@ -12926,6 +12926,11 @@ useEffect(() => {
                   <stop offset="18%" stopColor="rgba(255,255,255,0.06)" />
                   <stop offset="50%" stopColor="rgba(255,255,255,0)" />
                   <stop offset="82%" stopColor="rgba(255,255,255,0.06)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0.24)" />
+                </linearGradient>
+                <linearGradient id={`${shirtPatternId}-bodyDepth`} x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.22)" />
+                  <stop offset="42%" stopColor="rgba(255,255,255,0)" />
                   <stop offset="100%" stopColor="rgba(0,0,0,0.24)" />
                 </linearGradient>
                 <clipPath id={`${shirtPatternId}-clip`}>
@@ -12956,9 +12961,14 @@ useEffect(() => {
                 <path d="M75 43 C69 56 67 79 70 106 L76 106 L73 47 Z" fill="rgba(0,0,0,0.18)" />
                 <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-chest)`} />
                 <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-sideShade)`} />
+                <path d="M28 22 C36 29 64 29 72 22 C76 49 76 78 72 104 L28 104 C24 78 24 49 28 22 Z" fill={`url(#${shirtPatternId}-bodyDepth)`} />
                 <rect x="0" y="0" width="100" height="120" fill={`url(#${shirtPatternId}-shade)`} />
+                <path d="M35 18 C41 27 59 27 65 18 L61 32 C55 29 45 29 39 32 Z" fill="rgba(0,0,0,0.22)" />
+                <path d="M37 17 C43 24 57 24 63 17" fill="none" stroke="rgba(255,255,255,0.38)" strokeWidth="3" strokeLinecap="round" />
+                <path d="M29 21 C36 30 64 30 71 21" fill="none" stroke="rgba(0,0,0,0.18)" strokeWidth="2" />
                 <path d="M28 47 C31 64 31 86 29 105" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="1.5" />
                 <path d="M72 47 C69 64 69 86 71 105" fill="none" stroke="rgba(255,255,255,0.16)" strokeWidth="1.5" />
+                <path d="M37 42 C42 50 58 50 63 42" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1.5" />
                 <path d="M12 30 L18 52 L27 47" fill="none" stroke="rgba(255,255,255,0.24)" strokeWidth="2" />
                 <path d="M88 30 L82 52 L73 47" fill="none" stroke="rgba(255,255,255,0.24)" strokeWidth="2" />
               </g>
@@ -12989,14 +12999,16 @@ useEffect(() => {
               width: boxedFixtureCard ? "100%" : "auto",
               maxWidth: boxedFixtureCard ? "100%" : compactTile ? 74 : 96,
               boxSizing: "border-box",
-              padding: boxedFixtureCard ? "4px 5px" : "3px 5px",
+              padding: boxedFixtureCard ? "0 4px" : "3px 5px",
               borderRadius: boxedFixtureCard ? 0 : 6,
               background: boxedFixtureCard ? "#3B0441" : "rgba(8,13,28,0.76)",
               color: theme.text,
               fontSize: compactTile ? 9 : 11,
               fontWeight: 950,
-              lineHeight: 1.08,
+              lineHeight: 1,
               textAlign: "center",
+              display: boxedFixtureCard ? "grid" : "block",
+              placeItems: boxedFixtureCard ? "center" : undefined,
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "clip",
@@ -13015,11 +13027,13 @@ useEffect(() => {
                 color: "#0B1220",
                 background: "rgba(255,255,255,0.9)",
                 borderRadius: boxedFixtureCard ? 0 : 5,
-                padding: boxedFixtureCard ? "3px 4px" : "2px 5px",
+                padding: boxedFixtureCard ? "0 4px" : "2px 5px",
                 fontSize: compactTile ? 9 : 12,
                 fontWeight: 950,
-                lineHeight: 1.05,
+                lineHeight: 1,
                 textAlign: "center",
+                display: boxedFixtureCard ? "grid" : "block",
+                placeItems: boxedFixtureCard ? "center" : undefined,
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -13037,7 +13051,7 @@ useEffect(() => {
                 gap: boxedFixtureCard ? 0 : 1,
                 width: boxedFixtureCard ? "100%" : compactTile ? 112 : 124,
                 boxSizing: "border-box",
-                padding: boxedFixtureCard ? "0 1px 1px" : 0,
+                padding: 0,
                 background: boxedFixtureCard ? "rgba(255,255,255,0.9)" : "transparent",
               }}
             >
@@ -13053,11 +13067,13 @@ useEffect(() => {
                       background: meta.background,
                       color: meta.color,
                       borderRadius: boxedFixtureCard ? 1 : 4,
-                      padding: compactTile ? "3px 0" : "4px 0",
+                      padding: 0,
                       fontSize: compactTile ? 6 : 8,
                       fontWeight: 950,
                       lineHeight: 1,
                       textAlign: "center",
+                      display: "grid",
+                      placeItems: "center",
                       overflow: "hidden",
                       textOverflow: "clip",
                       whiteSpace: "nowrap",
