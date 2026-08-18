@@ -10571,7 +10571,8 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
   const rowAvatar = getAvatarForRow(row);
   const rowKey = `${scope}:${row.userId || row.player}`;
   const isExpanded = expandedPlayerRowKey === rowKey;
-  const isCurrentUser = isCurrentLeaderboardRow(row);
+  const shouldHighlightCurrentUser =
+    scope === "global" && isCurrentLeaderboardRow(row) && decoration.rank > 3;
   const profile = getLeaderboardProfile(row, rows, index, scope);
   const scoreLabel = profile.bestGameweekScore
     ? `${Math.round(profile.bestGameweekScore.score)} pts (${getModeGameweekLabel(gameMode, profile.bestGameweekScore.gameweek)})`
@@ -10582,18 +10583,18 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
     ? `${Number(profile.coinsProfit || 0).toFixed(2)} season profit`
     : "No coins data";
   const fullPlayerName = row.player || displayPlayerName;
-  const activeBorderColor = isCurrentUser ? theme.accent2 : borderColor;
+  const activeBorderColor = shouldHighlightCurrentUser ? theme.accent2 : borderColor;
 
   return (
     <div
       key={row.userId || row.player}
       style={{
-        background: isCurrentUser
+        background: shouldHighlightCurrentUser
           ? "linear-gradient(180deg, rgba(34,197,94,0.16), rgba(255,255,255,0.03))"
           : theme.panelHi,
         border: `2px solid ${activeBorderColor}`,
         borderRadius: 12,
-        boxShadow: isCurrentUser ? "0 0 0 1px rgba(34,197,94,0.25), 0 10px 24px rgba(0,0,0,0.28)" : "none",
+        boxShadow: shouldHighlightCurrentUser ? "0 0 0 1px rgba(34,197,94,0.25), 0 10px 24px rgba(0,0,0,0.28)" : "none",
         overflow: "hidden",
         transition: "transform 0.2s",
       }}
@@ -10618,7 +10619,7 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
           cursor: "pointer",
         }}
       >
-        <div style={{ color: isCurrentUser ? theme.accent2 : decoration.borderColor || theme.muted, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ color: shouldHighlightCurrentUser ? theme.accent2 : decoration.borderColor || theme.muted, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 4 }}>
           {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
           {!decoration.emoji && <span>{decoration.rank}</span>}
         </div>
@@ -10630,31 +10631,15 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
           favoriteMode={gameMode}
           favoriteTeam={activeFavoriteByUserId[String(row.userId || "")] || activeFavoriteByUsername[row.player] || ""}
         />
-        <div style={{ fontWeight: 700, fontSize: 15, color: isCurrentUser ? theme.accent2 : decoration.highlight ? "#FFD700" : theme.text, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", overflow: "visible" }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: shouldHighlightCurrentUser ? theme.accent2 : decoration.highlight ? "#FFD700" : theme.text, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", overflow: "visible" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: "100%" }}>
             <span title={row.player} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "100%" }}>
               {displayPlayerName}
             </span>
-            {isCurrentUser && (
-              <span
-                style={{
-                  flex: "0 0 auto",
-                  border: `1px solid ${theme.accent2}`,
-                  borderRadius: 999,
-                  color: theme.accent2,
-                  fontSize: 10,
-                  fontWeight: 950,
-                  lineHeight: 1,
-                  padding: "3px 6px",
-                }}
-              >
-                You
-              </span>
-            )}
           </div>
           {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
         </div>
-        <div style={{ textAlign: "right", fontWeight: 800, fontSize: 18, color: isCurrentUser ? theme.accent2 : decoration.borderColor || theme.accent }}>
+        <div style={{ textAlign: "right", fontWeight: 800, fontSize: 18, color: shouldHighlightCurrentUser ? theme.accent2 : decoration.borderColor || theme.accent }}>
           <AnimatedNumber value={Number(value) || 0} duration={450} format={valueFormatter} />
         </div>
         <div aria-hidden="true" style={{ color: theme.muted, fontSize: 16, fontWeight: 900 }}>
