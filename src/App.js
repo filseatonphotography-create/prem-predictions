@@ -173,6 +173,7 @@ const WORLD_CUP_MODE = "worldCup";
 const FANTASY_IQ_VIEW_ID = "fantasyHelp";
 const PREMIER_TABLE_CURRENT_VIEW = "current-2026-27";
 const PREMIER_TABLE_HISTORY_VIEW = "history-2025-26";
+const GLOBAL_LEAGUE_PAGE_SIZE = 25;
 const MAX_USERNAME_LENGTH = 11;
 const USERNAME_DISPLAY_LENGTH = 11;
 const PREMIER_SEASON_WINNER_RECORD = {
@@ -5446,6 +5447,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
   const [globalUsers, setGlobalUsers] = useState([]);
   const [globalPredictionsByUserId, setGlobalPredictionsByUserId] = useState({});
+  const [globalLeaguePage, setGlobalLeaguePage] = useState(1);
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [winnerList, setWinnerList] = useState([]);
   const [winnerIndex, setWinnerIndex] = useState(0);
@@ -6531,6 +6533,13 @@ const favoriteCountryByUsername = useMemo(() => {
 
 const activeFavoriteByUserId = isWorldCupMode ? favoriteCountriesByUserId : favoriteTeamsByUserId;
 const activeFavoriteByUsername = isWorldCupMode ? favoriteCountryByUsername : favoriteTeamByUsername;
+const isCurrentLeaderboardRow = (row = {}) => {
+  const rowUserId = row.userId ? String(row.userId) : "";
+  return (
+    (rowUserId && currentUserId && rowUserId === String(currentUserId)) ||
+    String(row.player || "") === String(currentPlayer || "")
+  );
+};
 const getAvatarForRow = (row = {}) => {
   const rowUserId = row.userId ? String(row.userId) : "";
   const savedAvatar = rowUserId ? avatarsByUserId[rowUserId] : null;
@@ -6541,10 +6550,7 @@ const getAvatarForRow = (row = {}) => {
     };
   }
 
-  const isCurrentUser =
-    (rowUserId && currentUserId && rowUserId === String(currentUserId)) ||
-    row.player === currentPlayer;
-  if (isCurrentUser) {
+  if (isCurrentLeaderboardRow(row)) {
     return {
       seed: avatarSeed || currentPlayer,
       style: avatarStyle || "avataaars",
@@ -8856,6 +8862,57 @@ const globalLeaderboard = useMemo(() => {
   return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
 }, [dedupedGlobalUsers, globalPredictionsByUserId, results, activeFixtures, isWorldCupMode]);
 
+const globalLeagueTotalPages = Math.max(
+  1,
+  Math.ceil(globalLeaderboard.length / GLOBAL_LEAGUE_PAGE_SIZE)
+);
+const currentGlobalLeaderboardIndex = useMemo(
+  () =>
+    globalLeaderboard.findIndex((row) => {
+      const rowUserId = row.userId ? String(row.userId) : "";
+      return (
+        (rowUserId && currentUserId && rowUserId === String(currentUserId)) ||
+        String(row.player || "") === String(currentPlayer || "")
+      );
+    }),
+  [globalLeaderboard, currentUserId, currentPlayer]
+);
+const visibleGlobalLeaderboardRows = useMemo(() => {
+  const page = Math.min(Math.max(1, globalLeaguePage), globalLeagueTotalPages);
+  const start = (page - 1) * GLOBAL_LEAGUE_PAGE_SIZE;
+  const pageRows = globalLeaderboard
+    .slice(start, start + GLOBAL_LEAGUE_PAGE_SIZE)
+    .map((row, offset) => ({ row, index: start + offset }));
+
+  if (page === 1 && currentGlobalLeaderboardIndex >= GLOBAL_LEAGUE_PAGE_SIZE) {
+    return [
+      ...globalLeaderboard
+        .slice(0, GLOBAL_LEAGUE_PAGE_SIZE - 1)
+        .map((row, index) => ({ row, index })),
+      {
+        row: globalLeaderboard[currentGlobalLeaderboardIndex],
+        index: currentGlobalLeaderboardIndex,
+      },
+    ];
+  }
+
+  return pageRows;
+}, [globalLeaderboard, globalLeaguePage, globalLeagueTotalPages, currentGlobalLeaderboardIndex]);
+const globalLeagueShowingStart = globalLeaderboard.length
+  ? (Math.min(Math.max(1, globalLeaguePage), globalLeagueTotalPages) - 1) * GLOBAL_LEAGUE_PAGE_SIZE + 1
+  : 0;
+const globalLeagueShowingEnd = globalLeaderboard.length
+  ? Math.min(globalLeaderboard.length, globalLeagueShowingStart + visibleGlobalLeaderboardRows.length - 1)
+  : 0;
+
+useEffect(() => {
+  setGlobalLeaguePage(1);
+}, [gameMode]);
+
+useEffect(() => {
+  setGlobalLeaguePage((page) => Math.min(Math.max(1, page), globalLeagueTotalPages));
+}, [globalLeagueTotalPages]);
+
 const predictionIqReport = useMemo(() => {
   const emptyReport = {
     rating: 0,
@@ -10514,6 +10571,7 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
   const rowAvatar = getAvatarForRow(row);
   const rowKey = `${scope}:${row.userId || row.player}`;
   const isExpanded = expandedPlayerRowKey === rowKey;
+  const isCurrentUser = isCurrentLeaderboardRow(row);
   const profile = getLeaderboardProfile(row, rows, index, scope);
   const scoreLabel = profile.bestGameweekScore
     ? `${Math.round(profile.bestGameweekScore.score)} pts (${getModeGameweekLabel(gameMode, profile.bestGameweekScore.gameweek)})`
@@ -10524,14 +10582,18 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
     ? `${Number(profile.coinsProfit || 0).toFixed(2)} season profit`
     : "No coins data";
   const fullPlayerName = row.player || displayPlayerName;
+  const activeBorderColor = isCurrentUser ? theme.accent2 : borderColor;
 
   return (
     <div
       key={row.userId || row.player}
       style={{
-        background: theme.panelHi,
-        border: `2px solid ${borderColor}`,
+        background: isCurrentUser
+          ? "linear-gradient(180deg, rgba(34,197,94,0.16), rgba(255,255,255,0.03))"
+          : theme.panelHi,
+        border: `2px solid ${activeBorderColor}`,
         borderRadius: 12,
+        boxShadow: isCurrentUser ? "0 0 0 1px rgba(34,197,94,0.25), 0 10px 24px rgba(0,0,0,0.28)" : "none",
         overflow: "hidden",
         transition: "transform 0.2s",
       }}
@@ -10556,7 +10618,7 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
           cursor: "pointer",
         }}
       >
-        <div style={{ color: decoration.borderColor || theme.muted, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ color: isCurrentUser ? theme.accent2 : decoration.borderColor || theme.muted, fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", gap: 4 }}>
           {decoration.emoji && <span style={{ fontSize: 18 }}>{decoration.emoji}</span>}
           {!decoration.emoji && <span>{decoration.rank}</span>}
         </div>
@@ -10568,13 +10630,31 @@ function renderExpandableLeaderboardRow({ row, rows, index, value, valueFormatte
           favoriteMode={gameMode}
           favoriteTeam={activeFavoriteByUserId[String(row.userId || "")] || activeFavoriteByUsername[row.player] || ""}
         />
-        <div style={{ fontWeight: 700, fontSize: 15, color: decoration.highlight ? "#FFD700" : theme.text, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", overflow: "visible" }}>
-          <span title={row.player} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "100%" }}>
-            {displayPlayerName}
-          </span>
+        <div style={{ fontWeight: 700, fontSize: 15, color: isCurrentUser ? theme.accent2 : decoration.highlight ? "#FFD700" : theme.text, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", overflow: "visible" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: "100%" }}>
+            <span title={row.player} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, maxWidth: "100%" }}>
+              {displayPlayerName}
+            </span>
+            {isCurrentUser && (
+              <span
+                style={{
+                  flex: "0 0 auto",
+                  border: `1px solid ${theme.accent2}`,
+                  borderRadius: 999,
+                  color: theme.accent2,
+                  fontSize: 10,
+                  fontWeight: 950,
+                  lineHeight: 1,
+                  padding: "3px 6px",
+                }}
+              >
+                You
+              </span>
+            )}
+          </div>
           {renderBadgeStrip(row, { compact: true, limit: BADGE_DEFINITIONS.length, wrap: true, columns: 7 })}
         </div>
-        <div style={{ textAlign: "right", fontWeight: 800, fontSize: 18, color: decoration.borderColor || theme.accent }}>
+        <div style={{ textAlign: "right", fontWeight: 800, fontSize: 18, color: isCurrentUser ? theme.accent2 : decoration.borderColor || theme.accent }}>
           <AnimatedNumber value={Number(value) || 0} duration={450} format={valueFormatter} />
         </div>
         <div aria-hidden="true" style={{ color: theme.muted, fontSize: 16, fontWeight: 900 }}>
@@ -19020,17 +19100,69 @@ const TABS = [
           <section style={cardStyle}>
             <h2 style={{ marginTop: 0, fontSize: 18, textAlign: "center" }}>{isWorldCupMode ? "🌍 WC Global League" : "🌍 Global League Table"}</h2>
             <div style={{ display: "grid", gap: 8 }}>
-              {globalLeaderboard.map((row, i) =>
+              {visibleGlobalLeaderboardRows.map(({ row, index }) =>
                 renderExpandableLeaderboardRow({
                   row,
                   rows: globalLeaderboard,
-                  index: i,
+                  index,
                   value: row.points,
                   valueFormatter: (v) => Math.round(v),
                   scope: "global",
                 })
               )}
             </div>
+            {globalLeaderboard.length > GLOBAL_LEAGUE_PAGE_SIZE && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 10,
+                  marginTop: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ color: theme.muted, fontSize: 12 }}>
+                  {globalLeaguePage === 1 && currentGlobalLeaderboardIndex >= GLOBAL_LEAGUE_PAGE_SIZE
+                    ? `Showing 1-${GLOBAL_LEAGUE_PAGE_SIZE - 1} plus your position #${currentGlobalLeaderboardIndex + 1} of ${globalLeaderboard.length}`
+                    : `Showing ${globalLeagueShowingStart}-${globalLeagueShowingEnd} of ${globalLeaderboard.length}`}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                  <button
+                    type="button"
+                    onClick={() => setGlobalLeaguePage((page) => Math.max(1, page - 1))}
+                    disabled={globalLeaguePage <= 1}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${theme.line}`,
+                      background: globalLeaguePage <= 1 ? theme.panelHi : theme.accent,
+                      color: globalLeaguePage <= 1 ? theme.muted : "#07111f",
+                      fontWeight: 850,
+                      cursor: globalLeaguePage <= 1 ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGlobalLeaguePage((page) => Math.min(globalLeagueTotalPages, page + 1))}
+                    disabled={globalLeaguePage >= globalLeagueTotalPages}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${theme.line}`,
+                      background: globalLeaguePage >= globalLeagueTotalPages ? theme.panelHi : theme.accent,
+                      color: globalLeaguePage >= globalLeagueTotalPages ? theme.muted : "#07111f",
+                      fontWeight: 850,
+                      cursor: globalLeaguePage >= globalLeagueTotalPages ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    Next page
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
         )}
 
