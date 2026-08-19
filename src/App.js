@@ -15651,16 +15651,17 @@ if (!isLoggedIn) {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+                  gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
                   gap: 10,
                   width: "100%",
-                  maxWidth: 760,
+                  maxWidth: 940,
                 }}
               >
                 {[
                   ["Predictions", "Lock in every score before deadline"],
                   ["Mini-leagues", "Create private tables and cups"],
                   ["Coins Game", "Back outcomes and chase returns"],
+                  ["Fantasy IQ", "Get your fantasy team rated with transfer and line-up suggestions"],
                 ].map(([label, text]) => (
                   <div
                     key={label}
