@@ -2317,6 +2317,42 @@ app.post("/api/admin/users/remove-test-accounts", (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: EXPORT USER EMAILS
+// GET /api/admin/users/emails.csv
+// headers: x-admin-key: prem-admin-reset
+// ---------------------------------------------------------------------------
+app.get("/api/admin/users/emails.csv", (req, res) => {
+  try {
+    const adminKey = req.headers["x-admin-key"];
+    if (adminKey !== "prem-admin-reset") {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const csvValue = (value) =>
+      `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const users = loadUsers() || [];
+    const lines = [
+      ["username", "email"].map(csvValue).join(","),
+      ...users
+        .filter((user) => normalizeEmail(user?.email))
+        .map((user) =>
+          [user.username || "", normalizeEmail(user.email)].map(csvValue).join(",")
+        ),
+    ];
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="player-emails.csv"'
+    );
+    return res.send(`${lines.join("\n")}\n`);
+  } catch (err) {
+    console.error("admin export emails error", err);
+    return res.status(500).json({ error: "Admin export emails failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // MINI-LEAGUES
 // ---------------------------------------------------------------------------
 function generateJoinCode(existingLeagues) {

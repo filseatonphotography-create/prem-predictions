@@ -26,6 +26,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "export:emails": "node scripts/exportPlayerEmails.js",
     "test:screenshot-recognition": "node scripts/runFantasyIqScreenshotRecognitionCheck.js",
     "eject": "react-scripts eject"
   },
