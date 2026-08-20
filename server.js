@@ -188,6 +188,12 @@ function leagueMatchesMode(league, mode) {
   return normalizeLeagueMode(league.mode) === normalizeLeagueMode(mode);
 }
 
+const HIDDEN_TEST_LEAGUE_NAMES = new Set(["banana123", "test league"]);
+
+function isHiddenTestLeague(league = {}) {
+  return HIDDEN_TEST_LEAGUE_NAMES.has(String(league.name || "").trim().toLowerCase());
+}
+
 function getFixturesForMode(mode) {
   return normalizeLeagueMode(mode) === "worldcup"
     ? loadWorldCupFixturesFromSrc()
@@ -2397,6 +2403,7 @@ app.get("/api/leagues/my", authMiddleware, (req, res) => {
     const mode = normalizeLeagueMode(req.query.mode);
     const leagues = loadLeaguesWithInactiveMembersPruned();
     const myLeagues = leagues
+      .filter((league) => !isHiddenTestLeague(league))
       .map((league) => {
         const members = getLeagueMemberIds(league);
         const joinCode = (league.joinCode || league.inviteCode || "").toUpperCase();
@@ -2438,6 +2445,7 @@ app.get("/api/leagues/leaderboard", authMiddleware, (req, res) => {
       });
 
     const leaderboard = leagues
+      .filter((league) => !isHiddenTestLeague(league))
       .filter((league) => leagueMatchesMode(league, mode))
       .map((league) => {
       const members = Array.isArray(league.members)
