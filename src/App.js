@@ -8804,9 +8804,6 @@ const globalWeeklyScores = useMemo(() => {
     const base = isWorldCupMode ? 0 : (SPREADSHEET_WEEKLY_TOTALS[u.username]?.[gw - 1] || 0);
     scores[u.userId] = base;
   });
-  if (!isWorldCupMode) {
-    return scores;
-  }
   activeFixtures.forEach((fixture) => {
     if (fixture.gameweek !== gw) return;
     const res = results[fixture.id];
@@ -8839,10 +8836,6 @@ const globalLeaderboard = useMemo(() => {
       points: base,
     };
   });
-
-  if (!isWorldCupMode) {
-    return Object.values(totalsByUserId).sort((a, b) => b.points - a.points);
-  }
 
   activeFixtures.forEach((fixture) => {
     const res = results[fixture.id];
@@ -10469,11 +10462,9 @@ function getLeaderboardProfile(row, tableRows, rankIndex, scope = "league") {
         if (totals[key] !== undefined) return Number(totals[key]) || 0;
       }
     }
-    if (!isWorldCupMode) {
-      return Number(SPREADSHEET_WEEKLY_TOTALS[targetPlayer]?.[gw - 1]) || 0;
-    }
+    const base = isWorldCupMode ? 0 : Number(SPREADSHEET_WEEKLY_TOTALS[targetPlayer]?.[gw - 1]) || 0;
     const preds = globalPredictionsByUserId[targetUserId] || leaguePredictionsByUserId[targetUserId] || {};
-    let score = 0;
+    let score = base;
     activeFixtures.forEach((fixture) => {
       if (fixture.gameweek !== gw) return;
       const res = results[fixture.id];
