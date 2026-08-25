@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -5602,6 +5602,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [predictionIqDemo, setPredictionIqDemo] = useState(false);
   const [badgeAwardBadges, setBadgeAwardBadges] = useState([]);
   const badgeHistorySaveSignatureRef = useRef("");
+  const predictionIqReportRef = useRef(null);
+  const predictionIqPendingReportScrollRef = useRef(false);
   const swipeStartRef = useRef(null);
   const winnerAudioRef = useRef(null);
 
@@ -5936,6 +5938,35 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       window.requestAnimationFrame(scrollToFantasyIqOverview);
     });
   }, [activeView, fantasyIqAnalysisPanel, fantasyIqBuilderOpen, fantasyScreenshotImportOpen]);
+
+  const scrollToPredictionIqReport = useCallback(() => {
+    const scroll = () => {
+      const element = predictionIqReportRef.current;
+      if (!element) return false;
+      const top = element.getBoundingClientRect().top + window.scrollY - 6;
+      window.scrollTo({ top: Math.max(0, top), left: 0, behavior: "auto" });
+      return true;
+    };
+    window.requestAnimationFrame(() => {
+      if (!scroll()) {
+        window.setTimeout(scroll, 80);
+      }
+    });
+  }, []);
+
+  const openPredictionIqReportView = () => {
+    predictionIqPendingReportScrollRef.current = true;
+    setShowPredictionIqModal(false);
+    setActiveView("predictionIq");
+  };
+
+  useEffect(() => {
+    if (activeView !== "predictionIq" || !predictionIqPendingReportScrollRef.current) return;
+    predictionIqPendingReportScrollRef.current = false;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollToPredictionIqReport);
+    });
+  }, [activeView, scrollToPredictionIqReport]);
 
   const handleConfirmFantasyScreenshotImport = () => {
     if (!fantasyScreenshotReview) return;
@@ -10924,12 +10955,11 @@ const badgeStatsByKey = useMemo(() => {
   const playedSeasonsByKey = {};
   const getSafeEarnedBadgeIdsForRecord = (record = {}) => {
     const earnedIds = Array.isArray(record.earnedBadgeIds) ? record.earnedBadgeIds.filter(Boolean) : [];
-    const isCurrentUnstartedPremierSeason =
+    const isCurrentPremierSeason =
       !isWorldCupMode &&
       currentPremierSeasonLabel &&
-      String(record.seasonLabel || "") === currentPremierSeasonLabel &&
-      !currentSeasonHasCompletedPremierGameweek;
-    return isCurrentUnstartedPremierSeason
+      String(record.seasonLabel || "") === currentPremierSeasonLabel;
+    return isCurrentPremierSeason
       ? earnedIds.filter((badgeId) => !PERFORMANCE_BADGE_IDS.has(String(badgeId)))
       : earnedIds;
   };
@@ -16648,6 +16678,9 @@ if (!isLoggedIn) {
               padding: isMobile ? 14 : 18,
               boxShadow: "0 20px 50px rgba(0,0,0,0.45)",
               position: "relative",
+              maxHeight: "calc(100dvh - 32px)",
+              overflowY: "auto",
+              overscrollBehavior: "contain",
             }}
           >
             <div
@@ -16690,10 +16723,7 @@ if (!isLoggedIn) {
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
               <button
                 type="button"
-                onClick={() => {
-                  setShowPredictionIqModal(false);
-                  setActiveView("predictionIq");
-                }}
+                onClick={openPredictionIqReportView}
                 style={{
                   flex: 1,
                   padding: "9px 12px",
@@ -19144,7 +19174,7 @@ const TABS = [
         )}
 
         {activeView === "predictionIq" && !isWorldCupMode && (
-          <section style={cardStyle}>
+          <section ref={predictionIqReportRef} style={cardStyle}>
             <div
               style={{
                 textAlign: "center",
