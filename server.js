@@ -199,6 +199,19 @@ function getFixturesForMode(mode) {
     ? loadWorldCupFixturesFromSrc()
     : loadFixturesFromSrc();
 }
+
+function applyMatchStateKickoffOverrides(fixtures = [], matchStates = {}) {
+  return (fixtures || []).map((fixture) => {
+    const matchState = matchStates[String(fixture?.id)] || matchStates[fixture?.id];
+    const utcDate = String(matchState?.utcDate || "").trim();
+    if (!utcDate || !Number.isFinite(Date.parse(utcDate))) return fixture;
+    return {
+      ...fixture,
+      kickoff: utcDate,
+      kickoffTimeConfirmed: true,
+    };
+  });
+}
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const LEAGUES_FILE = path.join(DATA_DIR, "leagues.json");
 const PREDICTIONS_FILE = path.join(DATA_DIR, "predictions.json");
@@ -4154,12 +4167,13 @@ app.post("/api/push/fixtures", authMiddleware, (req, res) => {
 // DEADLINE NOTIFICATIONS (1h + 24h before kickoff)
 // ---------------------------------------------------------------------------
 function runDeadlineNotifier() {
+  const matchStates = loadMatchStates() || {};
   const fixtures = [
-    ...(loadFixturesFromSrc() || []).map((fixture) => ({
+    ...applyMatchStateKickoffOverrides(loadFixturesFromSrc() || [], matchStates).map((fixture) => ({
       fixture,
       mode: "premier",
     })),
-    ...(loadWorldCupFixturesFromSrc() || []).map((fixture) => ({
+    ...applyMatchStateKickoffOverrides(loadWorldCupFixturesFromSrc() || [], matchStates).map((fixture) => ({
       fixture,
       mode: "worldcup",
     })),

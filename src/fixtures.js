@@ -74,56 +74,56 @@ const FIXTURES = [
     "gameweek": 2,
     "homeTeam": "Liverpool FC",
     "awayTeam": "Nottingham Forest FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-29T11:30:00Z"
   },
   {
     "id": 560553,
     "gameweek": 2,
     "homeTeam": "Manchester United FC",
     "awayTeam": "Ipswich Town FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-30T15:30:00Z"
   },
   {
     "id": 560554,
     "gameweek": 2,
     "homeTeam": "Sunderland AFC",
     "awayTeam": "Fulham FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-30T13:00:00Z"
   },
   {
     "id": 560555,
     "gameweek": 2,
     "homeTeam": "Crystal Palace FC",
     "awayTeam": "Manchester City FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-28T19:00:00Z"
   },
   {
     "id": 560556,
     "gameweek": 2,
     "homeTeam": "Chelsea FC",
     "awayTeam": "Brighton & Hove Albion FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-30T13:00:00Z"
   },
   {
     "id": 560557,
     "gameweek": 2,
     "homeTeam": "Aston Villa FC",
     "awayTeam": "Arsenal FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-31T19:00:00Z"
   },
   {
     "id": 560558,
     "gameweek": 2,
     "homeTeam": "Tottenham Hotspur FC",
     "awayTeam": "Newcastle United FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-29T16:30:00Z"
   },
   {
     "id": 560559,
     "gameweek": 2,
     "homeTeam": "Leeds United FC",
     "awayTeam": "Brentford FC",
-    "kickoff": "2026-08-29T14:00:00Z"
+    "kickoff": "2026-08-30T13:00:00Z"
   },
   {
     "id": 560560,

@@ -6,6 +6,7 @@ import {
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   mergeFixtureOverrides,
+  buildFixtureOverridesFromMatchStates,
   getWorldCupStageLabel,
   getWorldCupStageForGameweek,
   sortFixturesByOrderOfPlay,
@@ -804,6 +805,29 @@ describe("World Cup sync helpers", () => {
         homeTeam: "South Africa",
         awayTeam: "Canada",
         kickoff: "new",
+      },
+    });
+  });
+
+  test("builds kickoff overrides from saved match states for matching fixtures", () => {
+    expect(
+      buildFixtureOverridesFromMatchStates(
+        {
+          560552: {
+            status: "TIMED",
+            utcDate: "2026-08-28T19:00:00Z",
+          },
+          999999: {
+            status: "TIMED",
+            utcDate: "2026-08-28T20:00:00Z",
+          },
+        },
+        [{ id: 560552, kickoff: "2026-08-29T14:00:00Z", gameweek: 2 }]
+      )
+    ).toEqual({
+      560552: {
+        kickoff: "2026-08-28T19:00:00Z",
+        kickoffTimeConfirmed: true,
       },
     });
   });

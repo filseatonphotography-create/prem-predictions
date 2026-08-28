@@ -3825,7 +3825,7 @@ function formatFixtureKickoff(fixture, mode = PREMIER_MODE) {
   return formatKickoffShort(fixture.kickoff);
 }
 
-function buildFixtureOverridesFromMatchStates(matchStatesByFixtureId = {}, fixtures = []) {
+export function buildFixtureOverridesFromMatchStates(matchStatesByFixtureId = {}, fixtures = []) {
   const overrides = {};
   const fixtureById = new Map(
     (fixtures || []).map((fixture) => [String(fixture.id), fixture])
@@ -7053,13 +7053,13 @@ useEffect(() => {
         setResults((prev) => stripUnstartedResults(prev, matchStatesSnapshot));
         setFixtureOverridesByMode((prev) => ({
           ...prev,
-          [WORLD_CUP_MODE]: {
-            ...(prev[WORLD_CUP_MODE] || {}),
-            ...buildFixtureOverridesFromMatchStates(
+          [gameMode]: mergeFixtureOverrides(
+            prev[gameMode],
+            buildFixtureOverridesFromMatchStates(
               matchStatesSnapshot,
-              getFixturesForMode(WORLD_CUP_MODE)
-            ),
-          },
+              getFixturesForMode(gameMode)
+            )
+          ),
         }));
       }
     } catch {}
