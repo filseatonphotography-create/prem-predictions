@@ -3261,6 +3261,61 @@ function isGameweekLocked(gameweek, fixturesSource = FIXTURES) {
   return Date.now() > earliestDeadline;
 }
 
+export function getPredictionEntryGameweek(fixturesSource = FIXTURES, gameweeks = GAMEWEEKS, nowMs = Date.now()) {
+  const sortedGameweeks = [...gameweeks].sort((a, b) => a - b);
+  const nextEditable = sortedGameweeks.find((gw) => {
+    const fixtures = fixturesSource.filter((fixture) => fixture.gameweek === gw);
+    if (!fixtures.length) return false;
+    const earliestDeadline = Math.min(
+      ...fixtures.map((fixture) => {
+        const kickoff = Date.parse(fixture.kickoff);
+        if (!Number.isFinite(kickoff)) return Number.POSITIVE_INFINITY;
+        return fixture?.kickoffTimeConfirmed === false ? kickoff : kickoff - 60 * 60 * 1000;
+      })
+    );
+    return Number.isFinite(earliestDeadline) && earliestDeadline > nowMs;
+  });
+
+  return nextEditable || sortedGameweeks[sortedGameweeks.length - 1] || 1;
+}
+
+export function getMostRecentCompletedGameweek(
+  fixturesSource = FIXTURES,
+  gameweeks = GAMEWEEKS,
+  resultsByFixtureId = {},
+  nowMs = Date.now()
+) {
+  const sortedGameweeks = [...gameweeks].sort((a, b) => a - b);
+  const completedByResults = sortedGameweeks
+    .filter((gw) => {
+      const fixtures = fixturesSource.filter((fixture) => fixture.gameweek === gw);
+      return (
+        fixtures.length > 0 &&
+        fixtures.every((fixture) => hasValidResultScore(resultsByFixtureId[String(fixture.id)] || resultsByFixtureId[fixture.id]))
+      );
+    })
+    .pop();
+
+  if (completedByResults) return completedByResults;
+
+  const latestLocked = sortedGameweeks
+    .filter((gw) => {
+      const fixtures = fixturesSource.filter((fixture) => fixture.gameweek === gw);
+      if (!fixtures.length) return false;
+      const earliestDeadline = Math.min(
+        ...fixtures.map((fixture) => {
+          const kickoff = Date.parse(fixture.kickoff);
+          if (!Number.isFinite(kickoff)) return Number.POSITIVE_INFINITY;
+          return fixture?.kickoffTimeConfirmed === false ? kickoff : kickoff - 60 * 60 * 1000;
+        })
+      );
+      return Number.isFinite(earliestDeadline) && earliestDeadline <= nowMs;
+    })
+    .pop();
+
+  return latestLocked || getPredictionEntryGameweek(fixturesSource, gameweeks, nowMs);
+}
+
 function getPredictionLandingGameweek(fixturesSource = FIXTURES, gameweeks = GAMEWEEKS) {
   const now = Date.now();
   const sortedGameweeks = [...gameweeks].sort((a, b) => a - b);
@@ -8040,6 +8095,32 @@ useEffect(() => {
       window.scrollTo({ top: 0, left: 0, behavior: "auto" });
     });
   };
+
+  const openPredictionEntry = useCallback(() => {
+    const targetGameweek = getPredictionEntryGameweek(activeFixtures, activeGameweeks);
+    setSelectedGameweek(targetGameweek);
+    setActiveView("predictions");
+    setShowMobileMenu(false);
+    setShowLeaguesMenu(false);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+  }, [activeFixtures, activeGameweeks]);
+
+  const openPredictionsMenuView = useCallback(() => {
+    const targetGameweek = getMostRecentCompletedGameweek(
+      activeFixtures,
+      activeGameweeks,
+      results
+    );
+    setSelectedGameweek(targetGameweek);
+    setActiveView("predictions");
+    setShowMobileMenu(false);
+    setShowLeaguesMenu(false);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+  }, [activeFixtures, activeGameweeks, results]);
 
   useEffect(() => {
     if (!isLoggedIn || !authToken) return;
@@ -16874,12 +16955,7 @@ if (!isLoggedIn) {
                     refreshAutoResults(gameMode, activeFixtures);
                     return;
                   }
-                  setActiveView("predictions");
-                  setShowMobileMenu(false);
-                  setShowLeaguesMenu(false);
-                  window.requestAnimationFrame(() => {
-                    window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
-                  });
+                  openPredictionEntry();
                 }}
                 disabled={activeView === "predictions" && resultsRefreshing}
                 style={{
@@ -17360,8 +17436,12 @@ const TABS = [
               key={t.id}
               type="button"
               onClick={() => {
-                setActiveView(t.id);
-                setShowMobileMenu(false);
+                if (t.id === "predictions") {
+                  openPredictionsMenuView();
+                } else {
+                  setActiveView(t.id);
+                  setShowMobileMenu(false);
+                }
               }}
               style={{
                 ...pillBtn(activeView === t.id),
@@ -17394,7 +17474,13 @@ const TABS = [
         <button
           key={t.id}
           style={pillBtn(activeView === t.id)}
-          onClick={() => setActiveView(t.id)}
+          onClick={() => {
+            if (t.id === "predictions") {
+              openPredictionsMenuView();
+            } else {
+              setActiveView(t.id);
+            }
+          }}
           type="button"
         >
           {t.label}
