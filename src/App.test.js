@@ -8,7 +8,7 @@ import {
   mergeFixtureOverrides,
   buildFixtureOverridesFromMatchStates,
   getPredictionEntryGameweek,
-  getMostRecentCompletedGameweek,
+  getCurrentPredictionMenuGameweek,
   getWorldCupStageLabel,
   getWorldCupStageForGameweek,
   sortFixturesByOrderOfPlay,
@@ -100,24 +100,29 @@ describe("2026/27 Premier League data", () => {
     ).toBe(2);
   });
 
-  test("routes the predictions menu to the latest completed gameweek", () => {
+  test("routes the predictions menu to the current started gameweek", () => {
     const fixtures = [
       { id: 1, gameweek: 1, kickoff: "2026-08-01T12:00:00Z" },
       { id: 2, gameweek: 1, kickoff: "2026-08-01T15:00:00Z" },
       { id: 3, gameweek: 2, kickoff: "2026-08-08T12:00:00Z" },
+      { id: 4, gameweek: 3, kickoff: "2026-08-15T12:00:00Z" },
     ];
 
     expect(
-      getMostRecentCompletedGameweek(
+      getCurrentPredictionMenuGameweek(
         fixtures,
         [1, 2],
-        {
-          1: { homeGoals: 2, awayGoals: 0 },
-          2: { homeGoals: 1, awayGoals: 1 },
-        },
-        Date.parse("2026-08-08T11:30:00Z")
+        Date.parse("2026-08-08T12:30:00Z")
       )
-    ).toBe(1);
+    ).toBe(2);
+
+    expect(
+      getCurrentPredictionMenuGameweek(
+        fixtures,
+        [1, 2, 3],
+        Date.parse("2026-08-15T12:00:00Z")
+      )
+    ).toBe(3);
   });
 });
 

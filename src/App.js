@@ -3279,41 +3279,34 @@ export function getPredictionEntryGameweek(fixturesSource = FIXTURES, gameweeks 
   return nextEditable || sortedGameweeks[sortedGameweeks.length - 1] || 1;
 }
 
-export function getMostRecentCompletedGameweek(
+export function getCurrentPredictionMenuGameweek(
   fixturesSource = FIXTURES,
   gameweeks = GAMEWEEKS,
-  resultsByFixtureId = {},
   nowMs = Date.now()
 ) {
   const sortedGameweeks = [...gameweeks].sort((a, b) => a - b);
-  const completedByResults = sortedGameweeks
-    .filter((gw) => {
+  const gameweekStarts = sortedGameweeks
+    .map((gw) => {
       const fixtures = fixturesSource.filter((fixture) => fixture.gameweek === gw);
-      return (
-        fixtures.length > 0 &&
-        fixtures.every((fixture) => hasValidResultScore(resultsByFixtureId[String(fixture.id)] || resultsByFixtureId[fixture.id]))
-      );
+      const kickoffTimes = fixtures
+        .map((fixture) => Date.parse(fixture.kickoff))
+        .filter(Number.isFinite);
+      if (!kickoffTimes.length) return null;
+      return { gameweek: gw, startsAt: Math.min(...kickoffTimes) };
     })
-    .pop();
+    .filter(Boolean)
+    .sort((a, b) => a.startsAt - b.startsAt || a.gameweek - b.gameweek);
 
-  if (completedByResults) return completedByResults;
+  const activeGameweek = gameweekStarts
+    .filter((entry) => entry.startsAt <= nowMs)
+    .at(-1)?.gameweek;
 
-  const latestLocked = sortedGameweeks
-    .filter((gw) => {
-      const fixtures = fixturesSource.filter((fixture) => fixture.gameweek === gw);
-      if (!fixtures.length) return false;
-      const earliestDeadline = Math.min(
-        ...fixtures.map((fixture) => {
-          const kickoff = Date.parse(fixture.kickoff);
-          if (!Number.isFinite(kickoff)) return Number.POSITIVE_INFINITY;
-          return fixture?.kickoffTimeConfirmed === false ? kickoff : kickoff - 60 * 60 * 1000;
-        })
-      );
-      return Number.isFinite(earliestDeadline) && earliestDeadline <= nowMs;
-    })
-    .pop();
+  if (activeGameweek) return activeGameweek;
 
-  return latestLocked || getPredictionEntryGameweek(fixturesSource, gameweeks, nowMs);
+  const firstUpcoming = gameweekStarts.find((entry) => entry.startsAt > nowMs);
+  if (firstUpcoming) return firstUpcoming.gameweek;
+
+  return sortedGameweeks[sortedGameweeks.length - 1] || 1;
 }
 
 function getPredictionLandingGameweek(fixturesSource = FIXTURES, gameweeks = GAMEWEEKS) {
@@ -8108,10 +8101,9 @@ useEffect(() => {
   }, [activeFixtures, activeGameweeks]);
 
   const openPredictionsMenuView = useCallback(() => {
-    const targetGameweek = getMostRecentCompletedGameweek(
+    const targetGameweek = getCurrentPredictionMenuGameweek(
       activeFixtures,
-      activeGameweeks,
-      results
+      activeGameweeks
     );
     setSelectedGameweek(targetGameweek);
     setActiveView("predictions");
@@ -8120,7 +8112,7 @@ useEffect(() => {
     window.requestAnimationFrame(() => {
       window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
     });
-  }, [activeFixtures, activeGameweeks, results]);
+  }, [activeFixtures, activeGameweeks]);
 
   useEffect(() => {
     if (!isLoggedIn || !authToken) return;
