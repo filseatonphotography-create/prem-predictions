@@ -84,20 +84,38 @@ describe("2026/27 Premier League data", () => {
     expect(getTeamCode("Ipswich Town FC")).toBe("IPS");
   });
 
-  test("routes make predictions to the first editable gameweek", () => {
+  test("routes make predictions to the current incomplete gameweek then advances after final scores", () => {
     const fixtures = [
       { id: 1, gameweek: 1, kickoff: "2026-08-01T12:00:00Z" },
       { id: 2, gameweek: 1, kickoff: "2026-08-01T15:00:00Z" },
       { id: 3, gameweek: 2, kickoff: "2026-08-08T12:00:00Z" },
+      { id: 4, gameweek: 3, kickoff: "2026-08-15T12:00:00Z" },
     ];
 
     expect(
       getPredictionEntryGameweek(
         fixtures,
-        [1, 2],
-        Date.parse("2026-08-01T11:30:00Z")
+        [1, 2, 3],
+        {
+          1: { homeGoals: 2, awayGoals: 0 },
+          2: { homeGoals: 1, awayGoals: 1 },
+        },
+        Date.parse("2026-08-08T13:00:00Z")
       )
     ).toBe(2);
+
+    expect(
+      getPredictionEntryGameweek(
+        fixtures,
+        [1, 2, 3],
+        {
+          1: { homeGoals: 2, awayGoals: 0 },
+          2: { homeGoals: 1, awayGoals: 1 },
+          3: { homeGoals: 0, awayGoals: 3 },
+        },
+        Date.parse("2026-08-08T15:00:00Z")
+      )
+    ).toBe(3);
   });
 
   test("routes the predictions menu to the current started gameweek", () => {
