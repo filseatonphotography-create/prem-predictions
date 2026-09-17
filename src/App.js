@@ -11065,7 +11065,7 @@ const badgeStatsByKey = useMemo(() => {
       !isWorldCupMode &&
       currentPremierSeasonLabel &&
       String(record.seasonLabel || "") === currentPremierSeasonLabel;
-    return isCurrentPremierSeason && !currentSeasonHasCompletedPremierGameweek
+    return isCurrentPremierSeason
       ? earnedIds.filter((badgeId) => !PERFORMANCE_BADGE_IDS.has(String(badgeId)))
       : earnedIds;
   };
@@ -11145,6 +11145,66 @@ const badgeStatsByKey = useMemo(() => {
     row.longestWeeklyWinStreak = streak.longest;
   });
 
+  const hasPredictionScore = (pred) => {
+    if (!pred) return false;
+    const home = Number(pred.homeGoals);
+    const away = Number(pred.awayGoals);
+    return Number.isFinite(home) && Number.isFinite(away);
+  };
+  const addCurrentSeasonPredictionStats = (player = "", userId = "", userPredictions = {}) => {
+    const keys = [userId, player].map((key) => String(key || "").trim()).filter(Boolean);
+    if (!keys.length || !userPredictions || typeof userPredictions !== "object") return;
+
+    let exactScores = 0;
+    let correctCaptains = 0;
+    const captainGameweeks = new Set();
+    activeFixtures.forEach((fixture) => {
+      const result = results[fixture.id];
+      if (!hasValidResultScore(result)) return;
+      const pred =
+        userPredictions[String(fixture.id)] !== undefined
+          ? userPredictions[String(fixture.id)]
+          : userPredictions[fixture.id];
+      if (!hasPredictionScore(pred)) return;
+
+      const predHome = Number(pred.homeGoals);
+      const predAway = Number(pred.awayGoals);
+      const realHome = Number(result.homeGoals);
+      const realAway = Number(result.awayGoals);
+      if (predHome === realHome && predAway === realAway) exactScores += 1;
+
+      if (pred.isDouble && !captainGameweeks.has(fixture.gameweek)) {
+        captainGameweeks.add(fixture.gameweek);
+        if (getResult(predHome, predAway) === getResult(realHome, realAway)) {
+          correctCaptains += 1;
+        }
+      }
+    });
+
+    keys.forEach((key) => {
+      const row = ensureStats(key, player, userId);
+      if (!row) return;
+      row.seasonsPlayed = currentSeasonHasCompletedPremierGameweek && Object.keys(userPredictions).length > 0 ? 1 : row.seasonsPlayed;
+      row.exactScores = Math.max(row.exactScores, exactScores);
+      row.correctCaptains = Math.max(row.correctCaptains, correctCaptains);
+    });
+  };
+
+  if (!isWorldCupMode && currentSeasonHasCompletedPremierGameweek) {
+    knownPlayers.forEach(({ player, userId }) => {
+      const name = String(player || "").trim();
+      const id = String(userId || "").trim();
+      const userPredictions =
+        (id && String(id) === String(currentUserId || "") ? predictions[currentPredictionKey] : null) ||
+        (id && leaguePredictionsByUserId[id]) ||
+        (id && globalPredictionsByUserId[id]) ||
+        (id && predictions[id]) ||
+        (name && predictions[name]) ||
+        {};
+      addCurrentSeasonPredictionStats(name, id, userPredictions);
+    });
+  }
+
   const currentStatsKeys = [currentUserId, currentPlayer].filter(Boolean);
   currentStatsKeys.forEach((key) => {
     const row = ensureStats(key, currentPlayer, currentUserId);
@@ -11163,6 +11223,13 @@ const badgeStatsByKey = useMemo(() => {
     mergeStats(currentUserId, currentPlayer);
     mergeStats(currentPlayer, currentUserId);
   }
+  knownPlayers.forEach(({ player, userId }) => {
+    const name = String(player || "").trim();
+    const id = String(userId || "").trim();
+    if (!name || !id) return;
+    mergeStats(id, name);
+    mergeStats(name, id);
+  });
 
   Object.entries(stats).forEach(([key, row]) => {
     row.founder = !!row.founder || isOriginalsFounder(row.player, row.userId || key);
@@ -11203,10 +11270,14 @@ const badgeStatsByKey = useMemo(() => {
   dedupedGlobalUsers,
   currentUserId,
   currentPlayer,
+  currentPredictionKey,
   predictionIqReport,
   currentSeasonPredictionStats,
   badgeHistory,
   isWorldCupMode,
+  predictions,
+  leaguePredictionsByUserId,
+  globalPredictionsByUserId,
   results,
 ]);
 
