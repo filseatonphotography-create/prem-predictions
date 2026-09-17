@@ -11065,7 +11065,7 @@ const badgeStatsByKey = useMemo(() => {
       !isWorldCupMode &&
       currentPremierSeasonLabel &&
       String(record.seasonLabel || "") === currentPremierSeasonLabel;
-    return isCurrentPremierSeason
+    return isCurrentPremierSeason && !currentSeasonHasCompletedPremierGameweek
       ? earnedIds.filter((badgeId) => !PERFORMANCE_BADGE_IDS.has(String(badgeId)))
       : earnedIds;
   };
