@@ -2629,6 +2629,56 @@ export function mergeFixtureOverrides(currentOverrides = {}, incomingOverrides =
   return merged;
 }
 
+export function buildOfficialPremierFixtureOverrides(officialFixtures = [], fixtures = []) {
+  const overrides = {};
+  const fixturesById = new Map((fixtures || []).map((fixture) => [String(fixture.id), fixture]));
+  const fixturesByTeamsAndGameweek = new Map(
+    (fixtures || []).map((fixture) => [
+      [
+        fixture.gameweek,
+        normalizeTeamName(fixture.homeTeam),
+        normalizeTeamName(fixture.awayTeam),
+      ].join("|"),
+      fixture,
+    ])
+  );
+
+  (officialFixtures || []).forEach((officialFixture) => {
+    const kickoff = String(officialFixture?.kickoff || "").trim();
+    if (!kickoff || !Number.isFinite(Date.parse(kickoff))) return;
+
+    const localFixture =
+      fixturesById.get(String(officialFixture.id)) ||
+      fixturesByTeamsAndGameweek.get(
+        [
+          officialFixture.gameweek,
+          normalizeTeamName(officialFixture.homeTeamName),
+          normalizeTeamName(officialFixture.awayTeamName),
+        ].join("|")
+      );
+    if (!localFixture) return;
+
+    overrides[localFixture.id] = {
+      kickoff,
+      kickoffTimeConfirmed: officialFixture.provisionalStartTime ? false : true,
+    };
+  });
+
+  return overrides;
+}
+
+function mergeMissingKickoffOverrides(currentOverrides = {}, incomingOverrides = {}) {
+  const merged = { ...(currentOverrides || {}) };
+  Object.entries(incomingOverrides || {}).forEach(([fixtureId, incoming]) => {
+    const current = merged[fixtureId] || {};
+    merged[fixtureId] = {
+      ...current,
+      ...(current.kickoff ? {} : incoming || {}),
+    };
+  });
+  return merged;
+}
+
 function hasValidResultScore(result) {
   return hasNumericScoreValue(result?.homeGoals) && hasNumericScoreValue(result?.awayGoals);
 }
@@ -5650,6 +5700,19 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
         signal,
       });
       setFantasyPlayerData(dataset);
+      const officialPremierFixtureOverrides = buildOfficialPremierFixtureOverrides(
+        dataset.officialFixtures || [],
+        getFixturesForMode(PREMIER_MODE)
+      );
+      if (Object.keys(officialPremierFixtureOverrides).length > 0) {
+        setFixtureOverridesByMode((prev) => ({
+          ...prev,
+          [PREMIER_MODE]: mergeMissingKickoffOverrides(
+            prev[PREMIER_MODE],
+            officialPremierFixtureOverrides
+          ),
+        }));
+      }
       setFantasyIqSquad((currentSquad) => {
         const reconciled = normaliseFantasyIqSquad(
           reconcileFantasyIqSquadWithPlayerData(currentSquad, dataset)

@@ -6,6 +6,7 @@ import {
   findFixtureForApiMatch,
   buildFixtureSyncPayload,
   mergeFixtureOverrides,
+  buildOfficialPremierFixtureOverrides,
   buildFixtureOverridesFromMatchStates,
   getPredictionEntryGameweek,
   getCurrentPredictionMenuGameweek,
@@ -888,6 +889,37 @@ describe("World Cup sync helpers", () => {
     ).toEqual({
       560552: {
         kickoff: "2026-08-28T19:00:00Z",
+        kickoffTimeConfirmed: true,
+      },
+    });
+  });
+
+  test("builds kickoff overrides from official FPL fixtures", () => {
+    expect(
+      buildOfficialPremierFixtureOverrides(
+        [
+          {
+            id: 560582,
+            gameweek: 5,
+            kickoff: "2026-09-18T19:00:00Z",
+            homeTeamName: "Bournemouth",
+            awayTeamName: "Liverpool",
+            provisionalStartTime: false,
+          },
+        ],
+        [
+          {
+            id: 560582,
+            gameweek: 5,
+            homeTeam: "AFC Bournemouth",
+            awayTeam: "Liverpool FC",
+            kickoff: "2026-09-19T14:00:00Z",
+          },
+        ]
+      )
+    ).toEqual({
+      560582: {
+        kickoff: "2026-09-18T19:00:00Z",
         kickoffTimeConfirmed: true,
       },
     });
