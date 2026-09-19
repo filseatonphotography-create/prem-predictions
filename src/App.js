@@ -229,6 +229,31 @@ const isOriginalsMiniLeague = (league = {}) => {
   const id = String(league?.id || "").trim();
   return name === "the originals" || code === "ORIGINALS" || id === "lg_mi35amos";
 };
+export function buildPremierHistoryEntries(leagueUsers = [], selectedLeague = null) {
+  const entriesByName = new Map();
+  const addEntry = (player = "", userId = "") => {
+    const name = String(player || "").trim();
+    if (!name) return;
+    const id = String(userId || "").trim();
+    const existing = entriesByName.get(name);
+    entriesByName.set(name, {
+      player: name,
+      userId: existing?.userId || id || null,
+    });
+  };
+
+  if (isOriginalsMiniLeague(selectedLeague)) {
+    PLAYERS.forEach((player) => addEntry(player));
+  }
+  (leagueUsers || []).forEach((user) => {
+    addEntry(user?.username, user?.userId);
+  });
+  if (!entriesByName.size) {
+    PLAYERS.forEach((player) => addEntry(player));
+  }
+
+  return Array.from(entriesByName.values());
+}
 const BADGE_DEFINITIONS = [
   {
     id: "founder",
@@ -10609,6 +10634,16 @@ const profileUsersByUserId = useMemo(() => {
   return out;
 }, [globalUsers, leagueHistoryUsers]);
 
+const premierHistoryEntries = useMemo(
+  () => buildPremierHistoryEntries(leagueHistoryUsers, selectedMiniLeague),
+  [leagueHistoryUsers, selectedMiniLeague]
+);
+
+const premierHistoryPlayers = useMemo(
+  () => premierHistoryEntries.map((entry) => entry.player),
+  [premierHistoryEntries]
+);
+
 const profileUsersByUsername = useMemo(() => {
   const out = {};
   [...(globalUsers || []), ...(leagueHistoryUsers || [])].forEach((user) => {
@@ -20440,7 +20475,7 @@ const TABS = [
         {activeView === "summary" && (() => {
           const summaryEntries = isWorldCupMode
             ? leaderboard.map((row) => ({ player: row.player, userId: row.userId || null }))
-            : PLAYERS.map((player) => ({ player, userId: null }));
+            : premierHistoryEntries;
           const summaryPlayers = summaryEntries.map((entry) => entry.player);
           // Use existing leaderboard data for top scorer
           const topScorer = leaderboard && leaderboard.length > 0 && Number(leaderboard[0]?.points || 0) > 0
@@ -20732,7 +20767,7 @@ const TABS = [
           (() => {
             const historyPlayers = isWorldCupMode
               ? worldCupHistoryUsers.map((user) => user.username)
-              : PLAYERS;
+              : premierHistoryPlayers;
             const toggleHistorySection = (section) => {
               setHistorySectionsOpen((prev) => ({
                 ...prev,

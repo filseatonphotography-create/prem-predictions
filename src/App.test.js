@@ -22,6 +22,7 @@ import {
   buildPremierLeagueTableRows,
   buildFantasyIqScoredReport,
   buildFantasyIqClubOutlooks,
+  buildPremierHistoryEntries,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -83,6 +84,28 @@ describe("2026/27 Premier League data", () => {
     expect(getTeamCode("Coventry City FC")).toBe("COV");
     expect(getTeamCode("Hull City AFC")).toBe("HUL");
     expect(getTeamCode("Ipswich Town FC")).toBe("IPS");
+  });
+
+  test("adds current Originals league members to Premier history entries", () => {
+    const entries = buildPremierHistoryEntries(
+      [
+        { username: "Phil", userId: "1763874000000" },
+        { username: "New Player", userId: "user-new" },
+      ],
+      { name: "The Originals", inviteCode: "ORIGINALS" }
+    );
+
+    expect(entries.map((entry) => entry.player)).toEqual([
+      "Tom",
+      "Emma",
+      "Phil",
+      "Steve",
+      "Dave",
+      "Ian",
+      "Anthony",
+      "New Player",
+    ]);
+    expect(entries.find((entry) => entry.player === "Phil")?.userId).toBe("1763874000000");
   });
 
   test("routes make predictions to the current incomplete gameweek then advances after final scores", () => {
