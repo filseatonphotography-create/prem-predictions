@@ -4090,6 +4090,7 @@ export function getTeamCode(name, mode = PREMIER_MODE) {
     { match: ["bournemouth", "afc bournemouth"], code: "BOU" },
     { match: ["brentford"], code: "BRE" },
     { match: ["brighton", "brighton and hove", "brighton hove albion", "brighton hove"], code: "BHA" },
+    { match: ["burnley"], code: "BUR" },
     { match: ["chelsea"], code: "CHE" },
     { match: ["coventry", "coventry city"], code: "COV" },
     { match: ["crystal palace", "palace"], code: "CRY" },
@@ -4105,6 +4106,7 @@ export function getTeamCode(name, mode = PREMIER_MODE) {
     { match: ["newcastle", "newcastle united"], code: "NEW" },
     { match: ["nottingham forest", "nottingham", "forest", "nottm forest"], code: "NFO" },
     { match: ["southampton"], code: "SOU" },
+    { match: ["sunderland", "sunderland afc"], code: "SUN" },
     { match: ["tottenham", "tottenham hotspur", "spurs"], code: "TOT" },
     { match: ["west ham", "west ham united"], code: "WHU" },
     { match: ["wolves", "wolverhampton", "wolverhampton wanderers"], code: "WOL" },
@@ -4195,9 +4197,47 @@ const LIVE_STUDIO_VENUES = {
   Wolves: "Molineux",
 };
 
+const LIVE_STUDIO_VENUES_BY_CODE = {
+  ARS: "the Emirates Stadium",
+  AVL: "Villa Park",
+  BOU: "the Vitality Stadium",
+  BRE: "the Gtech Community Stadium",
+  BHA: "the Amex",
+  BUR: "Turf Moor",
+  CHE: "Stamford Bridge",
+  CRY: "Selhurst Park",
+  EVE: "Hill Dickinson Stadium",
+  FUL: "Craven Cottage",
+  LEE: "Elland Road",
+  LIV: "Anfield",
+  MCI: "the Etihad",
+  MUN: "Old Trafford",
+  NEW: "St James' Park",
+  NFO: "the City Ground",
+  SUN: "the Stadium of Light",
+  TOT: "the Tottenham Hotspur Stadium",
+  WHU: "the London Stadium",
+  WOL: "Molineux",
+};
+
 function getLiveStudioVenue(fixture, mode = PREMIER_MODE) {
   if (mode === WORLD_CUP_MODE) return `${getTeamCode(fixture.homeTeam, mode)} v ${getTeamCode(fixture.awayTeam, mode)}`;
-  return LIVE_STUDIO_VENUES[fixture.homeTeam] || `${fixture.homeTeam}`;
+  const canonicalHomeTeam = resolveCanonicalPremierLeagueTeam(fixture.homeTeam);
+  const teamCode = getTeamCode(canonicalHomeTeam || fixture.homeTeam, mode);
+  return (
+    LIVE_STUDIO_VENUES[canonicalHomeTeam] ||
+    LIVE_STUDIO_VENUES[fixture.homeTeam] ||
+    LIVE_STUDIO_VENUES_BY_CODE[teamCode] ||
+    canonicalHomeTeam ||
+    fixture.homeTeam
+  );
+}
+
+function getLiveStudioTeamName(teamName, mode = PREMIER_MODE) {
+  if (mode === WORLD_CUP_MODE) return getTeamCode(teamName, mode);
+  const canonicalTeam = resolveCanonicalPremierLeagueTeam(teamName);
+  const displayName = canonicalTeam || String(teamName || "");
+  return displayName.replace(/\s+(FC|AFC)$/i, "").trim();
 }
 
 function getFixtureScoreFromStateOrResult(fixture, matchState, result) {
@@ -4284,41 +4324,69 @@ function getLiveStudioLeadingSide(score) {
 }
 
 function getLiveStudioScoringTeam(fixture, score, latestGoal) {
-  if (latestGoal?.teamName) return latestGoal.teamName;
+  if (latestGoal?.teamName) {
+    const normalizedGoalTeam = normalizeTeamName(latestGoal.teamName);
+    if (normalizedGoalTeam === normalizeTeamName(fixture.homeTeam)) {
+      return getLiveStudioTeamName(fixture.homeTeam);
+    }
+    if (normalizedGoalTeam === normalizeTeamName(fixture.awayTeam)) {
+      return getLiveStudioTeamName(fixture.awayTeam);
+    }
+    return getLiveStudioTeamName(latestGoal.teamName);
+  }
   const homeGoals = Number(latestGoal?.homeGoals);
   const awayGoals = Number(latestGoal?.awayGoals);
   if (Number.isFinite(homeGoals) && Number.isFinite(awayGoals)) {
-    if (homeGoals > awayGoals) return fixture.homeTeam;
-    if (awayGoals > homeGoals) return fixture.awayTeam;
+    if (homeGoals > awayGoals) return getLiveStudioTeamName(fixture.homeTeam);
+    if (awayGoals > homeGoals) return getLiveStudioTeamName(fixture.awayTeam);
   }
   const leadingSide = getLiveStudioLeadingSide(score);
-  if (leadingSide === "H") return fixture.homeTeam;
-  if (leadingSide === "A") return fixture.awayTeam;
+  if (leadingSide === "H") return getLiveStudioTeamName(fixture.homeTeam);
+  if (leadingSide === "A") return getLiveStudioTeamName(fixture.awayTeam);
   return "";
 }
 
 function getLiveStudioScoreSummary(fixture, score) {
-  if (!score) return `${fixture.homeTeam} vs ${fixture.awayTeam}`;
-  return `${fixture.homeTeam} ${score.homeGoals}-${score.awayGoals} ${fixture.awayTeam}`;
+  const homeTeam = getLiveStudioTeamName(fixture.homeTeam);
+  const awayTeam = getLiveStudioTeamName(fixture.awayTeam);
+  if (!score) return `${homeTeam} vs ${awayTeam}`;
+  return `${homeTeam} ${score.homeGoals}-${score.awayGoals} ${awayTeam}`;
+}
+
+function getLiveStudioMatchStatePhrase(fixture, score, latestGoal) {
+  if (!score) return "";
+  const homeTeam = getLiveStudioTeamName(fixture.homeTeam);
+  const awayTeam = getLiveStudioTeamName(fixture.awayTeam);
+  const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
+  const leadingSide = getLiveStudioLeadingSide(score);
+  const totalGoals = Number(score.homeGoals) + Number(score.awayGoals);
+  if (leadingSide === "D" && totalGoals > 0) {
+    return `${homeTeam} and ${awayTeam} are level at ${score.homeGoals}-${score.awayGoals}`;
+  }
+  if (leadingSide === "H") return `${homeTeam} lead ${score.homeGoals}-${score.awayGoals}`;
+  if (leadingSide === "A") return `${awayTeam} lead ${score.awayGoals}-${score.homeGoals}`;
+  if (scoringTeam) return `${scoringTeam} have had the latest say`;
+  return getLiveStudioScoreSummary(fixture, score);
 }
 
 function getLiveStudioUpsetLabel(fixture, score, probabilities) {
   const favoriteSide = getLiveStudioFavoriteSide(probabilities);
   const leadingSide = getLiveStudioLeadingSide(score);
   if (!favoriteSide || !leadingSide || leadingSide === "D" || favoriteSide === leadingSide) return "";
-  const leadingTeam = leadingSide === "H" ? fixture.homeTeam : fixture.awayTeam;
-  const favoriteTeam = favoriteSide === "H" ? fixture.homeTeam : favoriteSide === "A" ? fixture.awayTeam : "the draw";
+  const leadingTeam = leadingSide === "H" ? getLiveStudioTeamName(fixture.homeTeam) : getLiveStudioTeamName(fixture.awayTeam);
+  const favoriteTeam = favoriteSide === "H" ? getLiveStudioTeamName(fixture.homeTeam) : favoriteSide === "A" ? getLiveStudioTeamName(fixture.awayTeam) : "the draw";
   return `${leadingTeam} have ${favoriteTeam} in trouble`;
 }
 
 function buildLiveStudioRevealLine(fixture, score, latestGoal) {
   if (!score) return getLiveStudioScoreSummary(fixture, score);
   const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
-  const scorer = latestGoal?.scorerName ? `${latestGoal.scorerName} with it. ` : "";
+  const scorerName = String(latestGoal?.scorerName || "").trim();
+  const scorer = scorerName ? `${scorerName} has scored. ` : "";
   const scoreSummary = getLiveStudioScoreSummary(fixture, score);
   if (scoringTeam) {
     const leadingSide = getLiveStudioLeadingSide(score);
-    const scoringSide = scoringTeam === fixture.homeTeam ? "H" : scoringTeam === fixture.awayTeam ? "A" : null;
+    const scoringSide = scoringTeam === getLiveStudioTeamName(fixture.homeTeam) ? "H" : scoringTeam === getLiveStudioTeamName(fixture.awayTeam) ? "A" : null;
     const goalType = leadingSide === "D" ? "equaliser" : leadingSide === scoringSide ? "goal" : "goal";
     const article = goalType === "equaliser" ? "an" : "a";
     return `It's ${article} ${goalType} for ${scoringTeam}! ${scorer}${scoreSummary}.`;
@@ -4328,23 +4396,80 @@ function buildLiveStudioRevealLine(fixture, score, latestGoal) {
 
 function buildLiveStudioTensionLine({ score, latestGoal, tableImpactName, upsetLabel }) {
   if (!score || !latestGoal) return "";
-  if (tableImpactName) return `Hold on, this could matter for ${tableImpactName}.`;
-  if (upsetLabel) return "Stand by, this one has changed shape.";
-  return "Let's see what has happened.";
+  if (tableImpactName) return `Hold on, this could be important for ${tableImpactName}.`;
+  if (upsetLabel) return "Something has shifted here.";
+  return "The studio lights are flashing.";
 }
 
-function buildLiveStudioTitle({ venue, score, live, paused, finished, demo, latestGoal, tableImpactName, upsetLabel }) {
+function getLiveStudioPhraseIndex(seed, count) {
+  const text = String(seed || "");
+  const total = text.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return count ? total % count : 0;
+}
+
+function pickLiveStudioPhrase(seed, phrases) {
+  if (!phrases.length) return "";
+  return phrases[getLiveStudioPhraseIndex(seed, phrases.length)];
+}
+
+function buildLiveStudioTitle({ fixture, venue, score, live, paused, finished, demo, latestGoal, tableImpactName, upsetLabel }) {
+  const seed = `${fixture?.id || ""}:${latestGoal?.minute || ""}:${score?.homeGoals ?? ""}-${score?.awayGoals ?? ""}`;
+  const matchPhrase = getLiveStudioMatchStatePhrase(fixture, score, latestGoal);
   if (demo) {
-    return `Studio demo: let's go over to ${venue}, where ${upsetLabel || "the predictions are moving"}.`;
+    if (tableImpactName) {
+      return pickLiveStudioPhrase(seed, [
+        `Studio demo: a big prediction swing is brewing at ${venue} for ${tableImpactName}.`,
+        `Studio demo: ${venue} is where ${tableImpactName}'s table is starting to move.`,
+        `Studio demo: eyes on ${venue}, because ${tableImpactName} could be gaining ground.`,
+      ]);
+    }
+    if (upsetLabel) {
+      return pickLiveStudioPhrase(seed, [
+        `Studio demo: drama at ${venue}, where ${upsetLabel}.`,
+        `Studio demo: this could be a turn-up at ${venue}.`,
+        `Studio demo: ${venue} is getting lively, with ${upsetLabel}.`,
+      ]);
+    }
+    return pickLiveStudioPhrase(seed, [
+      `Studio demo: ${matchPhrase || `live pictures from ${venue}`}.`,
+      `Studio demo: the story is developing at ${venue}.`,
+      `Studio demo: ${venue} is the place to watch right now.`,
+    ]);
   }
   if (live && latestGoal) {
-    if (tableImpactName) return `Let's go over to ${venue} now, where there may have been a goal that helps ${tableImpactName} move up the table.`;
-    if (upsetLabel) return `Let's go over to ${venue} now, where we may have an upset on our hands.`;
-    return `Let's go over to ${venue} now, where there may have been a goal.`;
+    if (tableImpactName) {
+      return pickLiveStudioPhrase(seed, [
+        `News coming in from ${venue}, and it could help ${tableImpactName} move up the table.`,
+        `We need to check in at ${venue}; this might be a big one for ${tableImpactName}.`,
+        `There's a table tremor at ${venue}, with ${tableImpactName} suddenly interested.`,
+      ]);
+    }
+    if (upsetLabel) {
+      return pickLiveStudioPhrase(seed, [
+        `Something is happening at ${venue}, and we may have an upset on our hands.`,
+        `There's a roar at ${venue}; ${upsetLabel}.`,
+        `Keep an eye on ${venue}, because this one has turned.`,
+      ]);
+    }
+    return pickLiveStudioPhrase(seed, [
+      `Breaking news from ${venue}: there has been a goal.`,
+      `Goal news reaching the studio from ${venue}.`,
+      `The board has changed at ${venue}.`,
+    ]);
   }
   if (live) {
     const hasGoals = score && Number(score.homeGoals) + Number(score.awayGoals) > 0;
-    return hasGoals ? `Latest from ${venue}.` : `Let's go over to ${venue}.`;
+    return hasGoals
+      ? pickLiveStudioPhrase(seed, [
+          `Latest from ${venue}: ${matchPhrase}.`,
+          `A quick check on ${venue}, where ${matchPhrase}.`,
+          `The story so far at ${venue}: ${matchPhrase}.`,
+        ])
+      : pickLiveStudioPhrase(seed, [
+          `Early stages at ${venue}.`,
+          `Still waiting for the first breakthrough at ${venue}.`,
+          `Nothing to split them yet at ${venue}.`,
+        ]);
   }
   if (paused) return `Half-time at ${venue}.`;
   if (finished) return `Full-time at ${venue}.`;
@@ -9331,9 +9456,9 @@ const liveStudioDemoGameweek = liveStudioDemoEnabled && liveStudioFixtures.lengt
 const liveStudioDemoStateByFixtureId = useMemo(() => {
   if (!liveStudioDemoEnabled) return {};
   const demoScores = [
-    { homeGoals: 1, awayGoals: 0, minute: 16, scorerName: "Early breakthrough", scoringSide: "home", status: "IN_PLAY" },
-    { homeGoals: 1, awayGoals: 1, minute: 34, scorerName: "Equaliser", scoringSide: "away", status: "IN_PLAY" },
-    { homeGoals: 2, awayGoals: 1, minute: 72, scorerName: "Late twist", scoringSide: "home", status: "IN_PLAY" },
+    { homeGoals: 1, awayGoals: 0, minute: 16, scorerName: "", scoringSide: "home", status: "IN_PLAY" },
+    { homeGoals: 1, awayGoals: 1, minute: 34, scorerName: "", scoringSide: "away", status: "IN_PLAY" },
+    { homeGoals: 2, awayGoals: 1, minute: 72, scorerName: "", scoringSide: "home", status: "IN_PLAY" },
     { homeGoals: 0, awayGoals: 0, minute: null, scorerName: "", scoringSide: "", status: "PAUSED" },
   ];
   return liveStudioFixtures.slice(0, 4).reduce((acc, fixture, index) => {
@@ -9475,6 +9600,7 @@ const liveStudioFeed = useMemo(() => {
           : "";
 
       const title = buildLiveStudioTitle({
+        fixture,
         venue,
         score,
         live,
