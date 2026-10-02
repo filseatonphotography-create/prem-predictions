@@ -192,6 +192,83 @@ function buildGoalAlertBody(fixture, homeGoals, awayGoals, goal) {
   return detail ? `${detail} - ${scoreText}` : scoreText;
 }
 
+function getPredictionScoreValues(prediction, result) {
+  const ph = Number(prediction?.homeGoals);
+  const pa = Number(prediction?.awayGoals);
+  const rh = Number(result?.homeGoals);
+  const ra = Number(result?.awayGoals);
+  if ([ph, pa, rh, ra].some((value) => !Number.isFinite(value))) return null;
+  return { ph, pa, rh, ra };
+}
+
+function getPredictionOutcome(home, away) {
+  if (home > away) return "H";
+  if (home < away) return "A";
+  return "D";
+}
+
+function getLivePredictionStatus(prediction, result) {
+  const values = getPredictionScoreValues(prediction, result);
+  if (!values) return null;
+  const { ph, pa, rh, ra } = values;
+  const multiplier = prediction?.isTriple ? 3 : prediction?.isDouble ? 2 : 1;
+
+  if (ph === rh && pa === ra) {
+    return { label: "Bingpot", points: 7 * multiplier };
+  }
+
+  const predictedResult = getPredictionOutcome(ph, pa);
+  const liveResult = getPredictionOutcome(rh, ra);
+  if (predictedResult !== liveResult) return { label: "", points: 0 };
+
+  if (ph - pa === rh - ra) {
+    return { label: "Correcto", points: 4 * multiplier };
+  }
+
+  return { label: "correct outcome", points: 2 * multiplier };
+}
+
+function formatPredictionImpactTarget(status) {
+  if (!status || !status.points) return "";
+  return `${status.label} (${status.points} pts)`;
+}
+
+function isOneGoalFromBingpot(prediction, result) {
+  const values = getPredictionScoreValues(prediction, result);
+  if (!values) return false;
+  const { ph, pa, rh, ra } = values;
+  return Math.abs(ph - rh) + Math.abs(pa - ra) === 1;
+}
+
+function buildPredictionImpactLine(prediction, prevResult, nextResult) {
+  const nextStatus = getLivePredictionStatus(prediction, nextResult);
+  if (!nextStatus) return "";
+
+  const prevStatus = getLivePredictionStatus(prediction, prevResult);
+  const nextTarget = formatPredictionImpactTarget(nextStatus);
+
+  if (nextStatus.points > 0) {
+    if (!prevStatus) return `You're on for ${nextTarget}.`;
+    if (prevStatus.points === nextStatus.points && prevStatus.label === nextStatus.label) {
+      return `Still on for ${nextTarget}.`;
+    }
+    if (nextStatus.points > prevStatus.points) {
+      return `That goal moves you onto ${nextTarget}.`;
+    }
+    return `That goal drops you to ${nextTarget}.`;
+  }
+
+  if (prevStatus?.points > 0) {
+    return `That goal drops you from ${prevStatus.points} pts to 0.`;
+  }
+
+  if (isOneGoalFromBingpot(prediction, nextResult)) {
+    return "You're one goal away from Bingpot.";
+  }
+
+  return "";
+}
+
 function normalizeInternationalTeamName(name) {
   const normalized = String(name || "").trim();
   const aliases = {
@@ -345,6 +422,7 @@ function isPushTypeEnabled(type, prefs) {
 module.exports = {
   didGoalCountIncrease,
   buildGoalAlertBody,
+  buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeInternationalTeamName,

@@ -1,5 +1,6 @@
 const {
   buildGoalAlertBody,
+  buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
 } = require("../notificationUtils");
@@ -81,5 +82,35 @@ describe("goal alert details", () => {
         type: "",
       },
     ]);
+  });
+
+  test("describes when a goal moves the user onto prediction points", () => {
+    expect(
+      buildPredictionImpactLine(
+        { homeGoals: 2, awayGoals: 1 },
+        { homeGoals: 1, awayGoals: 1 },
+        { homeGoals: 2, awayGoals: 1 }
+      )
+    ).toBe("That goal moves you onto Bingpot (7 pts).");
+  });
+
+  test("describes when a goal removes prediction points", () => {
+    expect(
+      buildPredictionImpactLine(
+        { homeGoals: 1, awayGoals: 1 },
+        { homeGoals: 1, awayGoals: 1 },
+        { homeGoals: 2, awayGoals: 1 }
+      )
+    ).toBe("That goal drops you from 7 pts to 0.");
+  });
+
+  test("nudges when the live score is one goal from Bingpot", () => {
+    expect(
+      buildPredictionImpactLine(
+        { homeGoals: 2, awayGoals: 2 },
+        { homeGoals: 2, awayGoals: 0 },
+        { homeGoals: 2, awayGoals: 1 }
+      )
+    ).toBe("You're one goal away from Bingpot.");
   });
 });

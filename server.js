@@ -18,6 +18,7 @@ const {
 const {
   didGoalCountIncrease,
   buildGoalAlertBody,
+  buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeFootballTeamName,
@@ -3442,9 +3443,16 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                 nextAway: update.nextAway,
               });
               subscribedUserIds.forEach((userId) => {
+                const prediction = predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)] || null;
+                const impactLine = buildPredictionImpactLine(
+                  prediction,
+                  { homeGoals: update.prevHome, awayGoals: update.prevAway },
+                  { homeGoals: update.nextHome, awayGoals: update.nextAway }
+                );
+                const goalBody = buildGoalAlertBody(fixture, update.nextHome, update.nextAway, goalEvent);
                 sendFixtureUpdateNotification(userId, fixtureId, "goal", `${update.nextHome}-${update.nextAway}`, {
                   title: "Goal alert",
-                  body: buildGoalAlertBody(fixture, update.nextHome, update.nextAway, goalEvent),
+                  body: impactLine ? `${goalBody}\n${impactLine}` : goalBody,
                   url: "/",
                 });
               });
@@ -4414,6 +4422,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
     const currentMatchStates = loadMatchStates() || {};
     const nextResults = { ...currentResults };
     const nextMatchStates = { ...currentMatchStates };
+    const predictions = loadPredictions() || {};
     const notificationTasks = [];
     let resultsChanged = false;
     let statesChanged = false;
@@ -4496,10 +4505,17 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
             nextAway: awayGoals,
           });
           subscribedUserIds.forEach((userId) => {
+            const prediction = predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)] || null;
+            const impactLine = buildPredictionImpactLine(
+              prediction,
+              { homeGoals: prevHome, awayGoals: prevAway },
+              { homeGoals, awayGoals }
+            );
+            const goalBody = buildGoalAlertBody(fixture, homeGoals, awayGoals, goalEvent);
             summary.attemptedNotifications += 1;
             notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "goal", `${homeGoals}-${awayGoals}`, {
               title: "Goal alert",
-              body: buildGoalAlertBody(fixture, homeGoals, awayGoals, goalEvent),
+              body: impactLine ? `${goalBody}\n${impactLine}` : goalBody,
               url: "/",
             }));
           });
