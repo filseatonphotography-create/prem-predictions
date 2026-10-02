@@ -2622,6 +2622,14 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       status: String(match.status || ""),
       homeGoals,
       awayGoals,
+      goalEvents:
+        match.goalEvents ||
+        match.goals ||
+        match.scorers ||
+        match.events ||
+        match.incidents ||
+        match.score?.goals ||
+        [],
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
       halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
       utcDate: match.utcDate || "",

@@ -6,6 +6,192 @@ function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
   return nextHome + nextAway > previousTotal;
 }
 
+function getGoalEventArrays(source) {
+  if (!source || typeof source !== "object") return [];
+  return [
+    source.goalEvents,
+    source.goals,
+    source.scorers,
+    source.events,
+    source.incidents,
+    source.score?.goals,
+  ].filter(Array.isArray);
+}
+
+function getGoalPersonName(goal) {
+  return String(
+    goal?.scorer?.name ||
+      goal?.player?.name ||
+      goal?.footballer?.name ||
+      goal?.athlete?.name ||
+      goal?.scorerName ||
+      goal?.playerName ||
+      goal?.name ||
+      ""
+  ).trim();
+}
+
+function getGoalTeamName(goal) {
+  return String(
+    goal?.team?.name ||
+      goal?.teamName ||
+      goal?.club?.name ||
+      goal?.side ||
+      ""
+  ).trim();
+}
+
+function getGoalTeamId(goal) {
+  const id = goal?.team?.id ?? goal?.teamId ?? goal?.club?.id;
+  return id == null ? "" : String(id);
+}
+
+function getGoalMinute(goal) {
+  const minute = Number(goal?.minute ?? goal?.time ?? goal?.matchMinute);
+  const injuryTime = Number(goal?.injuryTime ?? goal?.addedTime ?? goal?.stoppageTime);
+  if (!Number.isFinite(minute)) return null;
+  return {
+    minute,
+    injuryTime: Number.isFinite(injuryTime) && injuryTime > 0 ? injuryTime : null,
+  };
+}
+
+function getGoalScore(goal) {
+  const score = goal?.score || goal?.result || {};
+  const home = Number(score.home ?? score.homeGoals);
+  const away = Number(score.away ?? score.awayGoals);
+  return {
+    home: Number.isFinite(home) ? home : null,
+    away: Number.isFinite(away) ? away : null,
+  };
+}
+
+function isGoalLikeEvent(goal) {
+  const type = String(goal?.type || goal?.eventType || goal?.kind || "").toUpperCase();
+  if (!type) return true;
+  return type.includes("GOAL");
+}
+
+function normalizeGoalEvents(source) {
+  return getGoalEventArrays(source)
+    .flat()
+    .filter((goal) => goal && typeof goal === "object" && isGoalLikeEvent(goal))
+    .map((goal) => {
+      const time = getGoalMinute(goal);
+      const score = getGoalScore(goal);
+      return {
+        scorerName: getGoalPersonName(goal),
+        teamName: getGoalTeamName(goal),
+        teamId: getGoalTeamId(goal),
+        minute: time?.minute ?? null,
+        injuryTime: time?.injuryTime ?? null,
+        homeGoals: score.home,
+        awayGoals: score.away,
+        type: String(goal.type || goal.eventType || goal.kind || "").trim(),
+      };
+    })
+    .filter(
+      (goal) =>
+        goal.scorerName ||
+        goal.teamName ||
+        goal.teamId ||
+        Number.isFinite(goal.minute) ||
+        (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals))
+    );
+}
+
+function namesMatch(a, b) {
+  const left = normalizeFootballTeamName(a);
+  const right = normalizeFootballTeamName(b);
+  return Boolean(left && right && left === right);
+}
+
+function getGoalSide(goal, match, fixture) {
+  if (goal.teamId) {
+    const homeId = match?.homeTeam?.id;
+    const awayId = match?.awayTeam?.id;
+    if (homeId != null && String(homeId) === goal.teamId) return "home";
+    if (awayId != null && String(awayId) === goal.teamId) return "away";
+  }
+
+  if (goal.teamName) {
+    if (namesMatch(goal.teamName, match?.homeTeam?.name) || namesMatch(goal.teamName, fixture?.homeTeam)) {
+      return "home";
+    }
+    if (namesMatch(goal.teamName, match?.awayTeam?.name) || namesMatch(goal.teamName, fixture?.awayTeam)) {
+      return "away";
+    }
+  }
+
+  if (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals)) {
+    return Number(goal.homeGoals) > Number(goal.awayGoals) ? "home" : "away";
+  }
+
+  return "";
+}
+
+function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, nextHome, nextAway }) {
+  const events = [
+    ...normalizeGoalEvents(match),
+    ...normalizeGoalEvents(matchState),
+  ];
+  if (!events.length) return null;
+
+  const previousTotal =
+    Number.isFinite(prevHome) && Number.isFinite(prevAway) ? prevHome + prevAway : 0;
+  const nextTotal = nextHome + nextAway;
+  const hadPreviousScore = Number.isFinite(prevHome) && Number.isFinite(prevAway);
+  const scoringSide =
+    hadPreviousScore && nextHome > prevHome
+      ? "home"
+      : hadPreviousScore && nextAway > prevAway
+      ? "away"
+      : "";
+
+  const candidates = events.filter((goal) => {
+    const totalAfter =
+      Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals)
+        ? goal.homeGoals + goal.awayGoals
+        : null;
+    if (totalAfter != null && (totalAfter <= previousTotal || totalAfter > nextTotal)) {
+      return false;
+    }
+    const side = getGoalSide(goal, match, fixture);
+    return !scoringSide || !side || side === scoringSide;
+  });
+
+  const ranked = candidates.length ? candidates : events;
+  return ranked.sort((a, b) => {
+    const scoreTotalA =
+      Number.isFinite(a.homeGoals) && Number.isFinite(a.awayGoals)
+        ? a.homeGoals + a.awayGoals
+        : -1;
+    const scoreTotalB =
+      Number.isFinite(b.homeGoals) && Number.isFinite(b.awayGoals)
+        ? b.homeGoals + b.awayGoals
+        : -1;
+    if (scoreTotalB !== scoreTotalA) return scoreTotalB - scoreTotalA;
+    return Number(b.minute || -1) - Number(a.minute || -1);
+  })[0] || null;
+}
+
+function formatGoalMinute(goal) {
+  if (!goal || !Number.isFinite(Number(goal.minute))) return "";
+  const minute = Number(goal.minute);
+  const injuryTime = Number(goal.injuryTime);
+  return Number.isFinite(injuryTime) && injuryTime > 0
+    ? `${minute}+${injuryTime}'`
+    : `${minute}'`;
+}
+
+function buildGoalAlertBody(fixture, homeGoals, awayGoals, goal) {
+  const scoreText = `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`;
+  const scorer = String(goal?.scorerName || "").trim();
+  const minute = formatGoalMinute(goal);
+  const detail = [scorer, minute].filter(Boolean).join(" ");
+  return detail ? `${detail} - ${scoreText}` : scoreText;
+}
+
 function normalizeInternationalTeamName(name) {
   const normalized = String(name || "").trim();
   const aliases = {
@@ -158,6 +344,9 @@ function isPushTypeEnabled(type, prefs) {
 
 module.exports = {
   didGoalCountIncrease,
+  buildGoalAlertBody,
+  getLatestGoalEvent,
+  normalizeGoalEvents,
   normalizeInternationalTeamName,
   normalizeFootballTeamName,
   parseFixtureArraySource,

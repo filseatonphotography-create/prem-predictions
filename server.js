@@ -17,6 +17,9 @@ const {
 } = require("./src/coinsSettlementUtils");
 const {
   didGoalCountIncrease,
+  buildGoalAlertBody,
+  getLatestGoalEvent,
+  normalizeGoalEvents,
   normalizeFootballTeamName,
   parseFixtureArraySource,
   getDeviceSubscriptions,
@@ -3319,6 +3322,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
             nextAway,
             prevStatus,
             nextStatus,
+            nextState,
           };
         });
 
@@ -3429,10 +3433,18 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
               );
 
             if (shouldSendGoal) {
+              const goalEvent = getLatestGoalEvent({
+                matchState: update.nextState,
+                fixture,
+                prevHome: update.prevHome,
+                prevAway: update.prevAway,
+                nextHome: update.nextHome,
+                nextAway: update.nextAway,
+              });
               subscribedUserIds.forEach((userId) => {
                 sendFixtureUpdateNotification(userId, fixtureId, "goal", `${update.nextHome}-${update.nextAway}`, {
                   title: "Goal alert",
-                  body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
+                  body: buildGoalAlertBody(fixture, update.nextHome, update.nextAway, goalEvent),
                   url: "/",
                 });
               });
@@ -4427,6 +4439,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         status,
         homeGoals,
         awayGoals,
+        goalEvents: normalizeGoalEvents(match),
         homeTeam: match.homeTeam?.name || "",
         awayTeam: match.awayTeam?.name || "",
         halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
@@ -4473,11 +4486,20 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
           (status === "IN_PLAY" || status === "PAUSED") &&
           didGoalCountIncrease(prevHome, prevAway, homeGoals, awayGoals);
         if (shouldSendGoal) {
+          const goalEvent = getLatestGoalEvent({
+            match,
+            matchState: nextState,
+            fixture,
+            prevHome,
+            prevAway,
+            nextHome: homeGoals,
+            nextAway: awayGoals,
+          });
           subscribedUserIds.forEach((userId) => {
             summary.attemptedNotifications += 1;
             notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "goal", `${homeGoals}-${awayGoals}`, {
               title: "Goal alert",
-              body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
+              body: buildGoalAlertBody(fixture, homeGoals, awayGoals, goalEvent),
               url: "/",
             }));
           });
