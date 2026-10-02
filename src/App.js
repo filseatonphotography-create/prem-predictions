@@ -9216,17 +9216,14 @@ const liveStudioUsers = useMemo(() => {
       username: user.username || "Player",
     }));
   }
-  if (Array.isArray(dedupedGlobalUsers) && dedupedGlobalUsers.length > 0) {
-    return dedupedGlobalUsers.map((user) => ({
-      userId: String(user.userId || ""),
-      username: user.username || "Player",
-    }));
+  if (selectedMiniLeague?.id) {
+    return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
   }
   if (!isWorldCupMode) {
     return PLAYERS.map((player) => ({ userId: "", username: player }));
   }
   return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
-}, [leagueHistoryUsers, dedupedGlobalUsers, isWorldCupMode, currentPlayer, currentUserId]);
+}, [leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId]);
 
 const liveStudioPredictionsForUser = useCallback(
   (user) => {
@@ -9260,7 +9257,6 @@ const liveStudioDemoFixtures = useMemo(() => {
     ...liveStudioUsers.map((user) => liveStudioPredictionsForUser(user)),
     ...Object.values(predictions || {}),
     ...Object.values(leaguePredictionsByUserId || {}),
-    ...Object.values(globalPredictionsByUserId || {}),
   ].filter((set) => set && typeof set === "object");
 
   const candidates = activeGameweeks
@@ -9315,7 +9311,6 @@ const liveStudioDemoFixtures = useMemo(() => {
   activeFixtures,
   activeGameweeks,
   currentPredictionKey,
-  globalPredictionsByUserId,
   leaguePredictionsByUserId,
   liveStudioDemoEnabled,
   liveStudioPredictionsForUser,
