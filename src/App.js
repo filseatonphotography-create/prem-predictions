@@ -5417,6 +5417,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   
   const [, setApiStatus] = useState("Auto results: loading…");
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
+  const [liveStudioDemoEnabled, setLiveStudioDemoEnabled] = useState(false);
   const [premierLeagueTableView, setPremierLeagueTableView] = useState(PREMIER_TABLE_CURRENT_VIEW);
   const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
@@ -9118,6 +9119,35 @@ const currentGwTopScore = useMemo(() => {
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
+const liveStudioDemoStateByFixtureId = useMemo(() => {
+  if (!liveStudioDemoEnabled) return {};
+  const demoScores = [
+    { homeGoals: 1, awayGoals: 0, minute: 16, scorerName: "Early breakthrough", status: "IN_PLAY" },
+    { homeGoals: 1, awayGoals: 1, minute: 34, scorerName: "Equaliser", status: "IN_PLAY" },
+    { homeGoals: 2, awayGoals: 1, minute: 72, scorerName: "Late twist", status: "IN_PLAY" },
+    { homeGoals: 0, awayGoals: 0, minute: null, scorerName: "", status: "PAUSED" },
+  ];
+  return visibleFixtures.slice(0, 4).reduce((acc, fixture, index) => {
+    const demo = demoScores[index % demoScores.length];
+    acc[fixture.id] = {
+      status: demo.status,
+      homeGoals: demo.homeGoals,
+      awayGoals: demo.awayGoals,
+      goalEvents: demo.minute
+        ? [
+            {
+              scorerName: demo.scorerName,
+              minute: demo.minute,
+              homeGoals: demo.homeGoals,
+              awayGoals: demo.awayGoals,
+            },
+          ]
+        : [],
+    };
+    return acc;
+  }, {});
+}, [liveStudioDemoEnabled, visibleFixtures]);
+
 const liveStudioUsers = useMemo(() => {
   if (Array.isArray(leagueHistoryUsers) && leagueHistoryUsers.length > 0) {
     return leagueHistoryUsers.map((user) => ({
@@ -9165,10 +9195,11 @@ const liveStudioRows = useMemo(() => {
     .map((user) => {
       const userPredictions = liveStudioPredictionsForUser(user);
       const points = visibleFixtures.reduce((sum, fixture) => {
+        const demoState = liveStudioDemoStateByFixtureId[fixture.id];
         const score = getFixtureScoreFromStateOrResult(
           fixture,
-          matchStatesByFixtureId[fixture.id],
-          results[fixture.id]
+          demoState || matchStatesByFixtureId[fixture.id],
+          demoState ? null : results[fixture.id]
         );
         if (!score) return sum;
         const prediction =
@@ -9182,6 +9213,7 @@ const liveStudioRows = useMemo(() => {
     .sort((a, b) => b.points - a.points || a.username.localeCompare(b.username));
 }, [
   liveStudioPredictionsForUser,
+  liveStudioDemoStateByFixtureId,
   liveStudioUsers,
   matchStatesByFixtureId,
   results,
@@ -9202,9 +9234,10 @@ const liveStudioFeed = useMemo(() => {
 
   const entries = visibleFixtures
     .map((fixture) => {
-      const matchState = matchStatesByFixtureId[fixture.id] || {};
+      const demoState = liveStudioDemoStateByFixtureId[fixture.id];
+      const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
       const status = String(matchState.status || "").toUpperCase();
-      const result = results[fixture.id];
+      const result = demoState ? null : results[fixture.id];
       const score = getFixtureScoreFromStateOrResult(fixture, matchState, result);
       const live = isFixtureLive(matchState);
       const paused = status === "PAUSED";
@@ -9260,7 +9293,9 @@ const liveStudioFeed = useMemo(() => {
             : ""
           : "";
 
-      const title = live
+      const title = liveStudioDemoEnabled
+        ? `Studio demo: over to ${venue}.`
+        : live
         ? score && Number(score.homeGoals) + Number(score.awayGoals) > 0
           ? `There has been a goal at ${venue}.`
           : `Let's go over to ${venue}.`
@@ -9310,6 +9345,8 @@ const liveStudioFeed = useMemo(() => {
   currentPredictionKey,
   currentUserId,
   gameMode,
+  liveStudioDemoEnabled,
+  liveStudioDemoStateByFixtureId,
   liveStudioPredictionsForUser,
   liveStudioRows,
   loginName,
@@ -18206,21 +18243,46 @@ const TABS = [
                 <h2 style={{ margin: "3px 0 0", fontSize: isMobile ? 22 : 28, lineHeight: 1.05 }}>
                   {getModeGameweekLabel(gameMode, selectedGameweek)} live switchboard
                 </h2>
+                {liveStudioDemoEnabled && (
+                  <div style={{ marginTop: 5, color: theme.warn, fontSize: 12, fontWeight: 800 }}>
+                    Demo mode: sample scores only
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => refreshAutoResults(gameMode, activeFixtures)}
-                disabled={resultsRefreshing}
+              <div
                 style={{
-                  ...pillBtn(true),
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  justifySelf: isMobile ? "center" : "end",
-                  cursor: resultsRefreshing ? "wait" : "pointer",
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  justifyContent: isMobile ? "center" : "flex-end",
                 }}
               >
-                {resultsRefreshing ? "Refreshing..." : "Refresh studio"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setLiveStudioDemoEnabled((enabled) => !enabled)}
+                  style={{
+                    ...pillBtn(liveStudioDemoEnabled),
+                    padding: "8px 12px",
+                    fontSize: 12,
+                  }}
+                >
+                  {liveStudioDemoEnabled ? "Demo on" : "Demo mode"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => refreshAutoResults(gameMode, activeFixtures)}
+                  disabled={resultsRefreshing || liveStudioDemoEnabled}
+                  style={{
+                    ...pillBtn(true),
+                    padding: "8px 12px",
+                    fontSize: 12,
+                    cursor: resultsRefreshing || liveStudioDemoEnabled ? "not-allowed" : "pointer",
+                    opacity: liveStudioDemoEnabled ? 0.55 : 1,
+                  }}
+                >
+                  {resultsRefreshing ? "Refreshing..." : "Refresh studio"}
+                </button>
+              </div>
             </div>
 
             <div
