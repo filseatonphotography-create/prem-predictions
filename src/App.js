@@ -4172,6 +4172,95 @@ export function isFixtureLive(matchState) {
   );
 }
 
+const LIVE_STUDIO_VENUES = {
+  Arsenal: "the Emirates Stadium",
+  "Aston Villa": "Villa Park",
+  Bournemouth: "the Vitality Stadium",
+  Brentford: "the Gtech Community Stadium",
+  Brighton: "the Amex",
+  Burnley: "Turf Moor",
+  Chelsea: "Stamford Bridge",
+  "Crystal Palace": "Selhurst Park",
+  Everton: "Hill Dickinson Stadium",
+  Fulham: "Craven Cottage",
+  Leeds: "Elland Road",
+  Liverpool: "Anfield",
+  "Man City": "the Etihad",
+  "Man Utd": "Old Trafford",
+  Newcastle: "St James' Park",
+  "Nott'm Forest": "the City Ground",
+  Sunderland: "the Stadium of Light",
+  Spurs: "the Tottenham Hotspur Stadium",
+  "West Ham": "the London Stadium",
+  Wolves: "Molineux",
+};
+
+function getLiveStudioVenue(fixture, mode = PREMIER_MODE) {
+  if (mode === WORLD_CUP_MODE) return `${getTeamCode(fixture.homeTeam, mode)} v ${getTeamCode(fixture.awayTeam, mode)}`;
+  return LIVE_STUDIO_VENUES[fixture.homeTeam] || `${fixture.homeTeam}`;
+}
+
+function getFixtureScoreFromStateOrResult(fixture, matchState, result) {
+  const stateHome = Number(matchState?.homeGoals);
+  const stateAway = Number(matchState?.awayGoals);
+  if (Number.isFinite(stateHome) && Number.isFinite(stateAway)) {
+    return { homeGoals: stateHome, awayGoals: stateAway };
+  }
+  const resultHome = Number(result?.homeGoals);
+  const resultAway = Number(result?.awayGoals);
+  if (Number.isFinite(resultHome) && Number.isFinite(resultAway)) {
+    return { homeGoals: resultHome, awayGoals: resultAway };
+  }
+  return null;
+}
+
+function getPredictionPointsLabel(prediction, score) {
+  if (!prediction || !score) return null;
+  const points = getTotalPoints(prediction, score);
+  if (points >= 7) return { points, label: "Bingpot" };
+  if (points >= 4) return { points, label: "Correcto" };
+  if (points >= 2) return { points, label: "correct result" };
+  return { points: 0, label: "" };
+}
+
+function getOneGoalBingpotNeed(prediction, score, fixture) {
+  if (!prediction || !score) return "";
+  const ph = Number(prediction.homeGoals);
+  const pa = Number(prediction.awayGoals);
+  const rh = Number(score.homeGoals);
+  const ra = Number(score.awayGoals);
+  if ([ph, pa, rh, ra].some((value) => !Number.isFinite(value))) return "";
+  if (ph === rh + 1 && pa === ra) return `${fixture.homeTeam} goal`;
+  if (pa === ra + 1 && ph === rh) return `${fixture.awayTeam} goal`;
+  return "";
+}
+
+function buildLiveStudioPredictionLine({ prediction, score, fixture, prefix = "You" }) {
+  if (!prediction || !score) return `${prefix} have no prediction in this one.`;
+  const status = getPredictionPointsLabel(prediction, score);
+  if (status?.points > 0) {
+    return `${prefix} ${prefix === "You" ? "are" : "is"} currently on for ${status.label} (${status.points} pts) if it stays like this.`;
+  }
+  const need = getOneGoalBingpotNeed(prediction, score, fixture);
+  if (need) return `${prefix} need ${need} for Bingpot.`;
+  return `${prefix} need a swing from here.`;
+}
+
+function getLatestLiveStudioGoal(matchState = {}) {
+  const events = Array.isArray(matchState.goalEvents) ? matchState.goalEvents : [];
+  const goals = events
+    .filter((event) => event && typeof event === "object")
+    .sort((a, b) => Number(b.minute || -1) - Number(a.minute || -1));
+  return goals[0] || null;
+}
+
+function formatLiveStudioMinute(goal, fallback = "") {
+  const minute = Number(goal?.minute);
+  if (!Number.isFinite(minute)) return fallback;
+  const injuryTime = Number(goal?.injuryTime);
+  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
+}
+
 function clampNumber(value, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
@@ -9028,6 +9117,208 @@ const currentGwTopScore = useMemo(() => {
   }
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
+
+const liveStudioUsers = useMemo(() => {
+  if (Array.isArray(leagueHistoryUsers) && leagueHistoryUsers.length > 0) {
+    return leagueHistoryUsers.map((user) => ({
+      userId: String(user.userId || ""),
+      username: user.username || "Player",
+    }));
+  }
+  if (Array.isArray(dedupedGlobalUsers) && dedupedGlobalUsers.length > 0) {
+    return dedupedGlobalUsers.map((user) => ({
+      userId: String(user.userId || ""),
+      username: user.username || "Player",
+    }));
+  }
+  if (!isWorldCupMode) {
+    return PLAYERS.map((player) => ({ userId: "", username: player }));
+  }
+  return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
+}, [leagueHistoryUsers, dedupedGlobalUsers, isWorldCupMode, currentPlayer, currentUserId]);
+
+const liveStudioPredictionsForUser = useCallback(
+  (user) => {
+    const userId = String(user?.userId || "");
+    const username = user?.username || "";
+    if (userId && String(userId) === String(currentUserId || "")) {
+      return predictions[currentPredictionKey] || {};
+    }
+    return (
+      (userId && leaguePredictionsByUserId[userId]) ||
+      (userId && globalPredictionsByUserId[userId]) ||
+      (username && predictions[username]) ||
+      {}
+    );
+  },
+  [
+    currentPredictionKey,
+    currentUserId,
+    globalPredictionsByUserId,
+    leaguePredictionsByUserId,
+    predictions,
+  ]
+);
+
+const liveStudioRows = useMemo(() => {
+  return liveStudioUsers
+    .map((user) => {
+      const userPredictions = liveStudioPredictionsForUser(user);
+      const points = visibleFixtures.reduce((sum, fixture) => {
+        const score = getFixtureScoreFromStateOrResult(
+          fixture,
+          matchStatesByFixtureId[fixture.id],
+          results[fixture.id]
+        );
+        if (!score) return sum;
+        const prediction =
+          userPredictions[String(fixture.id)] !== undefined
+            ? userPredictions[String(fixture.id)]
+            : userPredictions[fixture.id];
+        return sum + getTotalPoints(prediction, score);
+      }, 0);
+      return { ...user, points };
+    })
+    .sort((a, b) => b.points - a.points || a.username.localeCompare(b.username));
+}, [
+  liveStudioPredictionsForUser,
+  liveStudioUsers,
+  matchStatesByFixtureId,
+  results,
+  visibleFixtures,
+]);
+
+const liveStudioFeed = useMemo(() => {
+  const currentUserName = currentPlayer || loginName || "You";
+  const currentRow = liveStudioRows.find(
+    (row) =>
+      (currentUserId && String(row.userId || "") === String(currentUserId)) ||
+      row.username === currentPlayer
+  );
+  const currentRank = currentRow
+    ? liveStudioRows.findIndex((row) => row === currentRow) + 1
+    : null;
+  const nextRival = currentRank && currentRank > 1 ? liveStudioRows[currentRank - 2] : liveStudioRows.find((row) => row.username !== currentUserName);
+
+  const entries = visibleFixtures
+    .map((fixture) => {
+      const matchState = matchStatesByFixtureId[fixture.id] || {};
+      const status = String(matchState.status || "").toUpperCase();
+      const result = results[fixture.id];
+      const score = getFixtureScoreFromStateOrResult(fixture, matchState, result);
+      const live = isFixtureLive(matchState);
+      const paused = status === "PAUSED";
+      const finished = status === "FINISHED" || status === "AWARDED";
+      if (!score && !live && !paused && !finished) return null;
+
+      const venue = getLiveStudioVenue(fixture, gameMode);
+      const latestGoal = getLatestLiveStudioGoal(matchState);
+      const minute = formatLiveStudioMinute(latestGoal, live ? "Live" : paused ? "HT" : finished ? "FT" : "");
+      const scoreText = score
+        ? `${fixture.homeTeam} ${score.homeGoals}-${score.awayGoals} ${fixture.awayTeam}`
+        : `${fixture.homeTeam} vs ${fixture.awayTeam}`;
+      const scorer = latestGoal?.scorerName ? `${latestGoal.scorerName}. ` : "";
+      const currentPrediction =
+        predictions[currentPredictionKey]?.[String(fixture.id)] !== undefined
+          ? predictions[currentPredictionKey]?.[String(fixture.id)]
+          : predictions[currentPredictionKey]?.[fixture.id];
+      const personalLine = score
+        ? buildLiveStudioPredictionLine({
+            prediction: currentPrediction,
+            score,
+            fixture,
+            prefix: "You",
+          })
+        : "";
+
+      const rival = liveStudioRows.find((row) => {
+        if (currentUserId && String(row.userId || "") === String(currentUserId)) return false;
+        if (row.username === currentPlayer) return false;
+        const preds = liveStudioPredictionsForUser(row);
+        return preds[String(fixture.id)] || preds[fixture.id];
+      });
+      let rivalLine = "";
+      if (rival && score) {
+        const rivalPreds = liveStudioPredictionsForUser(rival);
+        const rivalPrediction = rivalPreds[String(fixture.id)] || rivalPreds[fixture.id];
+        const rivalStatus = getPredictionPointsLabel(rivalPrediction, score);
+        if (rivalStatus?.points > 0) {
+          rivalLine = `${rival.username} is on for ${rivalStatus.label} (${rivalStatus.points} pts).`;
+        } else if (rivalPrediction) {
+          const side = getResult(Number(rivalPrediction.homeGoals), Number(rivalPrediction.awayGoals));
+          const sideLabel = side === "H" ? `${fixture.homeTeam} win` : side === "A" ? `${fixture.awayTeam} win` : "draw";
+          rivalLine = `${rival.username} needs a ${sideLabel} from this game.`;
+        }
+      }
+
+      const rankLine =
+        currentRank && currentRow
+          ? currentRank === 1
+            ? `As it stands, ${currentUserName} leads the live ${getModeGameweekLabel(gameMode, selectedGameweek)} studio table.`
+            : nextRival
+            ? `As it stands, ${currentUserName} is chasing ${nextRival.username} in the live studio table.`
+            : ""
+          : "";
+
+      const title = live
+        ? score && Number(score.homeGoals) + Number(score.awayGoals) > 0
+          ? `There has been a goal at ${venue}.`
+          : `Let's go over to ${venue}.`
+        : paused
+        ? `Half-time at ${venue}.`
+        : finished
+        ? `Full-time at ${venue}.`
+        : `News from ${venue}.`;
+
+      return {
+        id: `${fixture.id}:${status || "score"}`,
+        fixtureId: fixture.id,
+        minute,
+        tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
+        title,
+        lines: [
+          score ? `${scorer}${scoreText}.` : scoreText,
+          personalLine,
+          rivalLine,
+          rankLine,
+        ].filter(Boolean),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const priority = { live: 0, paused: 1, finished: 2, default: 3 };
+      return (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
+    });
+
+  if (!entries.length) {
+    return [
+      {
+        id: "waiting",
+        minute: "Studio",
+        tone: "default",
+        title: "The studio is warming up.",
+        lines: [
+          `No live action in ${getModeGameweekLabel(gameMode, selectedGameweek)} yet.`,
+          "When scores start moving, this page will turn them into prediction drama.",
+        ],
+      },
+    ];
+  }
+  return entries;
+}, [
+  currentPlayer,
+  currentPredictionKey,
+  currentUserId,
+  gameMode,
+  liveStudioPredictionsForUser,
+  liveStudioRows,
+  loginName,
+  matchStatesByFixtureId,
+  predictions,
+  results,
+  selectedGameweek,
+  visibleFixtures,
+]);
 
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
@@ -17598,6 +17889,7 @@ if (!isLoggedIn) {
 {(() => {
 const TABS = [
   { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
+  { id: "liveStudio", label: "Live Studio" },
   { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
@@ -17881,6 +18173,165 @@ const TABS = [
             )}
           </div>
         </section>
+
+        {activeView === "liveStudio" && (
+          <section
+            style={{
+              ...cardStyle,
+              display: "grid",
+              gap: 12,
+              background: "linear-gradient(180deg, rgba(15,23,42,0.98), rgba(20,36,49,0.96))",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "1fr auto",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <div style={{ textAlign: isMobile ? "center" : "left" }}>
+                <div
+                  style={{
+                    color: theme.accent,
+                    fontSize: 11,
+                    fontWeight: 950,
+                    letterSpacing: 1.2,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Live Studio
+                </div>
+                <h2 style={{ margin: "3px 0 0", fontSize: isMobile ? 22 : 28, lineHeight: 1.05 }}>
+                  {getModeGameweekLabel(gameMode, selectedGameweek)} live switchboard
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => refreshAutoResults(gameMode, activeFixtures)}
+                disabled={resultsRefreshing}
+                style={{
+                  ...pillBtn(true),
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  justifySelf: isMobile ? "center" : "end",
+                  cursor: resultsRefreshing ? "wait" : "pointer",
+                }}
+              >
+                {resultsRefreshing ? "Refreshing..." : "Refresh studio"}
+              </button>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 220px",
+                gap: 12,
+                alignItems: "start",
+              }}
+            >
+              <div style={{ display: "grid", gap: 8 }}>
+                {liveStudioFeed.map((entry) => {
+                  const toneColor =
+                    entry.tone === "live"
+                      ? "#22c55e"
+                      : entry.tone === "paused"
+                      ? "#f59e0b"
+                      : entry.tone === "finished"
+                      ? theme.accent
+                      : theme.muted;
+                  return (
+                    <article
+                      key={entry.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "58px minmax(0, 1fr)",
+                        gap: 10,
+                        padding: isMobile ? 10 : 12,
+                        borderRadius: 8,
+                        border: `1px solid ${entry.tone === "live" ? "rgba(34,197,94,0.45)" : theme.line}`,
+                        background: entry.tone === "live" ? "rgba(34,197,94,0.08)" : "rgba(255,255,255,0.04)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          color: toneColor,
+                          fontSize: 12,
+                          fontWeight: 950,
+                          textAlign: "right",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        {entry.minute}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: theme.text, fontSize: isMobile ? 14 : 15, fontWeight: 950 }}>
+                          {entry.title}
+                        </div>
+                        <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
+                          {entry.lines.map((line, index) => (
+                            <div
+                              key={`${entry.id}:${index}`}
+                              style={{
+                                color: index === 0 ? theme.text : theme.muted,
+                                fontSize: isMobile ? 12 : 13,
+                                lineHeight: 1.35,
+                                overflowWrap: "anywhere",
+                              }}
+                            >
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <aside
+                style={{
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 8,
+                  background: "rgba(255,255,255,0.04)",
+                  padding: 10,
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                <div style={{ color: theme.accent, fontSize: 11, fontWeight: 950, textTransform: "uppercase", letterSpacing: 1 }}>
+                  As It Stands
+                </div>
+                {(liveStudioRows.length ? liveStudioRows.slice(0, 5) : [{ username: currentPlayer || "You", points: currentGwPoints }]).map((row, index) => {
+                  const isCurrent =
+                    (currentUserId && String(row.userId || "") === String(currentUserId)) ||
+                    row.username === currentPlayer;
+                  return (
+                    <div
+                      key={`${row.userId || row.username}:${index}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "24px minmax(0, 1fr) auto",
+                        gap: 8,
+                        alignItems: "center",
+                        color: isCurrent ? theme.accent2 : theme.text,
+                        fontSize: 13,
+                        fontWeight: isCurrent ? 950 : 750,
+                      }}
+                    >
+                      <span style={{ color: theme.muted }}>#{index + 1}</span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {row.username}
+                      </span>
+                      <span>{Number(row.points || 0)} pts</span>
+                    </div>
+                  );
+                })}
+              </aside>
+            </div>
+          </section>
+        )}
 
                         {/* Predictions View */}
 {activeView === "predictions" && (
