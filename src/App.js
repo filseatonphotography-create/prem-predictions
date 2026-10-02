@@ -4261,6 +4261,96 @@ function formatLiveStudioMinute(goal, fallback = "") {
   return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
 }
 
+function getLiveStudioFavoriteSide(probabilities) {
+  if (!probabilities) return null;
+  const sides = [
+    { side: "H", probability: Number(probabilities.home) },
+    { side: "D", probability: Number(probabilities.draw) },
+    { side: "A", probability: Number(probabilities.away) },
+  ].filter((entry) => Number.isFinite(entry.probability));
+  if (!sides.length) return null;
+  const favorite = sides.sort((a, b) => b.probability - a.probability)[0];
+  return favorite.probability >= 42 ? favorite.side : null;
+}
+
+function getLiveStudioLeadingSide(score) {
+  if (!score) return null;
+  const homeGoals = Number(score.homeGoals);
+  const awayGoals = Number(score.awayGoals);
+  if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return null;
+  if (homeGoals > awayGoals) return "H";
+  if (awayGoals > homeGoals) return "A";
+  return "D";
+}
+
+function getLiveStudioScoringTeam(fixture, score, latestGoal) {
+  if (latestGoal?.teamName) return latestGoal.teamName;
+  const homeGoals = Number(latestGoal?.homeGoals);
+  const awayGoals = Number(latestGoal?.awayGoals);
+  if (Number.isFinite(homeGoals) && Number.isFinite(awayGoals)) {
+    if (homeGoals > awayGoals) return fixture.homeTeam;
+    if (awayGoals > homeGoals) return fixture.awayTeam;
+  }
+  const leadingSide = getLiveStudioLeadingSide(score);
+  if (leadingSide === "H") return fixture.homeTeam;
+  if (leadingSide === "A") return fixture.awayTeam;
+  return "";
+}
+
+function getLiveStudioScoreSummary(fixture, score) {
+  if (!score) return `${fixture.homeTeam} vs ${fixture.awayTeam}`;
+  return `${fixture.homeTeam} ${score.homeGoals}-${score.awayGoals} ${fixture.awayTeam}`;
+}
+
+function getLiveStudioUpsetLabel(fixture, score, probabilities) {
+  const favoriteSide = getLiveStudioFavoriteSide(probabilities);
+  const leadingSide = getLiveStudioLeadingSide(score);
+  if (!favoriteSide || !leadingSide || leadingSide === "D" || favoriteSide === leadingSide) return "";
+  const leadingTeam = leadingSide === "H" ? fixture.homeTeam : fixture.awayTeam;
+  const favoriteTeam = favoriteSide === "H" ? fixture.homeTeam : favoriteSide === "A" ? fixture.awayTeam : "the draw";
+  return `${leadingTeam} have ${favoriteTeam} in trouble`;
+}
+
+function buildLiveStudioRevealLine(fixture, score, latestGoal) {
+  if (!score) return getLiveStudioScoreSummary(fixture, score);
+  const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
+  const scorer = latestGoal?.scorerName ? `${latestGoal.scorerName} with it. ` : "";
+  const scoreSummary = getLiveStudioScoreSummary(fixture, score);
+  if (scoringTeam) {
+    const leadingSide = getLiveStudioLeadingSide(score);
+    const scoringSide = scoringTeam === fixture.homeTeam ? "H" : scoringTeam === fixture.awayTeam ? "A" : null;
+    const goalType = leadingSide === "D" ? "equaliser" : leadingSide === scoringSide ? "goal" : "goal";
+    const article = goalType === "equaliser" ? "an" : "a";
+    return `It's ${article} ${goalType} for ${scoringTeam}! ${scorer}${scoreSummary}.`;
+  }
+  return `There has been a goal. ${scoreSummary}.`;
+}
+
+function buildLiveStudioTensionLine({ score, latestGoal, tableImpactName, upsetLabel }) {
+  if (!score || !latestGoal) return "";
+  if (tableImpactName) return `Hold on, this could matter for ${tableImpactName}.`;
+  if (upsetLabel) return "Stand by, this one has changed shape.";
+  return "Let's see what has happened.";
+}
+
+function buildLiveStudioTitle({ venue, score, live, paused, finished, demo, latestGoal, tableImpactName, upsetLabel }) {
+  if (demo) {
+    return `Studio demo: let's go over to ${venue}, where ${upsetLabel || "the predictions are moving"}.`;
+  }
+  if (live && latestGoal) {
+    if (tableImpactName) return `Let's go over to ${venue} now, where there may have been a goal that helps ${tableImpactName} move up the table.`;
+    if (upsetLabel) return `Let's go over to ${venue} now, where we may have an upset on our hands.`;
+    return `Let's go over to ${venue} now, where there may have been a goal.`;
+  }
+  if (live) {
+    const hasGoals = score && Number(score.homeGoals) + Number(score.awayGoals) > 0;
+    return hasGoals ? `Latest from ${venue}.` : `Let's go over to ${venue}.`;
+  }
+  if (paused) return `Half-time at ${venue}.`;
+  if (finished) return `Full-time at ${venue}.`;
+  return `News from ${venue}.`;
+}
+
 function clampNumber(value, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
@@ -9119,35 +9209,6 @@ const currentGwTopScore = useMemo(() => {
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
-const liveStudioDemoStateByFixtureId = useMemo(() => {
-  if (!liveStudioDemoEnabled) return {};
-  const demoScores = [
-    { homeGoals: 1, awayGoals: 0, minute: 16, scorerName: "Early breakthrough", status: "IN_PLAY" },
-    { homeGoals: 1, awayGoals: 1, minute: 34, scorerName: "Equaliser", status: "IN_PLAY" },
-    { homeGoals: 2, awayGoals: 1, minute: 72, scorerName: "Late twist", status: "IN_PLAY" },
-    { homeGoals: 0, awayGoals: 0, minute: null, scorerName: "", status: "PAUSED" },
-  ];
-  return visibleFixtures.slice(0, 4).reduce((acc, fixture, index) => {
-    const demo = demoScores[index % demoScores.length];
-    acc[fixture.id] = {
-      status: demo.status,
-      homeGoals: demo.homeGoals,
-      awayGoals: demo.awayGoals,
-      goalEvents: demo.minute
-        ? [
-            {
-              scorerName: demo.scorerName,
-              minute: demo.minute,
-              homeGoals: demo.homeGoals,
-              awayGoals: demo.awayGoals,
-            },
-          ]
-        : [],
-    };
-    return acc;
-  }, {});
-}, [liveStudioDemoEnabled, visibleFixtures]);
-
 const liveStudioUsers = useMemo(() => {
   if (Array.isArray(leagueHistoryUsers) && leagueHistoryUsers.length > 0) {
     return leagueHistoryUsers.map((user) => ({
@@ -9190,11 +9251,123 @@ const liveStudioPredictionsForUser = useCallback(
   ]
 );
 
+const liveStudioDemoFixtures = useMemo(() => {
+  if (!liveStudioDemoEnabled) return [];
+
+  const currentPredictions = predictions[currentPredictionKey] || {};
+  const predictionSets = [
+    currentPredictions,
+    ...liveStudioUsers.map((user) => liveStudioPredictionsForUser(user)),
+    ...Object.values(predictions || {}),
+    ...Object.values(leaguePredictionsByUserId || {}),
+    ...Object.values(globalPredictionsByUserId || {}),
+  ].filter((set) => set && typeof set === "object");
+
+  const candidates = activeGameweeks
+    .map((gameweek) => {
+      const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gameweek);
+      if (!fixtures.length) return null;
+      const currentPredictionCount = fixtures.reduce((count, fixture) => {
+        const fixtureId = String(fixture.id);
+        return count + (currentPredictions[fixtureId] || currentPredictions[fixture.id] ? 1 : 0);
+      }, 0);
+      const leaguePredictionCount = fixtures.reduce((count, fixture) => {
+        const fixtureId = String(fixture.id);
+        const hasPrediction = predictionSets.some((set) => set[fixtureId] || set[fixture.id]);
+        return count + (hasPrediction ? 1 : 0);
+      }, 0);
+      const completedCount = fixtures.reduce(
+        (count, fixture) => count + (hasValidResultScore(results[fixture.id]) ? 1 : 0),
+        0
+      );
+      const kickoffTimes = fixtures
+        .map((fixture) => new Date(fixture.kickoff).getTime())
+        .filter((time) => Number.isFinite(time));
+      const latestKickoff = kickoffTimes.length ? Math.max(...kickoffTimes) : 0;
+      return {
+        gameweek,
+        fixtures,
+        currentPredictionCount,
+        leaguePredictionCount,
+        completedCount,
+        latestKickoff,
+      };
+    })
+    .filter((candidate) => candidate && candidate.leaguePredictionCount > 0);
+
+  if (!candidates.length) return visibleFixtures;
+
+  candidates.sort((a, b) => {
+    if (b.currentPredictionCount !== a.currentPredictionCount) {
+      return b.currentPredictionCount - a.currentPredictionCount;
+    }
+    if (b.leaguePredictionCount !== a.leaguePredictionCount) {
+      return b.leaguePredictionCount - a.leaguePredictionCount;
+    }
+    if (b.completedCount !== a.completedCount) {
+      return b.completedCount - a.completedCount;
+    }
+    return b.latestKickoff - a.latestKickoff;
+  });
+
+  return candidates[0].fixtures;
+}, [
+  activeFixtures,
+  activeGameweeks,
+  currentPredictionKey,
+  globalPredictionsByUserId,
+  leaguePredictionsByUserId,
+  liveStudioDemoEnabled,
+  liveStudioPredictionsForUser,
+  liveStudioUsers,
+  predictions,
+  results,
+  visibleFixtures,
+]);
+
+const liveStudioFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.length
+  ? liveStudioDemoFixtures
+  : visibleFixtures;
+
+const liveStudioDemoGameweek = liveStudioDemoEnabled && liveStudioFixtures.length
+  ? liveStudioFixtures[0].gameweek
+  : null;
+
+const liveStudioDemoStateByFixtureId = useMemo(() => {
+  if (!liveStudioDemoEnabled) return {};
+  const demoScores = [
+    { homeGoals: 1, awayGoals: 0, minute: 16, scorerName: "Early breakthrough", scoringSide: "home", status: "IN_PLAY" },
+    { homeGoals: 1, awayGoals: 1, minute: 34, scorerName: "Equaliser", scoringSide: "away", status: "IN_PLAY" },
+    { homeGoals: 2, awayGoals: 1, minute: 72, scorerName: "Late twist", scoringSide: "home", status: "IN_PLAY" },
+    { homeGoals: 0, awayGoals: 0, minute: null, scorerName: "", scoringSide: "", status: "PAUSED" },
+  ];
+  return liveStudioFixtures.slice(0, 4).reduce((acc, fixture, index) => {
+    const demo = demoScores[index % demoScores.length];
+    acc[fixture.id] = {
+      status: demo.status,
+      homeGoals: demo.homeGoals,
+      awayGoals: demo.awayGoals,
+      goalEvents: demo.minute
+        ? [
+            {
+              scorerName: demo.scorerName,
+              teamName: demo.scoringSide === "home" ? fixture.homeTeam : fixture.awayTeam,
+              minute: demo.minute,
+              homeGoals: demo.homeGoals,
+              awayGoals: demo.awayGoals,
+            },
+          ]
+        : [],
+    };
+    return acc;
+  }, {});
+}, [liveStudioDemoEnabled, liveStudioFixtures]);
+
 const liveStudioRows = useMemo(() => {
   return liveStudioUsers
     .map((user) => {
       const userPredictions = liveStudioPredictionsForUser(user);
-      const points = visibleFixtures.reduce((sum, fixture) => {
+      const points = liveStudioFixtures.reduce((sum, fixture) => {
         const demoState = liveStudioDemoStateByFixtureId[fixture.id];
         const score = getFixtureScoreFromStateOrResult(
           fixture,
@@ -9214,14 +9387,18 @@ const liveStudioRows = useMemo(() => {
 }, [
   liveStudioPredictionsForUser,
   liveStudioDemoStateByFixtureId,
+  liveStudioFixtures,
   liveStudioUsers,
   matchStatesByFixtureId,
   results,
-  visibleFixtures,
 ]);
 
 const liveStudioFeed = useMemo(() => {
   const currentUserName = currentPlayer || loginName || "You";
+  const studioGameweekLabel = getModeGameweekLabel(
+    gameMode,
+    liveStudioDemoGameweek || selectedGameweek
+  );
   const currentRow = liveStudioRows.find(
     (row) =>
       (currentUserId && String(row.userId || "") === String(currentUserId)) ||
@@ -9231,8 +9408,11 @@ const liveStudioFeed = useMemo(() => {
     ? liveStudioRows.findIndex((row) => row === currentRow) + 1
     : null;
   const nextRival = currentRank && currentRank > 1 ? liveStudioRows[currentRank - 2] : liveStudioRows.find((row) => row.username !== currentUserName);
+  const currentUserPredictions = currentRow
+    ? liveStudioPredictionsForUser(currentRow)
+    : predictions[currentPredictionKey] || {};
 
-  const entries = visibleFixtures
+  const entries = liveStudioFixtures
     .map((fixture) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
@@ -9247,14 +9427,14 @@ const liveStudioFeed = useMemo(() => {
       const venue = getLiveStudioVenue(fixture, gameMode);
       const latestGoal = getLatestLiveStudioGoal(matchState);
       const minute = formatLiveStudioMinute(latestGoal, live ? "Live" : paused ? "HT" : finished ? "FT" : "");
-      const scoreText = score
-        ? `${fixture.homeTeam} ${score.homeGoals}-${score.awayGoals} ${fixture.awayTeam}`
-        : `${fixture.homeTeam} vs ${fixture.awayTeam}`;
-      const scorer = latestGoal?.scorerName ? `${latestGoal.scorerName}. ` : "";
+      const scoreText = getLiveStudioScoreSummary(fixture, score);
+      const fixtureOdds = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
+      const probabilities = computeProbabilities(fixtureOdds);
+      const upsetLabel = getLiveStudioUpsetLabel(fixture, score, probabilities);
       const currentPrediction =
-        predictions[currentPredictionKey]?.[String(fixture.id)] !== undefined
-          ? predictions[currentPredictionKey]?.[String(fixture.id)]
-          : predictions[currentPredictionKey]?.[fixture.id];
+        currentUserPredictions[String(fixture.id)] !== undefined
+          ? currentUserPredictions[String(fixture.id)]
+          : currentUserPredictions[fixture.id];
       const personalLine = score
         ? buildLiveStudioPredictionLine({
             prediction: currentPrediction,
@@ -9271,12 +9451,18 @@ const liveStudioFeed = useMemo(() => {
         return preds[String(fixture.id)] || preds[fixture.id];
       });
       let rivalLine = "";
+      let tableImpactName = "";
       if (rival && score) {
         const rivalPreds = liveStudioPredictionsForUser(rival);
         const rivalPrediction = rivalPreds[String(fixture.id)] || rivalPreds[fixture.id];
         const rivalStatus = getPredictionPointsLabel(rivalPrediction, score);
         if (rivalStatus?.points > 0) {
-          rivalLine = `${rival.username} is on for ${rivalStatus.label} (${rivalStatus.points} pts).`;
+          tableImpactName = rival.username;
+          const rivalIndex = liveStudioRows.findIndex((row) => row === rival);
+          const target = rivalIndex > 0 ? liveStudioRows[rivalIndex - 1] : null;
+          rivalLine = target
+            ? `${rival.username} is in line for ${rivalStatus.label} (${rivalStatus.points} pts), with ${target.username} in sight.`
+            : `${rival.username} is in line for ${rivalStatus.label} (${rivalStatus.points} pts) at the top end of the live table.`;
         } else if (rivalPrediction) {
           const side = getResult(Number(rivalPrediction.homeGoals), Number(rivalPrediction.awayGoals));
           const sideLabel = side === "H" ? `${fixture.homeTeam} win` : side === "A" ? `${fixture.awayTeam} win` : "draw";
@@ -9293,17 +9479,24 @@ const liveStudioFeed = useMemo(() => {
             : ""
           : "";
 
-      const title = liveStudioDemoEnabled
-        ? `Studio demo: over to ${venue}.`
-        : live
-        ? score && Number(score.homeGoals) + Number(score.awayGoals) > 0
-          ? `There has been a goal at ${venue}.`
-          : `Let's go over to ${venue}.`
-        : paused
-        ? `Half-time at ${venue}.`
-        : finished
-        ? `Full-time at ${venue}.`
-        : `News from ${venue}.`;
+      const title = buildLiveStudioTitle({
+        venue,
+        score,
+        live,
+        paused,
+        finished,
+        demo: liveStudioDemoEnabled,
+        latestGoal,
+        tableImpactName,
+        upsetLabel,
+      });
+      const tensionLine = buildLiveStudioTensionLine({
+        score,
+        latestGoal,
+        tableImpactName,
+        upsetLabel,
+      });
+      const revealLine = score ? buildLiveStudioRevealLine(fixture, score, latestGoal) : scoreText;
 
       return {
         id: `${fixture.id}:${status || "score"}`,
@@ -9312,7 +9505,8 @@ const liveStudioFeed = useMemo(() => {
         tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
         title,
         lines: [
-          score ? `${scorer}${scoreText}.` : scoreText,
+          tensionLine,
+          revealLine,
           personalLine,
           rivalLine,
           rankLine,
@@ -9333,7 +9527,7 @@ const liveStudioFeed = useMemo(() => {
         tone: "default",
         title: "The studio is warming up.",
         lines: [
-          `No live action in ${getModeGameweekLabel(gameMode, selectedGameweek)} yet.`,
+          `No live action in ${studioGameweekLabel} yet.`,
           "When scores start moving, this page will turn them into prediction drama.",
         ],
       },
@@ -9345,16 +9539,19 @@ const liveStudioFeed = useMemo(() => {
   currentPredictionKey,
   currentUserId,
   gameMode,
+  generatedModelOddsByFixture,
   liveStudioDemoEnabled,
   liveStudioDemoStateByFixtureId,
+  liveStudioFixtures,
   liveStudioPredictionsForUser,
   liveStudioRows,
   loginName,
+  liveStudioDemoGameweek,
   matchStatesByFixtureId,
+  odds,
   predictions,
   results,
   selectedGameweek,
-  visibleFixtures,
 ]);
 
 const globalWeeklyScores = useMemo(() => {
@@ -18241,11 +18438,11 @@ const TABS = [
                   Live Studio
                 </div>
                 <h2 style={{ margin: "3px 0 0", fontSize: isMobile ? 22 : 28, lineHeight: 1.05 }}>
-                  {getModeGameweekLabel(gameMode, selectedGameweek)} live switchboard
+                  {getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)} live switchboard
                 </h2>
                 {liveStudioDemoEnabled && (
                   <div style={{ marginTop: 5, color: theme.warn, fontSize: 12, fontWeight: 800 }}>
-                    Demo mode: sample scores only
+                    Demo mode: using predictions from {getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)}
                   </div>
                 )}
               </div>
