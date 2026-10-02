@@ -167,6 +167,7 @@ const DEFAULT_PUSH_PREFS = {
   betWin: true,
   badgeEarned: true,
   favoriteTeamResult: false,
+  noSpoilerFixtureUpdates: false,
 };
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
@@ -4476,6 +4477,23 @@ function buildLiveStudioTitle({ fixture, venue, score, live, paused, finished, d
   return `News from ${venue}.`;
 }
 
+function buildLiveStudioRankLine({ currentRank, currentRow, currentUserName, nextRival, gameMode, selectedGameweek, seed, include }) {
+  if (!include || !currentRank || !currentRow) return "";
+  if (currentRank === 1) {
+    return pickLiveStudioPhrase(seed, [
+      `${currentUserName} is setting the pace in the live ${getModeGameweekLabel(gameMode, selectedGameweek)} studio table.`,
+      `At the top of the studio table, ${currentUserName} is still the one to catch.`,
+      `${currentUserName} has the live table under control for now.`,
+    ]);
+  }
+  if (!nextRival) return "";
+  return pickLiveStudioPhrase(seed, [
+    `${currentUserName} is trying to reel in ${nextRival.username} in the live table.`,
+    `${nextRival.username} is the next target for ${currentUserName}.`,
+    `The live table has ${currentUserName} looking up at ${nextRival.username}.`,
+  ]);
+}
+
 function clampNumber(value, min, max) {
   const number = Number(value);
   if (!Number.isFinite(number)) return min;
@@ -5640,9 +5658,21 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [lastStandingsUpdated, setLastStandingsUpdated] = useState(null);
   const [expandedPremierTeam, setExpandedPremierTeam] = useState("");
   const [activeView, setActiveView] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      const view = params.get("view");
+      if (view) return view;
+    } catch {}
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
   });
+  const liveStudioFocusFixtureId = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search || "").get("fixtureId") || "";
+    } catch {
+      return "";
+    }
+  }, []);
   const shouldShowFixtureAdvanceWarning = useMemo(() => {
     if (!fixtureAdvanceWarningKey || activeView !== "predictions") return false;
     const liveIndex = activeGameweeks.indexOf(livePredictionGameweek);
@@ -8686,7 +8716,7 @@ setNewPasswordInput("");
     const next = { ...pushPrefs, [key]: value };
     setPushPrefs(next);
     localStorage.setItem("push_prefs_v1", JSON.stringify(next));
-    if (pushEnabled && authToken) {
+    if (authToken) {
       try {
         await apiSetPushPrefs(authToken, next);
       } catch {}
@@ -9533,7 +9563,7 @@ const liveStudioFeed = useMemo(() => {
     : predictions[currentPredictionKey] || {};
 
   const entries = liveStudioFixtures
-    .map((fixture) => {
+    .map((fixture, fixtureIndex) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
       const status = String(matchState.status || "").toUpperCase();
@@ -9564,12 +9594,17 @@ const liveStudioFeed = useMemo(() => {
           })
         : "";
 
-      const rival = liveStudioRows.find((row) => {
-        if (currentUserId && String(row.userId || "") === String(currentUserId)) return false;
-        if (row.username === currentPlayer) return false;
+      const rivalCandidates = liveStudioRows.filter((row) => {
+        const isCurrentUser =
+          (currentUserId && String(row.userId || "") === String(currentUserId)) ||
+          row.username === currentPlayer;
+        if (isCurrentUser) return false;
         const preds = liveStudioPredictionsForUser(row);
         return preds[String(fixture.id)] || preds[fixture.id];
       });
+      const rival = rivalCandidates.length
+        ? rivalCandidates[getLiveStudioPhraseIndex(`${fixture.id}:${scoreText}`, rivalCandidates.length)]
+        : null;
       let rivalLine = "";
       let tableImpactName = "";
       if (rival && score) {
@@ -9581,23 +9616,37 @@ const liveStudioFeed = useMemo(() => {
           const rivalIndex = liveStudioRows.findIndex((row) => row === rival);
           const target = rivalIndex > 0 ? liveStudioRows[rivalIndex - 1] : null;
           rivalLine = target
-            ? `${rival.username} is in line for ${rivalStatus.label} (${rivalStatus.points} pts), with ${target.username} in sight.`
-            : `${rival.username} is in line for ${rivalStatus.label} (${rivalStatus.points} pts) at the top end of the live table.`;
+            ? pickLiveStudioPhrase(`${fixture.id}:${rival.username}:${rivalStatus.points}`, [
+                `${rival.username} is in line for ${rivalStatus.label} (${rivalStatus.points} pts), with ${target.username} in sight.`,
+                `${rival.username} would bank ${rivalStatus.label} here, and that keeps pressure on ${target.username}.`,
+                `${rivalStatus.label} points are sitting there for ${rival.username}, which tightens the gap to ${target.username}.`,
+              ])
+            : pickLiveStudioPhrase(`${fixture.id}:${rival.username}:${rivalStatus.points}`, [
+                `${rival.username} is in line for ${rivalStatus.label} (${rivalStatus.points} pts) at the top end of the live table.`,
+                `${rival.username} is making this one count with ${rivalStatus.label} on the board.`,
+                `${rivalStatus.label} for ${rival.username} keeps them right in the mix.`,
+              ]);
         } else if (rivalPrediction) {
           const side = getResult(Number(rivalPrediction.homeGoals), Number(rivalPrediction.awayGoals));
           const sideLabel = side === "H" ? `${fixture.homeTeam} win` : side === "A" ? `${fixture.awayTeam} win` : "draw";
-          rivalLine = `${rival.username} needs a ${sideLabel} from this game.`;
+          rivalLine = pickLiveStudioPhrase(`${fixture.id}:${rival.username}:${sideLabel}`, [
+            `${rival.username} needs a ${sideLabel} from this game.`,
+            `For ${rival.username}, this still needs to turn into a ${sideLabel}.`,
+            `${rival.username}'s route to points is a ${sideLabel} from here.`,
+          ]);
         }
       }
 
-      const rankLine =
-        currentRank && currentRow
-          ? currentRank === 1
-            ? `As it stands, ${currentUserName} leads the live ${getModeGameweekLabel(gameMode, selectedGameweek)} studio table.`
-            : nextRival
-            ? `As it stands, ${currentUserName} is chasing ${nextRival.username} in the live studio table.`
-            : ""
-          : "";
+      const rankLine = buildLiveStudioRankLine({
+        currentRank,
+        currentRow,
+        currentUserName,
+        nextRival,
+        gameMode,
+        selectedGameweek,
+        seed: `${fixture.id}:${currentRank}:${liveStudioRows.length}`,
+        include: fixtureIndex === 0 || (!rivalLine && fixtureIndex % 3 === 0),
+      });
 
       const title = buildLiveStudioTitle({
         fixture,
@@ -9674,6 +9723,14 @@ const liveStudioFeed = useMemo(() => {
   results,
   selectedGameweek,
 ]);
+
+useEffect(() => {
+  if (activeView !== "liveStudio" || !liveStudioFocusFixtureId) return;
+  window.requestAnimationFrame(() => {
+    const target = document.getElementById(`live-studio-fixture-${liveStudioFocusFixtureId}`);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}, [activeView, liveStudioFocusFixtureId, liveStudioFeed]);
 
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
@@ -18575,6 +18632,31 @@ const TABS = [
                   justifyContent: isMobile ? "center" : "flex-end",
                 }}
               >
+                <label
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 7,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${pushPrefs.noSpoilerFixtureUpdates ? theme.accent2 : theme.line}`,
+                    background: pushPrefs.noSpoilerFixtureUpdates ? "rgba(34,197,94,0.14)" : "rgba(255,255,255,0.04)",
+                    color: pushPrefs.noSpoilerFixtureUpdates ? theme.accent2 : theme.text,
+                    fontSize: 12,
+                    fontWeight: 850,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                  title="Hide scorer and score details from goal push notifications"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!pushPrefs.noSpoilerFixtureUpdates}
+                    onChange={(e) => updatePushPref("noSpoilerFixtureUpdates", e.target.checked)}
+                    style={{ margin: 0 }}
+                  />
+                  <span>No spoilers</span>
+                </label>
                 <button
                   type="button"
                   onClick={() => setLiveStudioDemoEnabled((enabled) => !enabled)}
@@ -18613,6 +18695,9 @@ const TABS = [
             >
               <div style={{ display: "grid", gap: 8 }}>
                 {liveStudioFeed.map((entry) => {
+                  const isFocusedLiveStudioEntry =
+                    liveStudioFocusFixtureId &&
+                    String(entry.fixtureId || "") === String(liveStudioFocusFixtureId);
                   const toneColor =
                     entry.tone === "live"
                       ? "#22c55e"
@@ -18624,14 +18709,25 @@ const TABS = [
                   return (
                     <article
                       key={entry.id}
+                      id={entry.fixtureId ? `live-studio-fixture-${entry.fixtureId}` : undefined}
                       style={{
                         display: "grid",
                         gridTemplateColumns: "58px minmax(0, 1fr)",
                         gap: 10,
                         padding: isMobile ? 10 : 12,
                         borderRadius: 8,
-                        border: `1px solid ${entry.tone === "live" ? "rgba(34,197,94,0.45)" : theme.line}`,
-                        background: entry.tone === "live" ? "rgba(34,197,94,0.08)" : "rgba(255,255,255,0.04)",
+                        border: `1px solid ${
+                          isFocusedLiveStudioEntry
+                            ? theme.accent
+                            : entry.tone === "live"
+                            ? "rgba(34,197,94,0.45)"
+                            : theme.line
+                        }`,
+                        background: isFocusedLiveStudioEntry
+                          ? "rgba(245,158,11,0.12)"
+                          : entry.tone === "live"
+                          ? "rgba(34,197,94,0.08)"
+                          : "rgba(255,255,255,0.04)",
                       }}
                     >
                       <div
@@ -22951,6 +23047,7 @@ const TABS = [
                       { key: "betWin", label: "Bet win notification" },
                       { key: "badgeEarned", label: "New badge earned notification" },
                       { key: "favoriteTeamResult", label: "Favourite team result notification" },
+                      { key: "noSpoilerFixtureUpdates", label: "No-spoiler goal alerts for Live Studio" },
                     ].map((opt) => (
                       <label
                         key={opt.key}

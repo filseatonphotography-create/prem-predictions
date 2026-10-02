@@ -3950,11 +3950,49 @@ function reserveFixtureNotificationEvent(userId, eventKey) {
   return true;
 }
 
+function getPushNotificationPrefs(userId) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  return subscriptions[userId]?.notifPrefs || {};
+}
+
+function buildLiveStudioUrl(fixtureId, eventKey = "") {
+  const params = new URLSearchParams({
+    view: "liveStudio",
+    fixtureId: String(fixtureId),
+  });
+  if (eventKey) params.set("update", eventKey);
+  return `/?${params.toString()}`;
+}
+
+function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKey, payload = {}) {
+  const prefs = getPushNotificationPrefs(userId);
+  if (eventKind !== "goal" || prefs.noSpoilerFixtureUpdates !== true) return payload;
+
+  const fixture = findFixtureById(fixtureId);
+  const fixtureLabel = fixture
+    ? `${fixture.homeTeam} v ${fixture.awayTeam}`
+    : "your match";
+
+  return {
+    ...payload,
+    title: "Live Studio update",
+    body: `Something has happened in ${fixtureLabel}. Tap to join Live Studio.`,
+    url: buildLiveStudioUrl(fixtureId, eventKey),
+  };
+}
+
 async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, scoreLabel, payload) {
   const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
   if (!reserveFixtureNotificationEvent(userId, eventKey)) return false;
+  const nextPayload = maybeApplyNoSpoilerFixturePayload(
+    userId,
+    fixtureId,
+    eventKind,
+    eventKey,
+    payload
+  );
   return sendPushNotification(userId, "fixtureUpdates", {
-    ...payload,
+    ...nextPayload,
     tag: eventKey,
   });
 }
