@@ -4317,6 +4317,7 @@ function getLatestLiveStudioEvent(matchState = {}) {
 }
 
 function getLiveStudioEventKind(event = {}) {
+  event = event || {};
   const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
   if (text.includes("goal") || text.includes("score")) return "goal";
   if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
@@ -9824,10 +9825,13 @@ const liveStudioFeed = useMemo(() => {
         lines: [
           tensionLine,
           revealLine,
+          eventLine,
           personalLine,
           rivalLine,
           rankLine,
+          tableImpactLine,
         ].filter(Boolean),
+        tableSnapshot,
       };
     })
     .filter(Boolean)
