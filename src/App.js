@@ -2631,6 +2631,13 @@ export function buildFixtureSyncPayload(matches, fixtures) {
         match.incidents ||
         match.score?.goals ||
         [],
+      matchEvents: [
+        ...(Array.isArray(match.events) ? match.events : []),
+        ...(Array.isArray(match.incidents) ? match.incidents : []),
+        ...(Array.isArray(match.bookings) ? match.bookings : []),
+        ...(Array.isArray(match.substitutions) ? match.substitutions : []),
+        ...(Array.isArray(match.goals) ? match.goals : []),
+      ],
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
       halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
       utcDate: match.utcDate || "",
@@ -4291,8 +4298,84 @@ function getLatestLiveStudioGoal(matchState = {}) {
   const events = Array.isArray(matchState.goalEvents) ? matchState.goalEvents : [];
   const goals = events
     .filter((event) => event && typeof event === "object")
+    .filter((event) => getLiveStudioEventKind(event) === "goal")
     .sort((a, b) => Number(b.minute || -1) - Number(a.minute || -1));
   return goals[0] || null;
+}
+
+function getLiveStudioEvents(matchState = {}) {
+  const events = Array.isArray(matchState.matchEvents) && matchState.matchEvents.length
+    ? matchState.matchEvents
+    : matchState.goalEvents;
+  return (Array.isArray(events) ? events : [])
+    .filter((event) => event && typeof event === "object")
+    .sort((a, b) => Number(b.minute || -1) - Number(a.minute || -1));
+}
+
+function getLatestLiveStudioEvent(matchState = {}) {
+  return getLiveStudioEvents(matchState)[0] || null;
+}
+
+function getLiveStudioEventKind(event = {}) {
+  const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
+  if (text.includes("goal") || text.includes("score")) return "goal";
+  if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
+  if (text.includes("red") || text.includes("dismiss")) return "red-card";
+  if (text.includes("yellow") || text.includes("booking") || text.includes("card")) return "yellow-card";
+  if (text.includes("injur") || text.includes("knock")) return "injury";
+  return "update";
+}
+
+function buildLiveStudioEventLine({ fixture, event, score, seed }) {
+  if (!event) return "";
+  const kind = getLiveStudioEventKind(event);
+  const team = event.teamName ? getLiveStudioTeamName(event.teamName) : "the match";
+  const player = String(event.playerName || "").trim();
+  const minute = formatLiveStudioMinute(event);
+  const at = minute ? ` (${minute})` : "";
+  const phrases = {
+    goal: player
+      ? [`${player} has found the net for ${team}${at}.`, `It's a goal for ${team}, and ${player} is the name on it${at}.`]
+      : [`${team} have scored${at}.`, `The net ripples for ${team}${at}.`],
+    substitution: player && event.substituteName
+      ? [`${team} make a change: ${event.substituteName} is on for ${player}${at}.`, `A switch at ${team}: ${event.substituteName} replaces ${player}${at}.`]
+      : [`There is a change at ${team}${at}.`, `${team} have gone to the bench${at}.`],
+    "red-card": [`Red card for ${player || team}${at}. That could change the entire picture.`, `A dismissal at ${team}${at}; the studio has just sat up.`],
+    "yellow-card": [`Yellow card for ${player || team}${at}. The referee has made the first mark in the book.`, `${player || team} goes into the book${at}.`],
+    injury: [`Concern at ${team}${player ? ` for ${player}` : ""}${at}. The medical team is on.`, `The action pauses at ${team}${at}; there is an injury concern.`],
+    update: [`A notable moment at ${team}${at}.`, `Something has happened at ${team}${at}; we are checking the detail.`],
+  };
+  return pickLiveStudioPhrase(`${seed}:${kind}:${player}:${score?.homeGoals || 0}-${score?.awayGoals || 0}`, phrases[kind] || phrases.update);
+}
+
+function buildLiveStudioTableImpactLine({ fixture, previousRows, currentRows, gameMode, selectedGameweek, seed }) {
+  if (!previousRows || !currentRows) return "";
+  const changes = currentRows
+    .map((row) => {
+      const before = previousRows.find(
+        (candidate) => (candidate.userId || candidate.username) === (row.userId || row.username)
+      );
+      return before && before.position !== row.position ? { row, before } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => Math.abs(b.before.position - b.row.position) - Math.abs(a.before.position - a.row.position));
+  const leagueName = gameMode === WORLD_CUP_MODE ? "World Cup" : "mini-league";
+  if (!changes.length) {
+    return pickLiveStudioPhrase(seed, [
+      `Let's look at how that goal has affected the ${leagueName} table: no positions change, but the points are tightening up.`,
+      `The goal is on the board. The ${leagueName} order stays put for now, though the gaps are changing.`,
+      `A quick table check: no overtakes yet, but that goal has altered the points race.`,
+    ]);
+  }
+  const headline = changes.slice(0, 2).map(({ row, before }) => {
+    const arrow = row.position < before.position ? "up" : "down";
+    return `${row.username} moves ${arrow} to ${row.position}`;
+  }).join(" and ");
+  return pickLiveStudioPhrase(seed, [
+    `Let's see what that goal has done to the ${leagueName} table: ${headline}.`,
+    `The latest table flash is in: ${headline} after that goal.`,
+    `That is a big one in the ${leagueName}; ${headline}.`,
+  ]);
 }
 
 function formatLiveStudioMinute(goal, fallback = "") {
@@ -9493,21 +9576,29 @@ const liveStudioDemoStateByFixtureId = useMemo(() => {
   ];
   return liveStudioFixtures.slice(0, 4).reduce((acc, fixture, index) => {
     const demo = demoScores[index % demoScores.length];
+    const demoEvents = demo.minute
+      ? [
+          {
+            type: "GOAL",
+            scorerName: demo.scorerName,
+            teamName: demo.scoringSide === "home" ? fixture.homeTeam : fixture.awayTeam,
+            minute: demo.minute,
+            homeGoals: demo.homeGoals,
+            awayGoals: demo.awayGoals,
+          },
+          ...(index === 0
+            ? [{ type: "YELLOW_CARD", playerName: "The captain", teamName: fixture.homeTeam, minute: 24 }]
+            : index === 2
+            ? [{ type: "SUBSTITUTION", playerName: "The tiring striker", substituteName: "The fresh forward", teamName: fixture.awayTeam, minute: 68 }]
+            : []),
+        ]
+      : [{ type: "INJURY", playerName: "A midfielder", teamName: fixture.homeTeam, minute: 41 }];
     acc[fixture.id] = {
       status: demo.status,
       homeGoals: demo.homeGoals,
       awayGoals: demo.awayGoals,
-      goalEvents: demo.minute
-        ? [
-            {
-              scorerName: demo.scorerName,
-              teamName: demo.scoringSide === "home" ? fixture.homeTeam : fixture.awayTeam,
-              minute: demo.minute,
-              homeGoals: demo.homeGoals,
-              awayGoals: demo.awayGoals,
-            },
-          ]
-        : [],
+      goalEvents: demoEvents.filter((event) => event.type === "GOAL"),
+      matchEvents: demoEvents,
     };
     return acc;
   }, {});
@@ -9562,6 +9653,31 @@ const liveStudioFeed = useMemo(() => {
     ? liveStudioPredictionsForUser(currentRow)
     : predictions[currentPredictionKey] || {};
 
+  const buildTableSnapshot = (fixtureOverride = null) => {
+    const rows = liveStudioUsers.map((user) => {
+      const userPredictions = liveStudioPredictionsForUser(user);
+      const points = liveStudioFixtures.reduce((sum, fixture) => {
+        const demoState = liveStudioDemoStateByFixtureId[fixture.id];
+        const baseScore = getFixtureScoreFromStateOrResult(
+          fixture,
+          demoState || matchStatesByFixtureId[fixture.id],
+          demoState ? null : results[fixture.id]
+        );
+        const score = fixtureOverride && String(fixture.id) === String(fixtureOverride.fixtureId)
+          ? fixtureOverride.score
+          : baseScore;
+        if (!score) return sum;
+        const prediction = userPredictions[String(fixture.id)] !== undefined
+          ? userPredictions[String(fixture.id)]
+          : userPredictions[fixture.id];
+        return sum + getTotalPoints(prediction, score);
+      }, 0);
+      return { ...user, points };
+    }).sort((a, b) => b.points - a.points || a.username.localeCompare(b.username));
+    rows.forEach((row, index) => { row.position = index + 1; });
+    return rows;
+  };
+
   const entries = liveStudioFixtures
     .map((fixture, fixtureIndex) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
@@ -9576,7 +9692,10 @@ const liveStudioFeed = useMemo(() => {
 
       const venue = getLiveStudioVenue(fixture, gameMode);
       const latestGoal = getLatestLiveStudioGoal(matchState);
-      const minute = formatLiveStudioMinute(latestGoal, live ? "Live" : paused ? "HT" : finished ? "FT" : "");
+      const latestEvent = getLatestLiveStudioEvent(matchState);
+      const eventKind = getLiveStudioEventKind(latestEvent);
+      const commentaryGoal = eventKind === "goal" ? latestGoal : null;
+      const minute = formatLiveStudioMinute(latestEvent || latestGoal, live ? "Live" : paused ? "HT" : finished ? "FT" : "");
       const scoreText = getLiveStudioScoreSummary(fixture, score);
       const fixtureOdds = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
       const probabilities = computeProbabilities(fixtureOdds);
@@ -9656,17 +9775,45 @@ const liveStudioFeed = useMemo(() => {
         paused,
         finished,
         demo: liveStudioDemoEnabled,
-        latestGoal,
+        latestGoal: commentaryGoal,
         tableImpactName,
         upsetLabel,
       });
       const tensionLine = buildLiveStudioTensionLine({
         score,
-        latestGoal,
+        latestGoal: commentaryGoal,
         tableImpactName,
         upsetLabel,
       });
-      const revealLine = score ? buildLiveStudioRevealLine(fixture, score, latestGoal) : scoreText;
+      const revealLine = score ? buildLiveStudioRevealLine(fixture, score, commentaryGoal) : scoreText;
+      const eventLine = latestEvent && eventKind !== "goal"
+        ? buildLiveStudioEventLine({ fixture, event: latestEvent, score, seed: `${fixture.id}:${minute}` })
+        : "";
+
+      let tableSnapshot = null;
+      let tableImpactLine = "";
+      if (latestGoal && score) {
+        const homeGoals = Number(score.homeGoals);
+        const awayGoals = Number(score.awayGoals);
+        const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
+        const homeScored = scoringTeam === getLiveStudioTeamName(fixture.homeTeam);
+        const awayScored = scoringTeam === getLiveStudioTeamName(fixture.awayTeam);
+        const previousScore = {
+          homeGoals: Math.max(0, homeGoals - (homeScored ? 1 : 0)),
+          awayGoals: Math.max(0, awayGoals - (awayScored ? 1 : 0)),
+        };
+        const currentRows = buildTableSnapshot({ fixtureId: fixture.id, score });
+        const previousRows = buildTableSnapshot({ fixtureId: fixture.id, score: previousScore });
+        tableSnapshot = { previousRows, currentRows };
+        tableImpactLine = buildLiveStudioTableImpactLine({
+          fixture,
+          previousRows,
+          currentRows,
+          gameMode,
+          selectedGameweek,
+          seed: `${fixture.id}:${minute}:${scoreText}`,
+        });
+      }
 
       return {
         id: `${fixture.id}:${status || "score"}`,
@@ -18760,6 +18907,51 @@ const TABS = [
                             </div>
                           ))}
                         </div>
+                        {entry.tableSnapshot && (
+                          <div
+                            style={{
+                              marginTop: 10,
+                              paddingTop: 9,
+                              borderTop: `1px solid ${theme.line}`,
+                              display: "grid",
+                              gap: 5,
+                            }}
+                          >
+                            <div style={{ color: theme.accent2, fontSize: 11, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.7 }}>
+                              Mini-league after the goal
+                            </div>
+                            {entry.tableSnapshot.currentRows.map((row) => {
+                              const before = entry.tableSnapshot.previousRows.find(
+                                (candidate) => (candidate.userId || candidate.username) === (row.userId || row.username)
+                              );
+                              const movement = before ? before.position - row.position : 0;
+                              const isCurrent =
+                                (currentUserId && String(row.userId || "") === String(currentUserId)) ||
+                                row.username === currentPlayer;
+                              return (
+                                <div
+                                  key={`${entry.id}:table:${row.userId || row.username}`}
+                                  style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "28px 18px minmax(0, 1fr) auto",
+                                    gap: 6,
+                                    alignItems: "center",
+                                    color: isCurrent ? theme.accent2 : theme.text,
+                                    fontSize: 12,
+                                    fontWeight: isCurrent ? 950 : 700,
+                                  }}
+                                >
+                                  <span style={{ color: theme.muted, fontVariantNumeric: "tabular-nums" }}>#{row.position}</span>
+                                  <span style={{ color: movement > 0 ? "#22c55e" : movement < 0 ? "#ef4444" : theme.muted, fontWeight: 950 }}>
+                                    {movement > 0 ? "↑" : movement < 0 ? "↓" : "·"}
+                                  </span>
+                                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.username}</span>
+                                  <span style={{ fontVariantNumeric: "tabular-nums" }}>{Number(row.points || 0)} pts</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </article>
                   );

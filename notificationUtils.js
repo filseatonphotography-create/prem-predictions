@@ -14,6 +14,8 @@ function getGoalEventArrays(source) {
     source.scorers,
     source.events,
     source.incidents,
+    source.bookings,
+    source.substitutions,
     source.score?.goals,
   ].filter(Array.isArray);
 }
@@ -98,6 +100,42 @@ function normalizeGoalEvents(source) {
         Number.isFinite(goal.minute) ||
         (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals))
     );
+}
+
+function normalizeMatchEvents(source) {
+  return getGoalEventArrays(source)
+    .flat()
+    .filter((event) => event && typeof event === "object")
+    .map((event) => {
+      const type = String(event.type || event.eventType || event.kind || event.detail || "").trim();
+      const playerName = String(
+        getGoalPersonName(event) || event.playerOut?.name || event.playerOut || ""
+      ).trim();
+      const teamName = getGoalTeamName(event);
+      const time = getGoalMinute(event);
+      const card = String(event.card || event.cardType || event.booking || "").trim();
+      const reason = String(event.reason || event.injury || event.description || "").trim();
+      const substituteName = String(
+        event.substitute?.name ||
+          event.substitution?.name ||
+          event.substituteName ||
+          event.playerIn?.name ||
+          event.playerIn ||
+          ""
+      ).trim();
+      return {
+        type,
+        playerName,
+        teamName,
+        minute: time?.minute ?? null,
+        injuryTime: time?.injuryTime ?? null,
+        card,
+        reason,
+        substituteName,
+        playerOutName: String(event.playerOut?.name || event.playerOut || event.assist?.name || "").trim(),
+      };
+    })
+    .filter((event) => event.type || event.playerName || event.teamName || Number.isFinite(event.minute));
 }
 
 function namesMatch(a, b) {
@@ -425,6 +463,7 @@ module.exports = {
   buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
+  normalizeMatchEvents,
   normalizeInternationalTeamName,
   normalizeFootballTeamName,
   parseFixtureArraySource,
