@@ -9519,80 +9519,6 @@ const liveStudioPredictionsForUser = useCallback(
   ]
 );
 
-const getLiveStudioLeagueBasePoints = useCallback(
-  (user) => {
-    const username = String(user?.username || "").trim();
-    const userId = String(user?.userId || "").trim();
-    const legacyUsername = username.replace(/_legacy$/i, "");
-    const totalKeys = [username, legacyUsername, userId].filter(Boolean);
-
-    for (const key of totalKeys) {
-      if (computedLeagueTotals && computedLeagueTotals[key] !== undefined) {
-        return Number(computedLeagueTotals[key]) || 0;
-      }
-    }
-
-    const leaderboardRow = leaderboard.find((row) => {
-      const rowUserId = String(row.userId || "");
-      return (
-        (userId && rowUserId === userId) ||
-        String(row.player || "") === username ||
-        String(row.player || "") === legacyUsername
-      );
-    });
-    if (leaderboardRow) return Number(leaderboardRow.points) || 0;
-
-    const spreadsheetBase = !isWorldCupMode && SPREADSHEET_WEEKLY_TOTALS[legacyUsername]
-      ? SPREADSHEET_WEEKLY_TOTALS[legacyUsername].reduce((sum, value) => sum + (Number(value) || 0), 0)
-      : 0;
-    return spreadsheetBase;
-  },
-  [computedLeagueTotals, isWorldCupMode, leaderboard]
-);
-
-const getLiveStudioOverallPointsForUser = useCallback(
-  (user, fixtureOverride = null) => {
-    const userPredictions = liveStudioPredictionsForUser(user);
-    const basePoints = getLiveStudioLeagueBasePoints(user);
-    return liveStudioFixtures.reduce((sum, fixture) => {
-      const demoState = liveStudioDemoStateByFixtureId[fixture.id];
-      const prediction =
-        userPredictions[String(fixture.id)] !== undefined
-          ? userPredictions[String(fixture.id)]
-          : userPredictions[fixture.id];
-
-      const settledResult = demoState ? null : results[fixture.id];
-      const settledScore = hasValidResultScore(settledResult)
-        ? getFixtureScoreFromStateOrResult(fixture, null, settledResult)
-        : null;
-      const settledPoints = settledScore ? getTotalPoints(prediction, settledScore) : 0;
-
-      const liveScore = fixtureOverride && String(fixture.id) === String(fixtureOverride.fixtureId)
-        ? fixtureOverride.score
-        : demoState
-        ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
-        : getLiveStudioEligibleScore(
-            fixture,
-            matchStatesByFixtureId[fixture.id],
-            settledResult,
-            liveStudioNow
-          );
-      const livePoints = liveScore ? getTotalPoints(prediction, liveScore) : 0;
-
-      return sum - settledPoints + livePoints;
-    }, basePoints);
-  },
-  [
-    getLiveStudioLeagueBasePoints,
-    liveStudioDemoStateByFixtureId,
-    liveStudioFixtures,
-    liveStudioNow,
-    liveStudioPredictionsForUser,
-    matchStatesByFixtureId,
-    results,
-  ]
-);
-
 const liveStudioDemoFixtures = useMemo(() => {
   if (!liveStudioDemoEnabled) return [];
 
@@ -9710,6 +9636,80 @@ const liveStudioDemoStateByFixtureId = useMemo(() => {
     return acc;
   }, {});
 }, [liveStudioDemoEnabled, liveStudioFixtures]);
+
+const getLiveStudioLeagueBasePoints = useCallback(
+  (user) => {
+    const username = String(user?.username || "").trim();
+    const userId = String(user?.userId || "").trim();
+    const legacyUsername = username.replace(/_legacy$/i, "");
+    const totalKeys = [username, legacyUsername, userId].filter(Boolean);
+
+    for (const key of totalKeys) {
+      if (computedLeagueTotals && computedLeagueTotals[key] !== undefined) {
+        return Number(computedLeagueTotals[key]) || 0;
+      }
+    }
+
+    const leaderboardRow = leaderboard.find((row) => {
+      const rowUserId = String(row.userId || "");
+      return (
+        (userId && rowUserId === userId) ||
+        String(row.player || "") === username ||
+        String(row.player || "") === legacyUsername
+      );
+    });
+    if (leaderboardRow) return Number(leaderboardRow.points) || 0;
+
+    const spreadsheetBase = !isWorldCupMode && SPREADSHEET_WEEKLY_TOTALS[legacyUsername]
+      ? SPREADSHEET_WEEKLY_TOTALS[legacyUsername].reduce((sum, value) => sum + (Number(value) || 0), 0)
+      : 0;
+    return spreadsheetBase;
+  },
+  [computedLeagueTotals, isWorldCupMode, leaderboard]
+);
+
+const getLiveStudioOverallPointsForUser = useCallback(
+  (user, fixtureOverride = null) => {
+    const userPredictions = liveStudioPredictionsForUser(user);
+    const basePoints = getLiveStudioLeagueBasePoints(user);
+    return liveStudioFixtures.reduce((sum, fixture) => {
+      const demoState = liveStudioDemoStateByFixtureId[fixture.id];
+      const prediction =
+        userPredictions[String(fixture.id)] !== undefined
+          ? userPredictions[String(fixture.id)]
+          : userPredictions[fixture.id];
+
+      const settledResult = demoState ? null : results[fixture.id];
+      const settledScore = hasValidResultScore(settledResult)
+        ? getFixtureScoreFromStateOrResult(fixture, null, settledResult)
+        : null;
+      const settledPoints = settledScore ? getTotalPoints(prediction, settledScore) : 0;
+
+      const liveScore = fixtureOverride && String(fixture.id) === String(fixtureOverride.fixtureId)
+        ? fixtureOverride.score
+        : demoState
+        ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
+        : getLiveStudioEligibleScore(
+            fixture,
+            matchStatesByFixtureId[fixture.id],
+            settledResult,
+            liveStudioNow
+          );
+      const livePoints = liveScore ? getTotalPoints(prediction, liveScore) : 0;
+
+      return sum - settledPoints + livePoints;
+    }, basePoints);
+  },
+  [
+    getLiveStudioLeagueBasePoints,
+    liveStudioDemoStateByFixtureId,
+    liveStudioFixtures,
+    liveStudioNow,
+    liveStudioPredictionsForUser,
+    matchStatesByFixtureId,
+    results,
+  ]
+);
 
 const liveStudioKickoffInfo = useMemo(() => {
   const fixturesWithKickoff = liveStudioFixtures
