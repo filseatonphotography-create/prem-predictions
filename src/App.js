@@ -4262,6 +4262,15 @@ function getFixtureScoreFromStateOrResult(fixture, matchState, result) {
   return null;
 }
 
+function getLiveStudioEligibleScore(fixture, matchState, result, nowMs = Date.now()) {
+  const matchHasStarted = hasStartedMatchStatus(matchState);
+  const kickoffTime = Date.parse(fixture?.kickoff);
+  const kickoffReached = Number.isFinite(kickoffTime) && kickoffTime <= nowMs;
+  const canUseResultScore = hasValidResultScore(result) && kickoffReached;
+  if (!matchHasStarted && !canUseResultScore) return null;
+  return getFixtureScoreFromStateOrResult(fixture, matchState, result);
+}
+
 function getPredictionPointsLabel(prediction, score) {
   if (!prediction || !score) return null;
   const points = getTotalPoints(prediction, score);
@@ -4386,6 +4395,20 @@ function formatLiveStudioMinute(goal, fallback = "") {
   return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
 }
 
+function formatLiveStudioCountdown(ms) {
+  const remaining = Math.max(0, Number(ms) || 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const hourMs = 60 * 60 * 1000;
+  const minuteMs = 60 * 1000;
+  const days = Math.floor(remaining / dayMs);
+  const hours = Math.floor((remaining % dayMs) / hourMs);
+  const minutes = Math.floor((remaining % hourMs) / minuteMs);
+  const seconds = Math.floor((remaining % minuteMs) / 1000);
+  if (days > 0) return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m`;
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`;
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
 function getLiveStudioFavoriteSide(probabilities) {
   if (!probabilities) return null;
   const sides = [
@@ -4465,10 +4488,11 @@ function getLiveStudioUpsetLabel(fixture, score, probabilities) {
 
 function buildLiveStudioRevealLine(fixture, score, latestGoal) {
   if (!score) return getLiveStudioScoreSummary(fixture, score);
+  const scoreSummary = getLiveStudioScoreSummary(fixture, score);
+  if (!latestGoal) return `Latest score: ${scoreSummary}.`;
   const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
   const scorerName = String(latestGoal?.scorerName || "").trim();
   const scorer = scorerName ? `${scorerName} has scored. ` : "";
-  const scoreSummary = getLiveStudioScoreSummary(fixture, score);
   if (scoringTeam) {
     const leadingSide = getLiveStudioLeadingSide(score);
     const scoringSide = scoringTeam === getLiveStudioTeamName(fixture.homeTeam) ? "H" : scoringTeam === getLiveStudioTeamName(fixture.awayTeam) ? "A" : null;
@@ -5819,6 +5843,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [leaguePredictionsByUserId, setLeaguePredictionsByUserId] = useState({});
   const [expandedPlayerRowKey, setExpandedPlayerRowKey] = useState("");
   const [countdown, setCountdown] = useState({ timeStr: "", progress: 0, totalTime: 0, remaining: 0 });
+  const [liveStudioNow, setLiveStudioNow] = useState(() => Date.now());
   const isResetPasswordRoute = useMemo(() => {
     try {
       const clean = (window.location.pathname || "").replace(/\/+$/, "") || "/";
@@ -6015,6 +6040,13 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
   }, [activeFixtures, isWorldCupMode]);
+
+  useEffect(() => {
+    if (activeView !== "liveStudio") return undefined;
+    setLiveStudioNow(Date.now());
+    const interval = setInterval(() => setLiveStudioNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [activeView]);
 
   // If we don't have any odds yet, generate free built-in odds for all fixtures
   useEffect(() => {
@@ -9605,17 +9637,37 @@ const liveStudioDemoStateByFixtureId = useMemo(() => {
   }, {});
 }, [liveStudioDemoEnabled, liveStudioFixtures]);
 
+const liveStudioKickoffInfo = useMemo(() => {
+  const fixturesWithKickoff = liveStudioFixtures
+    .map((fixture) => ({ fixture, kickoffTime: Date.parse(fixture.kickoff) }))
+    .filter((entry) => Number.isFinite(entry.kickoffTime))
+    .sort((a, b) => a.kickoffTime - b.kickoffTime);
+  const first = fixturesWithKickoff[0] || null;
+  const next = fixturesWithKickoff.find((entry) => entry.kickoffTime > liveStudioNow) || null;
+  return {
+    firstFixture: first?.fixture || null,
+    firstKickoffTime: first?.kickoffTime || null,
+    nextFixture: next?.fixture || null,
+    nextKickoffTime: next?.kickoffTime || null,
+    hasStarted: first ? first.kickoffTime <= liveStudioNow : false,
+    countdownText: next ? formatLiveStudioCountdown(next.kickoffTime - liveStudioNow) : "",
+  };
+}, [liveStudioFixtures, liveStudioNow]);
+
 const liveStudioRows = useMemo(() => {
   return liveStudioUsers
     .map((user) => {
       const userPredictions = liveStudioPredictionsForUser(user);
       const points = liveStudioFixtures.reduce((sum, fixture) => {
         const demoState = liveStudioDemoStateByFixtureId[fixture.id];
-        const score = getFixtureScoreFromStateOrResult(
-          fixture,
-          demoState || matchStatesByFixtureId[fixture.id],
-          demoState ? null : results[fixture.id]
-        );
+        const score = demoState
+          ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
+          : getLiveStudioEligibleScore(
+              fixture,
+              matchStatesByFixtureId[fixture.id],
+              results[fixture.id],
+              liveStudioNow
+            );
         if (!score) return sum;
         const prediction =
           userPredictions[String(fixture.id)] !== undefined
@@ -9630,6 +9682,7 @@ const liveStudioRows = useMemo(() => {
   liveStudioPredictionsForUser,
   liveStudioDemoStateByFixtureId,
   liveStudioFixtures,
+  liveStudioNow,
   liveStudioUsers,
   matchStatesByFixtureId,
   results,
@@ -9659,11 +9712,14 @@ const liveStudioFeed = useMemo(() => {
       const userPredictions = liveStudioPredictionsForUser(user);
       const points = liveStudioFixtures.reduce((sum, fixture) => {
         const demoState = liveStudioDemoStateByFixtureId[fixture.id];
-        const baseScore = getFixtureScoreFromStateOrResult(
-          fixture,
-          demoState || matchStatesByFixtureId[fixture.id],
-          demoState ? null : results[fixture.id]
-        );
+        const baseScore = demoState
+          ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
+          : getLiveStudioEligibleScore(
+              fixture,
+              matchStatesByFixtureId[fixture.id],
+              results[fixture.id],
+              liveStudioNow
+            );
         const score = fixtureOverride && String(fixture.id) === String(fixtureOverride.fixtureId)
           ? fixtureOverride.score
           : baseScore;
@@ -9685,10 +9741,12 @@ const liveStudioFeed = useMemo(() => {
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
       const status = String(matchState.status || "").toUpperCase();
       const result = demoState ? null : results[fixture.id];
-      const score = getFixtureScoreFromStateOrResult(fixture, matchState, result);
+      const score = demoState
+        ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
+        : getLiveStudioEligibleScore(fixture, matchState, result, liveStudioNow);
       const live = isFixtureLive(matchState);
       const paused = status === "PAUSED";
-      const finished = status === "FINISHED" || status === "AWARDED";
+      const finished = status === "FINISHED" || status === "AWARDED" || (!matchState.status && !!score);
       if (!score && !live && !paused && !finished) return null;
 
       const venue = getLiveStudioVenue(fixture, gameMode);
@@ -9841,6 +9899,22 @@ const liveStudioFeed = useMemo(() => {
     });
 
   if (!entries.length) {
+    const nextCoverageFixture = liveStudioKickoffInfo.nextFixture || liveStudioKickoffInfo.firstFixture;
+    const nextCoverageKickoff = liveStudioKickoffInfo.nextKickoffTime || liveStudioKickoffInfo.firstKickoffTime;
+    if (nextCoverageFixture && nextCoverageKickoff && nextCoverageKickoff > liveStudioNow) {
+      return [
+        {
+          id: "countdown",
+          minute: "Kick-off",
+          tone: "default",
+          title: `Live Studio coverage starts in ${formatLiveStudioCountdown(nextCoverageKickoff - liveStudioNow)}.`,
+          lines: [
+            `Join then to follow live commentary for ${studioGameweekLabel}.`,
+            `First up: ${getLiveStudioScoreSummary(nextCoverageFixture, null)} at ${formatFixtureKickoff(nextCoverageFixture, gameMode)}.`,
+          ],
+        },
+      ];
+    }
     return [
       {
         id: "waiting",
@@ -9864,10 +9938,12 @@ const liveStudioFeed = useMemo(() => {
   liveStudioDemoEnabled,
   liveStudioDemoStateByFixtureId,
   liveStudioFixtures,
+  liveStudioKickoffInfo,
   liveStudioPredictionsForUser,
   liveStudioRows,
   loginName,
   liveStudioDemoGameweek,
+  liveStudioNow,
   matchStatesByFixtureId,
   odds,
   predictions,
