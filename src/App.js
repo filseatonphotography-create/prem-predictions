@@ -5734,7 +5734,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   
   const [, setApiStatus] = useState("Auto results: loading…");
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
-  const [liveStudioDemoEnabled, setLiveStudioDemoEnabled] = useState(false);
+  const liveStudioDemoEnabled = false;
   const [premierLeagueTableView, setPremierLeagueTableView] = useState(PREMIER_TABLE_CURRENT_VIEW);
   const [premierLeagueTableRows, setPremierLeagueTableRows] = useState([]);
   const [premierLeagueTableLoading, setPremierLeagueTableLoading] = useState(false);
@@ -18769,11 +18769,6 @@ const TABS = [
                 <h2 style={{ margin: "3px 0 0", fontSize: isMobile ? 22 : 28, lineHeight: 1.05 }}>
                   {getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)} live switchboard
                 </h2>
-                {liveStudioDemoEnabled && (
-                  <div style={{ marginTop: 5, color: theme.warn, fontSize: 12, fontWeight: 800 }}>
-                    Demo mode: using predictions from {getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)}
-                  </div>
-                )}
               </div>
               <div
                 style={{
@@ -18786,7 +18781,7 @@ const TABS = [
                 <label
                   style={{
                     display: "flex",
-                    alignItems: "center",
+                    alignItems: "flex-start",
                     gap: 7,
                     padding: "8px 10px",
                     borderRadius: 8,
@@ -18804,31 +18799,24 @@ const TABS = [
                     type="checkbox"
                     checked={!!pushPrefs.noSpoilerFixtureUpdates}
                     onChange={(e) => updatePushPref("noSpoilerFixtureUpdates", e.target.checked)}
-                    style={{ margin: 0 }}
+                    style={{ margin: "2px 0 0" }}
                   />
-                  <span>No spoilers</span>
+                  <span style={{ display: "grid", gap: 2, lineHeight: 1.15 }}>
+                    <span>No spoilers</span>
+                    <span style={{ color: theme.muted, fontSize: 11, fontWeight: 650, maxWidth: 230 }}>
+                      Hides scores and scorers in Live Studio goal alerts.
+                    </span>
+                  </span>
                 </label>
                 <button
                   type="button"
-                  onClick={() => setLiveStudioDemoEnabled((enabled) => !enabled)}
-                  style={{
-                    ...pillBtn(liveStudioDemoEnabled),
-                    padding: "8px 12px",
-                    fontSize: 12,
-                  }}
-                >
-                  {liveStudioDemoEnabled ? "Demo on" : "Demo mode"}
-                </button>
-                <button
-                  type="button"
                   onClick={() => refreshAutoResults(gameMode, activeFixtures)}
-                  disabled={resultsRefreshing || liveStudioDemoEnabled}
+                  disabled={resultsRefreshing}
                   style={{
                     ...pillBtn(true),
                     padding: "8px 12px",
                     fontSize: 12,
-                    cursor: resultsRefreshing || liveStudioDemoEnabled ? "not-allowed" : "pointer",
-                    opacity: liveStudioDemoEnabled ? 0.55 : 1,
+                    cursor: resultsRefreshing ? "not-allowed" : "pointer",
                   }}
                 >
                   {resultsRefreshing ? "Refreshing..." : "Refresh studio"}
