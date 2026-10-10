@@ -6058,6 +6058,11 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [coinsLeagueRows, setCoinsLeagueRows] = useState([]);
   const [globalUsers, setGlobalUsers] = useState([]);
   const [globalPredictionsByUserId, setGlobalPredictionsByUserId] = useState({});
+  const predictionSaveTimersRef = useRef({});
+  const pendingPredictionSavesRef = useRef({});
+  const coinBetSaveTimersRef = useRef({});
+  const pendingCoinBetSavesRef = useRef({});
+  const leaguePredictionsCacheRef = useRef({ key: "", data: null });
   const [globalLeaguePage, setGlobalLeaguePage] = useState(1);
   const [showWinnerModal, setShowWinnerModal] = useState(false);
   const [winnerList, setWinnerList] = useState([]);
@@ -8071,12 +8076,45 @@ useEffect(() => {
 
   // Persist app cache
   useEffect(() => {
-    const cachePredictions = keepSupportedFixturePredictions(predictions);
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ predictions: cachePredictions, results, odds, selectedGameweek, selectedGameweekByMode })
-    );
+    const persistTimer = window.setTimeout(() => {
+      const cachePredictions = keepSupportedFixturePredictions(predictions);
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ predictions: cachePredictions, results, odds, selectedGameweek, selectedGameweekByMode })
+      );
+    }, 200);
+
+    return () => window.clearTimeout(persistTimer);
   }, [predictions, results, odds, selectedGameweek, selectedGameweekByMode]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(pendingPredictionSavesRef.current || {}).forEach((pendingSave) => {
+        const token = pendingSave?.authToken;
+        const items = Array.isArray(pendingSave?.toSave) ? pendingSave.toSave : [];
+        if (!token || items.length === 0) return;
+        items.forEach(({ fixtureId: id, prediction }) => {
+          apiSavePrediction(token, id, prediction).catch((err) => {
+            console.error("apiSavePrediction error", { fixtureId: id, err });
+          });
+        });
+      });
+      Object.values(pendingCoinBetSavesRef.current || {}).forEach((pendingSave) => {
+        if (!pendingSave?.authToken || !pendingSave?.payload) return;
+        apiPlaceCoinsBet(pendingSave.authToken, pendingSave.payload).catch((err) => {
+          console.error("apiPlaceCoinsBet error", err);
+        });
+      });
+      Object.values(predictionSaveTimersRef.current || {}).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      Object.values(coinBetSaveTimersRef.current || {}).forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      pendingPredictionSavesRef.current = {};
+      pendingCoinBetSavesRef.current = {};
+    };
+  }, []);
 
   // Persist auth
   useEffect(() => {
@@ -8275,11 +8313,23 @@ useEffect(() => {
     return;
   }
 
-  setComputedWeeklyTotals(null);
-  setComputedLeagueTotals(null);
-  setComputedTotalsLeagueId("");
-  setLeagueHistoryUsers([]);
-  setLeaguePredictionsByUserId({});
+  const leagueDataKey = JSON.stringify({
+    authToken,
+    leagueId,
+    mode: getModeKey(gameMode),
+    currentUserId: currentUserId || "",
+  });
+  const shouldRefreshLeagueData =
+    leaguePredictionsCacheRef.current.key !== leagueDataKey ||
+    !leaguePredictionsCacheRef.current.data;
+
+  if (shouldRefreshLeagueData) {
+    setComputedWeeklyTotals(null);
+    setComputedLeagueTotals(null);
+    setComputedTotalsLeagueId("");
+    setLeagueHistoryUsers([]);
+    setLeaguePredictionsByUserId({});
+  }
 
   let cancelled = false;
 
@@ -8302,8 +8352,13 @@ useEffect(() => {
 
   async function recalcFromLeague() {
     try {
-      // 1) Fetch all league predictions from backend
-      const data = await apiGetLeaguePredictions(authToken, leagueId);
+      // 1) Fetch all league predictions from backend only when league context changes.
+      const data = shouldRefreshLeagueData
+        ? await apiGetLeaguePredictions(authToken, leagueId)
+        : leaguePredictionsCacheRef.current.data;
+      if (shouldRefreshLeagueData) {
+        leaguePredictionsCacheRef.current = { key: leagueDataKey, data };
+      }
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
       const usernamesByUserId = {};
@@ -8496,7 +8551,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, currentUserId, currentPlayer, currentPredictionKey]);
+}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, gameMode, currentUserId, currentPlayer, currentPredictionKey]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -9057,7 +9112,6 @@ setNewPasswordInput("");
 
   // ---------- PREDICTIONS ----------
   const updatePrediction = (playerKey, fixtureId, newFields) => {
-    console.log("updatePrediction called", { playerKey, fixtureId, newFields });
     if (!playerKey || fixtureId == null) return;
 
     const fixtureIdNum = Number(fixtureId);
@@ -9101,9 +9155,6 @@ setNewPasswordInput("");
           );
 
           if (lockedCaptainElsewhere && !prevFixturePred.isDouble) {
-            console.log(
-              "Captain change blocked: already used on locked fixture in this gameweek"
-            );
             return prev;
           }
         }
@@ -9215,9 +9266,6 @@ setNewPasswordInput("");
           );
 
           if (!prevFixturePred.isDouble && lockedCaptainElsewhere) {
-            console.log(
-              "Captain change blocked: already used on locked fixture in this gameweek"
-            );
             return prev;
           }
 
@@ -9250,14 +9298,6 @@ setNewPasswordInput("");
             isTriple: false,
           };
 
-        if (Number(id) === fixtureIdNum) {
-          console.log("DIFF CHECK", {
-            id,
-            before,
-            after: pred,
-          });
-        }
-
         const changed =
           String(before.homeGoals ?? "") !== String(pred.homeGoals ?? "") ||
           String(before.awayGoals ?? "") !== String(pred.awayGoals ?? "") ||
@@ -9272,14 +9312,6 @@ setNewPasswordInput("");
         }
       });
 
-      console.log("PERSIST INNER", {
-        DEV_USE_LOCAL,
-        authToken,
-        changesToPersistLength: Array.isArray(changesToPersist)
-          ? changesToPersist.length
-          : "not array",
-      });
-
       if (
         !DEV_USE_LOCAL &&
         authToken &&
@@ -9287,25 +9319,33 @@ setNewPasswordInput("");
         changesToPersist.length > 0
       ) {
         const toSave = [...changesToPersist];
-
-        setTimeout(() => {
+        const timerKey = `${playerKey}:${fixtureIdNum}`;
+        pendingPredictionSavesRef.current[timerKey] = { authToken, toSave };
+        window.clearTimeout(predictionSaveTimersRef.current[timerKey]);
+        predictionSaveTimersRef.current[timerKey] = window.setTimeout(() => {
+          const pendingSave = pendingPredictionSavesRef.current[timerKey];
+          if (!pendingSave?.authToken) return;
+          const pendingItems = Array.isArray(pendingSave?.toSave) ? [...pendingSave.toSave] : [];
           try {
             // Save the current fixture last (helps captain ordering later)
-            toSave.sort((a, b) => {
+            pendingItems.sort((a, b) => {
               if (a.fixtureId === fixtureIdNum && b.fixtureId !== fixtureIdNum) return 1;
               if (b.fixtureId === fixtureIdNum && a.fixtureId !== fixtureIdNum) return -1;
               return 0;
             });
 
-            toSave.forEach(({ fixtureId: id, prediction }) => {
-              apiSavePrediction(authToken, id, prediction).catch((err) => {
+            pendingItems.forEach(({ fixtureId: id, prediction }) => {
+              apiSavePrediction(pendingSave.authToken, id, prediction).catch((err) => {
                 console.error("apiSavePrediction error", { fixtureId: id, err });
               });
             });
           } catch (err) {
             console.error("PERSIST INNER error", err);
+          } finally {
+            delete predictionSaveTimersRef.current[timerKey];
+            delete pendingPredictionSavesRef.current[timerKey];
           }
-        }, 0);
+        }, 250);
       }
 
       return {
@@ -16580,38 +16620,41 @@ useEffect(() => {
       return;
     }
 
-    try {
-      setCoinsState((prev) => ({
-        ...prev,
-        loading: true,
-        error: "",
-      }));
+    const timerKey = String(fixtureId);
+    pendingCoinBetSavesRef.current[timerKey] = { authToken, payload };
+    window.clearTimeout(coinBetSaveTimersRef.current[timerKey]);
+    coinBetSaveTimersRef.current[timerKey] = window.setTimeout(async () => {
+      const pendingSave = pendingCoinBetSavesRef.current[timerKey];
+      if (!pendingSave?.authToken || !pendingSave?.payload) return;
+      try {
+        await apiPlaceCoinsBet(pendingSave.authToken, pendingSave.payload);
+        setCoinsState((prev) => ({
+          ...prev,
+          loading: false,
+          error: "",
+        }));
+      } catch (err) {
+        console.error("handleCoinsChange error", err);
+        const msg = err?.message || "Failed to place coins bet";
 
-      await apiPlaceCoinsBet(authToken, payload);
+        if (err?.message === "Unauthorized") {
+          setAuthError("Session expired. Please log in again.");
+          handleLogout();
+          return;
+        }
 
-      setCoinsState((prev) => ({
-        ...prev,
-        loading: false,
-        error: "",
-      }));
-    } catch (err) {
-      console.error("handleCoinsChange error", err);
-      const msg = err?.message || "Failed to place coins bet";
+        setCoinsState((prev) => ({
+          ...prevSnapshot,
+          loading: false,
+          error: msg,
+        }));
 
-      if (err?.message === "Unauthorized") {
-        setAuthError("Session expired. Please log in again.");
-        handleLogout();
-        return;
+        alert(msg);
+      } finally {
+        delete coinBetSaveTimersRef.current[timerKey];
+        delete pendingCoinBetSavesRef.current[timerKey];
       }
-
-      setCoinsState((prev) => ({
-        ...prevSnapshot,
-        loading: false,
-        error: msg,
-      }));
-
-      alert(msg);
-    }
+    }, 250);
   };
 
   // ---------- LOGIN PAGE ----------
