@@ -5466,15 +5466,51 @@ export default function App() {
     } catch {}
     return true;
   });
-  const playSoundFile = (src, volume = 0.3) => {
+  const soundEffectsEnabledRef = useRef(soundEffectsEnabled);
+  const soundEffectCacheRef = useRef({});
+  const lastSoundPlayRef = useRef({});
+
+  useEffect(() => {
+    soundEffectsEnabledRef.current = soundEffectsEnabled;
     if (!soundEffectsEnabled) return;
+    [
+      "/coin.mp3",
+      "/negative-sound.MP3",
+      "/score-up.MP3",
+      "/badge-win.MP3",
+      "/page-swipe.MP3",
+      "/notification-bell.MP3",
+    ].forEach((src) => {
+      if (soundEffectCacheRef.current[src]) return;
+      try {
+        const audio = new Audio(src);
+        audio.preload = "auto";
+        soundEffectCacheRef.current[src] = audio;
+      } catch {}
+    });
+  }, [soundEffectsEnabled]);
+
+  const playSoundFile = (src, volume = 0.3) => {
+    if (!soundEffectsEnabledRef.current) return;
     try {
-      const audio = new Audio(src);
+      const now =
+        typeof performance !== "undefined" && performance.now
+          ? performance.now()
+          : Date.now();
+      if (now - (lastSoundPlayRef.current[src] || 0) < 80) return;
+      lastSoundPlayRef.current[src] = now;
+
+      let audio = soundEffectCacheRef.current[src];
+      if (!audio) {
+        audio = new Audio(src);
+        audio.preload = "auto";
+        soundEffectCacheRef.current[src] = audio;
+      }
+      audio.pause();
+      audio.currentTime = 0;
       audio.volume = volume;
-      audio.play().catch((err) => console.log("Audio play failed:", err));
-    } catch (err) {
-      console.log("Audio error:", err);
-    }
+      audio.play().catch(() => {});
+    } catch {}
   };
 
   // All users' avatars
@@ -10589,7 +10625,13 @@ const fantasyIqReport = useMemo(() => {
     missingPredictions: 0,
   };
 
-  if (isWorldCupMode || !selectedGameweek) return emptyReport;
+  if (
+    isWorldCupMode ||
+    !selectedGameweek ||
+    (activeView !== "predictionIq" && activeView !== FANTASY_IQ_VIEW_ID)
+  ) {
+    return emptyReport;
+  }
 
   const currentPredictions = predictions[currentPredictionKey] || {};
   const hasPredictionScore = (pred) => {
@@ -11197,6 +11239,7 @@ const fantasyIqReport = useMemo(() => {
 }, [
   activeFixtures,
   activeGameweeks,
+  activeView,
   coinsState,
   currentPredictionKey,
   fantasyInsightsScope,
