@@ -4874,10 +4874,16 @@ function getLiveStudioHalfTimeScore(matchState = {}, fallbackScore = null) {
 }
 
 function getLiveStudioEventSortMinute(event = {}, fallback = -1) {
+  const sortMinute = Number(event?.sortMinute);
+  if (Number.isFinite(sortMinute)) return sortMinute;
   const minute = Number(event?.minute);
   const injuryTime = Number(event?.injuryTime);
   if (!Number.isFinite(minute)) return fallback;
   return minute + (Number.isFinite(injuryTime) ? injuryTime / 100 : 0);
+}
+
+function isEstimatedSyntheticLiveStudioEvent(event = {}) {
+  return Boolean(event?.synthetic && event?.estimatedMinute);
 }
 
 function getLiveStudioUpdateKeyPart(event = {}) {
@@ -5435,11 +5441,11 @@ function buildLiveStudioFullTimeBetLine({ fixture, bet, score, username, seed })
 }
 
 function formatLiveStudioMinute(goal, fallback = "") {
+  if (isEstimatedSyntheticLiveStudioEvent(goal)) return fallback;
   const minute = Number(goal?.minute);
   if (!Number.isFinite(minute)) return fallback;
   const injuryTime = Number(goal?.injuryTime);
-  const prefix = goal?.estimatedMinute ? "~" : "";
-  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${prefix}${minute}+${injuryTime}'` : `${prefix}${minute}'`;
+  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
 }
 
 function formatLiveStudioCountdown(ms) {
@@ -11306,28 +11312,28 @@ const liveStudioFeed = useMemo(() => {
             type: "STATS_CHECK",
             minute,
             statusLabel: "STATS",
-            sortOffset: 0.1,
+            sortOffset: 0,
           });
         }
       });
-      if (paused || finished) {
+      const resumedSecondHalfScore = getLiveStudioHalfTimeScore(matchState, null);
+      if (paused || finished || (live && !paused && resumedSecondHalfScore && elapsedMinute >= 45)) {
         const halfTimeScore = getLiveStudioHalfTimeScore(matchState, paused ? score : null);
         syntheticEvents.push({
           type: "HALF_TIME",
           minute: 45,
           statusLabel: "HT",
-          sortOffset: 0.2,
+          sortOffset: 0,
           homeGoals: halfTimeScore?.homeGoals ?? null,
           awayGoals: halfTimeScore?.awayGoals ?? null,
         });
       }
-      const resumedSecondHalfScore = getLiveStudioHalfTimeScore(matchState, null);
       if (live && !paused && !finished && resumedSecondHalfScore && elapsedMinute >= 45) {
         syntheticEvents.push({
           type: "SECOND_HALF",
           minute: 45,
           statusLabel: "SH",
-          sortOffset: 0.25,
+          sortOffset: 0.1,
           homeGoals: resumedSecondHalfScore.homeGoals,
           awayGoals: resumedSecondHalfScore.awayGoals,
         });
@@ -11401,9 +11407,15 @@ const liveStudioFeed = useMemo(() => {
         const entryIsGoal = entryKind === "goal";
         const entryIsGoalDisallowed = entryKind === "goal-disallowed";
         const entryGoal = entryIsGoal ? event : null;
+        const entryMinuteFallback =
+          isEstimatedSyntheticLiveStudioEvent(event) && entryIsGoal
+            ? "Goal"
+            : isEstimatedSyntheticLiveStudioEvent(event) && entryIsGoalDisallowed
+            ? "VAR"
+            : statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "");
         const entryMinute = formatLiveStudioMinute(
           event,
-          statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "")
+          entryMinuteFallback
         );
         const entryMomentFallbackMinute = statusLabel === "FT" ? 90 : statusLabel === "HT" || statusLabel === "SH" ? 45 : statusLabel === "KO" ? 0 : 0;
         const entryMomentMs = getEventMomentMs(fixture, event, entryMomentFallbackMinute);

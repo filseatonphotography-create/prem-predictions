@@ -4218,6 +4218,7 @@ function getLivePushEventKind(event = {}) {
 }
 
 function formatLivePushMinute(event = {}) {
+  if (event?.synthetic && event?.estimatedMinute) return "";
   const minute = Number(event.minute);
   if (!Number.isFinite(minute)) return "";
   const injuryTime = Number(event.injuryTime);
