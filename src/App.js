@@ -10391,15 +10391,81 @@ const liveStudioFeed = useMemo(() => {
     ? liveStudioPredictionsForUser(currentRow)
     : predictions[currentPredictionKey] || {};
 
-  const buildTableSnapshot = (fixtureOverride = null) => {
+  const getFixtureMatchState = (fixture) =>
+    liveStudioDemoStateByFixtureId[fixture.id] || matchStatesByFixtureId[fixture.id] || {};
+  const getFixtureScoreAtMoment = (fixture, momentMs) => {
+    const kickoffTime = Date.parse(fixture?.kickoff);
+    if (!Number.isFinite(kickoffTime) || !Number.isFinite(momentMs) || momentMs < kickoffTime) return null;
+    const matchState = getFixtureMatchState(fixture);
+    const result = liveStudioDemoStateByFixtureId[fixture.id] ? null : results[fixture.id];
+    const candidates = [{ momentMs: kickoffTime, score: { homeGoals: 0, awayGoals: 0 } }];
+    getLiveStudioEvents(matchState).forEach((event) => {
+      const eventScore = getLiveStudioEventScore(event, null);
+      if (!eventScore) return;
+      const sortMinute = getLiveStudioEventSortMinute(event, -1);
+      const eventMomentMs = kickoffTime + Math.max(0, sortMinute) * 60 * 1000;
+      candidates.push({ momentMs: eventMomentMs, score: eventScore });
+    });
+    const halfTimeScore = getLiveStudioHalfTimeScore(matchState, null);
+    if (halfTimeScore) {
+      candidates.push({ momentMs: kickoffTime + 45 * 60 * 1000, score: halfTimeScore });
+    }
+    const finalScore = getFixtureScoreFromStateOrResult(fixture, matchState, result);
+    const status = String(matchState?.status || "").toUpperCase();
+    const finished = status === "FINISHED" || status === "AWARDED" || (!matchState?.status && hasValidResultScore(result));
+    if (finalScore && finished) {
+      candidates.push({ momentMs: kickoffTime + 90 * 60 * 1000, score: finalScore });
+    }
+    const latest = candidates
+      .filter((candidate) => candidate.momentMs <= momentMs)
+      .sort((a, b) => b.momentMs - a.momentMs)[0];
+    return latest?.score || null;
+  };
+  const buildScoreSnapshotAtMoment = (momentMs, fixtureOverride = null) => {
+    const scoresByFixtureId = {};
+    liveStudioFixtures.forEach((fixture) => {
+      const fixtureId = String(fixture.id);
+      if (fixtureOverride?.skipFixture && fixtureId === String(fixtureOverride.fixtureId)) return;
+      if (fixtureOverride?.score && fixtureId === String(fixtureOverride.fixtureId)) {
+        scoresByFixtureId[fixtureId] = fixtureOverride.score;
+        return;
+      }
+      const scoreAtMoment = getFixtureScoreAtMoment(fixture, momentMs);
+      if (scoreAtMoment) scoresByFixtureId[fixtureId] = scoreAtMoment;
+    });
+    return scoresByFixtureId;
+  };
+  const buildTableSnapshotAtMoment = (momentMs, fixtureOverride = null) => {
+    const scoresByFixtureId = buildScoreSnapshotAtMoment(momentMs, fixtureOverride);
     const rows = liveStudioUsers
-      .map((user) => ({
-        ...user,
-        points: getLiveStudioOverallPointsForUser(user, fixtureOverride),
-      }))
+      .map((user) => {
+        const userPredictions = liveStudioPredictionsForUser(user);
+        const basePoints = getLiveStudioLeagueBasePoints(user);
+        const points = liveStudioFixtures.reduce((sum, fixture) => {
+          const prediction =
+            userPredictions[String(fixture.id)] !== undefined
+              ? userPredictions[String(fixture.id)]
+              : userPredictions[fixture.id];
+          const settledResult = liveStudioDemoStateByFixtureId[fixture.id] ? null : results[fixture.id];
+          const settledScore = hasValidResultScore(settledResult)
+            ? getFixtureScoreFromStateOrResult(fixture, null, settledResult)
+            : null;
+          const settledPoints = settledScore ? getTotalPoints(prediction, settledScore) : 0;
+          const snapshotScore = scoresByFixtureId[String(fixture.id)];
+          const snapshotPoints = snapshotScore ? getTotalPoints(prediction, snapshotScore) : 0;
+          return sum - settledPoints + snapshotPoints;
+        }, basePoints);
+        return { ...user, points };
+      })
       .sort((a, b) => b.points - a.points || a.username.localeCompare(b.username));
     rows.forEach((row, index) => { row.position = index + 1; });
     return rows;
+  };
+  const getEventMomentMs = (fixture, event, fallbackMinute = 0) => {
+    const kickoffTime = Date.parse(fixture?.kickoff);
+    if (!Number.isFinite(kickoffTime)) return null;
+    const sortMinute = getLiveStudioEventSortMinute(event, fallbackMinute);
+    return kickoffTime + Math.max(0, sortMinute) * 60 * 1000;
   };
   const getUserPredictionForFixture = (user, fixture) => {
     const userPredictions = liveStudioPredictionsForUser(user);
@@ -10624,6 +10690,8 @@ const liveStudioFeed = useMemo(() => {
           event,
           statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "")
         );
+        const entryMomentFallbackMinute = statusLabel === "FT" ? 90 : statusLabel === "HT" ? 45 : statusLabel === "KO" ? 0 : 0;
+        const entryMomentMs = getEventMomentMs(fixture, event, entryMomentFallbackMinute);
         const entryTitle = buildLiveStudioEventHeader({
           fixture,
           event,
@@ -10685,10 +10753,12 @@ const liveStudioFeed = useMemo(() => {
 
         let entryTableSnapshot = null;
         let entryTableImpactLine = "";
-        if (isFullTime && entryScore) {
-          const currentRows = buildTableSnapshot({ fixtureId: fixture.id, score: entryScore });
-          const previousRows = buildTableSnapshot({ fixtureId: fixture.id, skipFixture: true });
+        let entryTableLabel = "";
+        if (isFullTime && entryScore && Number.isFinite(entryMomentMs)) {
+          const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
+          const previousRows = buildTableSnapshotAtMoment(entryMomentMs - 1, { fixtureId: fixture.id, skipFixture: true });
           entryTableSnapshot = { previousRows, currentRows };
+          entryTableLabel = "Mini-league at full time";
           entryTableImpactLine = buildLiveStudioFullTimeTableLine({
             previousRows,
             currentRows,
@@ -10697,7 +10767,7 @@ const liveStudioFeed = useMemo(() => {
             seed: `${fixture.id}:full-table:${entryScore.homeGoals}-${entryScore.awayGoals}`,
           });
         }
-        if (entryIsGoal && entryScore) {
+        if (entryIsGoal && entryScore && Number.isFinite(entryMomentMs)) {
           const homeGoals = Number(entryScore.homeGoals);
           const awayGoals = Number(entryScore.awayGoals);
           const scoringTeam = getLiveStudioScoringTeam(fixture, entryScore, event);
@@ -10707,9 +10777,10 @@ const liveStudioFeed = useMemo(() => {
             homeGoals: Math.max(0, homeGoals - (homeScored ? 1 : 0)),
             awayGoals: Math.max(0, awayGoals - (awayScored ? 1 : 0)),
           };
-          const currentRows = buildTableSnapshot({ fixtureId: fixture.id, score: entryScore });
-          const previousRows = buildTableSnapshot({ fixtureId: fixture.id, score: previousScore });
+          const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
+          const previousRows = buildTableSnapshotAtMoment(entryMomentMs - 1, { fixtureId: fixture.id, score: previousScore });
           entryTableSnapshot = { previousRows, currentRows };
+          entryTableLabel = "Mini-league after the goal";
           entryTableImpactLine = buildLiveStudioTableImpactLine({
             fixture,
             previousRows,
@@ -10749,6 +10820,7 @@ const liveStudioFeed = useMemo(() => {
           title: entryTitle || title,
           icon: entryIcon,
           verdictLabel,
+          tableLabel: entryTableLabel,
           lines: [
             !isKickoff && !isFullTime ? entryTensionLine : "",
             entryRevealLine,
@@ -10815,6 +10887,7 @@ const liveStudioFeed = useMemo(() => {
   currentUserId,
   gameMode,
   generatedModelOddsByFixture,
+  getLiveStudioLeagueBasePoints,
   getLiveStudioOverallPointsForUser,
   liveStudioDemoEnabled,
   liveStudioDemoStateByFixtureId,
@@ -19977,7 +20050,7 @@ const TABS = [
                             }}
                           >
                             <div style={{ color: theme.accent2, fontSize: 11, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.7 }}>
-                              Mini-league after the goal
+                              {entry.tableLabel || "Mini-league snapshot"}
                             </div>
                             {entry.tableSnapshot.currentRows.map((row) => {
                               const before = entry.tableSnapshot.previousRows.find(
