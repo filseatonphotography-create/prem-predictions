@@ -4364,6 +4364,16 @@ function isLiveStudioFixtureInCoverageWindow(fixture, matchState, nowMs = Date.n
   return !isLiveStudioFixtureExpired(fixture, matchState, nowMs);
 }
 
+function isLiveStudioFixtureActivelyLive(fixture, matchState, nowMs = Date.now()) {
+  const kickoffTime = Date.parse(fixture?.kickoff);
+  return (
+    Number.isFinite(kickoffTime) &&
+    kickoffTime <= nowMs &&
+    isFixtureLive(matchState) &&
+    !isLiveStudioFixtureExpired(fixture, matchState, nowMs)
+  );
+}
+
 const LIVE_STUDIO_VENUES = {
   Arsenal: "the Emirates Stadium",
   "Aston Villa": "Villa Park",
@@ -10385,18 +10395,14 @@ const liveStudioDemoStateByFixtureId = useMemo(() => {
 }, [liveStudioDemoEnabled, liveStudioFixtures]);
 
 const liveStudioLiveFixture = useMemo(() => {
-  const fixtures = liveStudioDemoEnabled ? liveStudioFixtures : activeFixtures;
-  return fixtures.find((fixture) => {
-    const matchState = liveStudioDemoEnabled
-      ? liveStudioDemoStateByFixtureId[fixture.id] || {}
-      : matchStatesByFixtureId[fixture.id] || matchStatesByFixtureId[String(fixture.id)] || {};
-    return isLiveStudioFixtureInCoverageWindow(fixture, matchState, liveStudioNow);
-  }) || null;
+  return activeFixtures
+    .filter((fixture) => {
+      const matchState = matchStatesByFixtureId[fixture.id] || matchStatesByFixtureId[String(fixture.id)] || {};
+      return isLiveStudioFixtureActivelyLive(fixture, matchState, liveStudioNow);
+    })
+    .sort((a, b) => Date.parse(b.kickoff) - Date.parse(a.kickoff))[0] || null;
 }, [
   activeFixtures,
-  liveStudioDemoEnabled,
-  liveStudioDemoStateByFixtureId,
-  liveStudioFixtures,
   liveStudioNow,
   matchStatesByFixtureId,
 ]);
