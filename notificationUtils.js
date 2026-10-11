@@ -223,11 +223,9 @@ function formatGoalMinute(goal) {
 }
 
 function buildGoalAlertBody(fixture, homeGoals, awayGoals, goal) {
-  const scoreText = `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`;
   const scorer = String(goal?.scorerName || "").trim();
-  const minute = formatGoalMinute(goal);
-  const detail = [scorer, minute].filter(Boolean).join(" ");
-  return detail ? `${detail} - ${scoreText}` : scoreText;
+  if (scorer) return scorer;
+  return "";
 }
 
 function getPredictionScoreValues(prediction, result) {

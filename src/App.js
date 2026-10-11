@@ -2765,36 +2765,55 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
   const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
   const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
   if (homeGoals + awayGoals <= previousHome + previousAway) return [];
+  const homeDelta = Math.max(0, homeGoals - previousHome);
+  const awayDelta = Math.max(0, awayGoals - previousAway);
   const events = [];
-  let runningHome = previousHome;
-  let runningAway = previousAway;
-  for (let home = previousHome + 1; home <= homeGoals; home += 1) {
-    runningHome = home;
+  if (homeDelta > 0 && awayDelta > 0) {
     events.push({
-      type: "GOAL",
+      type: "SCORE_UPDATE",
       synthetic: true,
       scorerName: "",
       playerName: "",
-      teamName: fixture?.homeTeam || "",
+      teamName: "",
+      reason: "Score changed",
       minute: null,
       injuryTime: null,
-      homeGoals: runningHome,
-      awayGoals: runningAway,
+      previousHomeGoals: previousHome,
+      previousAwayGoals: previousAway,
+      homeGoals,
+      awayGoals,
     });
-  }
-  for (let away = previousAway + 1; away <= awayGoals; away += 1) {
-    runningAway = away;
-    events.push({
-      type: "GOAL",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.awayTeam || "",
-      minute: null,
-      injuryTime: null,
-      homeGoals: runningHome,
-      awayGoals: runningAway,
-    });
+  } else {
+    let runningHome = previousHome;
+    let runningAway = previousAway;
+    for (let home = previousHome + 1; home <= homeGoals; home += 1) {
+      runningHome = home;
+      events.push({
+        type: "GOAL",
+        synthetic: true,
+        scorerName: "",
+        playerName: "",
+        teamName: fixture?.homeTeam || "",
+        minute: null,
+        injuryTime: null,
+        homeGoals: runningHome,
+        awayGoals: runningAway,
+      });
+    }
+    for (let away = previousAway + 1; away <= awayGoals; away += 1) {
+      runningAway = away;
+      events.push({
+        type: "GOAL",
+        synthetic: true,
+        scorerName: "",
+        playerName: "",
+        teamName: fixture?.awayTeam || "",
+        minute: null,
+        injuryTime: null,
+        homeGoals: runningHome,
+        awayGoals: runningAway,
+      });
+    }
   }
   const range = getSyntheticLiveGoalMinuteRange(matchState, previousHome, previousAway);
   const observedMinute = getObservedLiveStudioMinute(fixture, matchState);
@@ -2936,9 +2955,14 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
   return Object.fromEntries(
     Object.entries(matchStateUpdates || {}).map(([fixtureId, matchState]) => {
       const prevState = previousStates?.[fixtureId] || previousStates?.[Number(fixtureId)] || {};
+      const mergedBaseMatchState = {
+        ...matchState,
+        goalEvents: mergeLiveStudioEventLists(prevState.goalEvents, matchState.goalEvents),
+        matchEvents: mergeLiveStudioEventLists(prevState.matchEvents, matchState.matchEvents),
+      };
       const prevResult = previousResults?.[fixtureId] || previousResults?.[Number(fixtureId)] || {};
-      const homeGoals = Number(matchState?.homeGoals);
-      const awayGoals = Number(matchState?.awayGoals);
+      const homeGoals = Number(mergedBaseMatchState?.homeGoals);
+      const awayGoals = Number(mergedBaseMatchState?.awayGoals);
       const currentGoalTotal = Number.isFinite(homeGoals) && Number.isFinite(awayGoals) ? homeGoals + awayGoals : 0;
       const prevHome = Number.isFinite(Number(prevState.homeGoals))
         ? Number(prevState.homeGoals)
@@ -2952,27 +2976,27 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         : 0;
       const observedAt = new Date().toISOString();
       const matchStateForSynthetic = {
-        ...matchState,
-        observedAt: matchState.observedAt || observedAt,
-        goalDetectedAt: matchState.goalDetectedAt || observedAt,
+        ...mergedBaseMatchState,
+        observedAt: mergedBaseMatchState.observedAt || observedAt,
+        goalDetectedAt: mergedBaseMatchState.goalDetectedAt || observedAt,
       };
       const syntheticDisallowedGoals = buildSyntheticLiveGoalDisallowedEvents({
         fixture: fixtureById.get(String(fixtureId)),
         prevHome,
         prevAway,
-        nextHome: matchState?.homeGoals,
-        nextAway: matchState?.awayGoals,
+        nextHome: mergedBaseMatchState?.homeGoals,
+        nextAway: mergedBaseMatchState?.awayGoals,
         matchState: matchStateForSynthetic,
       });
-      if (!syntheticDisallowedGoals.length && currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
-        return [fixtureId, matchState];
+      if (!syntheticDisallowedGoals.length && currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(mergedBaseMatchState) >= currentGoalTotal) {
+        return [fixtureId, mergedBaseMatchState];
       }
       const syntheticGoals = buildSyntheticLiveGoalEvents({
         fixture: fixtureById.get(String(fixtureId)),
         prevHome,
         prevAway,
-        nextHome: matchState?.homeGoals,
-        nextAway: matchState?.awayGoals,
+        nextHome: mergedBaseMatchState?.homeGoals,
+        nextAway: mergedBaseMatchState?.awayGoals,
         matchState: matchStateForSynthetic,
       });
       const syntheticEvents = [...syntheticGoals, ...syntheticDisallowedGoals];
@@ -2981,11 +3005,11 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
             fixtureId,
             {
               ...matchStateForSynthetic,
-              goalEvents: mergeLiveStudioEventLists(prevState.goalEvents, matchState.goalEvents, syntheticGoals),
-              matchEvents: mergeLiveStudioEventLists(prevState.matchEvents, matchState.matchEvents, syntheticEvents),
+              goalEvents: mergeLiveStudioEventLists(mergedBaseMatchState.goalEvents, syntheticGoals),
+              matchEvents: mergeLiveStudioEventLists(mergedBaseMatchState.matchEvents, syntheticEvents),
             },
           ]
-        : [fixtureId, matchState];
+        : [fixtureId, mergedBaseMatchState];
     })
   );
 }
@@ -6819,6 +6843,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
       return "";
     }
   }, []);
+  const liveStudioFocusConsumedRef = useRef(false);
   const shouldShowFixtureAdvanceWarning = useMemo(() => {
     if (!fixtureAdvanceWarningKey || activeView !== "predictions") return false;
     const liveIndex = activeGameweeks.indexOf(livePredictionGameweek);
@@ -11516,7 +11541,11 @@ const liveStudioFeed = useMemo(() => {
 ]);
 
 useEffect(() => {
-  if (activeView !== "liveStudio" || (!liveStudioFocusFixtureId && !liveStudioFocusUpdateKey)) return;
+  if (
+    liveStudioFocusConsumedRef.current ||
+    activeView !== "liveStudio" ||
+    (!liveStudioFocusFixtureId && !liveStudioFocusUpdateKey)
+  ) return;
   window.requestAnimationFrame(() => {
     const updateTarget = liveStudioFocusUpdateKey
       ? document.getElementById(getLiveStudioUpdateDomId(liveStudioFocusUpdateKey))
@@ -11525,7 +11554,15 @@ useEffect(() => {
       ? document.querySelector(`[data-live-studio-fixture-id="${liveStudioFocusFixtureId}"]`)
       : null;
     const target = updateTarget || fixtureTarget;
-    if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!target) return;
+    liveStudioFocusConsumedRef.current = true;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("fixtureId");
+      url.searchParams.delete("update");
+      window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    } catch {}
   });
 }, [activeView, liveStudioFocusFixtureId, liveStudioFocusUpdateKey, liveStudioFeed]);
 

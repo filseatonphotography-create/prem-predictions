@@ -3513,6 +3513,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                   { homeGoals: update.nextHome, awayGoals: update.nextAway }
                 );
                 const goalBody = buildGoalAlertBody(fixture, update.nextHome, update.nextAway, goalEvent);
+                const bodyLines = [goalBody, impactLine].filter(Boolean);
                 sendFixtureUpdateNotification(userId, fixtureId, "goal", `${update.nextHome}-${update.nextAway}`, {
                   title: buildLivePushHeader({
                     fixture,
@@ -3522,7 +3523,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                     awayGoals: update.nextAway,
                     event: goalEvent,
                   }),
-                  body: impactLine ? `${goalBody}\n${impactLine}` : goalBody,
+                  body: bodyLines.length ? bodyLines.join("\n") : "Tap to open Live Studio.",
                   url: "/",
                 });
               });
@@ -4300,8 +4301,26 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
   const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
   if (homeGoals + awayGoals <= previousHome + previousAway) return [];
+  const homeDelta = Math.max(0, homeGoals - previousHome);
+  const awayDelta = Math.max(0, awayGoals - previousAway);
 
   const events = [];
+  if (homeDelta > 0 && awayDelta > 0) {
+    events.push({
+      type: "SCORE_UPDATE",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: "",
+      reason: "Score changed",
+      minute: null,
+      injuryTime: null,
+      previousHomeGoals: previousHome,
+      previousAwayGoals: previousAway,
+      homeGoals,
+      awayGoals,
+    });
+  } else {
   let runningHome = previousHome;
   let runningAway = previousAway;
   for (let home = previousHome + 1; home <= homeGoals; home += 1) {
@@ -4331,6 +4350,7 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
       homeGoals: runningHome,
       awayGoals: runningAway,
     });
+  }
   }
   const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
   const observedMinute = getObservedSyntheticGoalMinute(fixture, matchState);
@@ -5211,6 +5231,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
               { homeGoals, awayGoals }
             );
             const goalBody = buildGoalAlertBody(fixture, homeGoals, awayGoals, goalEvent);
+            const bodyLines = [goalBody, impactLine].filter(Boolean);
             summary.attemptedNotifications += 1;
             notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "goal", `${homeGoals}-${awayGoals}`, {
               title: buildLivePushHeader({
@@ -5221,7 +5242,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
                 awayGoals,
                 event: goalEvent,
               }),
-              body: impactLine ? `${goalBody}\n${impactLine}` : goalBody,
+              body: bodyLines.length ? bodyLines.join("\n") : "Tap to open Live Studio.",
               url: "/",
             }));
           });
