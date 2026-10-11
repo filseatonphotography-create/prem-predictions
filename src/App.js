@@ -10651,7 +10651,7 @@ const liveStudioFeed = useMemo(() => {
     .flatMap((fixture, fixtureIndex) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
-      if (isLiveStudioFixtureExpired(fixture, matchState, liveStudioNow)) return [];
+      if (!isLiveStudioFixtureInCoverageWindow(fixture, matchState, liveStudioNow)) return [];
       const status = String(matchState.status || "").toUpperCase();
       const result = demoState ? null : results[fixture.id];
       const score = demoState
