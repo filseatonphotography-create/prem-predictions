@@ -4221,6 +4221,33 @@ function estimateSyntheticGoalMinute(index, count, range) {
   return Math.round(range.start + step * index);
 }
 
+function getObservedSyntheticGoalMinute(fixture, matchState = {}) {
+  const kickoffTime = Date.parse(matchState?.utcDate || fixture?.kickoff || "");
+  const observedTime = Date.parse(
+    matchState?.goalDetectedAt ||
+      matchState?.observedAt ||
+      matchState?.lastUpdated ||
+      matchState?.updatedAt ||
+      ""
+  );
+  if (!Number.isFinite(kickoffTime) || !Number.isFinite(observedTime) || observedTime < kickoffTime) {
+    return null;
+  }
+  return Math.max(1, Math.min(120, Math.ceil((observedTime - kickoffTime) / (60 * 1000))));
+}
+
+function estimateSyntheticGoalMinuteWithObservation(index, count, range, observedMinute = null) {
+  const observed = Number(observedMinute);
+  if (Number.isFinite(observed) && observed > 0) {
+    if (count <= 1) return Math.max(1, Math.round(observed));
+    const end = Math.max(range.start, Math.min(range.end, Math.round(observed)));
+    const start = Math.min(range.start, end);
+    const step = (end - start) / Math.max(1, count - 1);
+    return Math.round(start + step * index);
+  }
+  return estimateSyntheticGoalMinute(index, count, range);
+}
+
 function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
   const homeGoals = Number(nextHome);
   const awayGoals = Number(nextAway);
@@ -4262,10 +4289,18 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
     });
   }
   const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
+  const observedMinute = getObservedSyntheticGoalMinute(fixture, matchState);
+  const detectedAt =
+    matchState?.goalDetectedAt ||
+    matchState?.observedAt ||
+    matchState?.lastUpdated ||
+    matchState?.updatedAt ||
+    "";
   return events.map((event, index) => ({
     ...event,
-    minute: estimateSyntheticGoalMinute(index, events.length, range),
+    minute: estimateSyntheticGoalMinuteWithObservation(index, events.length, range, observedMinute),
     estimatedMinute: true,
+    detectedAt,
     syntheticIndex: index + 1,
     sortOffset: index / 1000,
   }));
@@ -4926,6 +4961,9 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const estimatedFinishedAt = Number.isFinite(fixtureKickoffMs)
         ? new Date(fixtureKickoffMs + 2 * 60 * 60 * 1000).toISOString()
         : "";
+      const homeStatistics = match.homeTeam?.statistics || match.homeTeam?.stats || null;
+      const awayStatistics = match.awayTeam?.statistics || match.awayTeam?.stats || null;
+      const matchStatistics = match.statistics || null;
       const baseNextState = {
         status,
         homeGoals,
@@ -4937,7 +4975,11 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
         halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
         utcDate: match.utcDate || "",
+        ...(homeStatistics && Object.keys(homeStatistics).length ? { homeStatistics } : {}),
+        ...(awayStatistics && Object.keys(awayStatistics).length ? { awayStatistics } : {}),
+        ...(matchStatistics && Object.keys(matchStatistics).length ? { matchStatistics } : {}),
         lastUpdated: match.lastUpdated || match.updatedAt || observedAt,
+        observedAt,
         finishedAt: matchFinished
           ? prevState.finishedAt || match.lastUpdated || match.updatedAt || estimatedFinishedAt || observedAt
           : "",
@@ -4953,6 +4995,9 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       );
       const scoreChanged =
         hasScoreNow && (!hadScoreBefore || prevHome !== homeGoals || prevAway !== awayGoals);
+      baseNextState.goalDetectedAt = scoreChanged
+        ? match.lastUpdated || match.updatedAt || observedAt
+        : prevState.goalDetectedAt || "";
       const preservedState = mergeMatchStatePreservingEvents(prevState, baseNextState);
       const nextState = enrichMatchStateWithSyntheticGoal({
         matchState: preservedState,

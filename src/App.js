@@ -136,14 +136,27 @@ async function apiSetAvatar(token, payload) {
   return data;
 }
 
-// Dummy for legacy code: always returns empty (since reverted)
-async function apiGetUserCoins() { return {}; }
 const DEV_USE_LOCAL = false; // always use cloud backend
 const BACKEND_BASE =
   process.env.REACT_APP_BACKEND_BASE ||
   (window.location.hostname === "localhost"
     ? "http://localhost:5001"
     : "https://prem-predictions-1.onrender.com");
+
+async function apiGetUserCoins(userId, gameweek, mode = PREMIER_MODE) {
+  const uid = encodeURIComponent(String(userId || ""));
+  const gw = encodeURIComponent(String(gameweek || ""));
+  const url = `${BACKEND_BASE}/api/coins/user/${uid}?gameweek=${gw}&mode=${encodeURIComponent(getModeKey(mode))}`;
+  const res = await fetch(url);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return {
+    gameweek: data.gameweek,
+    used: data.used ?? 0,
+    remaining: data.remaining ?? 10,
+    bets: data.bets || {},
+  };
+}
 const STORAGE_KEY = "pl_prediction_game_v2";
 const AUTH_STORAGE_KEY = "pl_prediction_auth_v1";
 const FANTASY_SCREENSHOT_FEEDBACK_STORAGE_KEY = "predictionAddiction:fantasyIqScreenshotFeedback:v1";
@@ -2606,6 +2619,9 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     const status = String(match.status || "");
     const matchIsFinished = isLiveStudioFinalStatus(status);
     const providerUpdatedAt = match.lastUpdated || match.updatedAt || "";
+    const homeStatistics = match.homeTeam?.statistics || match.homeTeam?.stats || null;
+    const awayStatistics = match.awayTeam?.statistics || match.awayTeam?.stats || null;
+    const matchStatistics = match.statistics || null;
 
     const confirmedHomeTeam = match.homeTeam?.name
       ? resolveWorldCupCountryName(match.homeTeam.name)
@@ -2659,6 +2675,9 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
       halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
       utcDate: match.utcDate || "",
+      ...(homeStatistics && Object.keys(homeStatistics).length ? { homeStatistics } : {}),
+      ...(awayStatistics && Object.keys(awayStatistics).length ? { awayStatistics } : {}),
+      ...(matchStatistics && Object.keys(matchStatistics).length ? { matchStatistics } : {}),
       ...(providerUpdatedAt ? { lastUpdated: providerUpdatedAt } : {}),
       ...(matchIsFinished && providerUpdatedAt ? { finishedAt: providerUpdatedAt } : {}),
       homeTeam: confirmedHomeTeam,
@@ -2706,7 +2725,30 @@ function getSyntheticLiveGoalMinuteRange(matchState = {}, previousHome, previous
   return { start: 8, end: 80 };
 }
 
-function estimateSyntheticLiveGoalMinute(index, count, range) {
+function getObservedLiveStudioMinute(fixture, matchState = {}) {
+  const kickoffTime = Date.parse(matchState?.utcDate || fixture?.kickoff || "");
+  const observedTime = Date.parse(
+    matchState?.goalDetectedAt ||
+      matchState?.observedAt ||
+      matchState?.lastUpdated ||
+      matchState?.updatedAt ||
+      ""
+  );
+  if (!Number.isFinite(kickoffTime) || !Number.isFinite(observedTime) || observedTime < kickoffTime) {
+    return null;
+  }
+  return Math.max(1, Math.min(120, Math.ceil((observedTime - kickoffTime) / (60 * 1000))));
+}
+
+function estimateSyntheticLiveGoalMinute(index, count, range, observedMinute = null) {
+  const observed = Number(observedMinute);
+  if (Number.isFinite(observed) && observed > 0) {
+    if (count <= 1) return Math.max(1, Math.round(observed));
+    const end = Math.max(range.start, Math.min(range.end, Math.round(observed)));
+    const start = Math.min(range.start, end);
+    const step = (end - start) / Math.max(1, count - 1);
+    return Math.round(start + step * index);
+  }
   if (count <= 1) return Math.round((range.start + range.end) / 2);
   const step = (range.end - range.start) / Math.max(1, count - 1);
   return Math.round(range.start + step * index);
@@ -2751,13 +2793,41 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
     });
   }
   const range = getSyntheticLiveGoalMinuteRange(matchState, previousHome, previousAway);
+  const observedMinute = getObservedLiveStudioMinute(fixture, matchState);
+  const detectedAt =
+    matchState?.goalDetectedAt ||
+    matchState?.observedAt ||
+    matchState?.lastUpdated ||
+    matchState?.updatedAt ||
+    "";
   return events.map((event, index) => ({
     ...event,
-    minute: estimateSyntheticLiveGoalMinute(index, events.length, range),
+    minute: estimateSyntheticLiveGoalMinute(index, events.length, range, observedMinute),
     estimatedMinute: true,
+    detectedAt,
     syntheticIndex: index + 1,
     sortOffset: index / 1000,
   }));
+}
+
+function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}) {
+  return (events || [])
+    .map((event) => {
+      if (!event?.synthetic || !event?.estimatedMinute) return event;
+      const observedMinute = getObservedLiveStudioMinute(fixture, {
+        ...matchState,
+        goalDetectedAt: event.detectedAt || matchState?.goalDetectedAt || "",
+      });
+      const eventMinute = Number(event.minute);
+      if (!Number.isFinite(observedMinute) || observedMinute <= 0) return event;
+      if (Number.isFinite(eventMinute) && Math.abs(eventMinute - observedMinute) <= 2) return event;
+      return {
+        ...event,
+        minute: observedMinute,
+        detectedAt: event.detectedAt || matchState?.goalDetectedAt || matchState?.observedAt || matchState?.lastUpdated || "",
+      };
+    })
+    .sort((a, b) => Number(b.minute || -1) - Number(a.minute || -1));
 }
 
 function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousStates, previousResults, fixtures) {
@@ -4541,6 +4611,7 @@ function getLiveStudioEventKind(event = {}) {
   event = event || {};
   const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
   if (text.includes("goal") || text.includes("score")) return "goal";
+  if (text.includes("stat")) return "stats";
   if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
   if (text.includes("red") || text.includes("dismiss")) return "red-card";
   if (text.includes("yellow") || text.includes("booking") || text.includes("card")) return "yellow-card";
@@ -4601,6 +4672,92 @@ function getLiveStudioUpdateKeyPart(event = {}) {
   ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
 }
 
+function normalizeLiveStudioStatKey(key) {
+  return String(key || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function getLiveStudioStatValue(stats = {}, aliases = []) {
+  if (!stats || typeof stats !== "object") return "";
+  const entries = Object.entries(stats);
+  for (const alias of aliases) {
+    const normalizedAlias = normalizeLiveStudioStatKey(alias);
+    const found = entries.find(([key]) => normalizeLiveStudioStatKey(key).includes(normalizedAlias));
+    if (found && found[1] !== null && found[1] !== undefined && found[1] !== "") {
+      return found[1];
+    }
+  }
+  return "";
+}
+
+function formatLiveStudioStatValue(value, suffix = "") {
+  if (value === null || value === undefined || value === "") return "";
+  const text = String(value).trim();
+  if (!suffix || text.endsWith(suffix)) return text;
+  return `${text}${suffix}`;
+}
+
+function getLiveStudioFixtureStatistics(matchState = {}) {
+  const home =
+    matchState.homeStatistics ||
+    matchState.homeTeamStatistics ||
+    matchState.matchStatistics?.home ||
+    matchState.matchStatistics?.homeTeam ||
+    {};
+  const away =
+    matchState.awayStatistics ||
+    matchState.awayTeamStatistics ||
+    matchState.matchStatistics?.away ||
+    matchState.matchStatistics?.awayTeam ||
+    {};
+  return { home, away };
+}
+
+function hasLiveStudioFixtureStatistics(matchState = {}) {
+  const { home, away } = getLiveStudioFixtureStatistics(matchState);
+  return (
+    (home && typeof home === "object" && Object.keys(home).length > 0) ||
+    (away && typeof away === "object" && Object.keys(away).length > 0)
+  );
+}
+
+function buildLiveStudioStatsLine({ fixture, matchState, minute, seed }) {
+  const { home, away } = getLiveStudioFixtureStatistics(matchState);
+  const homeCode = getTeamCode(fixture.homeTeam);
+  const awayCode = getTeamCode(fixture.awayTeam);
+  const pair = (label, homeValue, awayValue, suffix = "") => {
+    if (homeValue === "" || awayValue === "") return "";
+    return `${label}: ${homeCode} ${formatLiveStudioStatValue(homeValue, suffix)} - ${formatLiveStudioStatValue(awayValue, suffix)} ${awayCode}`;
+  };
+  const possession = pair(
+    "possession",
+    getLiveStudioStatValue(home, ["possession", "ball possession"]),
+    getLiveStudioStatValue(away, ["possession", "ball possession"]),
+    "%"
+  );
+  const shots = pair(
+    "shots",
+    getLiveStudioStatValue(home, ["shots", "total shots"]),
+    getLiveStudioStatValue(away, ["shots", "total shots"])
+  );
+  const shotsOnTarget = pair(
+    "on target",
+    getLiveStudioStatValue(home, ["shots on goal", "shots on target", "on target"]),
+    getLiveStudioStatValue(away, ["shots on goal", "shots on target", "on target"])
+  );
+  const corners = pair(
+    "corners",
+    getLiveStudioStatValue(home, ["corner", "corners"]),
+    getLiveStudioStatValue(away, ["corner", "corners"])
+  );
+  const details = [possession, shots, shotsOnTarget, corners].filter(Boolean).slice(0, 3);
+  if (!details.length) return "";
+  return pickLiveStudioPhrase(`${seed}:${minute}:${details.join("|")}`, [
+    `Stats check at ${minute}': ${details.join(", ")}.`,
+    `A quick look at the numbers on ${minute}': ${details.join(", ")}.`,
+    `The data desk has ${details.join(", ")} as we pass ${minute}'.`,
+  ]);
+}
+
 function getLiveStudioPushEventKind(event = {}, statusLabel = "") {
   if (statusLabel === "KO") return "kick-off";
   if (statusLabel === "HT") return "half-time";
@@ -4637,6 +4794,8 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
   const label =
     kind === "red-card"
       ? "Red card!"
+      : kind === "stats"
+      ? "Stats check"
       : kind === "yellow-card"
       ? "Booking"
       : kind === "substitution"
@@ -4657,6 +4816,7 @@ function getLiveStudioEventIcon(event = {}) {
   const statusLabel = String(event?.statusLabel || "").toUpperCase();
   const kind = getLiveStudioEventKind(event);
   if (kind === "goal") return "⚽";
+  if (kind === "stats") return "📊";
   if (kind === "red-card") return "🟥";
   if (kind === "yellow-card") return "🟨";
   if (kind === "substitution") return "🔁";
@@ -4957,9 +5117,31 @@ function getLiveStudioBetPrice(bet) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function buildLiveStudioKickoffBetLine({ fixture, bet, username, seed }) {
+function hasLiveStudioCoinsBet(bet) {
   const stake = Number(bet?.stake || 0);
-  if (!stake || stake <= 0 || !bet?.side) return "";
+  return Boolean(stake > 0 && bet?.side);
+}
+
+function buildLiveStudioKickoffBetLine({
+  fixture,
+  bet,
+  username,
+  seed,
+  hasAnyFixtureBet = false,
+  leagueBetsLoaded = false,
+}) {
+  const stake = Number(bet?.stake || 0);
+  if (!stake || stake <= 0 || !bet?.side) {
+    if (!leagueBetsLoaded || hasAnyFixtureBet) return "";
+    return pickLiveStudioPhrase(`${seed}:no-bets`, [
+      "No one is betting on this game, could go either way.",
+      "No gamblers on this fixture, hard to pick a winner?",
+      "The coins table is staying well clear of this one.",
+      "Not a single coin on the line here. The room clearly does not trust this fixture.",
+      "No takers on the betting board, which says plenty about how awkward this one is to call.",
+      "The gamblers have folded their arms for this one. No coins committed anywhere.",
+    ]);
+  }
   const sideLabel = getLiveStudioBetSideLabel(fixture, bet.side);
   const stakeText = formatLiveStudioCoins(stake);
   const price = getLiveStudioBetPrice(bet);
@@ -7868,6 +8050,12 @@ const [coinsState, setCoinsState] = useState({
   loading: false,
   error: "",
 });
+const [liveStudioCoinsByUserId, setLiveStudioCoinsByUserId] = useState({
+  gameweek: null,
+  mode: "",
+  loaded: false,
+  betsByUserId: {},
+});
 
 const favoriteTeamByUsername = useMemo(() => {
   const out = {};
@@ -10253,6 +10441,51 @@ const liveStudioUsers = useMemo(() => {
   return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
 }, [leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId]);
 
+useEffect(() => {
+  const userIds = Array.from(
+    new Set(
+      liveStudioUsers
+        .map((user) => String(user?.userId || "").trim())
+        .filter(Boolean)
+    )
+  );
+  const modeKey = getModeKey(gameMode);
+  if (!selectedGameweek || userIds.length === 0) {
+    setLiveStudioCoinsByUserId({
+      gameweek: selectedGameweek || null,
+      mode: modeKey,
+      loaded: false,
+      betsByUserId: {},
+    });
+    return undefined;
+  }
+
+  let cancelled = false;
+  Promise.all(
+    userIds.map((userId) =>
+      apiGetUserCoins(userId, selectedGameweek, gameMode)
+        .then((data) => ({ userId, bets: data.bets || {} }))
+        .catch(() => ({ userId, bets: {} }))
+    )
+  ).then((rows) => {
+    if (cancelled) return;
+    const betsByUserId = {};
+    rows.forEach((row) => {
+      betsByUserId[row.userId] = row.bets || {};
+    });
+    setLiveStudioCoinsByUserId({
+      gameweek: selectedGameweek,
+      mode: modeKey,
+      loaded: true,
+      betsByUserId,
+    });
+  });
+
+  return () => {
+    cancelled = true;
+  };
+}, [gameMode, liveStudioUsers, selectedGameweek]);
+
 const liveStudioPredictionsForUser = useCallback(
   (user) => {
     const userId = String(user?.userId || "");
@@ -10687,6 +10920,16 @@ const liveStudioFeed = useMemo(() => {
             ? coinsState.bets[String(fixture.id)]
             : coinsState.bets[fixture.id]
         )) || null;
+      const leagueCoinsLoaded =
+        liveStudioCoinsByUserId.loaded &&
+        Number(liveStudioCoinsByUserId.gameweek) === Number(selectedGameweek) &&
+        liveStudioCoinsByUserId.mode === getModeKey(gameMode);
+      const fixtureHasAnyCoinsBet = leagueCoinsLoaded
+        ? Object.values(liveStudioCoinsByUserId.betsByUserId || {}).some((bets) => {
+            const bet = bets?.[String(fixture.id)] !== undefined ? bets[String(fixture.id)] : bets?.[fixture.id];
+            return hasLiveStudioCoinsBet(bet);
+          })
+        : hasLiveStudioCoinsBet(currentCoinsBet);
       const personalLine = score
         ? buildLiveStudioPredictionLine({
             prediction: currentPrediction,
@@ -10773,7 +11016,11 @@ const liveStudioFeed = useMemo(() => {
         ? buildLiveStudioEventLine({ fixture, event: latestEvent, score, seed: `${fixture.id}:${status || "event"}` })
         : "";
 
-      const timelineEvents = getLiveStudioEvents(matchState);
+      const timelineEvents = repairEstimatedSyntheticLiveGoals(
+        getLiveStudioEvents(matchState),
+        fixture,
+        matchState
+      );
       const syntheticEvents = [];
       if (hasKickedOff) {
         syntheticEvents.push({
@@ -10783,6 +11030,22 @@ const liveStudioFeed = useMemo(() => {
           sortOffset: -0.3,
           homeGoals: 0,
           awayGoals: 0,
+        });
+      }
+      const elapsedMinute =
+        Number.isFinite(kickoffTime) && liveStudioNow >= kickoffTime
+          ? Math.floor((liveStudioNow - kickoffTime) / (60 * 1000))
+          : 0;
+      if (hasLiveStudioFixtureStatistics(matchState)) {
+        [25, 70].forEach((minute) => {
+          if (elapsedMinute >= minute) {
+            syntheticEvents.push({
+              type: "STATS_CHECK",
+              minute,
+              statusLabel: "STATS",
+              sortOffset: 0.1,
+            });
+          }
         });
       }
       if (paused || finished) {
@@ -10852,6 +11115,7 @@ const liveStudioFeed = useMemo(() => {
         const isKickoff = statusLabel === "KO";
         const isHalfTime = statusLabel === "HT";
         const isFullTime = statusLabel === "FT";
+        const isStatsCheck = entryKind === "stats";
         const entryScoreFallback = isKickoff
           ? { homeGoals: 0, awayGoals: 0 }
           : isHalfTime
@@ -10880,6 +11144,8 @@ const liveStudioFeed = useMemo(() => {
               bet: currentCoinsBet,
               username: currentUserName,
               seed: `${fixture.id}:kickoff-bet`,
+              hasAnyFixtureBet: fixtureHasAnyCoinsBet,
+              leagueBetsLoaded: leagueCoinsLoaded,
             })
           : "";
         const entryRevealLine = entryIsGoal
@@ -10890,6 +11156,13 @@ const liveStudioFeed = useMemo(() => {
           ? entryScore
             ? `Half-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
             : `Half-time at ${venue}.`
+          : isStatsCheck
+          ? buildLiveStudioStatsLine({
+              fixture,
+              matchState,
+              minute: Number(event.minute) || 0,
+              seed: `${fixture.id}:stats:${event.minute}`,
+            })
           : isFullTime
           ? buildLiveStudioFullTimeSummary({
               fixture,
@@ -11073,6 +11346,7 @@ const liveStudioFeed = useMemo(() => {
   loginName,
   liveStudioDemoGameweek,
   liveStudioNow,
+  liveStudioCoinsByUserId,
   matchStatesByFixtureId,
   odds,
   predictions,
