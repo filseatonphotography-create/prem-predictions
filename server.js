@@ -3477,9 +3477,16 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
             });
           });
 
-          if (statusNow === "IN_PLAY" && statusBefore !== "IN_PLAY") {
+          if (statusNow === "IN_PLAY" && statusBefore === "PAUSED" && hasScoreNow) {
             subscribedUserIds.forEach((userId) => {
-              sendFixtureUpdateNotification(userId, fixtureId, "kick-off", "0-0", {
+              sendFixtureUpdateNotification(userId, fixtureId, "second-half", `${update.nextHome}-${update.nextAway}`, {
+                title: buildLivePushHeader({ fixture, eventKind: "second-half", minute: "45'" }),
+                body: `The second half is underway. ${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}.`,
+              });
+            });
+          } else if (statusNow === "IN_PLAY" && statusBefore !== "IN_PLAY") {
+            subscribedUserIds.forEach((userId) => {
+              sendFixtureUpdateNotification(userId, fixtureId, "kick-off", "start", {
                 title: buildLivePushHeader({ fixture, eventKind: "kick-off", minute: "0'" }),
                 body: `${fixture.homeTeam} vs ${fixture.awayTeam} is underway.`,
               });
@@ -4142,6 +4149,7 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
   const player = String(event?.playerName || event?.scorerName || event?.playerOutName || "").trim();
   const labels = {
     "kick-off": "Kick-off!",
+    "second-half": "Second half!",
     goal: "Goal!",
     "goal-disallowed": "Goal ruled out",
     "half-time": "Half-time!",
@@ -4153,6 +4161,8 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
     update: "Update",
   };
   const label = labels[eventKind] || "Update";
+  if (eventKind === "kick-off") return `${minuteText}${label}`.trim();
+  if (eventKind === "second-half") return `${minuteText}${label}`.trim();
   const scoreText = formatLivePushScore(fixture, homeGoals, awayGoals);
   if (eventKind === "goal") {
     const scoringTeamCode = getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event);
@@ -4248,9 +4258,10 @@ function getSyntheticGoalMinuteRange(matchState = {}, previousHome, previousAway
   const halfAway = Number(matchState?.halfTimeAwayGoals);
   const previousTotal = previousHome + previousAway;
   const halfTotal = Number.isFinite(halfHome) && Number.isFinite(halfAway) ? halfHome + halfAway : null;
+  if (halfTotal != null && previousTotal < halfTotal) return { start: 3, end: 45 };
   if (status === "FINISHED" || status === "AWARDED") {
     if (halfTotal != null && previousTotal >= halfTotal) return { start: 55, end: 89 };
-    return { start: 3, end: halfTotal != null && previousTotal < halfTotal ? 45 : 89 };
+    return { start: 3, end: 89 };
   }
   if (status === "PAUSED") return { start: 3, end: 45 };
   return { start: 3, end: 80 };
@@ -5245,10 +5256,18 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         });
       });
 
-      if (status === "IN_PLAY" && prevStatus !== "IN_PLAY") {
+      if (status === "IN_PLAY" && prevStatus === "PAUSED" && hasScoreNow) {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
-          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "kick-off", "0-0", {
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "second-half", `${homeGoals}-${awayGoals}`, {
+            title: buildLivePushHeader({ fixture, eventKind: "second-half", minute: "45'" }),
+            body: `The second half is underway. ${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}.`,
+          }));
+        });
+      } else if (status === "IN_PLAY" && prevStatus !== "IN_PLAY") {
+        subscribedUserIds.forEach((userId) => {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "kick-off", "start", {
             title: buildLivePushHeader({ fixture, eventKind: "kick-off", minute: "0'" }),
             body: `${fixture.homeTeam} vs ${fixture.awayTeam} is underway.`,
           }));

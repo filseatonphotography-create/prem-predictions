@@ -2717,9 +2717,10 @@ function getSyntheticLiveGoalMinuteRange(matchState = {}, previousHome, previous
   const halfAway = Number(matchState?.halfTimeAwayGoals);
   const previousTotal = previousHome + previousAway;
   const halfTotal = Number.isFinite(halfHome) && Number.isFinite(halfAway) ? halfHome + halfAway : null;
+  if (halfTotal != null && previousTotal < halfTotal) return { start: 3, end: 45 };
   if (status === "FINISHED" || status === "AWARDED") {
     if (halfTotal != null && previousTotal >= halfTotal) return { start: 55, end: 89 };
-    return { start: 3, end: halfTotal != null && previousTotal < halfTotal ? 45 : 89 };
+    return { start: 3, end: 89 };
   }
   if (status === "PAUSED") return { start: 3, end: 45 };
   return { start: 3, end: 80 };
@@ -2970,14 +2971,16 @@ function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}
         ? currentAway
         : 0;
       const range = getSyntheticLiveGoalMinuteRange(matchState, inferredPreviousHome, inferredPreviousAway);
+      if (Number.isFinite(eventMinute) && eventMinute >= range.start && eventMinute <= range.end) {
+        return event;
+      }
       if (!Number.isFinite(observedMinute) || observedMinute <= 0) {
         if (Number.isFinite(eventMinute) && eventMinute > LIVE_STUDIO_MAX_OBSERVED_GOAL_MINUTE) {
-          return { ...event, minute: null, estimatedMinute: false };
+          return { ...event, minute: range.end, estimatedMinute: true };
         }
         return event;
       }
       const repairedMinute = Math.max(range.start, Math.min(range.end, observedMinute));
-      if (Number.isFinite(eventMinute) && Math.abs(eventMinute - repairedMinute) <= 2) return event;
       return {
         ...event,
         minute: repairedMinute,
@@ -4970,7 +4973,14 @@ function buildLiveStudioStatsLine({ fixture, matchState, minute, seed }) {
     getLiveStudioStatValue(away, ["corner", "corners"])
   );
   const details = [possession, shots, shotsOnTarget, corners].filter(Boolean).slice(0, 3);
-  if (!details.length) return "";
+  if (!details.length) {
+    const venue = getLiveStudioVenue(fixture);
+    return pickLiveStudioPhrase(`${seed}:${minute}:no-stats`, [
+      `Stats check at ${minute}': the live data feed has not supplied match numbers from ${venue} yet.`,
+      `A quick ${minute}' data check: football-data has not sent live stats for this fixture yet.`,
+      `The data desk checked in at ${minute}', but there are no live match stats available from the provider yet.`,
+    ]);
+  }
   return pickLiveStudioPhrase(`${seed}:${minute}:${details.join("|")}`, [
     `Stats check at ${minute}': ${details.join(", ")}.`,
     `A quick look at the numbers on ${minute}': ${details.join(", ")}.`,
@@ -4980,6 +4990,7 @@ function buildLiveStudioStatsLine({ fixture, matchState, minute, seed }) {
 
 function getLiveStudioPushEventKind(event = {}, statusLabel = "") {
   if (statusLabel === "KO") return "kick-off";
+  if (statusLabel === "SH") return "second-half";
   if (statusLabel === "HT") return "half-time";
   if (statusLabel === "FT") return "full-time";
   return getLiveStudioEventKind(event);
@@ -4989,6 +5000,7 @@ function getLiveStudioUpdateKey({ fixtureId, event, statusLabel = "", score = nu
   if (!fixtureId) return "";
   const kind = getLiveStudioPushEventKind(event, statusLabel);
   if (kind === "kick-off") return `${fixtureId}:${kind}:0-0`;
+  if (kind === "second-half") return `${fixtureId}:${kind}:45`;
   if (["goal", "goal-disallowed", "half-time", "full-time"].includes(kind) && score) {
     return `${fixtureId}:${kind}:${score.homeGoals}-${score.awayGoals}`;
   }
@@ -5002,6 +5014,8 @@ function getLiveStudioUpdateDomId(updateKey) {
 function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
   const kind = getLiveStudioEventKind(event);
   const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
+  if (statusLabel === "KO") return "Kick off!";
+  if (statusLabel === "SH") return "Second half!";
   if (kind === "goal") {
     const scoringTeamCode = getLiveStudioScoringTeamCode(fixture, score, event);
     const label = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : "Goal!";
@@ -5031,6 +5045,8 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
       ? "Injury"
       : statusLabel === "KO"
       ? "Kick off!"
+      : statusLabel === "SH"
+      ? "Second half!"
       : statusLabel === "HT"
       ? "Half time!"
       : statusLabel === "FT"
@@ -5050,6 +5066,7 @@ function getLiveStudioEventIcon(event = {}) {
   if (kind === "substitution") return "🔁";
   if (kind === "injury") return "🤕";
   if (statusLabel === "KO") return "🟢";
+  if (statusLabel === "SH") return "▶";
   if (statusLabel === "HT") return "🕛";
   if (statusLabel === "FT") return "🏁";
   return "•";
@@ -11283,18 +11300,16 @@ const liveStudioFeed = useMemo(() => {
         Number.isFinite(kickoffTime) && liveStudioNow >= kickoffTime
           ? Math.floor((liveStudioNow - kickoffTime) / (60 * 1000))
           : 0;
-      if (hasLiveStudioFixtureStatistics(matchState)) {
-        [25, 70].forEach((minute) => {
-          if (elapsedMinute >= minute) {
-            syntheticEvents.push({
-              type: "STATS_CHECK",
-              minute,
-              statusLabel: "STATS",
-              sortOffset: 0.1,
-            });
-          }
-        });
-      }
+      [25, 70].forEach((minute) => {
+        if (elapsedMinute >= minute) {
+          syntheticEvents.push({
+            type: "STATS_CHECK",
+            minute,
+            statusLabel: "STATS",
+            sortOffset: 0.1,
+          });
+        }
+      });
       if (paused || finished) {
         const halfTimeScore = getLiveStudioHalfTimeScore(matchState, paused ? score : null);
         syntheticEvents.push({
@@ -11304,6 +11319,17 @@ const liveStudioFeed = useMemo(() => {
           sortOffset: 0.2,
           homeGoals: halfTimeScore?.homeGoals ?? null,
           awayGoals: halfTimeScore?.awayGoals ?? null,
+        });
+      }
+      const resumedSecondHalfScore = getLiveStudioHalfTimeScore(matchState, null);
+      if (live && !paused && !finished && resumedSecondHalfScore && elapsedMinute >= 45) {
+        syntheticEvents.push({
+          type: "SECOND_HALF",
+          minute: 45,
+          statusLabel: "SH",
+          sortOffset: 0.25,
+          homeGoals: resumedSecondHalfScore.homeGoals,
+          awayGoals: resumedSecondHalfScore.awayGoals,
         });
       }
       if (finished) {
@@ -11360,6 +11386,7 @@ const liveStudioFeed = useMemo(() => {
         const entryKind = getLiveStudioEventKind(event);
         const statusLabel = String(event.statusLabel || "");
         const isKickoff = statusLabel === "KO";
+        const isSecondHalf = statusLabel === "SH";
         const isHalfTime = statusLabel === "HT";
         const isFullTime = statusLabel === "FT";
         const isStatsCheck = entryKind === "stats";
@@ -11367,6 +11394,8 @@ const liveStudioFeed = useMemo(() => {
           ? { homeGoals: 0, awayGoals: 0 }
           : isHalfTime
           ? getLiveStudioHalfTimeScore(matchState, null)
+          : isSecondHalf
+          ? getLiveStudioHalfTimeScore(matchState, score)
           : score;
         const entryScore = getLiveStudioEventScore(event, entryScoreFallback);
         const entryIsGoal = entryKind === "goal";
@@ -11376,7 +11405,7 @@ const liveStudioFeed = useMemo(() => {
           event,
           statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "")
         );
-        const entryMomentFallbackMinute = statusLabel === "FT" ? 90 : statusLabel === "HT" ? 45 : statusLabel === "KO" ? 0 : 0;
+        const entryMomentFallbackMinute = statusLabel === "FT" ? 90 : statusLabel === "HT" || statusLabel === "SH" ? 45 : statusLabel === "KO" ? 0 : 0;
         const entryMomentMs = getEventMomentMs(fixture, event, entryMomentFallbackMinute);
         const entryTitle = buildLiveStudioEventHeader({
           fixture,
@@ -11400,6 +11429,10 @@ const liveStudioFeed = useMemo(() => {
           ? buildLiveStudioRevealLine(fixture, entryScore, event)
           : isKickoff
           ? predictionPreviewLines[0]
+          : isSecondHalf
+          ? entryScore
+            ? `Second half underway at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
+            : `Second half underway at ${venue}.`
           : isHalfTime
           ? entryScore
             ? `Half-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
