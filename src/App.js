@@ -4375,12 +4375,28 @@ function getOneGoalBingpotNeed(prediction, score, fixture) {
 function buildLiveStudioPredictionLine({ prediction, score, fixture, prefix = "You" }) {
   if (!prediction || !score) return `${prefix} have no prediction in this one.`;
   const status = getPredictionPointsLabel(prediction, score);
+  const seed = `${fixture?.id || ""}:${prefix}:${score.homeGoals}-${score.awayGoals}`;
   if (status?.points > 0) {
-    return `${prefix} ${prefix === "You" ? "are" : "is"} currently on for ${status.label} (${status.points} pts) if it stays like this.`;
+    return pickLiveStudioPhrase(seed, [
+      `${prefix} ${prefix === "You" ? "are" : "is"} currently on for ${status.label} (${status.points} pts) if it stays like this.`,
+      `${status.label} is in play for ${prefix.toLowerCase() === "you" ? "you" : prefix}: ${status.points} pts as things stand.`,
+      `As it stands, ${prefix.toLowerCase() === "you" ? "your" : `${prefix}'s`} prediction is worth ${status.label} (${status.points} pts).`,
+    ]);
   }
   const need = getOneGoalBingpotNeed(prediction, score, fixture);
-  if (need) return `${prefix} need ${need} for Bingpot.`;
-  return `${prefix} need a swing from here.`;
+  if (need) {
+    return pickLiveStudioPhrase(seed, [
+      `${prefix} need ${need} for Bingpot.`,
+      `One ${need} would put ${prefix.toLowerCase() === "you" ? "you" : prefix} right on Bingpot.`,
+      `${prefix.toLowerCase() === "you" ? "You are" : `${prefix} is`} one ${need} away from the perfect score.`,
+    ]);
+  }
+  return pickLiveStudioPhrase(seed, [
+    `${prefix.toLowerCase() === "you" ? "Your" : `${prefix}'s`} prediction needs the match to turn from here.`,
+    `That scoreline does not help ${prefix.toLowerCase() === "you" ? "your" : `${prefix}'s`} prediction yet.`,
+    `${prefix.toLowerCase() === "you" ? "You need" : `${prefix} needs`} the next twist to go your way.`,
+    `No prediction points there yet for ${prefix.toLowerCase() === "you" ? "you" : prefix}.`,
+  ]);
 }
 
 function getLatestLiveStudioGoal(matchState = {}) {
@@ -4432,8 +4448,19 @@ function getLiveStudioEventTeamLabel(event = {}) {
 }
 
 function getLiveStudioEventScore(event = {}, fallbackScore = null) {
-  const homeGoals = Number(event?.homeGoals ?? event?.score?.home ?? event?.score?.homeGoals);
-  const awayGoals = Number(event?.awayGoals ?? event?.score?.away ?? event?.score?.awayGoals);
+  const rawHomeGoals = event?.homeGoals ?? event?.score?.home ?? event?.score?.homeGoals;
+  const rawAwayGoals = event?.awayGoals ?? event?.score?.away ?? event?.score?.awayGoals;
+  const homeGoals = rawHomeGoals === null || rawHomeGoals === "" ? NaN : Number(rawHomeGoals);
+  const awayGoals = rawAwayGoals === null || rawAwayGoals === "" ? NaN : Number(rawAwayGoals);
+  if (Number.isFinite(homeGoals) && Number.isFinite(awayGoals)) {
+    return { homeGoals, awayGoals };
+  }
+  return fallbackScore;
+}
+
+function getLiveStudioHalfTimeScore(matchState = {}, fallbackScore = null) {
+  const homeGoals = Number(matchState?.halfTimeHomeGoals);
+  const awayGoals = Number(matchState?.halfTimeAwayGoals);
   if (Number.isFinite(homeGoals) && Number.isFinite(awayGoals)) {
     return { homeGoals, awayGoals };
   }
@@ -4849,21 +4876,43 @@ function buildLiveStudioRevealLine(fixture, score, latestGoal) {
   const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
   const scorerName = String(latestGoal?.scorerName || "").trim();
   const scorer = scorerName ? `${scorerName} has scored. ` : "";
+  const venue = getLiveStudioVenue(fixture);
+  const seed = `${fixture?.id || ""}:${score.homeGoals}-${score.awayGoals}:${scoringTeam}:${scorerName}`;
   if (scoringTeam) {
     const leadingSide = getLiveStudioLeadingSide(score);
     const scoringSide = scoringTeam === getLiveStudioTeamName(fixture.homeTeam) ? "H" : scoringTeam === getLiveStudioTeamName(fixture.awayTeam) ? "A" : null;
     const goalType = leadingSide === "D" ? "equaliser" : leadingSide === scoringSide ? "goal" : "goal";
     const article = goalType === "equaliser" ? "an" : "a";
-    return `It's ${article} ${goalType} for ${scoringTeam}! ${scorer}${scoreSummary}.`;
+    return pickLiveStudioPhrase(seed, [
+      `Let's go over to ${venue}, where ${scoringTeam} have ${goalType === "equaliser" ? "levelled it" : "scored"}. ${scorer}${scoreSummary}.`,
+      `There has been ${article} ${goalType} at ${venue} for ${scoringTeam}. ${scorer}${scoreSummary}.`,
+      `Big moment at ${venue}: ${scoringTeam} are on the scoresheet. ${scorer}${scoreSummary}.`,
+    ]);
   }
-  return `There has been a goal. ${scoreSummary}.`;
+  return pickLiveStudioPhrase(seed, [
+    `Let's go over to ${venue}, where there has been a goal. ${scoreSummary}.`,
+    `A goal has gone in at ${venue}. ${scoreSummary}.`,
+    `The score has changed at ${venue}: ${scoreSummary}.`,
+  ]);
 }
 
 function buildLiveStudioTensionLine({ score, latestGoal, tableImpactName, upsetLabel }) {
   if (!score || !latestGoal) return "";
   if (tableImpactName) return `Hold on, this could be important for ${tableImpactName}.`;
-  if (upsetLabel) return "Something has shifted here.";
-  return "The studio lights are flashing.";
+  const seed = `${latestGoal?.teamName || ""}:${latestGoal?.minute || ""}:${score.homeGoals}-${score.awayGoals}`;
+  if (upsetLabel) {
+    return pickLiveStudioPhrase(seed, [
+      `This has the feel of a live table-shaker: ${upsetLabel}.`,
+      `Potential upset watch now: ${upsetLabel}.`,
+      `That goal changes the mood completely; ${upsetLabel}.`,
+    ]);
+  }
+  return pickLiveStudioPhrase(seed, [
+    "That one will move a few prediction slips around.",
+    "The scoreline has shifted, and so has the prediction picture.",
+    "A quick look at the predictions desk: this goal matters.",
+    "That is exactly the kind of moment Live Studio is here for.",
+  ]);
 }
 
 function getLiveStudioPhraseIndex(seed, count) {
@@ -10385,9 +10434,37 @@ const liveStudioFeed = useMemo(() => {
 
       const timelineEvents = getLiveStudioEvents(matchState);
       const syntheticEvents = [];
-      if (hasKickedOff) syntheticEvents.push({ type: "KICK_OFF", minute: 0, statusLabel: "KO", sortOffset: -0.3 });
-      if (paused || finished) syntheticEvents.push({ type: "HALF_TIME", minute: 45, statusLabel: "HT", sortOffset: 0.2 });
-      if (finished) syntheticEvents.push({ type: "FULL_TIME", minute: 90, statusLabel: "FT", sortOffset: 0.4 });
+      if (hasKickedOff) {
+        syntheticEvents.push({
+          type: "KICK_OFF",
+          minute: 0,
+          statusLabel: "KO",
+          sortOffset: -0.3,
+          homeGoals: 0,
+          awayGoals: 0,
+        });
+      }
+      if (paused || finished) {
+        const halfTimeScore = getLiveStudioHalfTimeScore(matchState, paused ? score : null);
+        syntheticEvents.push({
+          type: "HALF_TIME",
+          minute: 45,
+          statusLabel: "HT",
+          sortOffset: 0.2,
+          homeGoals: halfTimeScore?.homeGoals ?? null,
+          awayGoals: halfTimeScore?.awayGoals ?? null,
+        });
+      }
+      if (finished) {
+        syntheticEvents.push({
+          type: "FULL_TIME",
+          minute: 90,
+          statusLabel: "FT",
+          sortOffset: 0.4,
+          homeGoals: score?.homeGoals ?? null,
+          awayGoals: score?.awayGoals ?? null,
+        });
+      }
       const feedEvents = [...timelineEvents, ...syntheticEvents];
       if (!feedEvents.length) {
         feedEvents.push(latestEvent || latestGoal || {
@@ -10401,8 +10478,14 @@ const liveStudioFeed = useMemo(() => {
         const entryKind = getLiveStudioEventKind(event);
         const statusLabel = String(event.statusLabel || "");
         const isKickoff = statusLabel === "KO";
+        const isHalfTime = statusLabel === "HT";
         const isFullTime = statusLabel === "FT";
-        const entryScore = getLiveStudioEventScore(event, score);
+        const entryScoreFallback = isKickoff
+          ? { homeGoals: 0, awayGoals: 0 }
+          : isHalfTime
+          ? getLiveStudioHalfTimeScore(matchState, null)
+          : score;
+        const entryScore = getLiveStudioEventScore(event, entryScoreFallback);
         const entryIsGoal = entryKind === "goal";
         const entryGoal = entryIsGoal ? event : null;
         const entryMinute = formatLiveStudioMinute(
@@ -10429,8 +10512,10 @@ const liveStudioFeed = useMemo(() => {
           ? buildLiveStudioRevealLine(fixture, entryScore, event)
           : isKickoff
           ? predictionPreviewLines[0]
-          : statusLabel === "HT"
-          ? `Half-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
+          : isHalfTime
+          ? entryScore
+            ? `Half-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
+            : `Half-time at ${venue}.`
           : isFullTime
           ? buildLiveStudioFullTimeSummary({
               fixture,
