@@ -2687,7 +2687,27 @@ function getLiveMatchStateGoalEventCount(matchState = {}) {
   return events.filter((event) => getLiveStudioEventKind(event) === "goal").length;
 }
 
-function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, nextAway }) {
+function getSyntheticLiveGoalMinuteRange(matchState = {}, previousHome, previousAway) {
+  const status = String(matchState?.status || "").toUpperCase();
+  const halfHome = Number(matchState?.halfTimeHomeGoals);
+  const halfAway = Number(matchState?.halfTimeAwayGoals);
+  const previousTotal = previousHome + previousAway;
+  const halfTotal = Number.isFinite(halfHome) && Number.isFinite(halfAway) ? halfHome + halfAway : null;
+  if (status === "FINISHED" || status === "AWARDED") {
+    if (halfTotal != null && previousTotal >= halfTotal) return { start: 55, end: 89 };
+    return { start: 12, end: 89 };
+  }
+  if (status === "PAUSED") return { start: 12, end: 45 };
+  return { start: 8, end: 80 };
+}
+
+function estimateSyntheticLiveGoalMinute(index, count, range) {
+  if (count <= 1) return Math.round((range.start + range.end) / 2);
+  const step = (range.end - range.start) / Math.max(1, count - 1);
+  return Math.round(range.start + step * index);
+}
+
+function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
   const homeGoals = Number(nextHome);
   const awayGoals = Number(nextAway);
   if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return [];
@@ -2695,7 +2715,10 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
   const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
   if (homeGoals + awayGoals <= previousHome + previousAway) return [];
   const events = [];
+  let runningHome = previousHome;
+  let runningAway = previousAway;
   for (let home = previousHome + 1; home <= homeGoals; home += 1) {
+    runningHome = home;
     events.push({
       type: "GOAL",
       synthetic: true,
@@ -2704,11 +2727,12 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
       teamName: fixture?.homeTeam || "",
       minute: null,
       injuryTime: null,
-      homeGoals: home,
-      awayGoals: previousAway,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
     });
   }
   for (let away = previousAway + 1; away <= awayGoals; away += 1) {
+    runningAway = away;
     events.push({
       type: "GOAL",
       synthetic: true,
@@ -2717,11 +2741,18 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
       teamName: fixture?.awayTeam || "",
       minute: null,
       injuryTime: null,
-      homeGoals,
-      awayGoals: away,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
     });
   }
-  return events.map((event, index) => ({ ...event, syntheticIndex: index + 1 }));
+  const range = getSyntheticLiveGoalMinuteRange(matchState, previousHome, previousAway);
+  return events.map((event, index) => ({
+    ...event,
+    minute: estimateSyntheticLiveGoalMinute(index, events.length, range),
+    estimatedMinute: true,
+    syntheticIndex: index + 1,
+    sortOffset: index / 1000,
+  }));
 }
 
 function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousStates, previousResults, fixtures) {
@@ -2752,6 +2783,7 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         prevAway,
         nextHome: matchState?.homeGoals,
         nextAway: matchState?.awayGoals,
+        matchState,
       });
       return syntheticGoals.length
         ? [
@@ -4917,7 +4949,8 @@ function formatLiveStudioMinute(goal, fallback = "") {
   const minute = Number(goal?.minute);
   if (!Number.isFinite(minute)) return fallback;
   const injuryTime = Number(goal?.injuryTime);
-  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
+  const prefix = goal?.estimatedMinute ? "~" : "";
+  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${prefix}${minute}+${injuryTime}'` : `${prefix}${minute}'`;
 }
 
 function formatLiveStudioCountdown(ms) {
@@ -5030,6 +5063,7 @@ function buildLiveStudioRevealLine(fixture, score, latestGoal) {
   const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
   const scorerName = String(latestGoal?.scorerName || "").trim();
   const scorer = scorerName ? `${scorerName} has scored. ` : "";
+  const syntheticPrefix = latestGoal?.synthetic ? "Score update" : "";
   const venue = getLiveStudioVenue(fixture);
   const seed = `${fixture?.id || ""}:${score.homeGoals}-${score.awayGoals}:${scoringTeam}:${scorerName}`;
   if (scoringTeam) {
@@ -5037,6 +5071,13 @@ function buildLiveStudioRevealLine(fixture, score, latestGoal) {
     const scoringSide = scoringTeam === getLiveStudioTeamName(fixture.homeTeam) ? "H" : scoringTeam === getLiveStudioTeamName(fixture.awayTeam) ? "A" : null;
     const goalType = leadingSide === "D" ? "equaliser" : leadingSide === scoringSide ? "goal" : "goal";
     const article = goalType === "equaliser" ? "an" : "a";
+    if (syntheticPrefix) {
+      return pickLiveStudioPhrase(seed, [
+        `${syntheticPrefix} from ${venue}: ${scoringTeam} have ${goalType === "equaliser" ? "levelled it" : "scored"}. ${scoreSummary}.`,
+        `${syntheticPrefix} at ${venue}, and it is ${scoringTeam} on the scoresheet. ${scoreSummary}.`,
+        `${syntheticPrefix}: ${scoringTeam} have changed the scoreline at ${venue}. ${scoreSummary}.`,
+      ]);
+    }
     return pickLiveStudioPhrase(seed, [
       `Let's go over to ${venue}, where ${scoringTeam} have ${goalType === "equaliser" ? "levelled it" : "scored"}. ${scorer}${scoreSummary}.`,
       `There has been ${article} ${goalType} at ${venue} for ${scoringTeam}. ${scorer}${scoreSummary}.`,
@@ -10691,7 +10732,38 @@ const liveStudioFeed = useMemo(() => {
           awayGoals: score?.awayGoals ?? null,
         });
       }
-      const feedEvents = [...timelineEvents, ...syntheticEvents];
+      const scoreTotal = score ? Number(score.homeGoals) + Number(score.awayGoals) : 0;
+      const timelineGoalEvents = timelineEvents.filter((event) => getLiveStudioEventKind(event) === "goal");
+      const realTimelineGoalEvents = timelineGoalEvents.filter((event) => !event.synthetic);
+      const latestGoalEventScore = timelineGoalEvents
+        .map((event) => getLiveStudioEventScore(event, null))
+        .filter(Boolean)
+        .sort((a, b) => (Number(b.homeGoals) + Number(b.awayGoals)) - (Number(a.homeGoals) + Number(a.awayGoals)))[0];
+      const latestEventGoalTotal = latestGoalEventScore
+        ? Number(latestGoalEventScore.homeGoals) + Number(latestGoalEventScore.awayGoals)
+        : 0;
+      const shouldReplaceSyntheticGoals =
+        scoreTotal > 0 &&
+        timelineGoalEvents.length < scoreTotal &&
+        realTimelineGoalEvents.length === 0;
+      const baseTimelineEvents = shouldReplaceSyntheticGoals
+        ? timelineEvents.filter((event) => getLiveStudioEventKind(event) !== "goal")
+        : timelineEvents;
+      const repairedTimelineEvents =
+        shouldReplaceSyntheticGoals || scoreTotal > latestEventGoalTotal
+          ? [
+              ...baseTimelineEvents,
+              ...buildSyntheticLiveGoalEvents({
+                fixture,
+                prevHome: shouldReplaceSyntheticGoals ? 0 : latestGoalEventScore?.homeGoals ?? 0,
+                prevAway: shouldReplaceSyntheticGoals ? 0 : latestGoalEventScore?.awayGoals ?? 0,
+                nextHome: score?.homeGoals,
+                nextAway: score?.awayGoals,
+                matchState,
+              }),
+            ]
+          : timelineEvents;
+      const feedEvents = [...repairedTimelineEvents, ...syntheticEvents];
       if (!feedEvents.length) {
         feedEvents.push(latestEvent || latestGoal || {
           type: finished ? "FULL_TIME" : paused ? "HALF_TIME" : live ? "MATCH_UPDATE" : "RESULT",

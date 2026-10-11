@@ -4201,7 +4201,27 @@ function getMatchStateGoalEventCount(matchState = {}) {
   return events.filter((event) => getLivePushEventKind(event) === "goal").length;
 }
 
-function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextAway }) {
+function getSyntheticGoalMinuteRange(matchState = {}, previousHome, previousAway) {
+  const status = String(matchState?.status || "").toUpperCase();
+  const halfHome = Number(matchState?.halfTimeHomeGoals);
+  const halfAway = Number(matchState?.halfTimeAwayGoals);
+  const previousTotal = previousHome + previousAway;
+  const halfTotal = Number.isFinite(halfHome) && Number.isFinite(halfAway) ? halfHome + halfAway : null;
+  if (status === "FINISHED" || status === "AWARDED") {
+    if (halfTotal != null && previousTotal >= halfTotal) return { start: 55, end: 89 };
+    return { start: 12, end: 89 };
+  }
+  if (status === "PAUSED") return { start: 12, end: 45 };
+  return { start: 8, end: 80 };
+}
+
+function estimateSyntheticGoalMinute(index, count, range) {
+  if (count <= 1) return Math.round((range.start + range.end) / 2);
+  const step = (range.end - range.start) / Math.max(1, count - 1);
+  return Math.round(range.start + step * index);
+}
+
+function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
   const homeGoals = Number(nextHome);
   const awayGoals = Number(nextAway);
   if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return [];
@@ -4211,7 +4231,10 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   if (homeGoals + awayGoals <= previousHome + previousAway) return [];
 
   const events = [];
+  let runningHome = previousHome;
+  let runningAway = previousAway;
   for (let home = previousHome + 1; home <= homeGoals; home += 1) {
+    runningHome = home;
     events.push({
       type: "GOAL",
       synthetic: true,
@@ -4220,11 +4243,12 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
       teamName: fixture?.homeTeam || "",
       minute: null,
       injuryTime: null,
-      homeGoals: home,
-      awayGoals: previousAway,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
     });
   }
   for (let away = previousAway + 1; away <= awayGoals; away += 1) {
+    runningAway = away;
     events.push({
       type: "GOAL",
       synthetic: true,
@@ -4233,11 +4257,18 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
       teamName: fixture?.awayTeam || "",
       minute: null,
       injuryTime: null,
-      homeGoals,
-      awayGoals: away,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
     });
   }
-  return events.map((event, index) => ({ ...event, syntheticIndex: index + 1 }));
+  const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
+  return events.map((event, index) => ({
+    ...event,
+    minute: estimateSyntheticGoalMinute(index, events.length, range),
+    estimatedMinute: true,
+    syntheticIndex: index + 1,
+    sortOffset: index / 1000,
+  }));
 }
 
 function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prevAway }) {
@@ -4254,6 +4285,7 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
     prevAway,
     nextHome: matchState.homeGoals,
     nextAway: matchState.awayGoals,
+    matchState,
   });
   if (!syntheticGoals.length) return matchState;
   const existingGoalEvents = Array.isArray(matchState.goalEvents) ? matchState.goalEvents : [];
