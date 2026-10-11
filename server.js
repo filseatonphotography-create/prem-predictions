@@ -3440,7 +3440,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           const fixture = fixtureById[String(fixtureId)] || null;
           if (!fixture) return;
 
-          const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);
+          const subscribedUserIds = getLiveStudioNotificationUserIds(fixtureId);
           if (!subscribedUserIds.length) return;
 
           const hasScoreNow =
@@ -4013,6 +4013,26 @@ function getFixtureNotificationUserIds(fixtureId) {
     .map(([userId]) => userId);
 }
 
+function getLiveUpdateNotificationUserIds() {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  return Object.entries(subscriptions)
+    .filter(([, sub]) => hasDeviceSubscription(sub) && isPushTypeEnabled("liveUpdates", sub.notifPrefs || null))
+    .map(([userId]) => userId);
+}
+
+function getLiveStudioNotificationUserIds(fixtureId) {
+  return Array.from(new Set([
+    ...getLiveUpdateNotificationUserIds(),
+    ...getFixtureNotificationUserIds(fixtureId),
+  ]));
+}
+
+function hasFixtureNotificationEnabled(userId, fixtureId) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const fixturePrefs = subscriptions[userId]?.fixturePrefs || {};
+  return fixturePrefs[String(fixtureId)] === true;
+}
+
 function reserveFixtureNotificationEvent(userId, eventKey) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const existing = subscriptions[userId] || {};
@@ -4216,10 +4236,12 @@ function getSyntheticGoalMinuteRange(matchState = {}, previousHome, previousAway
 }
 
 function estimateSyntheticGoalMinute(index, count, range) {
-  if (count <= 1) return Math.round((range.start + range.end) / 2);
+  if (count <= 1) return range.start;
   const step = (range.end - range.start) / Math.max(1, count - 1);
   return Math.round(range.start + step * index);
 }
+
+const MAX_OBSERVED_SYNTHETIC_GOAL_MINUTE = 105;
 
 function getObservedSyntheticGoalMinute(fixture, matchState = {}) {
   const kickoffTime = Date.parse(matchState?.utcDate || fixture?.kickoff || "");
@@ -4233,7 +4255,9 @@ function getObservedSyntheticGoalMinute(fixture, matchState = {}) {
   if (!Number.isFinite(kickoffTime) || !Number.isFinite(observedTime) || observedTime < kickoffTime) {
     return null;
   }
-  return Math.max(1, Math.min(120, Math.ceil((observedTime - kickoffTime) / (60 * 1000))));
+  const elapsedMinute = Math.ceil((observedTime - kickoffTime) / (60 * 1000));
+  if (elapsedMinute > MAX_OBSERVED_SYNTHETIC_GOAL_MINUTE) return null;
+  return Math.max(1, elapsedMinute);
 }
 
 function estimateSyntheticGoalMinuteWithObservation(index, count, range, observedMinute = null) {
@@ -4416,7 +4440,9 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
 
 async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, scoreLabel, payload) {
   const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
-  if (!isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId))) return false;
+  const liveUpdatesEnabled = isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId));
+  const fixtureBellEnabled = hasFixtureNotificationEnabled(userId, fixtureId);
+  if (!liveUpdatesEnabled && !fixtureBellEnabled) return false;
   if (!reserveFixtureNotificationEvent(userId, eventKey)) return false;
   const nextPayload = maybeApplyNoSpoilerFixturePayload(
     userId,
@@ -4425,7 +4451,7 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
     eventKey,
     payload
   );
-  return sendPushNotification(userId, "liveUpdates", {
+  return sendPushNotification(userId, liveUpdatesEnabled ? "liveUpdates" : "fixtureBell", {
     ...nextPayload,
     url: buildLiveStudioUrl(fixtureId, eventKey),
     tag: eventKey,
@@ -4996,7 +5022,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const scoreChanged =
         hasScoreNow && (!hadScoreBefore || prevHome !== homeGoals || prevAway !== awayGoals);
       baseNextState.goalDetectedAt = scoreChanged
-        ? match.lastUpdated || match.updatedAt || observedAt
+        ? observedAt
         : prevState.goalDetectedAt || "";
       const preservedState = mergeMatchStatePreservingEvents(prevState, baseNextState);
       const nextState = enrichMatchStateWithSyntheticGoal({
@@ -5022,7 +5048,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         resultsChanged = true;
       }
 
-      const subscribedUserIds = getFixtureNotificationUserIds(fixtureId);
+      const subscribedUserIds = getLiveStudioNotificationUserIds(fixtureId);
       if (!subscribedUserIds.length) return;
       summary.subscribedFixtures += 1;
       summary.byMode[mode].subscribedFixtures += 1;

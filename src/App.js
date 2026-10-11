@@ -2725,6 +2725,8 @@ function getSyntheticLiveGoalMinuteRange(matchState = {}, previousHome, previous
   return { start: 8, end: 80 };
 }
 
+const LIVE_STUDIO_MAX_OBSERVED_GOAL_MINUTE = 105;
+
 function getObservedLiveStudioMinute(fixture, matchState = {}) {
   const kickoffTime = Date.parse(matchState?.utcDate || fixture?.kickoff || "");
   const observedTime = Date.parse(
@@ -2737,7 +2739,9 @@ function getObservedLiveStudioMinute(fixture, matchState = {}) {
   if (!Number.isFinite(kickoffTime) || !Number.isFinite(observedTime) || observedTime < kickoffTime) {
     return null;
   }
-  return Math.max(1, Math.min(120, Math.ceil((observedTime - kickoffTime) / (60 * 1000))));
+  const elapsedMinute = Math.ceil((observedTime - kickoffTime) / (60 * 1000));
+  if (elapsedMinute > LIVE_STUDIO_MAX_OBSERVED_GOAL_MINUTE) return null;
+  return Math.max(1, elapsedMinute);
 }
 
 function estimateSyntheticLiveGoalMinute(index, count, range, observedMinute = null) {
@@ -2749,7 +2753,7 @@ function estimateSyntheticLiveGoalMinute(index, count, range, observedMinute = n
     const step = (end - start) / Math.max(1, count - 1);
     return Math.round(start + step * index);
   }
-  if (count <= 1) return Math.round((range.start + range.end) / 2);
+  if (count <= 1) return range.start;
   const step = (range.end - range.start) / Math.max(1, count - 1);
   return Math.round(range.start + step * index);
 }
@@ -2819,7 +2823,12 @@ function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}
         goalDetectedAt: event.detectedAt || matchState?.goalDetectedAt || "",
       });
       const eventMinute = Number(event.minute);
-      if (!Number.isFinite(observedMinute) || observedMinute <= 0) return event;
+      if (!Number.isFinite(observedMinute) || observedMinute <= 0) {
+        if (Number.isFinite(eventMinute) && eventMinute > LIVE_STUDIO_MAX_OBSERVED_GOAL_MINUTE) {
+          return { ...event, minute: null, estimatedMinute: false };
+        }
+        return event;
+      }
       if (Number.isFinite(eventMinute) && Math.abs(eventMinute - observedMinute) <= 2) return event;
       return {
         ...event,
@@ -2852,19 +2861,25 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         : Number.isFinite(Number(prevResult.awayGoals))
         ? Number(prevResult.awayGoals)
         : 0;
+      const observedAt = new Date().toISOString();
+      const matchStateForSynthetic = {
+        ...matchState,
+        observedAt: matchState.observedAt || observedAt,
+        goalDetectedAt: matchState.goalDetectedAt || observedAt,
+      };
       const syntheticGoals = buildSyntheticLiveGoalEvents({
         fixture: fixtureById.get(String(fixtureId)),
         prevHome,
         prevAway,
         nextHome: matchState?.homeGoals,
         nextAway: matchState?.awayGoals,
-        matchState,
+        matchState: matchStateForSynthetic,
       });
       return syntheticGoals.length
         ? [
             fixtureId,
             {
-              ...matchState,
+              ...matchStateForSynthetic,
               goalEvents: [...(Array.isArray(matchState.goalEvents) ? matchState.goalEvents : []), ...syntheticGoals],
               matchEvents: [...(Array.isArray(matchState.matchEvents) ? matchState.matchEvents : []), ...syntheticGoals],
             },
