@@ -2719,10 +2719,10 @@ function getSyntheticLiveGoalMinuteRange(matchState = {}, previousHome, previous
   const halfTotal = Number.isFinite(halfHome) && Number.isFinite(halfAway) ? halfHome + halfAway : null;
   if (status === "FINISHED" || status === "AWARDED") {
     if (halfTotal != null && previousTotal >= halfTotal) return { start: 55, end: 89 };
-    return { start: 12, end: 89 };
+    return { start: 3, end: halfTotal != null && previousTotal < halfTotal ? 45 : 89 };
   }
-  if (status === "PAUSED") return { start: 12, end: 45 };
-  return { start: 8, end: 80 };
+  if (status === "PAUSED") return { start: 3, end: 45 };
+  return { start: 3, end: 80 };
 }
 
 const LIVE_STUDIO_MAX_OBSERVED_GOAL_MINUTE = 105;
@@ -2747,7 +2747,7 @@ function getObservedLiveStudioMinute(fixture, matchState = {}) {
 function estimateSyntheticLiveGoalMinute(index, count, range, observedMinute = null) {
   const observed = Number(observedMinute);
   if (Number.isFinite(observed) && observed > 0) {
-    if (count <= 1) return Math.max(1, Math.round(observed));
+    if (count <= 1) return Math.max(range.start, Math.min(range.end, Math.round(observed)));
     const end = Math.max(range.start, Math.min(range.end, Math.round(observed)));
     const start = Math.min(range.start, end);
     const step = (end - start) / Math.max(1, count - 1);
@@ -2768,24 +2768,70 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
   const homeDelta = Math.max(0, homeGoals - previousHome);
   const awayDelta = Math.max(0, awayGoals - previousAway);
   const events = [];
-  if (homeDelta > 0 && awayDelta > 0) {
+  let runningHome = previousHome;
+  let runningAway = previousAway;
+  const addHomeGoal = () => {
+    runningHome += 1;
     events.push({
-      type: "SCORE_UPDATE",
+      type: "GOAL",
       synthetic: true,
       scorerName: "",
       playerName: "",
-      teamName: "",
-      reason: "Score changed",
+      teamName: fixture?.homeTeam || "",
       minute: null,
       injuryTime: null,
-      previousHomeGoals: previousHome,
-      previousAwayGoals: previousAway,
-      homeGoals,
-      awayGoals,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
     });
+  };
+  const addAwayGoal = () => {
+    runningAway += 1;
+    events.push({
+      type: "GOAL",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.awayTeam || "",
+      minute: null,
+      injuryTime: null,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
+    });
+  };
+  if (homeDelta > 0 && awayDelta > 0) {
+    const leadingSide = homeGoals > awayGoals ? "home" : awayGoals > homeGoals ? "away" : "";
+    const trailingSide = leadingSide === "home" ? "away" : leadingSide === "away" ? "home" : "";
+    let remainingHome = homeDelta;
+    let remainingAway = awayDelta;
+    while (remainingHome > 0 || remainingAway > 0) {
+      if (trailingSide === "home" && remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (trailingSide === "away" && remainingAway > 0) {
+        addAwayGoal();
+        remainingAway -= 1;
+      }
+      if (leadingSide === "home" && remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (leadingSide === "away" && remainingAway > 0) {
+        addAwayGoal();
+        remainingAway -= 1;
+      }
+      if (!leadingSide) {
+        if (remainingAway > 0) {
+          addAwayGoal();
+          remainingAway -= 1;
+        }
+        if (remainingHome > 0) {
+          addHomeGoal();
+          remainingHome -= 1;
+        }
+      }
+    }
   } else {
-    let runningHome = previousHome;
-    let runningAway = previousAway;
     for (let home = previousHome + 1; home <= homeGoals; home += 1) {
       runningHome = home;
       events.push({
@@ -2905,16 +2951,36 @@ function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}
         goalDetectedAt: event.detectedAt || matchState?.goalDetectedAt || "",
       });
       const eventMinute = Number(event.minute);
+      const previousHome = Number(event.previousHomeGoals);
+      const previousAway = Number(event.previousAwayGoals);
+      const currentHome = Number(event.homeGoals);
+      const currentAway = Number(event.awayGoals);
+      const inferredPreviousHome = Number.isFinite(previousHome)
+        ? previousHome
+        : Number.isFinite(currentHome) && normalizeTeamName(event.teamName) === normalizeTeamName(fixture?.homeTeam)
+        ? Math.max(0, currentHome - 1)
+        : Number.isFinite(currentHome)
+        ? currentHome
+        : 0;
+      const inferredPreviousAway = Number.isFinite(previousAway)
+        ? previousAway
+        : Number.isFinite(currentAway) && normalizeTeamName(event.teamName) === normalizeTeamName(fixture?.awayTeam)
+        ? Math.max(0, currentAway - 1)
+        : Number.isFinite(currentAway)
+        ? currentAway
+        : 0;
+      const range = getSyntheticLiveGoalMinuteRange(matchState, inferredPreviousHome, inferredPreviousAway);
       if (!Number.isFinite(observedMinute) || observedMinute <= 0) {
         if (Number.isFinite(eventMinute) && eventMinute > LIVE_STUDIO_MAX_OBSERVED_GOAL_MINUTE) {
           return { ...event, minute: null, estimatedMinute: false };
         }
         return event;
       }
-      if (Number.isFinite(eventMinute) && Math.abs(eventMinute - observedMinute) <= 2) return event;
+      const repairedMinute = Math.max(range.start, Math.min(range.end, observedMinute));
+      if (Number.isFinite(eventMinute) && Math.abs(eventMinute - repairedMinute) <= 2) return event;
       return {
         ...event,
-        minute: observedMinute,
+        minute: repairedMinute,
         detectedAt: event.detectedAt || matchState?.goalDetectedAt || matchState?.observedAt || matchState?.lastUpdated || "",
       };
     })

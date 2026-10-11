@@ -4250,10 +4250,10 @@ function getSyntheticGoalMinuteRange(matchState = {}, previousHome, previousAway
   const halfTotal = Number.isFinite(halfHome) && Number.isFinite(halfAway) ? halfHome + halfAway : null;
   if (status === "FINISHED" || status === "AWARDED") {
     if (halfTotal != null && previousTotal >= halfTotal) return { start: 55, end: 89 };
-    return { start: 12, end: 89 };
+    return { start: 3, end: halfTotal != null && previousTotal < halfTotal ? 45 : 89 };
   }
-  if (status === "PAUSED") return { start: 12, end: 45 };
-  return { start: 8, end: 80 };
+  if (status === "PAUSED") return { start: 3, end: 45 };
+  return { start: 3, end: 80 };
 }
 
 function estimateSyntheticGoalMinute(index, count, range) {
@@ -4284,7 +4284,7 @@ function getObservedSyntheticGoalMinute(fixture, matchState = {}) {
 function estimateSyntheticGoalMinuteWithObservation(index, count, range, observedMinute = null) {
   const observed = Number(observedMinute);
   if (Number.isFinite(observed) && observed > 0) {
-    if (count <= 1) return Math.max(1, Math.round(observed));
+    if (count <= 1) return Math.max(range.start, Math.min(range.end, Math.round(observed)));
     const end = Math.max(range.start, Math.min(range.end, Math.round(observed)));
     const start = Math.min(range.start, end);
     const step = (end - start) / Math.max(1, count - 1);
@@ -4305,24 +4305,70 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   const awayDelta = Math.max(0, awayGoals - previousAway);
 
   const events = [];
-  if (homeDelta > 0 && awayDelta > 0) {
+  let runningHome = previousHome;
+  let runningAway = previousAway;
+  const addHomeGoal = () => {
+    runningHome += 1;
     events.push({
-      type: "SCORE_UPDATE",
+      type: "GOAL",
       synthetic: true,
       scorerName: "",
       playerName: "",
-      teamName: "",
-      reason: "Score changed",
+      teamName: fixture?.homeTeam || "",
       minute: null,
       injuryTime: null,
-      previousHomeGoals: previousHome,
-      previousAwayGoals: previousAway,
-      homeGoals,
-      awayGoals,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
     });
+  };
+  const addAwayGoal = () => {
+    runningAway += 1;
+    events.push({
+      type: "GOAL",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.awayTeam || "",
+      minute: null,
+      injuryTime: null,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
+    });
+  };
+  if (homeDelta > 0 && awayDelta > 0) {
+    const leadingSide = homeGoals > awayGoals ? "home" : awayGoals > homeGoals ? "away" : "";
+    const trailingSide = leadingSide === "home" ? "away" : leadingSide === "away" ? "home" : "";
+    let remainingHome = homeDelta;
+    let remainingAway = awayDelta;
+    while (remainingHome > 0 || remainingAway > 0) {
+      if (trailingSide === "home" && remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (trailingSide === "away" && remainingAway > 0) {
+        addAwayGoal();
+        remainingAway -= 1;
+      }
+      if (leadingSide === "home" && remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (leadingSide === "away" && remainingAway > 0) {
+        addAwayGoal();
+        remainingAway -= 1;
+      }
+      if (!leadingSide) {
+        if (remainingAway > 0) {
+          addAwayGoal();
+          remainingAway -= 1;
+        }
+        if (remainingHome > 0) {
+          addHomeGoal();
+          remainingHome -= 1;
+        }
+      }
+    }
   } else {
-  let runningHome = previousHome;
-  let runningAway = previousAway;
   for (let home = previousHome + 1; home <= homeGoals; home += 1) {
     runningHome = home;
     events.push({
