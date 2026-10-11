@@ -4142,6 +4142,7 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
   const labels = {
     "kick-off": "Kick-off!",
     goal: "Goal!",
+    "goal-disallowed": "Goal ruled out",
     "half-time": "Half-time!",
     "full-time": "Full-time!",
     "red-card": "Red card!",
@@ -4157,7 +4158,12 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
     const goalLabel = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : label;
     return `${minuteText}${goalLabel} ${scoreText}`.trim();
   }
-  const playerText = player && !["goal", "kick-off", "half-time", "full-time"].includes(eventKind)
+  if (eventKind === "goal-disallowed") {
+    const teamCode = getLivePushScoringTeamCode(fixture, event?.previousHomeGoals, event?.previousAwayGoals, event);
+    const teamText = teamCode ? ` for ${teamCode}` : "";
+    return `${minuteText}${label}${teamText}. ${scoreText}`.trim();
+  }
+  const playerText = player && !["goal", "goal-disallowed", "kick-off", "half-time", "full-time"].includes(eventKind)
     ? ` ${player}`
     : "";
   return `${minuteText}${label}${playerText} ${scoreText}`.trim();
@@ -4165,7 +4171,7 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
 
 function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKey, payload = {}) {
   const prefs = getPushNotificationPrefs(userId);
-  if (eventKind !== "goal" || prefs.noSpoilerFixtureUpdates !== true) return payload;
+  if (!["goal", "goal-disallowed"].includes(eventKind) || prefs.noSpoilerFixtureUpdates !== true) return payload;
 
   const fixture = findFixtureById(fixtureId);
   const fixtureLabel = fixture
@@ -4182,6 +4188,16 @@ function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKe
 
 function getLivePushEventKind(event = {}) {
   const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
+  if (
+    text.includes("disallow") ||
+    text.includes("ruled out") ||
+    text.includes("chalked off") ||
+    text.includes("var no goal") ||
+    text.includes("goal cancelled") ||
+    text.includes("goal canceled")
+  ) {
+    return "goal-disallowed";
+  }
   if (text.includes("goal") || text.includes("score")) return "goal";
   if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
   if (text.includes("red") || text.includes("dismiss")) return "red-card";
@@ -4205,6 +4221,10 @@ function getLivePushEventKeyPart(event = {}) {
     event.playerName || event.scorerName || event.playerOutName || "",
     event.substituteName || "",
     event.teamName || "",
+    event.homeGoals ?? "",
+    event.awayGoals ?? "",
+    event.previousHomeGoals ?? "",
+    event.previousAwayGoals ?? "",
   ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
 }
 
@@ -4330,38 +4350,110 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   }));
 }
 
+function buildSyntheticGoalDisallowedEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
+  const homeGoals = Number(nextHome);
+  const awayGoals = Number(nextAway);
+  const previousHome = Number(prevHome);
+  const previousAway = Number(prevAway);
+  if (![homeGoals, awayGoals, previousHome, previousAway].every(Number.isFinite)) return [];
+  if (homeGoals + awayGoals >= previousHome + previousAway) return [];
+
+  const events = [];
+  const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
+  const observedMinute = getObservedSyntheticGoalMinute(fixture, matchState);
+  const detectedAt =
+    matchState?.goalDetectedAt ||
+    matchState?.observedAt ||
+    matchState?.lastUpdated ||
+    matchState?.updatedAt ||
+    "";
+
+  for (let home = previousHome; home > homeGoals; home -= 1) {
+    events.push({
+      type: "GOAL_DISALLOWED",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.homeTeam || "",
+      reason: "VAR goal ruled out",
+      minute: null,
+      injuryTime: null,
+      previousHomeGoals: home,
+      previousAwayGoals: previousAway,
+      homeGoals,
+      awayGoals,
+    });
+  }
+  for (let away = previousAway; away > awayGoals; away -= 1) {
+    events.push({
+      type: "GOAL_DISALLOWED",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.awayTeam || "",
+      reason: "VAR goal ruled out",
+      minute: null,
+      injuryTime: null,
+      previousHomeGoals: homeGoals,
+      previousAwayGoals: away,
+      homeGoals,
+      awayGoals,
+    });
+  }
+
+  return events.map((event, index) => ({
+    ...event,
+    minute: estimateSyntheticGoalMinuteWithObservation(index, events.length, range, observedMinute),
+    estimatedMinute: true,
+    detectedAt,
+    syntheticIndex: index + 1,
+    sortOffset: 0.02 + index / 1000,
+  }));
+}
+
 function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prevAway }) {
   if (!matchState || typeof matchState !== "object") return matchState;
   const homeGoals = Number(matchState.homeGoals);
   const awayGoals = Number(matchState.awayGoals);
   const currentGoalTotal = Number.isFinite(homeGoals) && Number.isFinite(awayGoals) ? homeGoals + awayGoals : 0;
-  if (currentGoalTotal > 0 && getMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
-    return matchState;
-  }
-  const syntheticGoals = buildSyntheticGoalEvents({
+  const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
+  const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
+  const disallowedGoals = buildSyntheticGoalDisallowedEvents({
     fixture,
-    prevHome,
-    prevAway,
+    prevHome: previousHome,
+    prevAway: previousAway,
     nextHome: matchState.homeGoals,
     nextAway: matchState.awayGoals,
     matchState,
   });
-  if (!syntheticGoals.length) return matchState;
+  if (!disallowedGoals.length && currentGoalTotal > 0 && getMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
+    return matchState;
+  }
+  const syntheticGoals = buildSyntheticGoalEvents({
+    fixture,
+    prevHome: previousHome,
+    prevAway: previousAway,
+    nextHome: matchState.homeGoals,
+    nextAway: matchState.awayGoals,
+    matchState,
+  });
+  const syntheticEvents = [...syntheticGoals, ...disallowedGoals];
+  if (!syntheticEvents.length) return matchState;
   const existingGoalEvents = Array.isArray(matchState.goalEvents) ? matchState.goalEvents : [];
   const existingMatchEvents = Array.isArray(matchState.matchEvents) ? matchState.matchEvents : [];
   const existingSyntheticScores = new Set(
     [...existingGoalEvents, ...existingMatchEvents]
-      .filter((event) => event?.synthetic && getLivePushEventKind(event) === "goal")
-      .map((event) => `${event.homeGoals}-${event.awayGoals}:${event.teamName || ""}`)
+      .filter((event) => event?.synthetic && ["goal", "goal-disallowed"].includes(getLivePushEventKind(event)))
+      .map((event) => `${getLivePushEventKind(event)}:${event.previousHomeGoals ?? ""}-${event.previousAwayGoals ?? ""}:${event.homeGoals}-${event.awayGoals}:${event.teamName || ""}`)
   );
-  const newSyntheticGoals = syntheticGoals.filter(
-    (event) => !existingSyntheticScores.has(`${event.homeGoals}-${event.awayGoals}:${event.teamName || ""}`)
+  const newSyntheticEvents = syntheticEvents.filter(
+    (event) => !existingSyntheticScores.has(`${getLivePushEventKind(event)}:${event.previousHomeGoals ?? ""}-${event.previousAwayGoals ?? ""}:${event.homeGoals}-${event.awayGoals}:${event.teamName || ""}`)
   );
-  if (!newSyntheticGoals.length) return matchState;
+  if (!newSyntheticEvents.length) return matchState;
   return {
     ...matchState,
-    goalEvents: [...existingGoalEvents, ...newSyntheticGoals],
-    matchEvents: [...existingMatchEvents, ...newSyntheticGoals],
+    goalEvents: [...existingGoalEvents, ...newSyntheticEvents.filter((event) => getLivePushEventKind(event) === "goal")],
+    matchEvents: [...existingMatchEvents, ...newSyntheticEvents],
   };
 }
 
@@ -4370,6 +4462,8 @@ function getMatchStateEventKey(event = {}, index = 0) {
     getLivePushEventKeyPart(event, index),
     event.homeGoals ?? "",
     event.awayGoals ?? "",
+    event.previousHomeGoals ?? "",
+    event.previousAwayGoals ?? "",
     event.syntheticIndex ?? "",
   ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
 }
@@ -4405,6 +4499,19 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
   const at = minute ? ` ${minute}` : "";
   const teamSuffix = team ? ` for ${team}` : "";
 
+  if (kind === "goal-disallowed") {
+    return {
+      title: buildLivePushHeader({
+        fixture,
+        eventKind: kind,
+        minute,
+        homeGoals: event.homeGoals,
+        awayGoals: event.awayGoals,
+        event,
+      }),
+      body: `VAR has ruled out the goal${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
+    };
+  }
   if (kind === "red-card") {
     return {
       title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),

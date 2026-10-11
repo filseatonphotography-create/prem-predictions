@@ -2814,6 +2814,69 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
   }));
 }
 
+function buildSyntheticLiveGoalDisallowedEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
+  const homeGoals = Number(nextHome);
+  const awayGoals = Number(nextAway);
+  const previousHome = Number(prevHome);
+  const previousAway = Number(prevAway);
+  if (![homeGoals, awayGoals, previousHome, previousAway].every(Number.isFinite)) return [];
+  if (homeGoals + awayGoals >= previousHome + previousAway) return [];
+
+  const events = [];
+  let runningHome = previousHome;
+  let runningAway = previousAway;
+  for (let home = previousHome; home > homeGoals; home -= 1) {
+    runningHome = Math.max(homeGoals, home - 1);
+    events.push({
+      type: "GOAL_DISALLOWED",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.homeTeam || "",
+      reason: "VAR goal ruled out",
+      minute: null,
+      injuryTime: null,
+      previousHomeGoals: home,
+      previousAwayGoals: runningAway,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
+    });
+  }
+  for (let away = previousAway; away > awayGoals; away -= 1) {
+    runningAway = Math.max(awayGoals, away - 1);
+    events.push({
+      type: "GOAL_DISALLOWED",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.awayTeam || "",
+      reason: "VAR goal ruled out",
+      minute: null,
+      injuryTime: null,
+      previousHomeGoals: runningHome,
+      previousAwayGoals: away,
+      homeGoals: runningHome,
+      awayGoals: runningAway,
+    });
+  }
+  const range = getSyntheticLiveGoalMinuteRange(matchState, previousHome, previousAway);
+  const observedMinute = getObservedLiveStudioMinute(fixture, matchState);
+  const detectedAt =
+    matchState?.goalDetectedAt ||
+    matchState?.observedAt ||
+    matchState?.lastUpdated ||
+    matchState?.updatedAt ||
+    "";
+  return events.map((event, index) => ({
+    ...event,
+    minute: estimateSyntheticLiveGoalMinute(index, events.length, range, observedMinute),
+    estimatedMinute: true,
+    detectedAt,
+    syntheticIndex: index + 1,
+    sortOffset: 0.02 + index / 1000,
+  }));
+}
+
 function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}) {
   return (events || [])
     .map((event) => {
@@ -2839,6 +2902,35 @@ function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}
     .sort((a, b) => Number(b.minute || -1) - Number(a.minute || -1));
 }
 
+function getLiveStudioSyntheticMergeKey(event = {}, index = 0) {
+  return [
+    getLiveStudioEventKind(event),
+    event.minute ?? "na",
+    event.injuryTime ?? "",
+    event.playerName || event.scorerName || event.playerOutName || "",
+    event.substituteName || "",
+    event.teamName || "",
+    event.homeGoals ?? "",
+    event.awayGoals ?? "",
+    event.previousHomeGoals ?? "",
+    event.previousAwayGoals ?? "",
+    event.syntheticIndex ?? "",
+  ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":") || `event-${index}`;
+}
+
+function mergeLiveStudioEventLists(...eventLists) {
+  const merged = [];
+  const seen = new Set();
+  eventLists.flat().forEach((event, index) => {
+    if (!event || typeof event !== "object") return;
+    const key = getLiveStudioSyntheticMergeKey(event, index);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(event);
+  });
+  return merged;
+}
+
 function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousStates, previousResults, fixtures) {
   const fixtureById = new Map((fixtures || []).map((fixture) => [String(fixture.id), fixture]));
   return Object.fromEntries(
@@ -2848,9 +2940,6 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
       const homeGoals = Number(matchState?.homeGoals);
       const awayGoals = Number(matchState?.awayGoals);
       const currentGoalTotal = Number.isFinite(homeGoals) && Number.isFinite(awayGoals) ? homeGoals + awayGoals : 0;
-      if (currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
-        return [fixtureId, matchState];
-      }
       const prevHome = Number.isFinite(Number(prevState.homeGoals))
         ? Number(prevState.homeGoals)
         : Number.isFinite(Number(prevResult.homeGoals))
@@ -2867,6 +2956,17 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         observedAt: matchState.observedAt || observedAt,
         goalDetectedAt: matchState.goalDetectedAt || observedAt,
       };
+      const syntheticDisallowedGoals = buildSyntheticLiveGoalDisallowedEvents({
+        fixture: fixtureById.get(String(fixtureId)),
+        prevHome,
+        prevAway,
+        nextHome: matchState?.homeGoals,
+        nextAway: matchState?.awayGoals,
+        matchState: matchStateForSynthetic,
+      });
+      if (!syntheticDisallowedGoals.length && currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
+        return [fixtureId, matchState];
+      }
       const syntheticGoals = buildSyntheticLiveGoalEvents({
         fixture: fixtureById.get(String(fixtureId)),
         prevHome,
@@ -2875,13 +2975,14 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         nextAway: matchState?.awayGoals,
         matchState: matchStateForSynthetic,
       });
-      return syntheticGoals.length
+      const syntheticEvents = [...syntheticGoals, ...syntheticDisallowedGoals];
+      return syntheticEvents.length
         ? [
             fixtureId,
             {
               ...matchStateForSynthetic,
-              goalEvents: [...(Array.isArray(matchState.goalEvents) ? matchState.goalEvents : []), ...syntheticGoals],
-              matchEvents: [...(Array.isArray(matchState.matchEvents) ? matchState.matchEvents : []), ...syntheticGoals],
+              goalEvents: mergeLiveStudioEventLists(prevState.goalEvents, matchState.goalEvents, syntheticGoals),
+              matchEvents: mergeLiveStudioEventLists(prevState.matchEvents, matchState.matchEvents, syntheticEvents),
             },
           ]
         : [fixtureId, matchState];
@@ -4625,6 +4726,16 @@ function getLatestLiveStudioEvent(matchState = {}) {
 function getLiveStudioEventKind(event = {}) {
   event = event || {};
   const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
+  if (
+    text.includes("disallow") ||
+    text.includes("ruled out") ||
+    text.includes("chalked off") ||
+    text.includes("var no goal") ||
+    text.includes("goal cancelled") ||
+    text.includes("goal canceled")
+  ) {
+    return "goal-disallowed";
+  }
   if (text.includes("goal") || text.includes("score")) return "goal";
   if (text.includes("stat")) return "stats";
   if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
@@ -4684,6 +4795,10 @@ function getLiveStudioUpdateKeyPart(event = {}) {
     event.playerName || event.scorerName || event.playerOutName || "",
     event.substituteName || "",
     event.teamName || "",
+    event.homeGoals ?? "",
+    event.awayGoals ?? "",
+    event.previousHomeGoals ?? "",
+    event.previousAwayGoals ?? "",
   ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
 }
 
@@ -4784,7 +4899,7 @@ function getLiveStudioUpdateKey({ fixtureId, event, statusLabel = "", score = nu
   if (!fixtureId) return "";
   const kind = getLiveStudioPushEventKind(event, statusLabel);
   if (kind === "kick-off") return `${fixtureId}:${kind}:0-0`;
-  if (["goal", "half-time", "full-time"].includes(kind) && score) {
+  if (["goal", "goal-disallowed", "half-time", "full-time"].includes(kind) && score) {
     return `${fixtureId}:${kind}:${score.homeGoals}-${score.awayGoals}`;
   }
   return `${fixtureId}:${kind}:${getLiveStudioUpdateKeyPart(event)}`;
@@ -4802,6 +4917,11 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
     const label = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : "Goal!";
     return [label, scoreText].filter(Boolean).join(" ");
   }
+  if (kind === "goal-disallowed") {
+    const team = getLiveStudioEventTeamLabel(event);
+    const teamCode = team ? getTeamCode(team) : "";
+    return [`Goal ruled out${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
+  }
   const player = getLiveStudioEventPlayerName(event);
   const team = getLiveStudioEventTeamLabel(event);
   const teamCode = team ? getTeamCode(team) : "";
@@ -4809,6 +4929,8 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
   const label =
     kind === "red-card"
       ? "Red card!"
+      : kind === "goal-disallowed"
+      ? "Goal ruled out"
       : kind === "stats"
       ? "Stats check"
       : kind === "yellow-card"
@@ -4831,6 +4953,7 @@ function getLiveStudioEventIcon(event = {}) {
   const statusLabel = String(event?.statusLabel || "").toUpperCase();
   const kind = getLiveStudioEventKind(event);
   if (kind === "goal") return "⚽";
+  if (kind === "goal-disallowed") return "❌";
   if (kind === "stats") return "📊";
   if (kind === "red-card") return "🟥";
   if (kind === "yellow-card") return "🟨";
@@ -4863,6 +4986,11 @@ function buildLiveStudioEventLine({ fixture, event, score, seed }) {
           `The net ripples for ${team}${at}.`,
           `${team} have the breakthrough${at}, and the live table needs another look.`,
         ],
+    "goal-disallowed": [
+      `VAR has ruled out the goal for ${team}${at}. The score is corrected, and the prediction picture changes again.`,
+      `No goal for ${team}${at}. That one is coming back, and so is the live table.`,
+      `The goal for ${team} has been chalked off${at}. A few prediction slips just got a second life.`,
+    ],
     substitution: player && event.substituteName
       ? [
           `${team} make a change: ${event.substituteName} is on for ${player}${at}.`,
@@ -4969,6 +5097,7 @@ function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, ta
   if (statusLabel === "HT") return "Half-time check";
   if (statusLabel === "FT") return tableSnapshot ? "Full-time fallout" : "Result confirmed";
   if (entryKind === "goal") return tableImpactLine ? "Prediction swing" : "Goal flash";
+  if (entryKind === "goal-disallowed") return tableImpactLine ? "VAR table swing" : "VAR check";
   if (entryKind === "red-card") return "Match turning point";
   if (entryKind === "yellow-card") return "Discipline watch";
   if (entryKind === "substitution") return "Tactical shift";
@@ -5313,6 +5442,18 @@ function buildLiveStudioRevealLine(fixture, score, latestGoal) {
   if (!score) return getLiveStudioScoreSummary(fixture, score);
   const scoreSummary = getLiveStudioScoreSummary(fixture, score);
   if (!latestGoal) return `Latest score: ${scoreSummary}.`;
+  if (getLiveStudioEventKind(latestGoal) === "goal-disallowed") {
+    const team = getLiveStudioEventTeamLabel(latestGoal)
+      ? getLiveStudioTeamName(getLiveStudioEventTeamLabel(latestGoal))
+      : "the attacking side";
+    const venue = getLiveStudioVenue(fixture);
+    const seed = `${fixture?.id || ""}:disallowed:${score.homeGoals}-${score.awayGoals}:${team}`;
+    return pickLiveStudioPhrase(seed, [
+      `Let's go back to ${venue}: the goal for ${team} has been ruled out. ${scoreSummary}.`,
+      `VAR has had a look at ${venue}, and that goal for ${team} will not stand. ${scoreSummary}.`,
+      `Correction from ${venue}: no goal for ${team}. The scoreboard is back to ${scoreSummary}.`,
+    ]);
+  }
   const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
   const scorerName = String(latestGoal?.scorerName || "").trim();
   const scorer = scorerName ? `${scorerName} has scored. ` : "";
@@ -11138,6 +11279,7 @@ const liveStudioFeed = useMemo(() => {
           : score;
         const entryScore = getLiveStudioEventScore(event, entryScoreFallback);
         const entryIsGoal = entryKind === "goal";
+        const entryIsGoalDisallowed = entryKind === "goal-disallowed";
         const entryGoal = entryIsGoal ? event : null;
         const entryMinute = formatLiveStudioMinute(
           event,
@@ -11163,7 +11305,7 @@ const liveStudioFeed = useMemo(() => {
               leagueBetsLoaded: leagueCoinsLoaded,
             })
           : "";
-        const entryRevealLine = entryIsGoal
+        const entryRevealLine = entryIsGoal || entryIsGoalDisallowed
           ? buildLiveStudioRevealLine(fixture, entryScore, event)
           : isKickoff
           ? predictionPreviewLines[0]
@@ -11229,27 +11371,31 @@ const liveStudioFeed = useMemo(() => {
             seed: `${fixture.id}:full-table:${entryScore.homeGoals}-${entryScore.awayGoals}`,
           });
         }
-        if (entryIsGoal && entryScore && Number.isFinite(entryMomentMs)) {
+        if ((entryIsGoal || entryIsGoalDisallowed) && entryScore && Number.isFinite(entryMomentMs)) {
           const homeGoals = Number(entryScore.homeGoals);
           const awayGoals = Number(entryScore.awayGoals);
+          const previousHome = Number(event.previousHomeGoals);
+          const previousAway = Number(event.previousAwayGoals);
           const scoringTeam = getLiveStudioScoringTeam(fixture, entryScore, event);
-          const homeScored = scoringTeam === getLiveStudioTeamName(fixture.homeTeam);
-          const awayScored = scoringTeam === getLiveStudioTeamName(fixture.awayTeam);
-          const previousScore = {
-            homeGoals: Math.max(0, homeGoals - (homeScored ? 1 : 0)),
-            awayGoals: Math.max(0, awayGoals - (awayScored ? 1 : 0)),
-          };
+          const homeChanged = scoringTeam === getLiveStudioTeamName(fixture.homeTeam);
+          const awayChanged = scoringTeam === getLiveStudioTeamName(fixture.awayTeam);
+          const previousScore = entryIsGoalDisallowed && Number.isFinite(previousHome) && Number.isFinite(previousAway)
+            ? { homeGoals: previousHome, awayGoals: previousAway }
+            : {
+                homeGoals: Math.max(0, homeGoals - (homeChanged ? 1 : 0)),
+                awayGoals: Math.max(0, awayGoals - (awayChanged ? 1 : 0)),
+              };
           const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
           const previousRows = buildTableSnapshotAtMoment(entryMomentMs - 1, { fixtureId: fixture.id, score: previousScore });
           entryTableSnapshot = { previousRows, currentRows };
-          entryTableLabel = "Mini-league after the goal";
+          entryTableLabel = entryIsGoalDisallowed ? "Mini-league after VAR" : "Mini-league after the goal";
           entryTableImpactLine = buildLiveStudioTableImpactLine({
             fixture,
             previousRows,
             currentRows,
             gameMode,
             selectedGameweek,
-            seed: `${fixture.id}:${entryMinute}:${getLiveStudioScoreSummary(fixture, entryScore)}`,
+            seed: `${fixture.id}:${entryKind}:${entryMinute}:${getLiveStudioScoreSummary(fixture, entryScore)}`,
           });
         }
         const verdictLabel = buildLiveStudioVerdictLabel({
@@ -11289,7 +11435,7 @@ const liveStudioFeed = useMemo(() => {
             kickoffBetLine,
             isKickoff ? predictionPreviewLines[1] : "",
             isKickoff ? predictionPreviewLines[2] : "",
-            entryKind !== "goal" && !statusLabel ? eventLine : "",
+            !["goal", "goal-disallowed"].includes(entryKind) && !statusLabel ? eventLine : "",
             entryPersonalLine,
             fullTimeBetLine,
             !isKickoff && !isFullTime ? rivalLine : "",
