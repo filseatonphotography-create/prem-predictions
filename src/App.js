@@ -2678,43 +2678,64 @@ function hasLiveEventItems(events) {
   return Array.isArray(events) && events.length > 0;
 }
 
-function buildSyntheticLiveGoalEvent({ fixture, prevHome, prevAway, nextHome, nextAway }) {
+function getLiveMatchStateGoalEventCount(matchState = {}) {
+  const events = hasLiveEventItems(matchState.goalEvents)
+    ? matchState.goalEvents
+    : hasLiveEventItems(matchState.matchEvents)
+    ? matchState.matchEvents
+    : [];
+  return events.filter((event) => getLiveStudioEventKind(event) === "goal").length;
+}
+
+function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, nextAway }) {
   const homeGoals = Number(nextHome);
   const awayGoals = Number(nextAway);
-  if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return null;
+  if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return [];
   const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
   const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
-  if (homeGoals + awayGoals <= previousHome + previousAway) return null;
-  const homeAdded = homeGoals - previousHome;
-  const awayAdded = awayGoals - previousAway;
-  const teamName =
-    homeAdded > awayAdded
-      ? fixture?.homeTeam || ""
-      : awayAdded > homeAdded
-      ? fixture?.awayTeam || ""
-      : "";
-  return {
-    type: "GOAL",
-    synthetic: true,
-    scorerName: "",
-    playerName: "",
-    teamName,
-    minute: null,
-    injuryTime: null,
-    homeGoals,
-    awayGoals,
-  };
+  if (homeGoals + awayGoals <= previousHome + previousAway) return [];
+  const events = [];
+  for (let home = previousHome + 1; home <= homeGoals; home += 1) {
+    events.push({
+      type: "GOAL",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.homeTeam || "",
+      minute: null,
+      injuryTime: null,
+      homeGoals: home,
+      awayGoals: previousAway,
+    });
+  }
+  for (let away = previousAway + 1; away <= awayGoals; away += 1) {
+    events.push({
+      type: "GOAL",
+      synthetic: true,
+      scorerName: "",
+      playerName: "",
+      teamName: fixture?.awayTeam || "",
+      minute: null,
+      injuryTime: null,
+      homeGoals,
+      awayGoals: away,
+    });
+  }
+  return events.map((event, index) => ({ ...event, syntheticIndex: index + 1 }));
 }
 
 function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousStates, previousResults, fixtures) {
   const fixtureById = new Map((fixtures || []).map((fixture) => [String(fixture.id), fixture]));
   return Object.fromEntries(
     Object.entries(matchStateUpdates || {}).map(([fixtureId, matchState]) => {
-      if (hasLiveEventItems(matchState?.goalEvents) || hasLiveEventItems(matchState?.matchEvents)) {
-        return [fixtureId, matchState];
-      }
       const prevState = previousStates?.[fixtureId] || previousStates?.[Number(fixtureId)] || {};
       const prevResult = previousResults?.[fixtureId] || previousResults?.[Number(fixtureId)] || {};
+      const homeGoals = Number(matchState?.homeGoals);
+      const awayGoals = Number(matchState?.awayGoals);
+      const currentGoalTotal = Number.isFinite(homeGoals) && Number.isFinite(awayGoals) ? homeGoals + awayGoals : 0;
+      if (currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
+        return [fixtureId, matchState];
+      }
       const prevHome = Number.isFinite(Number(prevState.homeGoals))
         ? Number(prevState.homeGoals)
         : Number.isFinite(Number(prevResult.homeGoals))
@@ -2725,15 +2746,22 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         : Number.isFinite(Number(prevResult.awayGoals))
         ? Number(prevResult.awayGoals)
         : 0;
-      const syntheticGoal = buildSyntheticLiveGoalEvent({
+      const syntheticGoals = buildSyntheticLiveGoalEvents({
         fixture: fixtureById.get(String(fixtureId)),
         prevHome,
         prevAway,
         nextHome: matchState?.homeGoals,
         nextAway: matchState?.awayGoals,
       });
-      return syntheticGoal
-        ? [fixtureId, { ...matchState, goalEvents: [syntheticGoal], matchEvents: [syntheticGoal] }]
+      return syntheticGoals.length
+        ? [
+            fixtureId,
+            {
+              ...matchState,
+              goalEvents: [...(Array.isArray(matchState.goalEvents) ? matchState.goalEvents : []), ...syntheticGoals],
+              matchEvents: [...(Array.isArray(matchState.matchEvents) ? matchState.matchEvents : []), ...syntheticGoals],
+            },
+          ]
         : [fixtureId, matchState];
     })
   );
