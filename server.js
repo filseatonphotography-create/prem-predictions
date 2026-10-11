@@ -574,9 +574,24 @@ let liveNotifierStatus = {
   subscribedFixtures: 0,
   attemptedNotifications: 0,
   acceptedNotifications: 0,
+  goalEventsSeen: 0,
+  goalEventsWithScorers: 0,
   byMode: {},
   competitionErrors: {},
 };
+
+function getFootballDataHeaders({ unfold = false } = {}) {
+  return {
+    "X-Auth-Token": FOOTBALL_DATA_TOKEN,
+    ...(unfold
+      ? {
+          "X-Unfold-Goals": "true",
+          "X-Unfold-Bookings": "true",
+          "X-Unfold-Subs": "true",
+        }
+      : {}),
+  };
+}
 
 function maybeRunLiveFixtureNotifier(reason, minIntervalMs = 30 * 1000, mode = "all") {
   const now = Date.now();
@@ -598,7 +613,7 @@ function getResultsFetchConfig(mode) {
     return {
       cacheKey: `worldcup:${WORLD_CUP_SEASON}`,
       url: `${FOOTBALL_DATA_API_BASE}/competitions/WC/matches?season=${WORLD_CUP_SEASON}`,
-      headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+      headers: getFootballDataHeaders({ unfold: true }),
     };
   }
 
@@ -606,7 +621,7 @@ function getResultsFetchConfig(mode) {
   return {
     cacheKey: "premier:default",
     url: RESULTS_PROXY_URL,
-    headers: useDirectApi ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN } : {},
+    headers: useDirectApi ? getFootballDataHeaders({ unfold: true }) : {},
   };
 }
 
@@ -1927,13 +1942,13 @@ app.post("/api/admin/backfill-legacy-results", async (req, res) => {
     let matches = [];
     const direct = await fetchMatches(
       "https://api.football-data.org/v4/competitions/PL/matches",
-      { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+      getFootballDataHeaders({ unfold: true })
     );
     if (direct.ok) {
       matches = direct.matches;
     } else {
       const proxy = await fetchMatches(RESULTS_PROXY_URL, RESULTS_PROXY_URL.includes("football-data.org")
-        ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+        ? getFootballDataHeaders({ unfold: true })
         : {});
       if (!proxy.ok) {
         return res.status(proxy.status || 500).json({
@@ -2958,7 +2973,7 @@ app.post("/api/history/badges", authMiddleware, async (req, res) => {
 
     saveBadgeHistory(list);
     if (newlyEarnedBadgeIds.length > 0 && safeRecord.userId) {
-      await sendPushNotification(safeRecord.userId, "badgeEarned", {
+      await sendPushNotification(safeRecord.userId, "liveUpdates", {
         title: "New badge earned",
         body:
           newlyEarnedBadgeIds.length === 1
@@ -3342,7 +3357,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
               Number(pred.homeGoals) === fx.homeGoals &&
               Number(pred.awayGoals) === fx.awayGoals
             ) {
-              sendPushNotification(userId, "bingpot", {
+              sendPushNotification(userId, "liveUpdates", {
                 title: "Bingpot! 🎯",
                 body: `Exact score ${fx.homeGoals}-${fx.awayGoals} (fixture #${fx.fixtureId})`,
                 url: "/",
@@ -3372,7 +3387,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                 }
               }
 
-              sendPushNotification(userId, "betWin", {
+              sendPushNotification(userId, "liveUpdates", {
                 title: "Bet won! 💰",
                 body: `You won your bet on fixture #${fx.fixtureId}.${payout}`,
                 url: "/",
@@ -3394,7 +3409,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
               const isFavFixture = favNorm === homeNorm || favNorm === awayNorm;
               if (!isFavFixture) return;
 
-              sendPushNotification(user.id, "favoriteTeamResult", {
+              sendPushNotification(user.id, "liveUpdates", {
                 title: "Favourite team result",
                 body: `${fixture.homeTeam} ${fx.homeGoals}-${fx.awayGoals} ${fixture.awayTeam}`,
                 url: "/",
@@ -3423,6 +3438,35 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           const statusNow = update.nextStatus;
           const statusBefore = update.prevStatus;
           const liveishStatuses = new Set(["IN_PLAY", "PAUSED", "FINISHED"]);
+          const previousEventKeys = new Set(
+            (Array.isArray(currentMatchStates[String(fixtureId)]?.matchEvents)
+              ? currentMatchStates[String(fixtureId)].matchEvents
+              : []
+            ).map((event, index) => getLivePushEventKeyPart(event, index))
+          );
+          const nextEvents = Array.isArray(update.nextState?.matchEvents)
+            ? update.nextState.matchEvents
+            : [];
+
+          nextEvents.forEach((event, index) => {
+            const eventKind = getLivePushEventKind(event);
+            if (eventKind === "goal") return;
+            const eventKeyPart = getLivePushEventKeyPart(event, index);
+            if (previousEventKeys.has(eventKeyPart)) return;
+            const eventPayload = buildLiveMatchEventPayload(fixture, event);
+            subscribedUserIds.forEach((userId) => {
+              sendFixtureUpdateNotification(userId, fixtureId, eventKind, eventKeyPart, eventPayload);
+            });
+          });
+
+          if (statusNow === "IN_PLAY" && statusBefore !== "IN_PLAY") {
+            subscribedUserIds.forEach((userId) => {
+              sendFixtureUpdateNotification(userId, fixtureId, "kick-off", "0-0", {
+                title: buildLivePushHeader({ fixture, eventKind: "kick-off", minute: "0'" }),
+                body: `${fixture.homeTeam} vs ${fixture.awayTeam} is underway.`,
+              });
+            });
+          }
 
           if (scoreChanged && liveishStatuses.has(statusNow)) {
             const shouldSendGoal =
@@ -3452,7 +3496,14 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                 );
                 const goalBody = buildGoalAlertBody(fixture, update.nextHome, update.nextAway, goalEvent);
                 sendFixtureUpdateNotification(userId, fixtureId, "goal", `${update.nextHome}-${update.nextAway}`, {
-                  title: "Goal alert",
+                  title: buildLivePushHeader({
+                    fixture,
+                    eventKind: "goal",
+                    minute: formatLivePushMinute(goalEvent),
+                    homeGoals: update.nextHome,
+                    awayGoals: update.nextAway,
+                    event: goalEvent,
+                  }),
                   body: impactLine ? `${goalBody}\n${impactLine}` : goalBody,
                   url: "/",
                 });
@@ -3463,7 +3514,13 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           if (statusNow === "PAUSED" && statusBefore !== "PAUSED" && hasScoreNow) {
             subscribedUserIds.forEach((userId) => {
               sendFixtureUpdateNotification(userId, fixtureId, "half-time", `${update.nextHome}-${update.nextAway}`, {
-                title: "Half-time",
+                title: buildLivePushHeader({
+                  fixture,
+                  eventKind: "half-time",
+                  minute: "45'",
+                  homeGoals: update.nextHome,
+                  awayGoals: update.nextAway,
+                }),
                 body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
                 url: "/",
               });
@@ -3473,7 +3530,13 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           if (statusNow === "FINISHED" && statusBefore !== "FINISHED" && hasScoreNow) {
             subscribedUserIds.forEach((userId) => {
               sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${update.nextHome}-${update.nextAway}`, {
-                title: "Full-time",
+                title: buildLivePushHeader({
+                  fixture,
+                  eventKind: "full-time",
+                  minute: "90'",
+                  homeGoals: update.nextHome,
+                  awayGoals: update.nextAway,
+                }),
                 body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
                 url: "/",
               });
@@ -3965,6 +4028,35 @@ function buildLiveStudioUrl(fixtureId, eventKey = "") {
   return `/?${params.toString()}`;
 }
 
+function formatLivePushScore(fixture, homeGoals, awayGoals) {
+  if (!Number.isFinite(Number(homeGoals)) || !Number.isFinite(Number(awayGoals))) {
+    return `${fixture.homeTeam} v ${fixture.awayTeam}`;
+  }
+  return `${fixture.homeTeam} ${homeGoals} ${fixture.awayTeam} ${awayGoals}`;
+}
+
+function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null, awayGoals = null, event = null }) {
+  const minuteText = minute ? `${minute} ` : "";
+  const player = String(event?.playerName || event?.scorerName || event?.playerOutName || "").trim();
+  const labels = {
+    "kick-off": "Kick-off!",
+    goal: "Goal!",
+    "half-time": "Half-time!",
+    "full-time": "Full-time!",
+    "red-card": "Red card!",
+    "yellow-card": "Booking",
+    substitution: "Substitution",
+    injury: "Injury",
+    update: "Update",
+  };
+  const label = labels[eventKind] || "Update";
+  const scoreText = formatLivePushScore(fixture, homeGoals, awayGoals);
+  const playerText = player && !["goal", "kick-off", "half-time", "full-time"].includes(eventKind)
+    ? ` ${player}`
+    : "";
+  return `${minuteText}${label}${playerText} ${scoreText}`.trim();
+}
+
 function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKey, payload = {}) {
   const prefs = getPushNotificationPrefs(userId);
   if (eventKind !== "goal" || prefs.noSpoilerFixtureUpdates !== true) return payload;
@@ -3982,8 +4074,78 @@ function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKe
   };
 }
 
+function getLivePushEventKind(event = {}) {
+  const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
+  if (text.includes("goal") || text.includes("score")) return "goal";
+  if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
+  if (text.includes("red") || text.includes("dismiss")) return "red-card";
+  if (text.includes("yellow") || text.includes("booking") || text.includes("card")) return "yellow-card";
+  if (text.includes("injur") || text.includes("knock")) return "injury";
+  return "update";
+}
+
+function formatLivePushMinute(event = {}) {
+  const minute = Number(event.minute);
+  if (!Number.isFinite(minute)) return "";
+  const injuryTime = Number(event.injuryTime);
+  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
+}
+
+function getLivePushEventKeyPart(event = {}) {
+  return [
+    getLivePushEventKind(event),
+    event.minute ?? "na",
+    event.injuryTime ?? "",
+    event.playerName || event.scorerName || event.playerOutName || "",
+    event.substituteName || "",
+    event.teamName || "",
+  ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
+}
+
+function buildLiveMatchEventPayload(fixture, event = {}) {
+  const kind = getLivePushEventKind(event);
+  const minute = formatLivePushMinute(event);
+  const player = String(event.playerName || event.scorerName || event.playerOutName || "").trim();
+  const team = String(event.teamName || "").trim();
+  const at = minute ? ` ${minute}` : "";
+  const teamSuffix = team ? ` for ${team}` : "";
+
+  if (kind === "red-card") {
+    return {
+      title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
+      body: `${player || team || "A player"} has been sent off${at}.`,
+    };
+  }
+  if (kind === "yellow-card") {
+    return {
+      title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
+      body: `${player || team || "A player"} goes into the book${at}.`,
+    };
+  }
+  if (kind === "substitution") {
+    const replacement = String(event.substituteName || "").trim();
+    return {
+      title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
+      body: replacement && player
+        ? `${replacement} replaces ${player}${teamSuffix}${at}.`
+        : `There has been a substitution${teamSuffix}${at}.`,
+    };
+  }
+  if (kind === "injury") {
+    return {
+      title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
+      body: `There is an injury concern${teamSuffix}${player ? ` for ${player}` : ""}${at}.`,
+    };
+  }
+  return {
+    title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
+    body: `${fixture.homeTeam} vs ${fixture.awayTeam} has a new update${at}.`,
+  };
+}
+
 async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, scoreLabel, payload) {
   const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
+  if (!isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId))) return false;
   if (!reserveFixtureNotificationEvent(userId, eventKey)) return false;
   const nextPayload = maybeApplyNoSpoilerFixturePayload(
     userId,
@@ -3992,8 +4154,9 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
     eventKey,
     payload
   );
-  return sendPushNotification(userId, "fixtureUpdates", {
+  return sendPushNotification(userId, "liveUpdates", {
     ...nextPayload,
+    url: buildLiveStudioUrl(fixtureId, eventKey),
     tag: eventKey,
   });
 }
@@ -4078,10 +4241,10 @@ app.post("/api/push/fixture-test", authMiddleware, async (req, res) => {
     });
   }
 
-  const sent = await sendPushNotification(req.user.id, "fixtureUpdates", {
-    title: "Fixture alert test",
+  const sent = await sendPushNotification(req.user.id, "liveUpdates", {
+    title: "Live Studio test",
     body: `${fixture.homeTeam} vs ${fixture.awayTeam}`,
-    url: "/",
+    url: buildLiveStudioUrl(fixtureId, "test"),
   });
   if (!sent) {
     return res.status(410).json({
@@ -4332,7 +4495,7 @@ async function fetchLiveMatches(mode) {
     normalizedMode === "worldcup"
       ? `${FOOTBALL_DATA_API_BASE}/competitions/WC/matches?season=${WORLD_CUP_SEASON}`
       : `${FOOTBALL_DATA_API_BASE}/competitions/PL/matches`,
-    { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+    getFootballDataHeaders({ unfold: true })
   );
   if (direct.ok) return direct.matches;
 
@@ -4343,7 +4506,7 @@ async function fetchLiveMatches(mode) {
   const proxy = await fetchMatches(
     RESULTS_PROXY_URL,
     RESULTS_PROXY_URL.includes("football-data.org")
-      ? { "X-Auth-Token": FOOTBALL_DATA_TOKEN }
+      ? getFootballDataHeaders({ unfold: true })
       : {}
   );
   if (proxy.ok) return proxy.matches;
@@ -4403,6 +4566,8 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
     subscribedFixtures: 0,
     attemptedNotifications: 0,
     acceptedNotifications: 0,
+    goalEventsSeen: 0,
+    goalEventsWithScorers: 0,
     byMode: {},
     competitionErrors: {},
   };
@@ -4451,6 +4616,11 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
     });
 
     summary.fetchedMatches = liveMatches.length;
+    liveMatches.forEach(({ match }) => {
+      const goals = normalizeGoalEvents(match);
+      summary.goalEventsSeen += goals.length;
+      summary.goalEventsWithScorers += goals.filter((goal) => goal.scorerName).length;
+    });
     if (!liveMatches.length) {
       summary.lastFinishedAt = new Date().toISOString();
       liveNotifierStatus = summary;
@@ -4529,6 +4699,33 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       summary.byMode[mode].subscribedFixtures += 1;
 
       const prevStatus = String(prevState.status || "");
+      const previousEventKeys = new Set(
+        (Array.isArray(prevState.matchEvents) ? prevState.matchEvents : [])
+          .map((event, index) => getLivePushEventKeyPart(event, index))
+      );
+      const nextEvents = Array.isArray(nextState.matchEvents) ? nextState.matchEvents : [];
+
+      nextEvents.forEach((event, index) => {
+        const eventKind = getLivePushEventKind(event);
+        if (eventKind === "goal") return;
+        const eventKeyPart = getLivePushEventKeyPart(event, index);
+        if (previousEventKeys.has(eventKeyPart)) return;
+        const eventPayload = buildLiveMatchEventPayload(fixture, event);
+        subscribedUserIds.forEach((userId) => {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, eventKind, eventKeyPart, eventPayload));
+        });
+      });
+
+      if (status === "IN_PLAY" && prevStatus !== "IN_PLAY") {
+        subscribedUserIds.forEach((userId) => {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "kick-off", "0-0", {
+            title: buildLivePushHeader({ fixture, eventKind: "kick-off", minute: "0'" }),
+            body: `${fixture.homeTeam} vs ${fixture.awayTeam} is underway.`,
+          }));
+        });
+      }
 
       if (scoreChanged && new Set(["IN_PLAY", "PAUSED", "FINISHED"]).has(status)) {
         const shouldSendGoal =
@@ -4554,7 +4751,14 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
             const goalBody = buildGoalAlertBody(fixture, homeGoals, awayGoals, goalEvent);
             summary.attemptedNotifications += 1;
             notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "goal", `${homeGoals}-${awayGoals}`, {
-              title: "Goal alert",
+              title: buildLivePushHeader({
+                fixture,
+                eventKind: "goal",
+                minute: formatLivePushMinute(goalEvent),
+                homeGoals,
+                awayGoals,
+                event: goalEvent,
+              }),
               body: impactLine ? `${goalBody}\n${impactLine}` : goalBody,
               url: "/",
             }));
@@ -4566,7 +4770,13 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
           notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "half-time", `${homeGoals}-${awayGoals}`, {
-            title: "Half-time",
+            title: buildLivePushHeader({
+              fixture,
+              eventKind: "half-time",
+              minute: "45'",
+              homeGoals,
+              awayGoals,
+            }),
             body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
             url: "/",
           }));
@@ -4577,7 +4787,13 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
           notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${homeGoals}-${awayGoals}`, {
-            title: "Full-time",
+            title: buildLivePushHeader({
+              fixture,
+              eventKind: "full-time",
+              minute: "90'",
+              homeGoals,
+              awayGoals,
+            }),
             body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
             url: "/",
           }));

@@ -755,6 +755,8 @@ describe("World Cup sync helpers", () => {
         status: "FINISHED",
         homeGoals: 2,
         awayGoals: 1,
+        goalEvents: [],
+        matchEvents: [],
         homeTeam: "United States",
         awayTeam: "Türkiye",
         halfTimeHomeGoals: 1,
@@ -1149,11 +1151,13 @@ describe("goal notification detection", () => {
     );
   });
 
-  test("fixture bell alerts are not blocked by invisible global prefs", () => {
+  test("live update alerts are controlled by the visible Live updates pref", () => {
     expect(isPushTypeEnabled("fixtureUpdates", { fixtureUpdates: false })).toBe(true);
-    expect(isPushTypeEnabled("bingpot", { bingpot: false })).toBe(false);
+    expect(isPushTypeEnabled("bingpot", { bingpot: false })).toBe(true);
     expect(isPushTypeEnabled("badgeEarned", {})).toBe(true);
-    expect(isPushTypeEnabled("badgeEarned", { badgeEarned: false })).toBe(false);
+    expect(isPushTypeEnabled("liveUpdates", { liveUpdates: false })).toBe(false);
+    expect(isPushTypeEnabled("fixtureUpdates", { liveUpdates: false })).toBe(false);
+    expect(isPushTypeEnabled("badgeEarned", { liveUpdates: false })).toBe(false);
   });
 
   test("uses previous live match state before persisted results", () => {

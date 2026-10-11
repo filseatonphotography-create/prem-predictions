@@ -160,15 +160,30 @@ const BADGE_HISTORY_STORAGE_KEY = "prediction_badge_history_v1";
 const BADGE_SEEN_STORAGE_KEY = "prediction_seen_badges_v1";
 const WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY = "world_cup_central_open_v1";
 const FIXTURE_PUSH_STORAGE_KEY = "fixture_push_prefs_v1";
+const PUSH_PREFS_STORAGE_KEY = "push_prefs_v1";
+const LEGACY_LIVE_PUSH_PREF_KEYS = [
+  "bingpot",
+  "betWin",
+  "badgeEarned",
+  "favoriteTeamResult",
+  "fixtureUpdates",
+];
 const DEFAULT_PUSH_PREFS = {
   deadline1h: true,
   deadline24h: true,
-  bingpot: true,
-  betWin: true,
-  badgeEarned: true,
-  favoriteTeamResult: false,
+  liveUpdates: true,
   noSpoilerFixtureUpdates: false,
 };
+function normalizePushPrefs(prefs = {}) {
+  const next = { ...DEFAULT_PUSH_PREFS };
+  if (prefs && typeof prefs === "object") {
+    Object.entries(prefs).forEach(([key, value]) => {
+      if (LEGACY_LIVE_PUSH_PREF_KEYS.includes(key)) return;
+      next[key] = value;
+    });
+  }
+  return next;
+}
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
 const FANTASY_IQ_VIEW_ID = "fantasyHelp";
@@ -4367,9 +4382,40 @@ function getLiveStudioEventSortMinute(event = {}, fallback = -1) {
   return minute + (Number.isFinite(injuryTime) ? injuryTime / 100 : 0);
 }
 
+function getLiveStudioUpdateKeyPart(event = {}) {
+  return [
+    getLiveStudioEventKind(event),
+    event.minute ?? "na",
+    event.injuryTime ?? "",
+    event.playerName || event.scorerName || event.playerOutName || "",
+    event.substituteName || "",
+    event.teamName || "",
+  ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
+}
+
+function getLiveStudioPushEventKind(event = {}, statusLabel = "") {
+  if (statusLabel === "KO") return "kick-off";
+  if (statusLabel === "HT") return "half-time";
+  if (statusLabel === "FT") return "full-time";
+  return getLiveStudioEventKind(event);
+}
+
+function getLiveStudioUpdateKey({ fixtureId, event, statusLabel = "", score = null }) {
+  if (!fixtureId) return "";
+  const kind = getLiveStudioPushEventKind(event, statusLabel);
+  if (kind === "kick-off") return `${fixtureId}:${kind}:0-0`;
+  if (["goal", "half-time", "full-time"].includes(kind) && score) {
+    return `${fixtureId}:${kind}:${score.homeGoals}-${score.awayGoals}`;
+  }
+  return `${fixtureId}:${kind}:${getLiveStudioUpdateKeyPart(event)}`;
+}
+
+function getLiveStudioUpdateDomId(updateKey) {
+  return updateKey ? `live-studio-update-${String(updateKey).replace(/[^a-z0-9_-]+/gi, "-")}` : "";
+}
+
 function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
   const kind = getLiveStudioEventKind(event);
-  const minute = formatLiveStudioMinute(event, statusLabel);
   const player = getLiveStudioEventPlayerName(event);
   const team = getLiveStudioEventTeamLabel(event);
   const teamCode = team ? getTeamCode(team) : "";
@@ -4393,7 +4439,7 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
       ? "Full time!"
       : "Update";
   const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
-  return [minute, label, suffix || scoreText].filter(Boolean).join(" ");
+  return [label, suffix || scoreText].filter(Boolean).join(" ");
 }
 
 function getLiveStudioEventIcon(event = {}) {
@@ -4461,6 +4507,175 @@ function buildLiveStudioTableImpactLine({ fixture, previousRows, currentRows, ga
     `Let's see what that goal has done to the ${leagueName} table: ${headline}.`,
     `The latest table flash is in: ${headline} after that goal.`,
     `That is a big one in the ${leagueName}; ${headline}.`,
+  ]);
+}
+
+function buildLiveStudioFullTimeTableLine({ previousRows, currentRows, fixture, score, seed }) {
+  if (!previousRows || !currentRows || !score) return "";
+  const changes = currentRows
+    .map((row) => {
+      const before = previousRows.find(
+        (candidate) => (candidate.userId || candidate.username) === (row.userId || row.username)
+      );
+      return before && before.position !== row.position ? { row, before } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => Math.abs(b.before.position - b.row.position) - Math.abs(a.before.position - a.row.position));
+  const topScorers = currentRows
+    .map((row) => {
+      const before = previousRows.find(
+        (candidate) => (candidate.userId || candidate.username) === (row.userId || row.username)
+      );
+      return { row, gained: Math.max(0, Number(row.points || 0) - Number(before?.points || 0)) };
+    })
+    .filter((entry) => entry.gained > 0)
+    .sort((a, b) => b.gained - a.gained || a.row.username.localeCompare(b.row.username));
+  const best = topScorers[0];
+  const blanked = currentRows.find((row) => {
+    const before = previousRows.find(
+      (candidate) => (candidate.userId || candidate.username) === (row.userId || row.username)
+    );
+    return before && Number(row.points || 0) === Number(before.points || 0);
+  });
+
+  if (changes.length) {
+    const change = changes[0];
+    const places = Math.abs(change.before.position - change.row.position);
+    const direction = change.row.position < change.before.position ? "up" : "down";
+    const leapfrogTarget =
+      direction === "up"
+        ? previousRows.find((row) => row.position === change.row.position)
+        : null;
+    const leapfrogText = leapfrogTarget && leapfrogTarget.username !== change.row.username
+      ? ` and leapfrogs ${leapfrogTarget.username}`
+      : "";
+    return pickLiveStudioPhrase(seed, [
+      `${change.row.username} moves ${direction} ${places} ${places === 1 ? "place" : "places"}${leapfrogText} after ${getLiveStudioScoreSummary(fixture, score)}.`,
+      `The table has shifted: ${change.row.username} goes ${direction} to ${change.row.position}${leapfrogText}.`,
+      `Full-time movement: ${change.row.username} is ${direction} ${places} ${places === 1 ? "spot" : "spots"}${leapfrogText}.`,
+    ]);
+  }
+
+  if (best) {
+    return pickLiveStudioPhrase(seed, [
+      `${best.row.username} takes ${best.gained} points from this one, but the table order holds.`,
+      `${best.row.username} makes the biggest gain here with ${best.gained} points, without a position change.`,
+      `Best return from this match: ${best.row.username} with ${best.gained} points. The standings stay as they were.`,
+    ]);
+  }
+
+  if (blanked) {
+    return pickLiveStudioPhrase(seed, [
+      `No one makes a move from this one. ${blanked.username} is among those left with nothing from the final score.`,
+      `The table stays locked after this result. A tough one for ${blanked.username}, who gets 0 points here.`,
+      `No standings drama at full time. ${blanked.username} will want to forget this prediction quickly.`,
+    ]);
+  }
+
+  return `The full-time table is updated after ${getLiveStudioScoreSummary(fixture, score)}.`;
+}
+
+function buildLiveStudioFullTimeSummary({ fixture, score, probabilities, venue, seed }) {
+  if (!score) return `Full-time at ${venue}.`;
+  const homeTeam = getLiveStudioTeamName(fixture.homeTeam);
+  const awayTeam = getLiveStudioTeamName(fixture.awayTeam);
+  const resultSide = getResult(Number(score.homeGoals), Number(score.awayGoals));
+  const favoriteSide = getLiveStudioFavoriteSide(probabilities);
+  const scoreLine = getLiveStudioScoreSummary(fixture, score);
+  if (resultSide === "D") {
+    return pickLiveStudioPhrase(seed, [
+      `All square at ${venue}. ${homeTeam} and ${awayTeam} finish level: ${scoreLine}.`,
+      `It ends even at ${venue}. Neither side could break away in ${scoreLine}.`,
+      `Full time, honours even. ${scoreLine}, and now the predictions settle up.`,
+    ]);
+  }
+  const winner = resultSide === "H" ? homeTeam : awayTeam;
+  const loser = resultSide === "H" ? awayTeam : homeTeam;
+  const awayWin = resultSide === "A";
+  const upset = favoriteSide && favoriteSide !== "D" && favoriteSide !== resultSide;
+  if (upset) {
+    return pickLiveStudioPhrase(seed, [
+      `The underdogs have pulled it off. ${winner} beat ${loser} ${score.homeGoals}-${score.awayGoals}, and that will sting a few prediction slips.`,
+      `A proper upset at ${venue}: ${scoreLine}. The form book takes a dent, and so do some predictions.`,
+      `${winner} fought brilliantly for this one. ${scoreLine}, and the table is about to feel it.`,
+    ]);
+  }
+  if (awayWin) {
+    return pickLiveStudioPhrase(seed, [
+      `A tough away assignment, handled well by ${winner}. ${scoreLine} is the final word.`,
+      `${winner} come away with the points on the road. ${scoreLine}, and the prediction points are locked in.`,
+      `Full time at ${venue}: ${winner} get the away win, ${scoreLine}.`,
+    ]);
+  }
+  return pickLiveStudioPhrase(seed, [
+    `${homeTeam} get the job done at ${venue}. ${scoreLine}, and the league table updates now.`,
+    `Full time at ${venue}: ${homeTeam} make home advantage count in ${scoreLine}.`,
+    `${homeTeam} see it through. ${scoreLine}, and the prediction damage is now official.`,
+  ]);
+}
+
+function formatLiveStudioCoins(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return "";
+  return Number.isInteger(amount) ? String(amount) : amount.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function getLiveStudioBetSideLabel(fixture, side) {
+  if (side === "H") return `${getLiveStudioTeamName(fixture.homeTeam)} win`;
+  if (side === "A") return `${getLiveStudioTeamName(fixture.awayTeam)} win`;
+  if (side === "D") return "draw";
+  return "result";
+}
+
+function getLiveStudioBetPrice(bet) {
+  const side = bet?.side;
+  const oddsSnap = bet?.oddsSnapshot || {};
+  const price = side === "H" ? oddsSnap.home : side === "D" ? oddsSnap.draw : side === "A" ? oddsSnap.away : null;
+  const parsed = Number(price);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function buildLiveStudioKickoffBetLine({ fixture, bet, username, seed }) {
+  const stake = Number(bet?.stake || 0);
+  if (!stake || stake <= 0 || !bet?.side) return "";
+  const sideLabel = getLiveStudioBetSideLabel(fixture, bet.side);
+  const stakeText = formatLiveStudioCoins(stake);
+  const price = getLiveStudioBetPrice(bet);
+  const returnText = price ? formatLiveStudioCoins(stake * price) : "";
+  const returnPhrase = returnText ? `, with ${returnText} coins there to be won` : "";
+  return pickLiveStudioPhrase(`${seed}:${stake}:${bet.side}`, [
+    `${username} has a lot riding on this too: ${stakeText} coins on a ${sideLabel}${returnPhrase}.`,
+    `There is coin pressure for ${username}: ${stakeText} coins are backing a ${sideLabel}${returnPhrase}.`,
+    `${username} has put ${stakeText} coins behind a ${sideLabel}, so this one matters on the coins board as well.`,
+  ]);
+}
+
+function buildLiveStudioFullTimeBetLine({ fixture, bet, score, username, seed }) {
+  const stake = Number(bet?.stake || 0);
+  if (!stake || stake <= 0 || !bet?.side || !score) return "";
+  const resultSide = getResult(Number(score.homeGoals), Number(score.awayGoals));
+  const sideLabel = getLiveStudioBetSideLabel(fixture, bet.side);
+  const stakeText = formatLiveStudioCoins(stake);
+  const price = getLiveStudioBetPrice(bet);
+  const payout = bet.side === resultSide && price ? stake * price : 0;
+  if (bet.side === resultSide) {
+    const payoutText = payout ? formatLiveStudioCoins(payout) : "";
+    return pickLiveStudioPhrase(`${seed}:win:${stake}:${bet.side}`, [
+      payoutText
+        ? `Great call from ${username}, who pockets ${payoutText} coins after backing a ${sideLabel}.`
+        : `Great call from ${username}, whose coins bet landed on the ${sideLabel}.`,
+      payoutText
+        ? `${username}'s ${stakeText}-coin stake comes in, returning ${payoutText} coins for the ${sideLabel}.`
+        : `${username}'s ${stakeText}-coin stake comes in on the ${sideLabel}.`,
+      payoutText
+        ? `The coins desk likes that one: ${username} collects ${payoutText} coins for the ${sideLabel}.`
+        : `The coins desk likes that one: ${username}'s bet on the ${sideLabel} has landed.`,
+    ]);
+  }
+  return pickLiveStudioPhrase(`${seed}:loss:${stake}:${bet.side}:${resultSide}`, [
+    `No coins joy for ${username}: the ${stakeText}-coin stake on a ${sideLabel} misses out.`,
+    `${username} had ${stakeText} coins on a ${sideLabel}, but the final whistle says otherwise.`,
+    `A tough one on the coins board for ${username}, who loses the ${stakeText}-coin stake on a ${sideLabel}.`,
   ]);
 }
 
@@ -5862,8 +6077,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [pushPrefs, setPushPrefs] = useState(() => {
     try {
-      const saved = localStorage.getItem("push_prefs_v1");
-      if (saved) return { ...DEFAULT_PUSH_PREFS, ...JSON.parse(saved) };
+      const saved = localStorage.getItem(PUSH_PREFS_STORAGE_KEY);
+      if (saved) return normalizePushPrefs(JSON.parse(saved));
     } catch {}
     return DEFAULT_PUSH_PREFS;
   });
@@ -5890,6 +6105,13 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const liveStudioFocusFixtureId = useMemo(() => {
     try {
       return new URLSearchParams(window.location.search || "").get("fixtureId") || "";
+    } catch {
+      return "";
+    }
+  }, []);
+  const liveStudioFocusUpdateKey = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search || "").get("update") || "";
     } catch {
       return "";
     }
@@ -7937,8 +8159,8 @@ useEffect(() => {
       const prefs = await apiGetPushPrefs(authToken);
       if (prefs && typeof prefs === "object") {
         setPushPrefs((prev) => {
-          const next = { ...DEFAULT_PUSH_PREFS, ...prev, ...prefs };
-          localStorage.setItem("push_prefs_v1", JSON.stringify(next));
+          const next = normalizePushPrefs({ ...prev, ...prefs });
+          localStorage.setItem(PUSH_PREFS_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
@@ -7981,8 +8203,7 @@ useEffect(() => {
       }
 
       const localPushPrefs = {
-        ...DEFAULT_PUSH_PREFS,
-        ...JSON.parse(localStorage.getItem("push_prefs_v1") || "{}"),
+        ...normalizePushPrefs(JSON.parse(localStorage.getItem(PUSH_PREFS_STORAGE_KEY) || "{}")),
       };
       const localFixturePrefs = JSON.parse(
         localStorage.getItem(FIXTURE_PUSH_STORAGE_KEY) || "{}"
@@ -8997,14 +9218,14 @@ setNewPasswordInput("");
   }
 
   const updatePushPref = async (key, value) => {
-    const next = { ...pushPrefs, [key]: value };
+    const next = normalizePushPrefs({ ...pushPrefs, [key]: value });
     setPushPrefs(next);
-    localStorage.setItem("push_prefs_v1", JSON.stringify(next));
+    localStorage.setItem(PUSH_PREFS_STORAGE_KEY, JSON.stringify(next));
     if (key === "noSpoilerFixtureUpdates") {
       setLiveStudioNotice(
         value
-          ? "No-spoiler push alerts are on. Goal notifications will hide scorer and score details."
-          : "No-spoiler push alerts are off. Goal notifications can include scorer and score details."
+          ? "No-spoiler push alerts are on. Live Studio goal pushes will hide scorer and score details."
+          : "No-spoiler push alerts are off. Live Studio goal pushes can include scorer and score details."
       );
       window.setTimeout(() => {
         setLiveStudioNotice((current) =>
@@ -9849,6 +10070,9 @@ const getLiveStudioOverallPointsForUser = useCallback(
         ? getFixtureScoreFromStateOrResult(fixture, null, settledResult)
         : null;
       const settledPoints = settledScore ? getTotalPoints(prediction, settledScore) : 0;
+      if (fixtureOverride?.skipFixture && String(fixture.id) === String(fixtureOverride.fixtureId)) {
+        return sum - settledPoints;
+      }
 
       const liveScore = fixtureOverride && String(fixture.id) === String(fixtureOverride.fixtureId)
         ? fixtureOverride.score
@@ -9931,6 +10155,41 @@ const liveStudioFeed = useMemo(() => {
     rows.forEach((row, index) => { row.position = index + 1; });
     return rows;
   };
+  const getUserPredictionForFixture = (user, fixture) => {
+    const userPredictions = liveStudioPredictionsForUser(user);
+    return userPredictions[String(fixture.id)] !== undefined
+      ? userPredictions[String(fixture.id)]
+      : userPredictions[fixture.id];
+  };
+  const formatPredictionPick = (prediction) => {
+    if (!prediction) return "";
+    const home = prediction.homeGoals;
+    const away = prediction.awayGoals;
+    if (home === "" || away === "" || home == null || away == null) return "";
+    const tag = prediction.isTriple ? " T" : prediction.isDouble ? " C" : "";
+    return `${home}-${away}${tag}`;
+  };
+  const buildPredictionPreviewLines = (fixture) => {
+    const picks = liveStudioUsers
+      .map((user) => ({
+        username: user.username,
+        pick: formatPredictionPick(getUserPredictionForFixture(user, fixture)),
+      }))
+      .filter((entry) => entry.pick);
+    if (!picks.length) {
+      return ["No league predictions are in for this one yet."];
+    }
+    const preview = picks.slice(0, 8).map((entry) => `${entry.username}: ${entry.pick}`).join(" | ");
+    const more = picks.length > 8 ? ` | +${picks.length - 8} more` : "";
+    return [
+      pickLiveStudioPhrase(`${fixture.id}:kickoff:${picks.length}`, [
+        `The game is underway at ${getLiveStudioVenue(fixture, gameMode)}. Let's see our experts' predictions for this one.`,
+        `Kick-off at ${getLiveStudioVenue(fixture, gameMode)}. The league picks are locked in, and this is where everyone stands.`,
+        `We are off and running at ${getLiveStudioVenue(fixture, gameMode)}. Here are the calls from the prediction desk.`,
+      ]),
+      `${preview}${more}`,
+    ];
+  };
 
   const entries = liveStudioFixtures
     .flatMap((fixture, fixtureIndex) => {
@@ -9961,6 +10220,12 @@ const liveStudioFeed = useMemo(() => {
         currentUserPredictions[String(fixture.id)] !== undefined
           ? currentUserPredictions[String(fixture.id)]
           : currentUserPredictions[fixture.id];
+      const currentCoinsBet =
+        (coinsState?.bets && (
+          coinsState.bets[String(fixture.id)] !== undefined
+            ? coinsState.bets[String(fixture.id)]
+            : coinsState.bets[fixture.id]
+        )) || null;
       const personalLine = score
         ? buildLiveStudioPredictionLine({
             prediction: currentPrediction,
@@ -10063,28 +10328,46 @@ const liveStudioFeed = useMemo(() => {
 
       return feedEvents.map((event, eventIndex) => {
         const entryKind = getLiveStudioEventKind(event);
+        const statusLabel = String(event.statusLabel || "");
+        const isKickoff = statusLabel === "KO";
+        const isFullTime = statusLabel === "FT";
         const entryScore = getLiveStudioEventScore(event, score);
         const entryIsGoal = entryKind === "goal";
         const entryGoal = entryIsGoal ? event : null;
         const entryMinute = formatLiveStudioMinute(
           event,
-          event.statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "")
+          statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "")
         );
         const entryTitle = buildLiveStudioEventHeader({
           fixture,
           event,
           score: entryScore,
-          statusLabel: event.statusLabel || "",
+          statusLabel,
         });
         const entryIcon = getLiveStudioEventIcon(event);
+        const predictionPreviewLines = isKickoff ? buildPredictionPreviewLines(fixture) : [];
+        const kickoffBetLine = isKickoff
+          ? buildLiveStudioKickoffBetLine({
+              fixture,
+              bet: currentCoinsBet,
+              username: currentUserName,
+              seed: `${fixture.id}:kickoff-bet`,
+            })
+          : "";
         const entryRevealLine = entryIsGoal
           ? buildLiveStudioRevealLine(fixture, entryScore, event)
-          : event.statusLabel === "KO"
-          ? `We are underway at ${venue}: ${getLiveStudioScoreSummary(fixture, null)}.`
-          : event.statusLabel === "HT"
+          : isKickoff
+          ? predictionPreviewLines[0]
+          : statusLabel === "HT"
           ? `Half-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
-          : event.statusLabel === "FT"
-          ? `Full-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
+          : isFullTime
+          ? buildLiveStudioFullTimeSummary({
+              fixture,
+              score: entryScore,
+              probabilities,
+              venue,
+              seed: `${fixture.id}:full-time:${entryScore?.homeGoals}-${entryScore?.awayGoals}`,
+            })
           : buildLiveStudioEventLine({ fixture, event, score: entryScore, seed: `${fixture.id}:${entryMinute}` }) || revealLine;
         const entryTensionLine = buildLiveStudioTensionLine({
           score: entryScore,
@@ -10092,7 +10375,9 @@ const liveStudioFeed = useMemo(() => {
           tableImpactName,
           upsetLabel,
         });
-        const entryPersonalLine = entryScore
+        const entryPersonalLine = isKickoff || isFullTime
+          ? ""
+          : entryScore
           ? buildLiveStudioPredictionLine({
               prediction: currentPrediction,
               score: entryScore,
@@ -10100,9 +10385,30 @@ const liveStudioFeed = useMemo(() => {
               prefix: "You",
             })
           : personalLine;
+        const fullTimeBetLine = isFullTime
+          ? buildLiveStudioFullTimeBetLine({
+              fixture,
+              bet: currentCoinsBet,
+              score: entryScore,
+              username: currentUserName,
+              seed: `${fixture.id}:full-time-bet:${entryScore?.homeGoals}-${entryScore?.awayGoals}`,
+            })
+          : "";
 
         let entryTableSnapshot = null;
         let entryTableImpactLine = "";
+        if (isFullTime && entryScore) {
+          const currentRows = buildTableSnapshot({ fixtureId: fixture.id, score: entryScore });
+          const previousRows = buildTableSnapshot({ fixtureId: fixture.id, skipFixture: true });
+          entryTableSnapshot = { previousRows, currentRows };
+          entryTableImpactLine = buildLiveStudioFullTimeTableLine({
+            previousRows,
+            currentRows,
+            fixture,
+            score: entryScore,
+            seed: `${fixture.id}:full-table:${entryScore.homeGoals}-${entryScore.awayGoals}`,
+          });
+        }
         if (entryIsGoal && entryScore) {
           const homeGoals = Number(entryScore.homeGoals);
           const awayGoals = Number(entryScore.awayGoals);
@@ -10131,9 +10437,16 @@ const liveStudioFeed = useMemo(() => {
             event,
             event.statusLabel === "FT" ? 90 : event.statusLabel === "HT" ? 45 : event.statusLabel === "KO" ? 0 : -1
           ) + Number(event.sortOffset || 0);
+        const updateKey = getLiveStudioUpdateKey({
+          fixtureId: fixture.id,
+          event,
+          statusLabel,
+          score: entryScore,
+        });
 
         return {
           id: `${fixture.id}:${event.type || event.statusLabel || "update"}:${entryMinute}:${eventIndex}`,
+          updateKey,
           fixtureId: fixture.id,
           fixture,
           minute: entryMinute,
@@ -10142,12 +10455,15 @@ const liveStudioFeed = useMemo(() => {
           title: entryTitle || title,
           icon: entryIcon,
           lines: [
-            entryTensionLine,
+            !isKickoff && !isFullTime ? entryTensionLine : "",
             entryRevealLine,
-            entryKind !== "goal" && !event.statusLabel ? eventLine : "",
+            kickoffBetLine,
+            isKickoff ? predictionPreviewLines[1] : "",
+            entryKind !== "goal" && !statusLabel ? eventLine : "",
             entryPersonalLine,
-            rivalLine,
-            rankLine,
+            fullTimeBetLine,
+            !isKickoff && !isFullTime ? rivalLine : "",
+            !isKickoff && !isFullTime ? rankLine : "",
             entryTableImpactLine,
           ].filter(Boolean),
           tableSnapshot: entryTableSnapshot,
@@ -10197,6 +10513,7 @@ const liveStudioFeed = useMemo(() => {
   }
   return entries;
 }, [
+  coinsState.bets,
   currentPlayer,
   currentPredictionKey,
   currentUserId,
@@ -10221,12 +10538,18 @@ const liveStudioFeed = useMemo(() => {
 ]);
 
 useEffect(() => {
-  if (activeView !== "liveStudio" || !liveStudioFocusFixtureId) return;
+  if (activeView !== "liveStudio" || (!liveStudioFocusFixtureId && !liveStudioFocusUpdateKey)) return;
   window.requestAnimationFrame(() => {
-    const target = document.getElementById(`live-studio-fixture-${liveStudioFocusFixtureId}`);
+    const updateTarget = liveStudioFocusUpdateKey
+      ? document.getElementById(getLiveStudioUpdateDomId(liveStudioFocusUpdateKey))
+      : null;
+    const fixtureTarget = liveStudioFocusFixtureId
+      ? document.querySelector(`[data-live-studio-fixture-id="${liveStudioFocusFixtureId}"]`)
+      : null;
+    const target = updateTarget || fixtureTarget;
     if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
   });
-}, [activeView, liveStudioFocusFixtureId, liveStudioFeed]);
+}, [activeView, liveStudioFocusFixtureId, liveStudioFocusUpdateKey, liveStudioFeed]);
 
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
@@ -19206,9 +19529,13 @@ const TABS = [
             >
               <div style={{ display: "grid", gap: 8 }}>
                 {liveStudioFeed.map((entry) => {
+                  const isFocusedLiveStudioUpdate =
+                    liveStudioFocusUpdateKey &&
+                    entry.updateKey === liveStudioFocusUpdateKey;
                   const isFocusedLiveStudioEntry =
-                    liveStudioFocusFixtureId &&
-                    String(entry.fixtureId || "") === String(liveStudioFocusFixtureId);
+                    isFocusedLiveStudioUpdate ||
+                    (liveStudioFocusFixtureId &&
+                      String(entry.fixtureId || "") === String(liveStudioFocusFixtureId));
                   const entryFixture = entry.fixture || liveStudioFixtures.find((fixture) => String(fixture.id) === String(entry.fixtureId || ""));
                   const toneColor =
                     entry.tone === "live"
@@ -19221,7 +19548,8 @@ const TABS = [
                   return (
                     <article
                       key={entry.id}
-                      id={entry.fixtureId ? `live-studio-fixture-${entry.fixtureId}` : undefined}
+                      id={entry.updateKey ? getLiveStudioUpdateDomId(entry.updateKey) : undefined}
+                      data-live-studio-fixture-id={entry.fixtureId || undefined}
                       style={{
                         display: "grid",
                         gridTemplateColumns: "58px minmax(0, 1fr)",
@@ -23649,18 +23977,15 @@ const TABS = [
                     marginBottom: 16,
                     lineHeight: 1.6
                   }}>
-                    Get notified when gameweeks start, deadlines approach, and results are in!
+                    Get notified when gameweeks start, deadlines approach, and Live Studio has updates.
                   </p>
 
                   <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
                     {[
                       { key: "deadline1h", label: "Notify 1 hour before deadline" },
                       { key: "deadline24h", label: "Notify 24 hours before deadline" },
-                      { key: "bingpot", label: "Bingpot notification" },
-                      { key: "betWin", label: "Bet win notification" },
-                      { key: "badgeEarned", label: "New badge earned notification" },
-                      { key: "favoriteTeamResult", label: "Favourite team result notification" },
-                      { key: "noSpoilerFixtureUpdates", label: "No-spoiler goal alerts for Live Studio" },
+                      { key: "liveUpdates", label: "Live updates" },
+                      { key: "noSpoilerFixtureUpdates", label: "No spoilers for Live Studio pushes" },
                     ].map((opt) => (
                       <label
                         key={opt.key}
@@ -23800,6 +24125,8 @@ const TABS = [
                                 `Reason: ${status.lastReason || "n/a"}`,
                                 `Mode: ${status.mode || "all"}`,
                                 `Fetched matches: ${status.fetchedMatches || 0}`,
+                                `Goal events: ${status.goalEventsSeen || 0}`,
+                                `Goal scorers: ${status.goalEventsWithScorers || 0}`,
                                 `Matched fixtures: ${status.matchedFixtures || 0}`,
                                 `Subscribed fixtures: ${status.subscribedFixtures || 0}`,
                                 `Attempted sends: ${status.attemptedNotifications || 0}`,

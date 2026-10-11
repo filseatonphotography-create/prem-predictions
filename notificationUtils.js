@@ -454,7 +454,19 @@ function getPreviousLiveScore(prevState, prevResult) {
 }
 
 function isPushTypeEnabled(type, prefs) {
-  return type === "fixtureUpdates" || !prefs || prefs[type] !== false;
+  if (!prefs) return true;
+  const liveUpdateTypes = new Set([
+    "liveUpdates",
+    "fixtureUpdates",
+    "bingpot",
+    "betWin",
+    "badgeEarned",
+    "favoriteTeamResult",
+  ]);
+  if (liveUpdateTypes.has(type)) {
+    return prefs.liveUpdates !== false;
+  }
+  return prefs[type] !== false;
 }
 
 module.exports = {
