@@ -4922,6 +4922,10 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const status = String(match.status || "");
       const matchFinished = isFinalMatchStatus(status);
       const observedAt = new Date().toISOString();
+      const fixtureKickoffMs = Date.parse(fixture.kickoff);
+      const estimatedFinishedAt = Number.isFinite(fixtureKickoffMs)
+        ? new Date(fixtureKickoffMs + 2 * 60 * 60 * 1000).toISOString()
+        : "";
       const baseNextState = {
         status,
         homeGoals,
@@ -4935,7 +4939,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         utcDate: match.utcDate || "",
         lastUpdated: match.lastUpdated || match.updatedAt || observedAt,
         finishedAt: matchFinished
-          ? prevState.finishedAt || match.lastUpdated || match.updatedAt || observedAt
+          ? prevState.finishedAt || match.lastUpdated || match.updatedAt || estimatedFinishedAt || observedAt
           : "",
       };
 

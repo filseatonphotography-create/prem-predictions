@@ -4350,8 +4350,12 @@ function getLiveStudioFinishedAtMs(fixture, matchState) {
 }
 
 function isLiveStudioFixtureExpired(fixture, matchState, nowMs = Date.now()) {
+  const kickoffTime = Date.parse(fixture?.kickoff);
+  if (Number.isFinite(kickoffTime) && nowMs > kickoffTime + LIVE_STUDIO_FALLBACK_MATCH_WINDOW_MS) {
+    return true;
+  }
+
   if (!isLiveStudioFinalStatus(matchState?.status)) {
-    const kickoffTime = Date.parse(fixture?.kickoff);
     return Number.isFinite(kickoffTime) && nowMs > kickoffTime + LIVE_STUDIO_FALLBACK_MATCH_WINDOW_MS;
   }
   const finishedAt = getLiveStudioFinishedAtMs(fixture, matchState);
