@@ -4050,7 +4050,70 @@ function formatLivePushScore(fixture, homeGoals, awayGoals) {
   if (!Number.isFinite(Number(homeGoals)) || !Number.isFinite(Number(awayGoals))) {
     return `${fixture.homeTeam} v ${fixture.awayTeam}`;
   }
-  return `${fixture.homeTeam} ${homeGoals} ${fixture.awayTeam} ${awayGoals}`;
+  return `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`;
+}
+
+function getLivePushTeamCode(name) {
+  const clean = String(name || "")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const map = [
+    { match: ["arsenal"], code: "ARS" },
+    { match: ["aston villa", "villa"], code: "AVL" },
+    { match: ["bournemouth", "afc bournemouth"], code: "BOU" },
+    { match: ["brentford"], code: "BRE" },
+    { match: ["brighton", "brighton and hove", "brighton hove albion", "brighton hove"], code: "BHA" },
+    { match: ["burnley"], code: "BUR" },
+    { match: ["chelsea"], code: "CHE" },
+    { match: ["coventry", "coventry city"], code: "COV" },
+    { match: ["crystal palace", "palace"], code: "CRY" },
+    { match: ["everton"], code: "EVE" },
+    { match: ["fulham"], code: "FUL" },
+    { match: ["hull", "hull city"], code: "HUL" },
+    { match: ["ipswich", "ipswich town"], code: "IPS" },
+    { match: ["leicester", "leicester city"], code: "LEI" },
+    { match: ["leeds", "leeds united"], code: "LEE" },
+    { match: ["liverpool"], code: "LIV" },
+    { match: ["manchester city", "man city", "manchester c"], code: "MCI" },
+    { match: ["manchester united", "man united", "man utd"], code: "MUN" },
+    { match: ["newcastle", "newcastle united"], code: "NEW" },
+    { match: ["nottingham forest", "nottingham", "forest", "nottm forest"], code: "NFO" },
+    { match: ["southampton"], code: "SOU" },
+    { match: ["sunderland", "sunderland afc"], code: "SUN" },
+    { match: ["tottenham", "tottenham hotspur", "spurs"], code: "TOT" },
+    { match: ["west ham", "west ham united"], code: "WHU" },
+    { match: ["wolves", "wolverhampton", "wolverhampton wanderers"], code: "WOL" },
+  ];
+  const match = map.find((entry) => entry.match.some((key) => clean.includes(key)));
+  return match?.code || clean.slice(0, 3).toUpperCase();
+}
+
+function getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event = {}) {
+  const eventTeam = String(event?.teamName || event?.team || "").trim();
+  if (eventTeam) {
+    const normalizedEventTeam = normalizeTeamName(eventTeam);
+    if (normalizedEventTeam === normalizeTeamName(fixture.homeTeam)) return getLivePushTeamCode(fixture.homeTeam);
+    if (normalizedEventTeam === normalizeTeamName(fixture.awayTeam)) return getLivePushTeamCode(fixture.awayTeam);
+    return getLivePushTeamCode(eventTeam);
+  }
+
+  const eventHomeGoals = Number(event?.homeGoals);
+  const eventAwayGoals = Number(event?.awayGoals);
+  if (Number.isFinite(eventHomeGoals) && Number.isFinite(eventAwayGoals)) {
+    if (eventHomeGoals > eventAwayGoals) return getLivePushTeamCode(fixture.homeTeam);
+    if (eventAwayGoals > eventHomeGoals) return getLivePushTeamCode(fixture.awayTeam);
+  }
+
+  const home = Number(homeGoals);
+  const away = Number(awayGoals);
+  if (Number.isFinite(home) && Number.isFinite(away)) {
+    if (home > away) return getLivePushTeamCode(fixture.homeTeam);
+    if (away > home) return getLivePushTeamCode(fixture.awayTeam);
+  }
+  return "";
 }
 
 function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null, awayGoals = null, event = null }) {
@@ -4069,6 +4132,11 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
   };
   const label = labels[eventKind] || "Update";
   const scoreText = formatLivePushScore(fixture, homeGoals, awayGoals);
+  if (eventKind === "goal") {
+    const scoringTeamCode = getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event);
+    const goalLabel = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : label;
+    return `${minuteText}${goalLabel} ${scoreText}`.trim();
+  }
   const playerText = player && !["goal", "kick-off", "half-time", "full-time"].includes(eventKind)
     ? ` ${player}`
     : "";

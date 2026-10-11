@@ -4508,14 +4508,18 @@ function getLiveStudioUpdateDomId(updateKey) {
 
 function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
   const kind = getLiveStudioEventKind(event);
+  const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
+  if (kind === "goal") {
+    const scoringTeamCode = getLiveStudioScoringTeamCode(fixture, score, event);
+    const label = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : "Goal!";
+    return [label, scoreText].filter(Boolean).join(" ");
+  }
   const player = getLiveStudioEventPlayerName(event);
   const team = getLiveStudioEventTeamLabel(event);
   const teamCode = team ? getTeamCode(team) : "";
   const suffix = [player, teamCode].filter(Boolean).join(" - ");
   const label =
-    kind === "goal"
-      ? "Goal!"
-      : kind === "red-card"
+    kind === "red-card"
       ? "Red card!"
       : kind === "yellow-card"
       ? "Booking"
@@ -4530,7 +4534,6 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
       : statusLabel === "FT"
       ? "Full time!"
       : "Update";
-  const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
   return [label, suffix || scoreText].filter(Boolean).join(" ");
 }
 
@@ -4835,6 +4838,18 @@ function getLiveStudioScoringTeam(fixture, score, latestGoal) {
   if (leadingSide === "H") return getLiveStudioTeamName(fixture.homeTeam);
   if (leadingSide === "A") return getLiveStudioTeamName(fixture.awayTeam);
   return "";
+}
+
+function getLiveStudioScoringTeamCode(fixture, score, event) {
+  const scoringTeam = getLiveStudioScoringTeam(fixture, score, event);
+  if (!scoringTeam) return "";
+  if (normalizeTeamName(scoringTeam) === normalizeTeamName(fixture.homeTeam)) {
+    return getTeamCode(fixture.homeTeam);
+  }
+  if (normalizeTeamName(scoringTeam) === normalizeTeamName(fixture.awayTeam)) {
+    return getTeamCode(fixture.awayTeam);
+  }
+  return getTeamCode(scoringTeam);
 }
 
 function getLiveStudioScoreSummary(fixture, score) {
