@@ -4562,17 +4562,128 @@ function buildLiveStudioEventLine({ fixture, event, score, seed }) {
   const at = minute ? ` (${minute})` : "";
   const phrases = {
     goal: player
-      ? [`${player} has found the net for ${team}${at}.`, `It's a goal for ${team}, and ${player} is the name on it${at}.`]
-      : [`${team} have scored${at}.`, `The net ripples for ${team}${at}.`],
+      ? [
+          `${player} has found the net for ${team}${at}.`,
+          `It's a goal for ${team}, and ${player} is the name on it${at}.`,
+          `${player} is the scorer for ${team}${at}; that one will be felt on the prediction board.`,
+        ]
+      : [
+          `${team} have scored${at}.`,
+          `The net ripples for ${team}${at}.`,
+          `${team} have the breakthrough${at}, and the live table needs another look.`,
+        ],
     substitution: player && event.substituteName
-      ? [`${team} make a change: ${event.substituteName} is on for ${player}${at}.`, `A switch at ${team}: ${event.substituteName} replaces ${player}${at}.`]
-      : [`There is a change at ${team}${at}.`, `${team} have gone to the bench${at}.`],
-    "red-card": [`Red card for ${player || team}${at}. That could change the entire picture.`, `A dismissal at ${team}${at}; the studio has just sat up.`],
-    "yellow-card": [`Yellow card for ${player || team}${at}. The referee has made the first mark in the book.`, `${player || team} goes into the book${at}.`],
-    injury: [`Concern at ${team}${player ? ` for ${player}` : ""}${at}. The medical team is on.`, `The action pauses at ${team}${at}; there is an injury concern.`],
-    update: [`A notable moment at ${team}${at}.`, `Something has happened at ${team}${at}; we are checking the detail.`],
+      ? [
+          `${team} make a change: ${event.substituteName} is on for ${player}${at}.`,
+          `A switch at ${team}: ${event.substituteName} replaces ${player}${at}.`,
+          `${team} are changing the shape of this one, with ${event.substituteName} sent on for ${player}${at}.`,
+        ]
+      : [
+          `There is a change at ${team}${at}.`,
+          `${team} have gone to the bench${at}.`,
+          `A change from ${team}${at}; someone is trying to tilt the match from the touchline.`,
+        ],
+    "red-card": [
+      `Red card for ${player || team}${at}. That could change the entire picture.`,
+      `A dismissal at ${team}${at}; this match has just lurched in a new direction.`,
+      `${player || team} is off${at}. Predictions built on a calm finish are suddenly under pressure.`,
+    ],
+    "yellow-card": [
+      `Yellow card for ${player || team}${at}. The referee has made the first mark in the book.`,
+      `${player || team} goes into the book${at}.`,
+      `A booking for ${player || team}${at}; not decisive yet, but it adds a little edge.`,
+    ],
+    injury: [
+      `Concern at ${team}${player ? ` for ${player}` : ""}${at}. The medical team is on.`,
+      `The action pauses at ${team}${at}; there is an injury concern.`,
+      `A worrying pause for ${team}${player ? ` and ${player}` : ""}${at}. The rhythm of this one may be changing.`,
+    ],
+    update: [
+      `A notable moment at ${team}${at}.`,
+      `Something has happened at ${team}${at}; we are checking the detail.`,
+      `There is movement in the story at ${team}${at}. The prediction picture may need a second look.`,
+    ],
   };
   return pickLiveStudioPhrase(`${seed}:${kind}:${player}:${score?.homeGoals || 0}-${score?.awayGoals || 0}`, phrases[kind] || phrases.update);
+}
+
+function getLiveStudioPredictionSide(prediction) {
+  if (!prediction) return "";
+  const home = Number(prediction.homeGoals);
+  const away = Number(prediction.awayGoals);
+  if (!Number.isFinite(home) || !Number.isFinite(away)) return "";
+  if (home > away) return "H";
+  if (away > home) return "A";
+  return "D";
+}
+
+function getLiveStudioSideLabel(fixture, side) {
+  if (side === "H") return `${getLiveStudioTeamName(fixture.homeTeam)} win`;
+  if (side === "A") return `${getLiveStudioTeamName(fixture.awayTeam)} win`;
+  if (side === "D") return "draw";
+  return "";
+}
+
+function buildLiveStudioKickoffStakesLine({ fixture, picks, seed }) {
+  if (!Array.isArray(picks) || picks.length < 2) return "";
+  const sideCounts = picks.reduce(
+    (acc, entry) => {
+      const side = getLiveStudioPredictionSide(entry.prediction);
+      if (side) acc[side] += 1;
+      return acc;
+    },
+    { H: 0, D: 0, A: 0 }
+  );
+  const sides = ["H", "D", "A"].filter((side) => sideCounts[side] > 0);
+  const loneSide = picks.length >= 3 ? sides.find((side) => sideCounts[side] === 1) : "";
+  const lonePick = loneSide ? picks.find((entry) => getLiveStudioPredictionSide(entry.prediction) === loneSide) : null;
+  const mostBackedSide = sides.sort((a, b) => sideCounts[b] - sideCounts[a])[0];
+  const boosted = picks.filter((entry) => entry.prediction?.isTriple || entry.prediction?.isDouble);
+  const exactCounts = picks.reduce((acc, entry) => {
+    acc[entry.pick] = (acc[entry.pick] || 0) + 1;
+    return acc;
+  }, {});
+  const popularExact = Object.entries(exactCounts).sort((a, b) => b[1] - a[1])[0];
+
+  if (lonePick) {
+    return pickLiveStudioPhrase(`${seed}:lone:${lonePick.username}:${loneSide}`, [
+      `${lonePick.username} is the one taking the lonely road with a ${getLiveStudioSideLabel(fixture, loneSide)}.`,
+      `One bold call stands out: ${lonePick.username} is alone on the ${getLiveStudioSideLabel(fixture, loneSide)}.`,
+      `There is a split in the room already: ${lonePick.username} has gone solo on the ${getLiveStudioSideLabel(fixture, loneSide)}.`,
+    ]);
+  }
+
+  if (boosted.length) {
+    const names = boosted.slice(0, 2).map((entry) => entry.username).join(" and ");
+    return pickLiveStudioPhrase(`${seed}:boost:${names}`, [
+      `${names} have boosted predictions riding on this, so the stakes are not gentle.`,
+      `Watch ${names} here: there are boosted points attached to this scoreline.`,
+      `There is extra heat on this fixture for ${names}, with boosted picks in play.`,
+    ]);
+  }
+
+  if (mostBackedSide) {
+    return pickLiveStudioPhrase(`${seed}:popular:${mostBackedSide}:${popularExact?.[0] || ""}`, [
+      `${sideCounts[mostBackedSide]} of ${picks.length} are backing a ${getLiveStudioSideLabel(fixture, mostBackedSide)}.`,
+      `The room leans toward a ${getLiveStudioSideLabel(fixture, mostBackedSide)}, with ${popularExact?.[0] || "one scoreline"} the most repeated shout.`,
+      `Prediction temperature check: the ${getLiveStudioSideLabel(fixture, mostBackedSide)} has the biggest crowd behind it.`,
+    ]);
+  }
+
+  return "";
+}
+
+function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, tableImpactLine, isFocused }) {
+  if (statusLabel === "KO") return "Prediction desk";
+  if (statusLabel === "HT") return "Half-time check";
+  if (statusLabel === "FT") return tableSnapshot ? "Full-time fallout" : "Result confirmed";
+  if (entryKind === "goal") return tableImpactLine ? "Prediction swing" : "Goal flash";
+  if (entryKind === "red-card") return "Match turning point";
+  if (entryKind === "yellow-card") return "Discipline watch";
+  if (entryKind === "substitution") return "Tactical shift";
+  if (entryKind === "injury") return "Injury watch";
+  if (isFocused) return "Live update";
+  return "";
 }
 
 function buildLiveStudioTableImpactLine({ fixture, previousRows, currentRows, gameMode, selectedGameweek, seed }) {
@@ -10308,6 +10419,7 @@ const liveStudioFeed = useMemo(() => {
     const picks = liveStudioUsers
       .map((user) => ({
         username: user.username,
+        prediction: getUserPredictionForFixture(user, fixture),
         pick: formatPredictionPick(getUserPredictionForFixture(user, fixture)),
       }))
       .filter((entry) => entry.pick);
@@ -10323,6 +10435,11 @@ const liveStudioFeed = useMemo(() => {
         `We are off and running at ${getLiveStudioVenue(fixture, gameMode)}. Here are the calls from the prediction desk.`,
       ]),
       `${preview}${more}`,
+      buildLiveStudioKickoffStakesLine({
+        fixture,
+        picks,
+        seed: `${fixture.id}:kickoff-stakes:${picks.length}`,
+      }),
     ];
   };
 
@@ -10602,6 +10719,12 @@ const liveStudioFeed = useMemo(() => {
             seed: `${fixture.id}:${entryMinute}:${getLiveStudioScoreSummary(fixture, entryScore)}`,
           });
         }
+        const verdictLabel = buildLiveStudioVerdictLabel({
+          entryKind,
+          statusLabel,
+          tableSnapshot: entryTableSnapshot,
+          tableImpactLine: entryTableImpactLine,
+        });
 
         const sortMinute =
           getLiveStudioEventSortMinute(
@@ -10625,11 +10748,13 @@ const liveStudioFeed = useMemo(() => {
           tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
           title: entryTitle || title,
           icon: entryIcon,
+          verdictLabel,
           lines: [
             !isKickoff && !isFullTime ? entryTensionLine : "",
             entryRevealLine,
             kickoffBetLine,
             isKickoff ? predictionPreviewLines[1] : "",
+            isKickoff ? predictionPreviewLines[2] : "",
             entryKind !== "goal" && !statusLabel ? eventLine : "",
             entryPersonalLine,
             fullTimeBetLine,
@@ -19779,6 +19904,20 @@ const TABS = [
                         )}
                       </div>
                       <div style={{ minWidth: 0 }}>
+                        {entry.verdictLabel && (
+                          <div
+                            style={{
+                              color: toneColor,
+                              fontSize: 10,
+                              fontWeight: 950,
+                              textTransform: "uppercase",
+                              letterSpacing: 0.8,
+                              marginBottom: 4,
+                            }}
+                          >
+                            {entry.verdictLabel}
+                          </div>
+                        )}
                         <div
                           style={{
                             color: theme.text,
