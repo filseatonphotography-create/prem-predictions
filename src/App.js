@@ -2603,6 +2603,9 @@ export function buildFixtureSyncPayload(matches, fixtures) {
 
     const fixture = findFixtureForApiMatch(match, fixtures);
     if (!fixture) return;
+    const status = String(match.status || "");
+    const matchIsFinished = isLiveStudioFinalStatus(status);
+    const providerUpdatedAt = match.lastUpdated || match.updatedAt || "";
 
     const confirmedHomeTeam = match.homeTeam?.name
       ? resolveWorldCupCountryName(match.homeTeam.name)
@@ -2635,7 +2638,7 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     }
 
     matchStateUpdates[fixture.id] = {
-      status: String(match.status || ""),
+      status,
       homeGoals,
       awayGoals,
       goalEvents:
@@ -2656,6 +2659,8 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
       halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
       utcDate: match.utcDate || "",
+      ...(providerUpdatedAt ? { lastUpdated: providerUpdatedAt } : {}),
+      ...(matchIsFinished && providerUpdatedAt ? { finishedAt: providerUpdatedAt } : {}),
       homeTeam: confirmedHomeTeam,
       awayTeam: confirmedAwayTeam,
     };
@@ -4320,6 +4325,43 @@ export function isFixtureLive(matchState) {
   return ["IN_PLAY", "PAUSED", "LIVE"].includes(
     String(matchState?.status || "").toUpperCase()
   );
+}
+
+const LIVE_STUDIO_POST_FULL_TIME_MS = 60 * 60 * 1000;
+const LIVE_STUDIO_FALLBACK_MATCH_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+function isLiveStudioFinalStatus(status) {
+  return ["FINISHED", "AWARDED"].includes(String(status || "").toUpperCase());
+}
+
+function getLiveStudioFinishedAtMs(fixture, matchState) {
+  const finishedAt = Date.parse(
+    matchState?.finishedAt ||
+      matchState?.lastUpdated ||
+      matchState?.updatedAt ||
+      ""
+  );
+  if (Number.isFinite(finishedAt)) return finishedAt;
+
+  const kickoffTime = Date.parse(fixture?.kickoff);
+  return Number.isFinite(kickoffTime)
+    ? kickoffTime + LIVE_STUDIO_FALLBACK_MATCH_WINDOW_MS - LIVE_STUDIO_POST_FULL_TIME_MS
+    : null;
+}
+
+function isLiveStudioFixtureExpired(fixture, matchState, nowMs = Date.now()) {
+  if (!isLiveStudioFinalStatus(matchState?.status)) {
+    const kickoffTime = Date.parse(fixture?.kickoff);
+    return Number.isFinite(kickoffTime) && nowMs > kickoffTime + LIVE_STUDIO_FALLBACK_MATCH_WINDOW_MS;
+  }
+  const finishedAt = getLiveStudioFinishedAtMs(fixture, matchState);
+  return Number.isFinite(finishedAt) && nowMs - finishedAt > LIVE_STUDIO_POST_FULL_TIME_MS;
+}
+
+function isLiveStudioFixtureInCoverageWindow(fixture, matchState, nowMs = Date.now()) {
+  const kickoffTime = Date.parse(fixture?.kickoff);
+  if (!Number.isFinite(kickoffTime) || kickoffTime > nowMs) return false;
+  return !isLiveStudioFixtureExpired(fixture, matchState, nowMs);
 }
 
 const LIVE_STUDIO_VENUES = {
@@ -10296,6 +10338,10 @@ const liveStudioFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.lengt
   ? liveStudioDemoFixtures
   : visibleFixtures;
 
+const liveStudioCountdownFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.length
+  ? liveStudioFixtures
+  : activeFixtures;
+
 const liveStudioDemoGameweek = liveStudioDemoEnabled && liveStudioFixtures.length
   ? liveStudioFixtures[0].gameweek
   : null;
@@ -10337,6 +10383,23 @@ const liveStudioDemoStateByFixtureId = useMemo(() => {
     return acc;
   }, {});
 }, [liveStudioDemoEnabled, liveStudioFixtures]);
+
+const liveStudioLiveFixture = useMemo(() => {
+  const fixtures = liveStudioDemoEnabled ? liveStudioFixtures : activeFixtures;
+  return fixtures.find((fixture) => {
+    const matchState = liveStudioDemoEnabled
+      ? liveStudioDemoStateByFixtureId[fixture.id] || {}
+      : matchStatesByFixtureId[fixture.id] || matchStatesByFixtureId[String(fixture.id)] || {};
+    return isLiveStudioFixtureInCoverageWindow(fixture, matchState, liveStudioNow);
+  }) || null;
+}, [
+  activeFixtures,
+  liveStudioDemoEnabled,
+  liveStudioDemoStateByFixtureId,
+  liveStudioFixtures,
+  liveStudioNow,
+  matchStatesByFixtureId,
+]);
 
 const getLiveStudioLeagueBasePoints = useCallback(
   (user) => {
@@ -10416,7 +10479,7 @@ const getLiveStudioOverallPointsForUser = useCallback(
 );
 
 const liveStudioKickoffInfo = useMemo(() => {
-  const fixturesWithKickoff = liveStudioFixtures
+  const fixturesWithKickoff = liveStudioCountdownFixtures
     .map((fixture) => ({ fixture, kickoffTime: Date.parse(fixture.kickoff) }))
     .filter((entry) => Number.isFinite(entry.kickoffTime))
     .sort((a, b) => a.kickoffTime - b.kickoffTime);
@@ -10430,7 +10493,7 @@ const liveStudioKickoffInfo = useMemo(() => {
     hasStarted: first ? first.kickoffTime <= liveStudioNow : false,
     countdownText: next ? formatLiveStudioCountdown(next.kickoffTime - liveStudioNow) : "",
   };
-}, [liveStudioFixtures, liveStudioNow]);
+}, [liveStudioCountdownFixtures, liveStudioNow]);
 
 const liveStudioRows = useMemo(() => {
   return liveStudioUsers
@@ -10582,6 +10645,7 @@ const liveStudioFeed = useMemo(() => {
     .flatMap((fixture, fixtureIndex) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
+      if (isLiveStudioFixtureExpired(fixture, matchState, liveStudioNow)) return [];
       const status = String(matchState.status || "").toUpperCase();
       const result = demoState ? null : results[fixture.id];
       const score = demoState
@@ -19882,6 +19946,34 @@ const TABS = [
               </div>
             )}
           </div>
+          {liveStudioLiveFixture && (
+            <button
+              type="button"
+              className="live-studio-live-button"
+              onClick={() => {
+                if (liveStudioLiveFixture.gameweek) {
+                  setSelectedGameweek(Number(liveStudioLiveFixture.gameweek));
+                }
+                setActiveView("liveStudio");
+              }}
+              style={{
+                gridColumn: "1 / -1",
+                justifySelf: "center",
+                border: "1px solid rgba(34,197,94,0.75)",
+                background: "linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))",
+                color: "#052e16",
+                borderRadius: 999,
+                padding: "7px 13px",
+                fontSize: 13,
+                fontWeight: 950,
+                cursor: "pointer",
+                boxShadow: "0 0 0 0 rgba(34,197,94,0.45)",
+              }}
+              title="Open Live Studio"
+            >
+              Live Studio
+            </button>
+          )}
         </section>
 
         {activeView === "liveStudio" && (

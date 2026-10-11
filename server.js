@@ -4920,6 +4920,8 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const prevState = currentMatchStates[fixtureId] || {};
       const prevResult = currentResults[fixtureId] || {};
       const status = String(match.status || "");
+      const matchFinished = isFinalMatchStatus(status);
+      const observedAt = new Date().toISOString();
       const baseNextState = {
         status,
         homeGoals,
@@ -4931,6 +4933,10 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
         halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
         utcDate: match.utcDate || "",
+        lastUpdated: match.lastUpdated || match.updatedAt || observedAt,
+        finishedAt: matchFinished
+          ? prevState.finishedAt || match.lastUpdated || match.updatedAt || observedAt
+          : "",
       };
 
       const hasScoreNow =
