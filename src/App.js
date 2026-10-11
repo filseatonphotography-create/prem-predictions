@@ -2674,6 +2674,71 @@ export function buildFixtureSyncPayload(matches, fixtures) {
   };
 }
 
+function hasLiveEventItems(events) {
+  return Array.isArray(events) && events.length > 0;
+}
+
+function buildSyntheticLiveGoalEvent({ fixture, prevHome, prevAway, nextHome, nextAway }) {
+  const homeGoals = Number(nextHome);
+  const awayGoals = Number(nextAway);
+  if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return null;
+  const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
+  const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
+  if (homeGoals + awayGoals <= previousHome + previousAway) return null;
+  const homeAdded = homeGoals - previousHome;
+  const awayAdded = awayGoals - previousAway;
+  const teamName =
+    homeAdded > awayAdded
+      ? fixture?.homeTeam || ""
+      : awayAdded > homeAdded
+      ? fixture?.awayTeam || ""
+      : "";
+  return {
+    type: "GOAL",
+    synthetic: true,
+    scorerName: "",
+    playerName: "",
+    teamName,
+    minute: null,
+    injuryTime: null,
+    homeGoals,
+    awayGoals,
+  };
+}
+
+function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousStates, previousResults, fixtures) {
+  const fixtureById = new Map((fixtures || []).map((fixture) => [String(fixture.id), fixture]));
+  return Object.fromEntries(
+    Object.entries(matchStateUpdates || {}).map(([fixtureId, matchState]) => {
+      if (hasLiveEventItems(matchState?.goalEvents) || hasLiveEventItems(matchState?.matchEvents)) {
+        return [fixtureId, matchState];
+      }
+      const prevState = previousStates?.[fixtureId] || previousStates?.[Number(fixtureId)] || {};
+      const prevResult = previousResults?.[fixtureId] || previousResults?.[Number(fixtureId)] || {};
+      const prevHome = Number.isFinite(Number(prevState.homeGoals))
+        ? Number(prevState.homeGoals)
+        : Number.isFinite(Number(prevResult.homeGoals))
+        ? Number(prevResult.homeGoals)
+        : 0;
+      const prevAway = Number.isFinite(Number(prevState.awayGoals))
+        ? Number(prevState.awayGoals)
+        : Number.isFinite(Number(prevResult.awayGoals))
+        ? Number(prevResult.awayGoals)
+        : 0;
+      const syntheticGoal = buildSyntheticLiveGoalEvent({
+        fixture: fixtureById.get(String(fixtureId)),
+        prevHome,
+        prevAway,
+        nextHome: matchState?.homeGoals,
+        nextAway: matchState?.awayGoals,
+      });
+      return syntheticGoal
+        ? [fixtureId, { ...matchState, goalEvents: [syntheticGoal], matchEvents: [syntheticGoal] }]
+        : [fixtureId, matchState];
+    })
+  );
+}
+
 export function mergeFixtureOverrides(currentOverrides = {}, incomingOverrides = {}) {
   const merged = { ...(currentOverrides || {}) };
   Object.entries(incomingOverrides || {}).forEach(([fixtureId, incoming]) => {
@@ -7931,10 +7996,16 @@ const premierLeagueInsights = useMemo(() => {
     if (matches?.length) {
       const {
         updatedResults,
-        matchStateUpdates,
+        matchStateUpdates: rawMatchStateUpdates,
         fixtureOverrides,
         matchedCount,
       } = buildFixtureSyncPayload(matches, fixtures);
+      const matchStateUpdates = enrichMatchStateUpdatesWithSyntheticGoals(
+        rawMatchStateUpdates,
+        matchStatesByFixtureId,
+        results,
+        fixtures
+      );
 
       if (Object.keys(fixtureOverrides).length) {
         setFixtureOverridesByMode((prev) => ({

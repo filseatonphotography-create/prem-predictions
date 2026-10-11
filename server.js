@@ -3268,7 +3268,25 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
         delete merged[fixtureId];
       }
     });
-    const mergedMatchStates = { ...currentMatchStates, ...(matchStateByFixtureId || {}) };
+    const snapshotFixtures = [...(loadFixturesFromSrc() || []), ...(loadWorldCupFixturesFromSrc() || [])];
+    const snapshotFixtureById = {};
+    snapshotFixtures.forEach((fx) => {
+      if (!fx || fx.id === undefined || fx.id === null) return;
+      snapshotFixtureById[String(fx.id)] = fx;
+    });
+    const mergedMatchStates = { ...currentMatchStates };
+    Object.entries(matchStateByFixtureId || {}).forEach(([fixtureId, matchState]) => {
+      const prevState = currentMatchStates[String(fixtureId)] || {};
+      const prevScore = current[String(fixtureId)] || {};
+      const { prevHome, prevAway } = getPreviousLiveScore(prevState, prevScore);
+      const preservedState = mergeMatchStatePreservingEvents(prevState, matchState);
+      mergedMatchStates[fixtureId] = enrichMatchStateWithSyntheticGoal({
+        matchState: preservedState,
+        fixture: snapshotFixtureById[String(fixtureId)] || null,
+        prevHome,
+        prevAway,
+      });
+    });
 
     saveResults(merged);
     saveMatchStates(mergedMatchStates);
@@ -4102,6 +4120,72 @@ function getLivePushEventKeyPart(event = {}) {
   ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
 }
 
+function hasMatchEventItems(events) {
+  return Array.isArray(events) && events.length > 0;
+}
+
+function buildSyntheticGoalEvent({ fixture, prevHome, prevAway, nextHome, nextAway }) {
+  const homeGoals = Number(nextHome);
+  const awayGoals = Number(nextAway);
+  if (!Number.isFinite(homeGoals) || !Number.isFinite(awayGoals)) return null;
+
+  const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
+  const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
+  if (homeGoals + awayGoals <= previousHome + previousAway) return null;
+
+  const homeAdded = homeGoals - previousHome;
+  const awayAdded = awayGoals - previousAway;
+  const teamName =
+    homeAdded > awayAdded
+      ? fixture?.homeTeam || ""
+      : awayAdded > homeAdded
+      ? fixture?.awayTeam || ""
+      : "";
+
+  return {
+    type: "GOAL",
+    synthetic: true,
+    scorerName: "",
+    playerName: "",
+    teamName,
+    minute: null,
+    injuryTime: null,
+    homeGoals,
+    awayGoals,
+  };
+}
+
+function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prevAway }) {
+  if (!matchState || typeof matchState !== "object") return matchState;
+  if (hasMatchEventItems(matchState.goalEvents) || hasMatchEventItems(matchState.matchEvents)) {
+    return matchState;
+  }
+  const syntheticGoal = buildSyntheticGoalEvent({
+    fixture,
+    prevHome,
+    prevAway,
+    nextHome: matchState.homeGoals,
+    nextAway: matchState.awayGoals,
+  });
+  if (!syntheticGoal) return matchState;
+  return {
+    ...matchState,
+    goalEvents: [syntheticGoal],
+    matchEvents: [syntheticGoal],
+  };
+}
+
+function mergeMatchStatePreservingEvents(existing = {}, incoming = {}) {
+  const merged = { ...(existing || {}), ...(incoming || {}) };
+  if (!hasMatchEventItems(incoming.goalEvents) && hasMatchEventItems(existing.goalEvents)) {
+    merged.goalEvents = existing.goalEvents;
+  }
+  if (!hasMatchEventItems(incoming.matchEvents) && hasMatchEventItems(existing.matchEvents)) {
+    merged.matchEvents = existing.matchEvents;
+  }
+  return merged;
+}
+
 function buildLiveMatchEventPayload(fixture, event = {}) {
   const kind = getLivePushEventKind(event);
   const minute = formatLivePushMinute(event);
@@ -4653,7 +4737,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const prevState = currentMatchStates[fixtureId] || {};
       const prevResult = currentResults[fixtureId] || {};
       const status = String(match.status || "");
-      const nextState = {
+      const baseNextState = {
         status,
         homeGoals,
         awayGoals,
@@ -4666,11 +4750,6 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         utcDate: match.utcDate || "",
       };
 
-      if (JSON.stringify(prevState) !== JSON.stringify(nextState)) {
-        nextMatchStates[fixtureId] = nextState;
-        statesChanged = true;
-      }
-
       const hasScoreNow =
         Number.isFinite(homeGoals) &&
         Number.isFinite(awayGoals);
@@ -4681,6 +4760,17 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       );
       const scoreChanged =
         hasScoreNow && (!hadScoreBefore || prevHome !== homeGoals || prevAway !== awayGoals);
+      const nextState = enrichMatchStateWithSyntheticGoal({
+        matchState: baseNextState,
+        fixture,
+        prevHome,
+        prevAway,
+      });
+
+      if (JSON.stringify(prevState) !== JSON.stringify(nextState)) {
+        nextMatchStates[fixtureId] = nextState;
+        statesChanged = true;
+      }
 
       if (hasScoreNow) {
         const nextResult = { homeGoals, awayGoals };
