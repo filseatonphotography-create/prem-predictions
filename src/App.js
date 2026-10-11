@@ -4336,11 +4336,87 @@ function getLiveStudioEventKind(event = {}) {
   return "update";
 }
 
+function getLiveStudioEventPlayerName(event = {}) {
+  return String(
+    event?.scorerName ||
+      event?.playerName ||
+      event?.name ||
+      event?.player?.name ||
+      event?.scorer?.name ||
+      ""
+  ).trim();
+}
+
+function getLiveStudioEventTeamLabel(event = {}) {
+  return String(event?.teamName || event?.team?.name || event?.club?.name || "").trim();
+}
+
+function getLiveStudioEventScore(event = {}, fallbackScore = null) {
+  const homeGoals = Number(event?.homeGoals ?? event?.score?.home ?? event?.score?.homeGoals);
+  const awayGoals = Number(event?.awayGoals ?? event?.score?.away ?? event?.score?.awayGoals);
+  if (Number.isFinite(homeGoals) && Number.isFinite(awayGoals)) {
+    return { homeGoals, awayGoals };
+  }
+  return fallbackScore;
+}
+
+function getLiveStudioEventSortMinute(event = {}, fallback = -1) {
+  const minute = Number(event?.minute);
+  const injuryTime = Number(event?.injuryTime);
+  if (!Number.isFinite(minute)) return fallback;
+  return minute + (Number.isFinite(injuryTime) ? injuryTime / 100 : 0);
+}
+
+function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
+  const kind = getLiveStudioEventKind(event);
+  const minute = formatLiveStudioMinute(event, statusLabel);
+  const player = getLiveStudioEventPlayerName(event);
+  const team = getLiveStudioEventTeamLabel(event);
+  const teamCode = team ? getTeamCode(team) : "";
+  const suffix = [player, teamCode].filter(Boolean).join(" - ");
+  const label =
+    kind === "goal"
+      ? "Goal!"
+      : kind === "red-card"
+      ? "Red card!"
+      : kind === "yellow-card"
+      ? "Booking"
+      : kind === "substitution"
+      ? "Substitution"
+      : kind === "injury"
+      ? "Injury"
+      : statusLabel === "KO"
+      ? "Kick off!"
+      : statusLabel === "HT"
+      ? "Half time!"
+      : statusLabel === "FT"
+      ? "Full time!"
+      : "Update";
+  const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
+  return [minute, label, suffix || scoreText].filter(Boolean).join(" ");
+}
+
+function getLiveStudioEventIcon(event = {}) {
+  const statusLabel = String(event?.statusLabel || "").toUpperCase();
+  const kind = getLiveStudioEventKind(event);
+  if (kind === "goal") return "⚽";
+  if (kind === "red-card") return "🟥";
+  if (kind === "yellow-card") return "🟨";
+  if (kind === "substitution") return "🔁";
+  if (kind === "injury") return "🤕";
+  if (statusLabel === "KO") return "🟢";
+  if (statusLabel === "HT") return "🕛";
+  if (statusLabel === "FT") return "🏁";
+  return "•";
+}
+
 function buildLiveStudioEventLine({ fixture, event, score, seed }) {
   if (!event) return "";
   const kind = getLiveStudioEventKind(event);
-  const team = event.teamName ? getLiveStudioTeamName(event.teamName) : "the match";
-  const player = String(event.playerName || "").trim();
+  const team = getLiveStudioEventTeamLabel(event)
+    ? getLiveStudioTeamName(getLiveStudioEventTeamLabel(event))
+    : "the match";
+  const player = getLiveStudioEventPlayerName(event);
   const minute = formatLiveStudioMinute(event);
   const at = minute ? ` (${minute})` : "";
   const phrases = {
@@ -5791,6 +5867,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     } catch {}
     return DEFAULT_PUSH_PREFS;
   });
+  const [liveStudioNotice, setLiveStudioNotice] = useState("");
   
   const [, setApiStatus] = useState("Auto results: loading…");
   const [resultsRefreshing, setResultsRefreshing] = useState(false);
@@ -8923,6 +9000,18 @@ setNewPasswordInput("");
     const next = { ...pushPrefs, [key]: value };
     setPushPrefs(next);
     localStorage.setItem("push_prefs_v1", JSON.stringify(next));
+    if (key === "noSpoilerFixtureUpdates") {
+      setLiveStudioNotice(
+        value
+          ? "No-spoiler push alerts are on. Goal notifications will hide scorer and score details."
+          : "No-spoiler push alerts are off. Goal notifications can include scorer and score details."
+      );
+      window.setTimeout(() => {
+        setLiveStudioNotice((current) =>
+          current.includes("No-spoiler push alerts") ? "" : current
+        );
+      }, 4000);
+    }
     if (authToken) {
       try {
         await apiSetPushPrefs(authToken, next);
@@ -9844,7 +9933,7 @@ const liveStudioFeed = useMemo(() => {
   };
 
   const entries = liveStudioFixtures
-    .map((fixture, fixtureIndex) => {
+    .flatMap((fixture, fixtureIndex) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
       const status = String(matchState.status || "").toUpperCase();
@@ -9855,14 +9944,15 @@ const liveStudioFeed = useMemo(() => {
       const live = isFixtureLive(matchState);
       const paused = status === "PAUSED";
       const finished = status === "FINISHED" || status === "AWARDED" || (!matchState.status && !!score);
-      if (!score && !live && !paused && !finished) return null;
+      const kickoffTime = Date.parse(fixture.kickoff);
+      const hasKickedOff = Number.isFinite(kickoffTime) && kickoffTime <= liveStudioNow;
+      if (!score && !live && !paused && !finished && !hasKickedOff) return [];
 
       const venue = getLiveStudioVenue(fixture, gameMode);
       const latestGoal = getLatestLiveStudioGoal(matchState);
       const latestEvent = getLatestLiveStudioEvent(matchState);
       const eventKind = getLiveStudioEventKind(latestEvent);
       const commentaryGoal = eventKind === "goal" ? latestGoal : null;
-      const minute = formatLiveStudioMinute(latestEvent || latestGoal, live ? "Live" : paused ? "HT" : finished ? "FT" : "");
       const scoreText = getLiveStudioScoreSummary(fixture, score);
       const fixtureOdds = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
       const probabilities = computeProbabilities(fixtureOdds);
@@ -9954,56 +10044,125 @@ const liveStudioFeed = useMemo(() => {
       });
       const revealLine = score ? buildLiveStudioRevealLine(fixture, score, commentaryGoal) : scoreText;
       const eventLine = latestEvent && eventKind !== "goal"
-        ? buildLiveStudioEventLine({ fixture, event: latestEvent, score, seed: `${fixture.id}:${minute}` })
+        ? buildLiveStudioEventLine({ fixture, event: latestEvent, score, seed: `${fixture.id}:${status || "event"}` })
         : "";
 
-      let tableSnapshot = null;
-      let tableImpactLine = "";
-      if (latestGoal && score) {
-        const homeGoals = Number(score.homeGoals);
-        const awayGoals = Number(score.awayGoals);
-        const scoringTeam = getLiveStudioScoringTeam(fixture, score, latestGoal);
-        const homeScored = scoringTeam === getLiveStudioTeamName(fixture.homeTeam);
-        const awayScored = scoringTeam === getLiveStudioTeamName(fixture.awayTeam);
-        const previousScore = {
-          homeGoals: Math.max(0, homeGoals - (homeScored ? 1 : 0)),
-          awayGoals: Math.max(0, awayGoals - (awayScored ? 1 : 0)),
-        };
-        const currentRows = buildTableSnapshot({ fixtureId: fixture.id, score });
-        const previousRows = buildTableSnapshot({ fixtureId: fixture.id, score: previousScore });
-        tableSnapshot = { previousRows, currentRows };
-        tableImpactLine = buildLiveStudioTableImpactLine({
-          fixture,
-          previousRows,
-          currentRows,
-          gameMode,
-          selectedGameweek,
-          seed: `${fixture.id}:${minute}:${scoreText}`,
+      const timelineEvents = getLiveStudioEvents(matchState);
+      const syntheticEvents = [];
+      if (hasKickedOff) syntheticEvents.push({ type: "KICK_OFF", minute: 0, statusLabel: "KO", sortOffset: -0.3 });
+      if (paused || finished) syntheticEvents.push({ type: "HALF_TIME", minute: 45, statusLabel: "HT", sortOffset: 0.2 });
+      if (finished) syntheticEvents.push({ type: "FULL_TIME", minute: 90, statusLabel: "FT", sortOffset: 0.4 });
+      const feedEvents = [...timelineEvents, ...syntheticEvents];
+      if (!feedEvents.length) {
+        feedEvents.push(latestEvent || latestGoal || {
+          type: finished ? "FULL_TIME" : paused ? "HALF_TIME" : live ? "MATCH_UPDATE" : "RESULT",
+          minute: finished ? 90 : paused ? 45 : null,
+          statusLabel: finished ? "FT" : paused ? "HT" : live ? "Live" : "",
         });
       }
 
-      return {
-        id: `${fixture.id}:${status || "score"}`,
-        fixtureId: fixture.id,
-        minute,
-        tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
-        title,
-        lines: [
-          tensionLine,
-          revealLine,
-          eventLine,
-          personalLine,
-          rivalLine,
-          rankLine,
-          tableImpactLine,
-        ].filter(Boolean),
-        tableSnapshot,
-      };
+      return feedEvents.map((event, eventIndex) => {
+        const entryKind = getLiveStudioEventKind(event);
+        const entryScore = getLiveStudioEventScore(event, score);
+        const entryIsGoal = entryKind === "goal";
+        const entryGoal = entryIsGoal ? event : null;
+        const entryMinute = formatLiveStudioMinute(
+          event,
+          event.statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "")
+        );
+        const entryTitle = buildLiveStudioEventHeader({
+          fixture,
+          event,
+          score: entryScore,
+          statusLabel: event.statusLabel || "",
+        });
+        const entryIcon = getLiveStudioEventIcon(event);
+        const entryRevealLine = entryIsGoal
+          ? buildLiveStudioRevealLine(fixture, entryScore, event)
+          : event.statusLabel === "KO"
+          ? `We are underway at ${venue}: ${getLiveStudioScoreSummary(fixture, null)}.`
+          : event.statusLabel === "HT"
+          ? `Half-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
+          : event.statusLabel === "FT"
+          ? `Full-time at ${venue}: ${getLiveStudioScoreSummary(fixture, entryScore)}.`
+          : buildLiveStudioEventLine({ fixture, event, score: entryScore, seed: `${fixture.id}:${entryMinute}` }) || revealLine;
+        const entryTensionLine = buildLiveStudioTensionLine({
+          score: entryScore,
+          latestGoal: entryGoal,
+          tableImpactName,
+          upsetLabel,
+        });
+        const entryPersonalLine = entryScore
+          ? buildLiveStudioPredictionLine({
+              prediction: currentPrediction,
+              score: entryScore,
+              fixture,
+              prefix: "You",
+            })
+          : personalLine;
+
+        let entryTableSnapshot = null;
+        let entryTableImpactLine = "";
+        if (entryIsGoal && entryScore) {
+          const homeGoals = Number(entryScore.homeGoals);
+          const awayGoals = Number(entryScore.awayGoals);
+          const scoringTeam = getLiveStudioScoringTeam(fixture, entryScore, event);
+          const homeScored = scoringTeam === getLiveStudioTeamName(fixture.homeTeam);
+          const awayScored = scoringTeam === getLiveStudioTeamName(fixture.awayTeam);
+          const previousScore = {
+            homeGoals: Math.max(0, homeGoals - (homeScored ? 1 : 0)),
+            awayGoals: Math.max(0, awayGoals - (awayScored ? 1 : 0)),
+          };
+          const currentRows = buildTableSnapshot({ fixtureId: fixture.id, score: entryScore });
+          const previousRows = buildTableSnapshot({ fixtureId: fixture.id, score: previousScore });
+          entryTableSnapshot = { previousRows, currentRows };
+          entryTableImpactLine = buildLiveStudioTableImpactLine({
+            fixture,
+            previousRows,
+            currentRows,
+            gameMode,
+            selectedGameweek,
+            seed: `${fixture.id}:${entryMinute}:${getLiveStudioScoreSummary(fixture, entryScore)}`,
+          });
+        }
+
+        const sortMinute =
+          getLiveStudioEventSortMinute(
+            event,
+            event.statusLabel === "FT" ? 90 : event.statusLabel === "HT" ? 45 : event.statusLabel === "KO" ? 0 : -1
+          ) + Number(event.sortOffset || 0);
+
+        return {
+          id: `${fixture.id}:${event.type || event.statusLabel || "update"}:${entryMinute}:${eventIndex}`,
+          fixtureId: fixture.id,
+          fixture,
+          minute: entryMinute,
+          sortMinute,
+          tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
+          title: entryTitle || title,
+          icon: entryIcon,
+          lines: [
+            entryTensionLine,
+            entryRevealLine,
+            entryKind !== "goal" && !event.statusLabel ? eventLine : "",
+            entryPersonalLine,
+            rivalLine,
+            rankLine,
+            entryTableImpactLine,
+          ].filter(Boolean),
+          tableSnapshot: entryTableSnapshot,
+        };
+      });
     })
     .filter(Boolean)
     .sort((a, b) => {
       const priority = { live: 0, paused: 1, finished: 2, default: 3 };
-      return (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
+      const toneDiff = (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
+      if (toneDiff) return toneDiff;
+      if ((b.sortMinute ?? -1) !== (a.sortMinute ?? -1)) {
+        return (b.sortMinute ?? -1) - (a.sortMinute ?? -1);
+      }
+      return String(b.fixtureId || "").localeCompare(String(a.fixtureId || ""));
     });
 
   if (!entries.length) {
@@ -19019,6 +19178,23 @@ const TABS = [
                 </button>
               </div>
             </div>
+            {liveStudioNotice && (
+              <div
+                role="status"
+                style={{
+                  border: `1px solid ${theme.accent2}`,
+                  background: "rgba(34,197,94,0.12)",
+                  color: theme.accent2,
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  textAlign: isMobile ? "center" : "left",
+                }}
+              >
+                {liveStudioNotice}
+              </div>
+            )}
 
             <div
               style={{
@@ -19033,6 +19209,7 @@ const TABS = [
                   const isFocusedLiveStudioEntry =
                     liveStudioFocusFixtureId &&
                     String(entry.fixtureId || "") === String(liveStudioFocusFixtureId);
+                  const entryFixture = entry.fixture || liveStudioFixtures.find((fixture) => String(fixture.id) === String(entry.fixtureId || ""));
                   const toneColor =
                     entry.tone === "live"
                       ? "#22c55e"
@@ -19068,17 +19245,73 @@ const TABS = [
                       <div
                         style={{
                           color: toneColor,
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: 950,
-                          textAlign: "right",
+                          textAlign: "center",
                           fontVariantNumeric: "tabular-nums",
+                          display: "grid",
+                          justifyItems: "center",
+                          gap: 3,
                         }}
                       >
-                        {entry.minute}
+                        {entryFixture ? (
+                          <>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                              {isWorldCupMode ? (
+                                <span style={{ fontSize: 16 }}>{getWorldCupFlag(entryFixture.homeTeam)}</span>
+                              ) : resolveTeamBadge(entryFixture.homeTeam) ? (
+                                <img src={resolveTeamBadge(entryFixture.homeTeam)} alt={entryFixture.homeTeam} style={{ width: 18, height: 18, objectFit: "contain" }} />
+                              ) : (
+                                <span>{getTeamCode(entryFixture.homeTeam, gameMode)}</span>
+                              )}
+                              <span style={{ color: theme.muted, fontSize: 9 }}>v</span>
+                              {isWorldCupMode ? (
+                                <span style={{ fontSize: 16 }}>{getWorldCupFlag(entryFixture.awayTeam)}</span>
+                              ) : resolveTeamBadge(entryFixture.awayTeam) ? (
+                                <img src={resolveTeamBadge(entryFixture.awayTeam)} alt={entryFixture.awayTeam} style={{ width: 18, height: 18, objectFit: "contain" }} />
+                              ) : (
+                                <span>{getTeamCode(entryFixture.awayTeam, gameMode)}</span>
+                              )}
+                            </div>
+                            <span>{entry.minute}</span>
+                          </>
+                        ) : (
+                          entry.minute
+                        )}
                       </div>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ color: theme.text, fontSize: isMobile ? 14 : 15, fontWeight: 950 }}>
+                        <div
+                          style={{
+                            color: theme.text,
+                            fontSize: isMobile ? 14 : 15,
+                            fontWeight: 950,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 7,
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: 22,
+                              height: 22,
+                              borderRadius: 999,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              background: "rgba(255,255,255,0.08)",
+                              border: `1px solid ${theme.line}`,
+                              flex: "0 0 auto",
+                              fontSize: 14,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {entry.icon || "•"}
+                          </span>
+                          <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                           {entry.title}
+                          </span>
                         </div>
                         <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
                           {entry.lines.map((line, index) => (
