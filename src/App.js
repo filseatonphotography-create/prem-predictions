@@ -11349,16 +11349,6 @@ const liveStudioFeed = useMemo(() => {
           halfTimeScore &&
           elapsedMinute >= 45
       );
-      if (paused || finished || secondHalfStarted) {
-        syntheticEvents.push({
-          type: "HALF_TIME",
-          minute: 45,
-          statusLabel: "HT",
-          sortOffset: 0,
-          homeGoals: halfTimeScore?.homeGoals ?? null,
-          awayGoals: halfTimeScore?.awayGoals ?? null,
-        });
-      }
       if (secondHalfStarted && live && !paused && !finished) {
         syntheticEvents.push({
           type: "SECOND_HALF",
@@ -11380,7 +11370,12 @@ const liveStudioFeed = useMemo(() => {
         });
       }
       const feedEvents = [
-        ...repairedTimelineEvents.filter((event) => getLiveStudioEventKind(event) !== "stats"),
+        ...repairedTimelineEvents.filter((event) => {
+          const eventKind = getLiveStudioEventKind(event);
+          const statusLabel = String(event?.statusLabel || "").toUpperCase();
+          const type = String(event?.type || "").toUpperCase();
+          return eventKind !== "stats" && statusLabel !== "HT" && type !== "HALF_TIME";
+        }),
         ...syntheticEvents,
       ];
       if (!feedEvents.length) {
