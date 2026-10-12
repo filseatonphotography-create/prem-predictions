@@ -4998,6 +4998,18 @@ function getLiveStudioUpdateDomId(updateKey) {
   return updateKey ? `live-studio-update-${String(updateKey).replace(/[^a-z0-9_-]+/gi, "-")}` : "";
 }
 
+export function sortLiveStudioEntries(entries = []) {
+  return [...entries].sort((a, b) => {
+    const priority = { live: 0, paused: 1, finished: 2, default: 3 };
+    const toneDiff = (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
+    if (toneDiff) return toneDiff;
+    if ((a.sortMinute ?? -1) !== (b.sortMinute ?? -1)) {
+      return (a.sortMinute ?? -1) - (b.sortMinute ?? -1);
+    }
+    return String(a.fixtureId || "").localeCompare(String(b.fixtureId || ""));
+  });
+}
+
 function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
   const kind = getLiveStudioEventKind(event);
   const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
@@ -11423,7 +11435,7 @@ const liveStudioFeed = useMemo(() => {
           : isStatsCheck
           ? null
           : isHalfTime
-          ? null
+          ? getLiveStudioHalfTimeScore(matchState, null)
           : isSecondHalf
           ? getLiveStudioHalfTimeScore(matchState, score)
           : score;
@@ -11607,17 +11619,9 @@ const liveStudioFeed = useMemo(() => {
       });
     })
     .filter(Boolean)
-    .sort((a, b) => {
-      const priority = { live: 0, paused: 1, finished: 2, default: 3 };
-      const toneDiff = (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
-      if (toneDiff) return toneDiff;
-      if ((b.sortMinute ?? -1) !== (a.sortMinute ?? -1)) {
-        return (b.sortMinute ?? -1) - (a.sortMinute ?? -1);
-      }
-      return String(b.fixtureId || "").localeCompare(String(a.fixtureId || ""));
-    });
+  const sortedEntries = sortLiveStudioEntries(entries);
 
-  if (!entries.length) {
+  if (!sortedEntries.length) {
     const nextCoverageFixture = liveStudioKickoffInfo.nextFixture || liveStudioKickoffInfo.firstFixture;
     const nextCoverageKickoff = liveStudioKickoffInfo.nextKickoffTime || liveStudioKickoffInfo.firstKickoffTime;
     if (nextCoverageFixture && nextCoverageKickoff && nextCoverageKickoff > liveStudioNow) {
@@ -11647,7 +11651,7 @@ const liveStudioFeed = useMemo(() => {
       },
     ];
   }
-  return entries;
+  return sortedEntries;
 }, [
   coinsState.bets,
   currentPlayer,

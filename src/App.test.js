@@ -23,6 +23,7 @@ import {
   buildFantasyIqScoredReport,
   buildFantasyIqClubOutlooks,
   buildPremierHistoryEntries,
+  sortLiveStudioEntries,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -56,6 +57,30 @@ describe("push notification subscriptions", () => {
         ],
       })
     ).toEqual([latest, second]);
+  });
+});
+
+describe("Live Studio timeline ordering", () => {
+  test("keeps half-time between first-half and second-half scoring events", () => {
+    const entries = sortLiveStudioEntries([
+      { fixtureId: 560597, tone: "live", title: "Goal COV 4-1 NEW", sortMinute: 83.004 },
+      { fixtureId: 560597, tone: "live", title: "Goal COV 3-1 NEW", sortMinute: 66.003 },
+      { fixtureId: 560597, tone: "live", title: "Half time! COV 2-1 NEW", sortMinute: 45 },
+      { fixtureId: 560597, tone: "live", title: "Goal COV 2-1 NEW", sortMinute: 42.002 },
+      { fixtureId: 560597, tone: "live", title: "Goal COV 2-0 NEW", sortMinute: 31.001 },
+      { fixtureId: 560597, tone: "live", title: "Goal COV 1-0 NEW", sortMinute: 12 },
+      { fixtureId: 560597, tone: "live", title: "Kick off!", sortMinute: -0.3 },
+    ]);
+
+    expect(entries.map((entry) => entry.title)).toEqual([
+      "Kick off!",
+      "Goal COV 1-0 NEW",
+      "Goal COV 2-0 NEW",
+      "Goal COV 2-1 NEW",
+      "Half time! COV 2-1 NEW",
+      "Goal COV 3-1 NEW",
+      "Goal COV 4-1 NEW",
+    ]);
   });
 });
 
