@@ -4349,7 +4349,7 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   let remainingHome = homeDelta;
   let remainingAway = awayDelta;
   if (homeGoals > awayGoals) {
-    while (remainingHome > remainingAway) {
+    while (remainingHome > 0 && remainingHome > remainingAway + 1) {
       addHomeGoal();
       remainingHome -= 1;
     }
@@ -4364,7 +4364,7 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
       }
     }
   } else if (awayGoals > homeGoals) {
-    while (remainingAway > remainingHome) {
+    while (remainingAway > 0 && remainingAway > remainingHome + 1) {
       addAwayGoal();
       remainingAway -= 1;
     }

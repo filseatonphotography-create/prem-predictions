@@ -3911,7 +3911,7 @@
   },
   "560597": {
     "status": "IN_PLAY",
-    "homeGoals": 3,
+    "homeGoals": 4,
     "awayGoals": 1,
     "homeTeam": "Coventry City FC",
     "awayTeam": "Newcastle United FC",
@@ -3970,6 +3970,19 @@
         "homeGoals": 3,
         "awayGoals": 1,
         "sortOffset": 0.003
+      },
+      {
+        "type": "GOAL",
+        "synthetic": true,
+        "estimatedMinute": true,
+        "scorerName": "",
+        "playerName": "",
+        "teamName": "Coventry City FC",
+        "minute": 83,
+        "injuryTime": null,
+        "homeGoals": 4,
+        "awayGoals": 1,
+        "sortOffset": 0.004
       }
     ],
     "matchEvents": [
@@ -4024,6 +4037,19 @@
         "homeGoals": 3,
         "awayGoals": 1,
         "sortOffset": 0.003
+      },
+      {
+        "type": "GOAL",
+        "synthetic": true,
+        "estimatedMinute": true,
+        "scorerName": "",
+        "playerName": "",
+        "teamName": "Coventry City FC",
+        "minute": 83,
+        "injuryTime": null,
+        "homeGoals": 4,
+        "awayGoals": 1,
+        "sortOffset": 0.004
       }
     ],
     "observedAt": "2026-10-10T15:23:00Z",
