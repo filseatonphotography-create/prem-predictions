@@ -11323,6 +11323,16 @@ const liveStudioFeed = useMemo(() => {
         if (!Number.isFinite(snapshotMinute)) return null;
         const candidates = [{ sortMinute: 0, score: { homeGoals: 0, awayGoals: 0 } }];
         repairedTimelineEvents.forEach((event) => {
+          const eventKind = getLiveStudioEventKind(event);
+          const statusLabel = String(event?.statusLabel || "").toUpperCase();
+          const type = String(event?.type || "").toUpperCase();
+          if (
+            eventKind === "stats" ||
+            ["KO", "HT", "SH", "FT"].includes(statusLabel) ||
+            ["KICK_OFF", "HALF_TIME", "SECOND_HALF", "FULL_TIME"].includes(type)
+          ) {
+            return;
+          }
           const eventScore = getLiveStudioEventScore(event, null);
           if (!eventScore) return;
           const eventMinute = getLiveStudioEventSortMinute(event, -1);
@@ -11382,7 +11392,13 @@ const liveStudioFeed = useMemo(() => {
       const feedEvents = [
         ...repairedTimelineEvents.filter((event) => {
           const eventKind = getLiveStudioEventKind(event);
-          return eventKind !== "stats";
+          const statusLabel = String(event?.statusLabel || "").toUpperCase();
+          const type = String(event?.type || "").toUpperCase();
+          return (
+            eventKind !== "stats" &&
+            !["KO", "HT", "SH", "FT"].includes(statusLabel) &&
+            !["KICK_OFF", "HALF_TIME", "SECOND_HALF", "FULL_TIME"].includes(type)
+          );
         }),
         ...syntheticEvents,
       ];
