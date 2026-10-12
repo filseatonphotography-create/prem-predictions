@@ -4854,6 +4854,39 @@ function getLiveStudioHalfTimeScore(matchState = {}, fallbackScore = null) {
   return fallbackScore;
 }
 
+function getLiveStudioScoreFromTimelineAtMinute(events = [], minute) {
+  const snapshotMinute = Number(minute);
+  if (!Number.isFinite(snapshotMinute)) return null;
+  const candidates = [{ sortMinute: 0, score: { homeGoals: 0, awayGoals: 0 } }];
+  (events || []).forEach((event) => {
+    const eventKind = getLiveStudioEventKind(event);
+    const statusLabel = String(event?.statusLabel || "").toUpperCase();
+    const type = String(event?.type || "").toUpperCase();
+    if (
+      eventKind === "stats" ||
+      ["KO", "HT", "SH", "FT"].includes(statusLabel) ||
+      ["KICK_OFF", "HALF_TIME", "SECOND_HALF", "FULL_TIME"].includes(type)
+    ) {
+      return;
+    }
+    const eventScore = getLiveStudioEventScore(event, null);
+    if (!eventScore) return;
+    const eventMinute = getLiveStudioEventSortMinute(event, -1);
+    if (!Number.isFinite(eventMinute) || eventMinute > snapshotMinute) return;
+    candidates.push({ sortMinute: eventMinute, score: eventScore });
+  });
+  return candidates.sort((a, b) => b.sortMinute - a.sortMinute)[0]?.score || null;
+}
+
+export function getLiveStudioHalfTimeSnapshotScore(matchState = {}, events = [], fallbackScore = null) {
+  const timelineScore = getLiveStudioScoreFromTimelineAtMinute(events, 45);
+  const hasFirstHalfScore = Boolean(
+    timelineScore && (Number(timelineScore.homeGoals) > 0 || Number(timelineScore.awayGoals) > 0)
+  );
+  if (hasFirstHalfScore) return timelineScore;
+  return getLiveStudioHalfTimeScore(matchState, fallbackScore);
+}
+
 function getLiveStudioEventSortMinute(event = {}, fallback = -1) {
   const sortMinute = Number(event?.sortMinute);
   if (Number.isFinite(sortMinute)) return sortMinute;
@@ -5004,9 +5037,9 @@ export function sortLiveStudioEntries(entries = []) {
     const toneDiff = (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
     if (toneDiff) return toneDiff;
     if ((a.sortMinute ?? -1) !== (b.sortMinute ?? -1)) {
-      return (a.sortMinute ?? -1) - (b.sortMinute ?? -1);
+      return (b.sortMinute ?? -1) - (a.sortMinute ?? -1);
     }
-    return String(a.fixtureId || "").localeCompare(String(b.fixtureId || ""));
+    return String(b.fixtureId || "").localeCompare(String(a.fixtureId || ""));
   });
 }
 
@@ -11333,29 +11366,10 @@ const liveStudioFeed = useMemo(() => {
       const getScoreSnapshotAtTimelineMinute = (minute) => {
         const snapshotMinute = Number(minute);
         if (!Number.isFinite(snapshotMinute)) return null;
-        const candidates = [{ sortMinute: 0, score: { homeGoals: 0, awayGoals: 0 } }];
-        repairedTimelineEvents.forEach((event) => {
-          const eventKind = getLiveStudioEventKind(event);
-          const statusLabel = String(event?.statusLabel || "").toUpperCase();
-          const type = String(event?.type || "").toUpperCase();
-          if (
-            eventKind === "stats" ||
-            ["KO", "HT", "SH", "FT"].includes(statusLabel) ||
-            ["KICK_OFF", "HALF_TIME", "SECOND_HALF", "FULL_TIME"].includes(type)
-          ) {
-            return;
-          }
-          const eventScore = getLiveStudioEventScore(event, null);
-          if (!eventScore) return;
-          const eventMinute = getLiveStudioEventSortMinute(event, -1);
-          if (!Number.isFinite(eventMinute) || eventMinute > snapshotMinute) return;
-          candidates.push({ sortMinute: eventMinute, score: eventScore });
-        });
-        const hasFirstHalfTimelineScore = candidates.some(
-          (candidate) => candidate.sortMinute > 0 && candidate.sortMinute <= 45
-        );
-        const halfTimeScore = getLiveStudioHalfTimeScore(matchState, null);
-        if (halfTimeScore && snapshotMinute >= 45 && !hasFirstHalfTimelineScore) {
+        const timelineScore = getLiveStudioScoreFromTimelineAtMinute(repairedTimelineEvents, snapshotMinute);
+        const candidates = timelineScore ? [{ sortMinute: snapshotMinute, score: timelineScore }] : [];
+        const halfTimeScore = getLiveStudioHalfTimeSnapshotScore(matchState, repairedTimelineEvents, null);
+        if (halfTimeScore && snapshotMinute >= 45 && !timelineScore) {
           candidates.push({ sortMinute: 45, score: halfTimeScore });
         }
         if (finished && score && snapshotMinute >= 90) {
@@ -11435,9 +11449,9 @@ const liveStudioFeed = useMemo(() => {
           : isStatsCheck
           ? null
           : isHalfTime
-          ? getLiveStudioHalfTimeScore(matchState, null)
+          ? getLiveStudioHalfTimeSnapshotScore(matchState, repairedTimelineEvents, null)
           : isSecondHalf
-          ? getLiveStudioHalfTimeScore(matchState, score)
+          ? getLiveStudioHalfTimeSnapshotScore(matchState, repairedTimelineEvents, score)
           : score;
         const entryScore = getLiveStudioEventScore(event, entryScoreFallback);
         const entryIsGoal = entryKind === "goal";
