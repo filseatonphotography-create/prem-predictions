@@ -2799,67 +2799,48 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
       awayGoals: runningAway,
     });
   };
-  if (homeDelta > 0 && awayDelta > 0) {
-    const leadingSide = homeGoals > awayGoals ? "home" : awayGoals > homeGoals ? "away" : "";
-    const trailingSide = leadingSide === "home" ? "away" : leadingSide === "away" ? "home" : "";
-    let remainingHome = homeDelta;
-    let remainingAway = awayDelta;
+  let remainingHome = homeDelta;
+  let remainingAway = awayDelta;
+  if (homeGoals > awayGoals) {
+    while (remainingHome > remainingAway) {
+      addHomeGoal();
+      remainingHome -= 1;
+    }
     while (remainingHome > 0 || remainingAway > 0) {
-      if (trailingSide === "home" && remainingHome > 0) {
-        addHomeGoal();
-        remainingHome -= 1;
-      }
-      if (trailingSide === "away" && remainingAway > 0) {
+      if (remainingAway > 0) {
         addAwayGoal();
         remainingAway -= 1;
       }
-      if (leadingSide === "home" && remainingHome > 0) {
+      if (remainingHome > 0) {
         addHomeGoal();
         remainingHome -= 1;
       }
-      if (leadingSide === "away" && remainingAway > 0) {
+    }
+  } else if (awayGoals > homeGoals) {
+    while (remainingAway > remainingHome) {
+      addAwayGoal();
+      remainingAway -= 1;
+    }
+    while (remainingHome > 0 || remainingAway > 0) {
+      if (remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (remainingAway > 0) {
         addAwayGoal();
         remainingAway -= 1;
-      }
-      if (!leadingSide) {
-        if (remainingAway > 0) {
-          addAwayGoal();
-          remainingAway -= 1;
-        }
-        if (remainingHome > 0) {
-          addHomeGoal();
-          remainingHome -= 1;
-        }
       }
     }
   } else {
-    for (let home = previousHome + 1; home <= homeGoals; home += 1) {
-      runningHome = home;
-      events.push({
-        type: "GOAL",
-        synthetic: true,
-        scorerName: "",
-        playerName: "",
-        teamName: fixture?.homeTeam || "",
-        minute: null,
-        injuryTime: null,
-        homeGoals: runningHome,
-        awayGoals: runningAway,
-      });
-    }
-    for (let away = previousAway + 1; away <= awayGoals; away += 1) {
-      runningAway = away;
-      events.push({
-        type: "GOAL",
-        synthetic: true,
-        scorerName: "",
-        playerName: "",
-        teamName: fixture?.awayTeam || "",
-        minute: null,
-        injuryTime: null,
-        homeGoals: runningHome,
-        awayGoals: runningAway,
-      });
+    while (remainingHome > 0 || remainingAway > 0) {
+      if (remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (remainingAway > 0) {
+        addAwayGoal();
+        remainingAway -= 1;
+      }
     }
   }
   const range = getSyntheticLiveGoalMinuteRange(matchState, previousHome, previousAway);
@@ -11306,17 +11287,12 @@ const liveStudioFeed = useMemo(() => {
         Number.isFinite(kickoffTime) && liveStudioNow >= kickoffTime
           ? Math.floor((liveStudioNow - kickoffTime) / (60 * 1000))
           : 0;
-      [25, 70].forEach((minute) => {
-        if (elapsedMinute >= minute) {
-          syntheticEvents.push({
-            type: "STATS_CHECK",
-            minute,
-            statusLabel: "STATS",
-            sortOffset: 0,
-          });
-        }
-      });
       const resumedSecondHalfScore = getLiveStudioHalfTimeScore(matchState, null);
+      const secondHalfStarted = Boolean(
+        (finished || (live && !paused)) &&
+          resumedSecondHalfScore &&
+          elapsedMinute >= 45
+      );
       if (paused || finished || (live && !paused && resumedSecondHalfScore && elapsedMinute >= 45)) {
         const halfTimeScore = getLiveStudioHalfTimeScore(matchState, paused ? score : null);
         syntheticEvents.push({
@@ -11328,7 +11304,7 @@ const liveStudioFeed = useMemo(() => {
           awayGoals: halfTimeScore?.awayGoals ?? null,
         });
       }
-      if (live && !paused && !finished && resumedSecondHalfScore && elapsedMinute >= 45) {
+      if (secondHalfStarted && live && !paused && !finished) {
         syntheticEvents.push({
           type: "SECOND_HALF",
           minute: 45,
@@ -11379,6 +11355,42 @@ const liveStudioFeed = useMemo(() => {
               }),
             ]
           : timelineEvents;
+      const getScoreSnapshotAtTimelineMinute = (minute) => {
+        const snapshotMinute = Number(minute);
+        if (!Number.isFinite(snapshotMinute)) return null;
+        const candidates = [{ sortMinute: 0, score: { homeGoals: 0, awayGoals: 0 } }];
+        repairedTimelineEvents.forEach((event) => {
+          const eventScore = getLiveStudioEventScore(event, null);
+          if (!eventScore) return;
+          const eventMinute = getLiveStudioEventSortMinute(event, -1);
+          if (!Number.isFinite(eventMinute) || eventMinute > snapshotMinute) return;
+          candidates.push({ sortMinute: eventMinute, score: eventScore });
+        });
+        const halfTimeScore = getLiveStudioHalfTimeScore(matchState, null);
+        if (halfTimeScore && snapshotMinute >= 45) {
+          candidates.push({ sortMinute: 45, score: halfTimeScore });
+        }
+        if (finished && score && snapshotMinute >= 90) {
+          candidates.push({ sortMinute: 90, score });
+        }
+        return candidates.sort((a, b) => b.sortMinute - a.sortMinute)[0]?.score || null;
+      };
+      [
+        { minute: 25, ready: elapsedMinute >= 25 },
+        { minute: 70, ready: elapsedMinute >= 70 && secondHalfStarted },
+      ].forEach(({ minute, ready }) => {
+        if (ready) {
+          const statsScore = getScoreSnapshotAtTimelineMinute(minute);
+          syntheticEvents.push({
+            type: "STATS_CHECK",
+            minute,
+            statusLabel: "STATS",
+            sortOffset: 0,
+            homeGoals: statsScore?.homeGoals ?? null,
+            awayGoals: statsScore?.awayGoals ?? null,
+          });
+        }
+      });
       const feedEvents = [...repairedTimelineEvents, ...syntheticEvents];
       if (!feedEvents.length) {
         feedEvents.push(latestEvent || latestGoal || {
@@ -11398,6 +11410,8 @@ const liveStudioFeed = useMemo(() => {
         const isStatsCheck = entryKind === "stats";
         const entryScoreFallback = isKickoff
           ? { homeGoals: 0, awayGoals: 0 }
+          : isStatsCheck
+          ? null
           : isHalfTime
           ? getLiveStudioHalfTimeScore(matchState, null)
           : isSecondHalf

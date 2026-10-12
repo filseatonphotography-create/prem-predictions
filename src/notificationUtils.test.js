@@ -8,7 +8,7 @@ const {
 describe("goal alert details", () => {
   const fixture = { homeTeam: "Arsenal", awayTeam: "Chelsea" };
 
-  test("formats scorer and minute when a goal event is available", () => {
+  test("formats scorer without an unreliable minute when a goal event is available", () => {
     const match = {
       homeTeam: { id: 57, name: "Arsenal FC" },
       awayTeam: { id: 61, name: "Chelsea FC" },
@@ -38,13 +38,11 @@ describe("goal alert details", () => {
       nextAway: 1,
     });
 
-    expect(buildGoalAlertBody(fixture, 1, 1, goal)).toBe(
-      "Cole Palmer 67+2' - Arsenal 1-1 Chelsea"
-    );
+    expect(buildGoalAlertBody(fixture, 1, 1, goal)).toBe("Cole Palmer");
   });
 
-  test("falls back to the scoreline when scorer data is unavailable", () => {
-    expect(buildGoalAlertBody(fixture, 2, 1, null)).toBe("Arsenal 2-1 Chelsea");
+  test("omits fallback scoreline body text when scorer data is unavailable", () => {
+    expect(buildGoalAlertBody(fixture, 2, 1, null)).toBe("");
   });
 
   test("uses the latest known goal when there was no previous score", () => {

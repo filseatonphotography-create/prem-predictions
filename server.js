@@ -4145,7 +4145,6 @@ function getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event = {}) {
 }
 
 function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null, awayGoals = null, event = null }) {
-  const minuteText = minute ? `${minute} ` : "";
   const player = String(event?.playerName || event?.scorerName || event?.playerOutName || "").trim();
   const labels = {
     "kick-off": "Kick-off!",
@@ -4161,23 +4160,23 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
     update: "Update",
   };
   const label = labels[eventKind] || "Update";
-  if (eventKind === "kick-off") return `${minuteText}${label}`.trim();
-  if (eventKind === "second-half") return `${minuteText}${label}`.trim();
+  if (eventKind === "kick-off") return label;
+  if (eventKind === "second-half") return label;
   const scoreText = formatLivePushScore(fixture, homeGoals, awayGoals);
   if (eventKind === "goal") {
     const scoringTeamCode = getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event);
     const goalLabel = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : label;
-    return `${minuteText}${goalLabel} ${scoreText}`.trim();
+    return `${goalLabel} ${scoreText}`.trim();
   }
   if (eventKind === "goal-disallowed") {
     const teamCode = getLivePushScoringTeamCode(fixture, event?.previousHomeGoals, event?.previousAwayGoals, event);
     const teamText = teamCode ? ` for ${teamCode}` : "";
-    return `${minuteText}${label}${teamText}. ${scoreText}`.trim();
+    return `${label}${teamText}. ${scoreText}`.trim();
   }
   const playerText = player && !["goal", "goal-disallowed", "kick-off", "half-time", "full-time"].includes(eventKind)
     ? ` ${player}`
     : "";
-  return `${minuteText}${label}${playerText} ${scoreText}`.trim();
+  return `${label}${playerText} ${scoreText}`.trim();
 }
 
 function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKey, payload = {}) {
@@ -4347,68 +4346,49 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
       awayGoals: runningAway,
     });
   };
-  if (homeDelta > 0 && awayDelta > 0) {
-    const leadingSide = homeGoals > awayGoals ? "home" : awayGoals > homeGoals ? "away" : "";
-    const trailingSide = leadingSide === "home" ? "away" : leadingSide === "away" ? "home" : "";
-    let remainingHome = homeDelta;
-    let remainingAway = awayDelta;
+  let remainingHome = homeDelta;
+  let remainingAway = awayDelta;
+  if (homeGoals > awayGoals) {
+    while (remainingHome > remainingAway) {
+      addHomeGoal();
+      remainingHome -= 1;
+    }
     while (remainingHome > 0 || remainingAway > 0) {
-      if (trailingSide === "home" && remainingHome > 0) {
-        addHomeGoal();
-        remainingHome -= 1;
-      }
-      if (trailingSide === "away" && remainingAway > 0) {
+      if (remainingAway > 0) {
         addAwayGoal();
         remainingAway -= 1;
       }
-      if (leadingSide === "home" && remainingHome > 0) {
+      if (remainingHome > 0) {
         addHomeGoal();
         remainingHome -= 1;
       }
-      if (leadingSide === "away" && remainingAway > 0) {
+    }
+  } else if (awayGoals > homeGoals) {
+    while (remainingAway > remainingHome) {
+      addAwayGoal();
+      remainingAway -= 1;
+    }
+    while (remainingHome > 0 || remainingAway > 0) {
+      if (remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (remainingAway > 0) {
         addAwayGoal();
         remainingAway -= 1;
-      }
-      if (!leadingSide) {
-        if (remainingAway > 0) {
-          addAwayGoal();
-          remainingAway -= 1;
-        }
-        if (remainingHome > 0) {
-          addHomeGoal();
-          remainingHome -= 1;
-        }
       }
     }
   } else {
-  for (let home = previousHome + 1; home <= homeGoals; home += 1) {
-    runningHome = home;
-    events.push({
-      type: "GOAL",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.homeTeam || "",
-      minute: null,
-      injuryTime: null,
-      homeGoals: runningHome,
-      awayGoals: runningAway,
-    });
-  }
-  for (let away = previousAway + 1; away <= awayGoals; away += 1) {
-    runningAway = away;
-    events.push({
-      type: "GOAL",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.awayTeam || "",
-      minute: null,
-      injuryTime: null,
-      homeGoals: runningHome,
-      awayGoals: runningAway,
-    });
-  }
+    while (remainingHome > 0 || remainingAway > 0) {
+      if (remainingHome > 0) {
+        addHomeGoal();
+        remainingHome -= 1;
+      }
+      if (remainingAway > 0) {
+        addAwayGoal();
+        remainingAway -= 1;
+      }
+    }
   }
   const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
   const observedMinute = getObservedSyntheticGoalMinute(fixture, matchState);
