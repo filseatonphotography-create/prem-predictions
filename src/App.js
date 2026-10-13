@@ -2599,6 +2599,50 @@ export function findFixtureForApiMatch(match, fixtures) {
   return fixture || candidates[0] || null;
 }
 
+function getApiPersonName(person = {}) {
+  return String(person?.name || person?.playerName || person?.displayName || "").trim();
+}
+
+function normalizeApiLineupPlayer(player = {}) {
+  if (!player || typeof player !== "object") return null;
+  const name = getApiPersonName(player);
+  if (!name) return null;
+  const shirtNumber = Number(player.shirtNumber ?? player.number ?? player.jerseyNumber);
+  const id = player.id ?? player.playerId ?? player.personId;
+  return {
+    id: id == null ? "" : String(id),
+    name,
+    position: String(player.position || player.role || "").trim(),
+    shirtNumber: Number.isFinite(shirtNumber) ? shirtNumber : null,
+  };
+}
+
+function normalizeApiTeamLineup(team = {}) {
+  const lineup = Array.isArray(team?.lineup)
+    ? team.lineup.map(normalizeApiLineupPlayer).filter(Boolean)
+    : [];
+  const bench = Array.isArray(team?.bench)
+    ? team.bench.map(normalizeApiLineupPlayer).filter(Boolean)
+    : [];
+  return {
+    teamId: team?.id == null ? "" : String(team.id),
+    teamName: String(team?.name || team?.shortName || "").trim(),
+    formation: String(team?.formation || "").trim(),
+    coachName: getApiPersonName(team?.coach),
+    lineup,
+    bench,
+  };
+}
+
+export function normalizeApiLineups(match = {}) {
+  const home = normalizeApiTeamLineup(match?.homeTeam || {});
+  const away = normalizeApiTeamLineup(match?.awayTeam || {});
+  if (!home.lineup.length && !away.lineup.length && !home.bench.length && !away.bench.length) {
+    return null;
+  }
+  return { home, away };
+}
+
 export function buildFixtureSyncPayload(matches, fixtures) {
   const updatedResults = {};
   const matchStateUpdates = {};
@@ -2622,6 +2666,7 @@ export function buildFixtureSyncPayload(matches, fixtures) {
     const homeStatistics = match.homeTeam?.statistics || match.homeTeam?.stats || null;
     const awayStatistics = match.awayTeam?.statistics || match.awayTeam?.stats || null;
     const matchStatistics = match.statistics || null;
+    const lineups = normalizeApiLineups(match);
 
     const confirmedHomeTeam = match.homeTeam?.name
       ? resolveWorldCupCountryName(match.homeTeam.name)
@@ -2678,6 +2723,7 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       ...(homeStatistics && Object.keys(homeStatistics).length ? { homeStatistics } : {}),
       ...(awayStatistics && Object.keys(awayStatistics).length ? { awayStatistics } : {}),
       ...(matchStatistics && Object.keys(matchStatistics).length ? { matchStatistics } : {}),
+      ...(lineups ? { lineups } : {}),
       ...(providerUpdatedAt ? { lastUpdated: providerUpdatedAt } : {}),
       ...(matchIsFinished && providerUpdatedAt ? { finishedAt: providerUpdatedAt } : {}),
       homeTeam: confirmedHomeTeam,
@@ -4811,6 +4857,7 @@ function getLiveStudioEventKind(event = {}) {
     return "goal-disallowed";
   }
   if (text.includes("goal") || text.includes("score")) return "goal";
+  if (text.includes("lineup") || text.includes("line-up") || text.includes("starting xi")) return "lineup";
   if (text.includes("stat")) return "stats";
   if (text.includes("sub") || event.substituteName || event.playerOutName) return "substitution";
   if (text.includes("red") || text.includes("dismiss")) return "red-card";
@@ -4963,6 +5010,36 @@ function hasLiveStudioFixtureStatistics(matchState = {}) {
   );
 }
 
+function hasLiveStudioLineups(matchState = {}) {
+  const lineups = matchState?.lineups || {};
+  return Boolean(
+    Array.isArray(lineups.home?.lineup) && lineups.home.lineup.length ||
+      Array.isArray(lineups.away?.lineup) && lineups.away.lineup.length
+  );
+}
+
+function formatLiveStudioLineupNames(players = [], limit = 11) {
+  return (Array.isArray(players) ? players : [])
+    .slice(0, limit)
+    .map((player) => String(player?.name || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function buildLiveStudioLineupsLine({ fixture, matchState }) {
+  const lineups = matchState?.lineups || {};
+  const homeCode = getTeamCode(fixture.homeTeam);
+  const awayCode = getTeamCode(fixture.awayTeam);
+  const homeFormation = lineups.home?.formation ? ` ${lineups.home.formation}` : "";
+  const awayFormation = lineups.away?.formation ? ` ${lineups.away.formation}` : "";
+  const homeNames = formatLiveStudioLineupNames(lineups.home?.lineup);
+  const awayNames = formatLiveStudioLineupNames(lineups.away?.lineup);
+  return [
+    homeNames ? `${homeCode}${homeFormation}: ${homeNames}` : "",
+    awayNames ? `${awayCode}${awayFormation}: ${awayNames}` : "",
+  ].filter(Boolean).join(" | ");
+}
+
 function buildLiveStudioStatsLine({ fixture, matchState, minute, seed }) {
   const { home, away } = getLiveStudioFixtureStatistics(matchState);
   const homeCode = getTeamCode(fixture.homeTeam);
@@ -5067,6 +5144,8 @@ function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" })
       ? "Red card!"
       : kind === "goal-disallowed"
       ? "Goal ruled out"
+      : kind === "lineup"
+      ? "Line-ups confirmed"
       : kind === "stats"
       ? "Stats check"
       : kind === "yellow-card"
@@ -5093,6 +5172,7 @@ function getLiveStudioEventIcon(event = {}) {
   if (kind === "goal") return "⚽";
   if (kind === "goal-disallowed") return "❌";
   if (kind === "stats") return "📊";
+  if (kind === "lineup") return "📋";
   if (kind === "red-card") return "🟥";
   if (kind === "yellow-card") return "🟨";
   if (kind === "substitution") return "🔁";
@@ -11328,6 +11408,14 @@ const liveStudioFeed = useMemo(() => {
           awayGoals: 0,
         });
       }
+      if (hasLiveStudioLineups(matchState)) {
+        syntheticEvents.push({
+          type: "LINEUPS",
+          minute: null,
+          sortMinute: -1,
+          statusLabel: "",
+        });
+      }
       const elapsedMinute =
         Number.isFinite(kickoffTime) && liveStudioNow >= kickoffTime
           ? Math.floor((liveStudioNow - kickoffTime) / (60 * 1000))
@@ -11444,6 +11532,7 @@ const liveStudioFeed = useMemo(() => {
         const isHalfTime = statusLabel === "HT";
         const isFullTime = statusLabel === "FT";
         const isStatsCheck = entryKind === "stats";
+        const isLineup = entryKind === "lineup";
         const entryScoreFallback = isKickoff
           ? { homeGoals: 0, awayGoals: 0 }
           : isStatsCheck
@@ -11462,6 +11551,8 @@ const liveStudioFeed = useMemo(() => {
             ? "Goal"
             : isEstimatedSyntheticLiveStudioEvent(event) && entryIsGoalDisallowed
             ? "VAR"
+            : isLineup
+            ? "XI"
             : statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "");
         const entryMinute = formatLiveStudioMinute(
           event,
@@ -11506,6 +11597,8 @@ const liveStudioFeed = useMemo(() => {
               minute: Number(event.minute) || 0,
               seed: `${fixture.id}:stats:${event.minute}`,
             })
+          : isLineup
+          ? buildLiveStudioLineupsLine({ fixture, matchState }) || "Starting line-ups are confirmed."
           : isFullTime
           ? buildLiveStudioFullTimeSummary({
               fixture,

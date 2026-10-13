@@ -68,6 +68,54 @@ function getGoalScore(goal) {
   };
 }
 
+function getPersonId(person) {
+  const id = person?.id ?? person?.playerId ?? person?.personId;
+  return id == null ? "" : String(id);
+}
+
+function getPersonName(person) {
+  return String(person?.name || person?.playerName || person?.displayName || "").trim();
+}
+
+function normalizeLineupPlayer(player = {}) {
+  if (!player || typeof player !== "object") return null;
+  const name = getPersonName(player);
+  if (!name) return null;
+  const shirtNumber = Number(player.shirtNumber ?? player.number ?? player.jerseyNumber);
+  return {
+    id: getPersonId(player),
+    name,
+    position: String(player.position || player.role || "").trim(),
+    shirtNumber: Number.isFinite(shirtNumber) ? shirtNumber : null,
+  };
+}
+
+function normalizeTeamLineup(team = {}) {
+  const lineup = Array.isArray(team?.lineup)
+    ? team.lineup.map(normalizeLineupPlayer).filter(Boolean)
+    : [];
+  const bench = Array.isArray(team?.bench)
+    ? team.bench.map(normalizeLineupPlayer).filter(Boolean)
+    : [];
+  return {
+    teamId: team?.id == null ? "" : String(team.id),
+    teamName: String(team?.name || team?.shortName || "").trim(),
+    formation: String(team?.formation || "").trim(),
+    coachName: getPersonName(team?.coach),
+    lineup,
+    bench,
+  };
+}
+
+function normalizeLineups(source = {}) {
+  const home = normalizeTeamLineup(source?.homeTeam || {});
+  const away = normalizeTeamLineup(source?.awayTeam || {});
+  if (!home.lineup.length && !away.lineup.length && !home.bench.length && !away.bench.length) {
+    return null;
+  }
+  return { home, away };
+}
+
 function isGoalLikeEvent(goal) {
   const type = String(goal?.type || goal?.eventType || goal?.kind || "").toUpperCase();
   if (!type) return true;
@@ -83,6 +131,7 @@ function normalizeGoalEvents(source) {
       const score = getGoalScore(goal);
       return {
         scorerName: getGoalPersonName(goal),
+        assistName: getPersonName(goal?.assist),
         teamName: getGoalTeamName(goal),
         teamId: getGoalTeamId(goal),
         minute: time?.minute ?? null,
@@ -115,6 +164,7 @@ function normalizeMatchEvents(source) {
       const time = getGoalMinute(event);
       const card = String(event.card || event.cardType || event.booking || "").trim();
       const reason = String(event.reason || event.injury || event.description || "").trim();
+      const score = getGoalScore(event);
       const substituteName = String(
         event.substitute?.name ||
           event.substitution?.name ||
@@ -127,12 +177,17 @@ function normalizeMatchEvents(source) {
         type,
         playerName,
         teamName,
+        teamId: getGoalTeamId(event),
         minute: time?.minute ?? null,
         injuryTime: time?.injuryTime ?? null,
         card,
         reason,
         substituteName,
         playerOutName: String(event.playerOut?.name || event.playerOut || event.assist?.name || "").trim(),
+        playerInName: String(event.playerIn?.name || event.playerIn || event.substitute?.name || "").trim(),
+        assistName: getPersonName(event?.assist),
+        homeGoals: score.home,
+        awayGoals: score.away,
       };
     })
     .filter((event) => event.type || event.playerName || event.teamName || Number.isFinite(event.minute));
@@ -474,6 +529,7 @@ module.exports = {
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeMatchEvents,
+  normalizeLineups,
   normalizeInternationalTeamName,
   normalizeFootballTeamName,
   parseFixtureArraySource,

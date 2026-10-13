@@ -22,6 +22,7 @@ const {
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeMatchEvents,
+  normalizeLineups,
   normalizeFootballTeamName,
   parseFixtureArraySource,
   getDeviceSubscriptions,
@@ -586,6 +587,7 @@ function getFootballDataHeaders({ unfold = false } = {}) {
     ...(unfold
       ? {
           "X-Unfold-Goals": "true",
+          "X-Unfold-Lineups": "true",
           "X-Unfold-Bookings": "true",
           "X-Unfold-Subs": "true",
         }
@@ -4981,7 +4983,8 @@ async function fetchLiveMatches(mode) {
         const hasEvents =
           normalizeGoalEvents(match).length > 0 ||
           normalizeMatchEvents(match).some((event) => getLivePushEventKind(event) !== "update");
-        if (!match?.id || hasEvents || !recentlyActive) return match;
+        const hasLineups = Boolean(normalizeLineups(match));
+        if (!match?.id || (hasEvents && hasLineups) || !recentlyActive) return match;
         const detail = await fetchJson(`${FOOTBALL_DATA_API_BASE}/matches/${match.id}`, headers);
         if (!detail.ok || !detail.data || typeof detail.data !== "object") return match;
         return { ...match, ...detail.data };
@@ -5155,6 +5158,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const homeStatistics = match.homeTeam?.statistics || match.homeTeam?.stats || null;
       const awayStatistics = match.awayTeam?.statistics || match.awayTeam?.stats || null;
       const matchStatistics = match.statistics || null;
+      const lineups = normalizeLineups(match);
       const baseNextState = {
         status,
         homeGoals,
@@ -5169,6 +5173,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         ...(homeStatistics && Object.keys(homeStatistics).length ? { homeStatistics } : {}),
         ...(awayStatistics && Object.keys(awayStatistics).length ? { awayStatistics } : {}),
         ...(matchStatistics && Object.keys(matchStatistics).length ? { matchStatistics } : {}),
+        ...(lineups ? { lineups } : {}),
         lastUpdated: match.lastUpdated || match.updatedAt || observedAt,
         observedAt,
         finishedAt: matchFinished

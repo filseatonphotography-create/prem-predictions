@@ -3,6 +3,7 @@ const {
   buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
+  normalizeLineups,
 } = require("../notificationUtils");
 
 describe("goal alert details", () => {
@@ -71,6 +72,7 @@ describe("goal alert details", () => {
     ).toEqual([
       {
         scorerName: "Marta",
+        assistName: "",
         teamName: "Brazil",
         teamId: "",
         minute: 44,
@@ -80,6 +82,44 @@ describe("goal alert details", () => {
         type: "",
       },
     ]);
+  });
+
+  test("normalizes starting lineups and benches from football-data", () => {
+    expect(
+      normalizeLineups({
+        homeTeam: {
+          id: 57,
+          name: "Arsenal FC",
+          formation: "4-3-3",
+          coach: { name: "Renee Slegers" },
+          lineup: [{ id: 1, name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+          bench: [{ id: 2, name: "Home Sub", position: "Midfield", shirtNumber: 14 }],
+        },
+        awayTeam: {
+          id: 61,
+          name: "Chelsea FC",
+          formation: "4-2-3-1",
+          lineup: [{ id: 3, name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+        },
+      })
+    ).toEqual({
+      home: {
+        teamId: "57",
+        teamName: "Arsenal FC",
+        formation: "4-3-3",
+        coachName: "Renee Slegers",
+        lineup: [{ id: "1", name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+        bench: [{ id: "2", name: "Home Sub", position: "Midfield", shirtNumber: 14 }],
+      },
+      away: {
+        teamId: "61",
+        teamName: "Chelsea FC",
+        formation: "4-2-3-1",
+        coachName: "",
+        lineup: [{ id: "3", name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+        bench: [],
+      },
+    });
   });
 
   test("describes when a goal moves the user onto prediction points", () => {

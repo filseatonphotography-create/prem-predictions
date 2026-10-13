@@ -25,6 +25,7 @@ import {
   buildPremierHistoryEntries,
   sortLiveStudioEntries,
   getLiveStudioHalfTimeSnapshotScore,
+  normalizeApiLineups,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -808,6 +809,57 @@ describe("World Cup sync helpers", () => {
         utcDate: "2026-06-13T17:00:00Z",
       },
     });
+  });
+
+  test("stores football-data lineups in match state updates", () => {
+    const payload = buildFixtureSyncPayload(
+      [
+        {
+          homeTeam: {
+            name: "USA",
+            formation: "4-3-3",
+            lineup: [{ id: 10, name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+            bench: [{ id: 11, name: "Home Bench", position: "Midfield", shirtNumber: 14 }],
+          },
+          awayTeam: {
+            name: "Turkey",
+            formation: "4-2-3-1",
+            lineup: [{ id: 20, name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+          },
+          matchday: 1,
+          utcDate: "2026-06-13T17:00:00Z",
+          status: "IN_PLAY",
+          score: {
+            fullTime: { home: 0, away: 0 },
+            halfTime: { home: null, away: null },
+          },
+        },
+      ],
+      fixtures
+    );
+
+    expect(payload.matchStateUpdates[102].lineups).toEqual({
+      home: {
+        teamId: "",
+        teamName: "USA",
+        formation: "4-3-3",
+        coachName: "",
+        lineup: [{ id: "10", name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+        bench: [{ id: "11", name: "Home Bench", position: "Midfield", shirtNumber: 14 }],
+      },
+      away: {
+        teamId: "",
+        teamName: "Turkey",
+        formation: "4-2-3-1",
+        coachName: "",
+        lineup: [{ id: "20", name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+        bench: [],
+      },
+    });
+  });
+
+  test("normalizes missing football-data lineups as unavailable", () => {
+    expect(normalizeApiLineups({ homeTeam: { name: "USA" }, awayTeam: { name: "Turkey" } })).toBeNull();
   });
 
   test("does not create results for fixtures that have not started", () => {
