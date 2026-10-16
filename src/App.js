@@ -18666,7 +18666,7 @@ if (!isLoggedIn) {
               Prediction Addiction
             </h1>
             <div style={{ fontSize: 12, color: theme.muted, letterSpacing: 1.2, textTransform: "uppercase" }}>
-              Predictions, leagues, coins, bragging rights
+              Predictions, live football, leagues and bragging rights
             </div>
           </div>
         </header>
@@ -18708,7 +18708,7 @@ if (!isLoggedIn) {
                     textTransform: "uppercase",
                   }}
                 >
-                  Prediction hub
+                  Your matchday starts here
                 </div>
                 <div style={{ display: "grid", gap: 8, justifyItems: "center" }}>
                   <h2
@@ -18735,8 +18735,8 @@ if (!isLoggedIn) {
                       textAlign: "center",
                     }}
                   >
-                    Make weekly predictions, back your calls with coins, track live probabilities,
-                    build mini-leagues, and run your own tournament inside one app.
+                    Make your predictions, then follow every twist in Live Studio.
+                    Compete with mates, back your calls with coins, and sharpen your fantasy team with Fantasy IQ.
                   </p>
                 </div>
               </div>
@@ -18794,17 +18794,18 @@ if (!isLoggedIn) {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: isMobile ? "1fr" : "repeat(4, minmax(0, 1fr))",
+                  gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(160px, 1fr))",
                   gap: 10,
                   width: "100%",
                   maxWidth: 940,
                 }}
               >
                 {[
-                  ["Predictions", "Lock in every score before deadline"],
-                  ["Mini-leagues", "Create private tables and cups"],
-                  ["Coins Game", "Back outcomes and chase returns"],
-                  ["Fantasy IQ", "Get your fantasy team rated with transfer and line-up suggestions"],
+                  ["Predictions", "Call the scores before kick-off."],
+                  ["Live Studio", "Follow the goals, the banter and your league's live drama."],
+                  ["Mini-leagues", "Compete with mates for bragging rights."],
+                  ["Coins Game", "Back match outcomes with your coins."],
+                  ["Fantasy IQ", "Rate your squad and plan transfers and line-ups."],
                 ].map(([label, text]) => (
                   <div
                     key={label}
@@ -18827,7 +18828,7 @@ if (!isLoggedIn) {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "minmax(320px, 420px) minmax(0, 1fr)",
+            gridTemplateColumns: isMobile ? "1fr" : "minmax(280px, 380px) minmax(0, 1fr)",
             gap: 18,
             alignItems: "start",
           }}
@@ -19162,13 +19163,13 @@ if (!isLoggedIn) {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: isMobile ? "1fr" : "repeat(3, minmax(0, 1fr))",
+              gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(min(100%, 200px), 1fr))",
               gap: 14,
             }}
           >
             {[
               ["/auth-showcase/table.jpg", "Table insight", "Form and difficulty in one place."],
-              ["/auth-showcase/results.jpg", "Results and returns", "Track points, coins, and settled matches."],
+              ["/auth-showcase/results.jpg", "Results / Live Scores", "Follow live scores, prediction points and coin returns."],
               ["/auth-showcase/leagues.jpg", "Mini-leagues", "Create private rooms and compete with mates."],
             ].map(([src, title, copy]) => (
               <section
