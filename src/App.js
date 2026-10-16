@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import "./App.css";
+import FixturePointsBox from "./FixturePointsBox";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 import {
@@ -3780,6 +3781,11 @@ function getTotalPoints(pred, result) {
   if (pred.isDouble) total *= 2;
   if (pred.isTriple) total *= 3;
   return total;
+}
+
+export function getFixturePredictionPoints(prediction, score) {
+  if (!hasValidResultScore(prediction) || !hasValidResultScore(score)) return null;
+  return getTotalPoints(prediction, score);
 }
 
 // --- DEADLINES ---
@@ -20432,7 +20438,7 @@ if (!isLoggedIn) {
 const TABS = [
   { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
   { id: "liveStudio", label: "Live Studio" },
-  { id: "results", label: isWorldCupMode ? "WC Results" : "Results" },
+  { id: "results", label: isWorldCupMode ? "WC Results / Live Scores" : "Results / Live Scores" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
   ...(!isWorldCupMode ? [{ id: FANTASY_IQ_VIEW_ID, label: "Fantasy IQ" }] : []),
@@ -21410,9 +21416,7 @@ const TABS = [
           hasValidResultScore(r);
         const scoreLabel = getScoreLabel(matchStatesByFixtureId[fixture.id]);
         const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
-        const pointsForThisFixture = hasResult
-          ? getTotalPoints(pred, r)
-          : null;
+        const pointsForThisFixture = getFixturePredictionPoints(pred, r);
         const fixturePushEnabled = !!fixturePushPrefs[String(fixture.id)];
 
         const coinsBet =
@@ -21931,59 +21935,14 @@ const TABS = [
                     flexShrink: 0,
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        textAlign: "center",
-                        color: theme.muted,
-                        marginBottom: 2,
-                        lineHeight: "10px",
-                      }}
-                    >
-                      POINTS
-                    </div>
-                    <div
-                      aria-label={
-                        pointsForThisFixture == null
-                          ? "Points not available yet"
-                          : `${pointsForThisFixture} points`
-                      }
-                      style={{
-                        ...smallInput,
-                        minHeight: isMobile ? 32 : 34,
-                        boxSizing: "border-box",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontWeight: 800,
-                        background:
-                          pointsForThisFixture == null
-                            ? theme.panel
-                            : pred?.isTriple
-                            ? "#ffd700"
-                            : pred?.isDouble
-                            ? "#C0C0C0"
-                            : pointsForThisFixture === 0
-                            ? "#e74c3c"
-                            : "#2ecc71",
-                        color:
-                          pointsForThisFixture == null
-                            ? theme.text
-                            : pred?.isTriple || pred?.isDouble
-                            ? "#000"
-                            : "#fff",
-                      }}
-                    >
-                      {pointsForThisFixture == null ? "—" : pointsForThisFixture}
-                    </div>
-                  </div>
+                  <FixturePointsBox
+                    points={pointsForThisFixture}
+                    prediction={pred}
+                    live={fixtureLive}
+                    isMobile={isMobile}
+                    theme={theme}
+                    inputStyle={smallInput}
+                  />
 
                   <div
                     style={{
@@ -22310,7 +22269,7 @@ const TABS = [
 {activeView === "results" && (
   <section style={cardStyle}>
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
-      {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Results" : "Results"}
+      {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Results / Live Scores" : "Results / Live Scores"}
     </h2>
     {isWorldCupMode && (
       <div style={{ marginTop: -4, marginBottom: 10, fontSize: 12, fontWeight: 700, color: theme.accent }}>
@@ -22377,6 +22336,8 @@ const TABS = [
       {visibleFixtures.map((fixture) => {
         const res = results[fixture.id] || {};
         const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
+        const pred = predictions[currentPredictionKey]?.[fixture.id];
+        const pointsForThisFixture = getFixturePredictionPoints(pred, res);
 
         const homeCode = getTeamCode(fixture.homeTeam, gameMode);
         const awayCode = getTeamCode(fixture.awayTeam, gameMode);
@@ -22396,18 +22357,20 @@ const TABS = [
                 : "1px solid rgba(255, 255, 255, 0.3)",
               padding: 10,
               display: "flex",
-              justifyContent: "center",
+              justifyContent: "space-between",
               alignItems: "center",
+              gap: isMobile ? 12 : 24,
             }}
           >
-            {/* Inner row, centered */}
+            {/* Fixture and score on the left, personal points on the right. */}
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
-                gap: 12,
-                width: "100%",
+                gap: isMobile ? 6 : 12,
+                flex: "1 1 auto",
+                minWidth: 0,
                 maxWidth: 520,
               }}
             >
@@ -22416,8 +22379,10 @@ const TABS = [
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: isMobile ? 3 : 6,
+                  flexDirection: isMobile ? "column" : "row",
                   flex: 1,
+                  minWidth: 0,
                   justifyContent: "flex-end",
                 }}
               >
@@ -22444,20 +22409,20 @@ const TABS = [
                   gap: 8,
                   alignItems: "center",
                   justifyContent: "center",
-                  minWidth: 92,
+                  minWidth: isMobile ? 72 : 92,
                   justifyItems: "center",
                 }}
               >
-                {fixtureLive && (
+                {hasValidResultScore(res) && (
                   <span
                     style={{
-                      color: "#22c55e",
+                      color: fixtureLive ? "#22c55e" : theme.muted,
                       fontSize: 10,
                       fontWeight: 900,
                       letterSpacing: 0.4,
                     }}
                   >
-                    LIVE SCORE
+                    {getScoreLabel(matchStatesByFixtureId[fixture.id])}
                   </span>
                 )}
                 {isWorldCupMode && (
@@ -22502,8 +22467,10 @@ const TABS = [
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: isMobile ? 3 : 6,
+                  flexDirection: isMobile ? "column" : "row",
                   flex: 1,
+                  minWidth: 0,
                   justifyContent: "flex-start",
                 }}
               >
@@ -22523,6 +22490,14 @@ const TABS = [
                 <span style={{ fontWeight: 700 }}>{awayCode}</span>
               </div>
             </div>
+            <FixturePointsBox
+              points={pointsForThisFixture}
+              prediction={pred}
+              live={fixtureLive}
+              isMobile={isMobile}
+              theme={theme}
+              inputStyle={smallInput}
+            />
           </div>
         );
       })}
