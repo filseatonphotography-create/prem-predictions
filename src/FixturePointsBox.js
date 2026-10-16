@@ -18,7 +18,7 @@ export default function FixturePointsBox({ points, prediction, live = false, isM
         aria-label={available ? `${points} ${live ? "live " : ""}points` : "Points not available yet"}
         style={{
           ...inputStyle,
-          minHeight: isMobile ? 32 : 34,
+          minHeight: inputStyle?.minHeight ?? (isMobile ? 32 : 34),
           boxSizing: "border-box",
           display: "flex",
           alignItems: "center",

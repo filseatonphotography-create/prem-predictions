@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 import FixturePointsBox from "./FixturePointsBox";
+import ResultsFixtureRow from "./ResultsFixtureRow";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 import {
@@ -22348,71 +22349,20 @@ const TABS = [
         const awayBadgeSrc = resolveTeamBadge(fixture.awayTeam);
 
         return (
-          <div
+          <ResultsFixtureRow
             key={fixture.id}
-            style={{
-              background: theme.panelHi,
-              borderRadius: 12,
-              border: fixtureLive
-                ? "2px solid #22c55e"
-                : "1px solid rgba(255, 255, 255, 0.3)",
-              padding: 10,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-end",
-              gap: isMobile ? 12 : 24,
-            }}
-          >
-            {/* Keep badges, teams and score on one line; align their baseline with the points box. */}
-            <div style={{ display: "grid", gap: 4, flex: "1 1 auto", minWidth: 0 }}>
-              {(hasValidResultScore(res) || isWorldCupMode) && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 6 }}>
-                  {hasValidResultScore(res) && (
-                    <span style={{ color: fixtureLive ? "#22c55e" : theme.muted, fontSize: 10, fontWeight: 900, letterSpacing: 0.4 }}>
-                      {getScoreLabel(matchStatesByFixtureId[fixture.id])}
-                    </span>
-                  )}
-                  {isWorldCupMode && (
-                    <span style={{ padding: "3px 8px", borderRadius: 999, background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", color: theme.accent, fontSize: 10, fontWeight: 800 }}>
-                      {getWorldCupFixtureLabel(fixture)}
-                    </span>
-                  )}
-                </div>
-              )}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 6 : 12, minHeight: isMobile ? 32 : 34 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 6, flexShrink: 0 }}>
-                  {isWorldCupMode ? (
-                    <span style={{ fontSize: isMobile ? 16 : 20 }}>{getWorldCupFlag(fixture.homeTeam)}</span>
-                  ) : homeBadgeSrc ? (
-                    <img src={homeBadgeSrc} alt={fixture.homeTeam} style={{ width: isMobile ? 16 : 20, height: isMobile ? 16 : 20, objectFit: "contain", flexShrink: 0 }} />
-                  ) : null}
-                  <span style={{ fontWeight: 700, fontSize: isMobile ? 12 : 14 }}>{homeCode}</span>
-                </div>
-                <div style={{ display: "flex", gap: isMobile ? 4 : 8, alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-                  <span style={{ minWidth: isMobile ? 16 : 20, textAlign: "right" }}>{res.homeGoals ?? "-"}</span>
-                  <span style={{ color: theme.muted }}>-</span>
-                  <span style={{ minWidth: isMobile ? 16 : 20, textAlign: "left" }}>{res.awayGoals ?? "-"}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 6, flexShrink: 0 }}>
-                  <span style={{ fontWeight: 700, fontSize: isMobile ? 12 : 14 }}>{awayCode}</span>
-                  {isWorldCupMode ? (
-                    <span style={{ fontSize: isMobile ? 16 : 20 }}>{getWorldCupFlag(fixture.awayTeam)}</span>
-                  ) : awayBadgeSrc ? (
-                    <img src={awayBadgeSrc} alt={fixture.awayTeam} style={{ width: isMobile ? 16 : 20, height: isMobile ? 16 : 20, objectFit: "contain", flexShrink: 0 }} />
-                  ) : null}
-                </div>
-              </div>
-            </div>
-            <FixturePointsBox
-              points={pointsForThisFixture}
-              prediction={pred}
-              live={fixtureLive}
-              isMobile={isMobile}
-              theme={theme}
-              inputStyle={smallInput}
-              align="end"
-            />
-          </div>
+            home={{ name: fixture.homeTeam, code: homeCode, badgeSrc: homeBadgeSrc, flag: isWorldCupMode ? getWorldCupFlag(fixture.homeTeam) : "" }}
+            away={{ name: fixture.awayTeam, code: awayCode, badgeSrc: awayBadgeSrc, flag: isWorldCupMode ? getWorldCupFlag(fixture.awayTeam) : "" }}
+            score={res}
+            scoreLabel={hasValidResultScore(res) ? getScoreLabel(matchStatesByFixtureId[fixture.id]) : ""}
+            stageLabel={isWorldCupMode ? getWorldCupFixtureLabel(fixture) : ""}
+            points={pointsForThisFixture}
+            prediction={pred}
+            live={fixtureLive}
+            isMobile={isMobile}
+            theme={theme}
+            inputStyle={smallInput}
+          />
         );
       })}
     </div>
