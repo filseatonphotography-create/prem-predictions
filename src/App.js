@@ -22359,136 +22359,48 @@ const TABS = [
               padding: 10,
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "center",
+              alignItems: "flex-end",
               gap: isMobile ? 12 : 24,
             }}
           >
-            {/* Fixture and score on the left, personal points on the right. */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: isMobile ? 6 : 12,
-                flex: "1 1 auto",
-                minWidth: 0,
-                maxWidth: 520,
-              }}
-            >
-              {/* Home badge + code */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: isMobile ? 3 : 6,
-                  flexDirection: isMobile ? "column" : "row",
-                  flex: 1,
-                  minWidth: 0,
-                  justifyContent: "flex-end",
-                }}
-              >
-                <span style={{ fontWeight: 700 }}>{homeCode}</span>
-                {isWorldCupMode ? (
-                  <span style={{ fontSize: 18 }}>{getWorldCupFlag(fixture.homeTeam)}</span>
-                ) : homeBadgeSrc ? (
-                  <img
-                    src={homeBadgeSrc}
-                    alt={fixture.homeTeam}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      objectFit: "contain",
-                    }}
-                  />
-                ) : null}
-              </div>
-
-              {/* Score inputs */}
-              <div
-                style={{
-                  display: "grid",
-                  gap: 8,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minWidth: isMobile ? 72 : 92,
-                  justifyItems: "center",
-                }}
-              >
-                {hasValidResultScore(res) && (
-                  <span
-                    style={{
-                      color: fixtureLive ? "#22c55e" : theme.muted,
-                      fontSize: 10,
-                      fontWeight: 900,
-                      letterSpacing: 0.4,
-                    }}
-                  >
-                    {getScoreLabel(matchStatesByFixtureId[fixture.id])}
-                  </span>
-                )}
-                {isWorldCupMode && (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: "3px 8px",
-                      borderRadius: 999,
-                      background: "rgba(245,158,11,0.14)",
-                      border: "1px solid rgba(245,158,11,0.3)",
-                      color: theme.accent,
-                      fontSize: 10,
-                      fontWeight: 800,
-                      letterSpacing: 0.3,
-                    }}
-                  >
-                    {getWorldCupFixtureLabel(fixture)}
-                  </span>
-                )}
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                <span style={{ minWidth: 20, textAlign: "right", fontWeight: 700, fontSize: 16 }}>
-                  {res.homeGoals ?? "-"}
-                </span>
-                <span style={{ color: theme.muted }}>-</span>
-                <span style={{ minWidth: 20, textAlign: "left", fontWeight: 700, fontSize: 16 }}>
-                  {res.awayGoals ?? "-"}
-                </span>
+            {/* Keep badges, teams and score on one line; align their baseline with the points box. */}
+            <div style={{ display: "grid", gap: 4, flex: "1 1 auto", minWidth: 0 }}>
+              {(hasValidResultScore(res) || isWorldCupMode) && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 6 }}>
+                  {hasValidResultScore(res) && (
+                    <span style={{ color: fixtureLive ? "#22c55e" : theme.muted, fontSize: 10, fontWeight: 900, letterSpacing: 0.4 }}>
+                      {getScoreLabel(matchStatesByFixtureId[fixture.id])}
+                    </span>
+                  )}
+                  {isWorldCupMode && (
+                    <span style={{ padding: "3px 8px", borderRadius: 999, background: "rgba(245,158,11,0.14)", border: "1px solid rgba(245,158,11,0.3)", color: theme.accent, fontSize: 10, fontWeight: 800 }}>
+                      {getWorldCupFixtureLabel(fixture)}
+                    </span>
+                  )}
                 </div>
-              </div>
-
-              {/* Away badge + code */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: isMobile ? 3 : 6,
-                  flexDirection: isMobile ? "column" : "row",
-                  flex: 1,
-                  minWidth: 0,
-                  justifyContent: "flex-start",
-                }}
-              >
-                {isWorldCupMode ? (
-                  <span style={{ fontSize: 18 }}>{getWorldCupFlag(fixture.awayTeam)}</span>
-                ) : awayBadgeSrc ? (
-                  <img
-                    src={awayBadgeSrc}
-                    alt={fixture.awayTeam}
-                    style={{
-                      width: 20,
-                      height: 20,
-                      objectFit: "contain",
-                    }}
-                  />
-                ) : null}
-                <span style={{ fontWeight: 700 }}>{awayCode}</span>
+              )}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: isMobile ? 6 : 12, minHeight: isMobile ? 32 : 34 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 6, flexShrink: 0 }}>
+                  {isWorldCupMode ? (
+                    <span style={{ fontSize: isMobile ? 16 : 20 }}>{getWorldCupFlag(fixture.homeTeam)}</span>
+                  ) : homeBadgeSrc ? (
+                    <img src={homeBadgeSrc} alt={fixture.homeTeam} style={{ width: isMobile ? 16 : 20, height: isMobile ? 16 : 20, objectFit: "contain", flexShrink: 0 }} />
+                  ) : null}
+                  <span style={{ fontWeight: 700, fontSize: isMobile ? 12 : 14 }}>{homeCode}</span>
+                </div>
+                <div style={{ display: "flex", gap: isMobile ? 4 : 8, alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+                  <span style={{ minWidth: isMobile ? 16 : 20, textAlign: "right" }}>{res.homeGoals ?? "-"}</span>
+                  <span style={{ color: theme.muted }}>-</span>
+                  <span style={{ minWidth: isMobile ? 16 : 20, textAlign: "left" }}>{res.awayGoals ?? "-"}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 4 : 6, flexShrink: 0 }}>
+                  <span style={{ fontWeight: 700, fontSize: isMobile ? 12 : 14 }}>{awayCode}</span>
+                  {isWorldCupMode ? (
+                    <span style={{ fontSize: isMobile ? 16 : 20 }}>{getWorldCupFlag(fixture.awayTeam)}</span>
+                  ) : awayBadgeSrc ? (
+                    <img src={awayBadgeSrc} alt={fixture.awayTeam} style={{ width: isMobile ? 16 : 20, height: isMobile ? 16 : 20, objectFit: "contain", flexShrink: 0 }} />
+                  ) : null}
+                </div>
               </div>
             </div>
             <FixturePointsBox
@@ -22498,6 +22410,7 @@ const TABS = [
               isMobile={isMobile}
               theme={theme}
               inputStyle={smallInput}
+              align="end"
             />
           </div>
         );

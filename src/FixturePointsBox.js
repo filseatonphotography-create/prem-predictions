@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function FixturePointsBox({ points, prediction, live = false, isMobile, theme, inputStyle }) {
+export default function FixturePointsBox({ points, prediction, live = false, isMobile, theme, inputStyle, align = "center" }) {
   const available = points != null;
   const boosted = prediction?.isTriple || prediction?.isDouble;
   const background = !available ? theme.panel
@@ -9,7 +9,7 @@ export default function FixturePointsBox({ points, prediction, live = false, isM
     : points === 0 ? "#e74c3c" : "#2ecc71";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", flexShrink: 0 }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: align === "end" ? "flex-end" : "center", width: align === "end" ? 60 : undefined, flexShrink: 0 }}>
       <div style={{ fontSize: 10, textAlign: "center", color: live ? "#22c55e" : theme.muted, marginBottom: 2, lineHeight: "10px", whiteSpace: "nowrap" }}>
         {live ? "LIVE POINTS" : "POINTS"}
       </div>
