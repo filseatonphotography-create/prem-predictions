@@ -1,4 +1,5 @@
-import { buildLiveStudioPlayerRoundup, buildLiveStudioDeskEntries, mergeLiveStudioDeskHistory } from "./App";
+import { act, renderHook } from "@testing-library/react";
+import { useLiveStudioCommentaryHistory, buildLiveStudioPlayerRoundup, buildLiveStudioDeskEntries, mergeLiveStudioDeskHistory } from "./App";
 
 const kickoff = "2026-10-17T14:00:00Z";
 const nowMs = Date.parse(kickoff) + 25 * 60000;
@@ -53,4 +54,40 @@ test("late predictions enrich the original snapshot without changing scores, tim
 test("missing predictions and invalid scores cannot create fictional Bingpots", () => {
   expect(buildLiveStudioPlayerRoundup({ matches: [match(1, { picks: [{ username: "Missing" }, pick("Empty", "", "")] })] })).toEqual([]);
   expect(buildLiveStudioPlayerRoundup({ matches: [match(1, { score: { homeGoals: null, awayGoals: null } })] })).toEqual([]);
+});
+
+test("the final player rundown survives a partial refresh and later score corrections", () => {
+  const [full] = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false })], nowMs });
+  const [partial] = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false, picks: [pick("Dave", 3, 2)] })], nowMs });
+  const [refreshed] = mergeLiveStudioDeskHistory([full], [partial]);
+  expect(refreshed.playerRoundup).toHaveLength(3);
+  expect(refreshed.lines.join(" ")).toMatch(/Best return.*Phil.*14 prediction points/);
+  expect(refreshed.playerRoundup.find(line => line.includes("Phil"))).toContain("14 prediction points");
+  const [corrected] = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false, score: { homeGoals: 0, awayGoals: 1 }, picks: [pick("Dave", 3, 2)] })], nowMs });
+  const [updated] = mergeLiveStudioDeskHistory([refreshed], [corrected]);
+  expect(updated.playerRoundup.find(line => line.includes("Emma"))).toContain("7 prediction points");
+  expect(updated.playerRoundup.find(line => line.includes("Phil"))).toContain("0 prediction points");
+});
+
+test("legacy and loaded account IDs for the same player do not create duplicates", () => {
+  const [full] = buildLiveStudioDeskEntries({ matches: [match(1)], nowMs });
+  const [loaded] = buildLiveStudioDeskEntries({ matches: [match(1, { picks: [{ ...pick("Phil", 2, 1, { isDouble: true }), userId: "loaded-id" }] })], nowMs });
+  const [merged] = mergeLiveStudioDeskHistory([full], [loaded]);
+  expect(merged.playerRoundup).toHaveLength(3);
+  expect(merged.playerRoundup.filter(line => line.includes("Phil"))).toHaveLength(1);
+});
+
+test("the saved full rundown survives loading, a partial final response and a second page reload", () => {
+  sessionStorage.clear();
+  const full = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false })], nowMs });
+  const partial = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false, picks: [pick("Dave", 3, 2)] })], nowMs });
+  sessionStorage.setItem("live-studio-commentary:v1:refresh-final", JSON.stringify(full));
+  const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioCommentaryHistory(feed, "refresh-final"), { initialProps: { feed: [{ id: "waiting" }] } });
+  expect(result.current.find(entry => entry.id === "studio:closing").playerRoundup).toHaveLength(3);
+  act(() => rerender({ feed: partial }));
+  expect(result.current.find(entry => entry.id === "studio:closing").playerRoundup).toHaveLength(3);
+  unmount();
+  const restored = renderHook(() => useLiveStudioCommentaryHistory(partial, "refresh-final"));
+  expect(restored.result.current.find(entry => entry.id === "studio:closing").playerRoundup).toHaveLength(3);
+  restored.unmount(); sessionStorage.clear();
 });

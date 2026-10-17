@@ -37,6 +37,9 @@ test("the full app puts new updates first and combines half-time into one studio
 
 
     expect(screen.getByText(/Johan Manzambi.*scor|Johan Manzambi.*net|Johan Manzambi.*name|Johan Manzambi has/)).toBeInTheDocument();
+    const kickoffCard = screen.getByText("Kick off!").closest("article");
+    expect(kickoffCard.style.border).toMatch(/239,\s*68,\s*68/);
+    expect(screen.getByText("Kick off!").parentElement).toHaveStyle({ color: "#f87171" });
     let cards = document.querySelectorAll('article[data-live-studio-fixture-id]');
     expect(cards[0]).toHaveTextContent(/Goal for AVL/);
     finalHomeGoals = 3;
@@ -60,10 +63,10 @@ test("the full app puts new updates first and combines half-time into one studio
     jest.setSystemTime(Date.parse("2026-10-17T18:00:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     const checkInCard = document.querySelector("article");
-    expect(checkInCard).toHaveTextContent("70-minute studio check-in");
+    expect(checkInCard).toHaveTextContent("Watching the clock");
     expect(checkInCard.style.border).toBe(halfCard.style.border);
     expect(checkInCard.style.background).toBe(halfCard.style.background);
-    expect(screen.getByText("70-minute studio check-in").parentElement).toHaveStyle({ color: "#f59e0b" });
+    expect(screen.getByText("Watching the clock").parentElement).toHaveStyle({ color: "#f59e0b" });
     expect(within(checkInCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
@@ -111,8 +114,8 @@ test("a returning viewer sees all phases in order while old results and studio h
       const positions = labels.map(index);
       expect(labels.filter((label, i) => positions[i] < 0)).toEqual([]);
       expect(positions).toEqual([...positions].sort((a, b) => a - b));
-      expect(index("Earlier games at 70 minutes")).toBeGreaterThan(index("Kick off!"));
-      expect(index("Earlier games at half time")).toBeGreaterThan(index("Earlier games at 70 minutes"));
+      expect(index("Watching the clock")).toBeGreaterThan(index("Kick off!"));
+      expect(index("Earlier games at half time")).toBeGreaterThan(index("Watching the clock"));
     };
     checkOrder();
     // League/points information and result corrections enrich old cards; they

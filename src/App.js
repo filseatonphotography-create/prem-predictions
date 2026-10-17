@@ -5336,13 +5336,22 @@ function withoutIndividualFullTimeTable(entry) {
 }
 
 export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
-  // A closing verdict describes the current session, so never carry an old one
-  // into later games. Round-ups and confirmed full-time cards stay in history.
-  const entries = new Map(history.filter((entry) => entry.id !== "studio:closing").map(withoutIndividualFullTimeTable).map((entry) => [entry.id, entry]));
-  currentFeed.filter(isRetainedLiveStudioEntry).map(withoutIndividualFullTimeTable).forEach((entry) => {
-    // Freeze round-ups once read; update a confirmed result if official data is corrected.
-    if (!entries.has(entry.id) || entry.fullTime || entry.id === "studio:closing") entries.set(entry.id, entry);
-    else entries.set(entry.id, enrichLiveStudioPlayerRoundup(entries.get(entry.id), entry));
+  // Final roundups survive partial player fetches, but never carry a closing
+  // verdict into another live session. Late check-ins share one stable identity.
+  const closing = currentFeed.some(entry => entry.id === "studio:closing");
+  const loading = currentFeed.every(entry => entry.id === "waiting");
+  const entries = new Map();
+  history.filter(entry => entry.id !== "studio:closing" || closing || loading)
+    .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
+    .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
+      const previous = entries.get(entry.id);
+      entries.set(entry.id, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
+    });
+  currentFeed.filter(isRetainedLiveStudioEntry).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
+    const previous = entries.get(entry.id);
+    if (entry.id === "studio:closing") entries.set(entry.id, mergeLiveStudioFinalRoundup(previous, entry));
+    else if (!previous || entry.fullTime) entries.set(entry.id, entry);
+    else entries.set(entry.id, enrichLiveStudioPlayerRoundup(previous, entry));
   });
   return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 100);
 }
@@ -5923,6 +5932,48 @@ export function getLiveStudioClockMinute(fixture, matchState, nowMs) {
   return Math.max(estimated, latestKnown);
 }
 
+export function buildLiveStudioUsers({ leagueHistoryUsers = [], selectedMiniLeague, isWorldCupMode = false, currentPlayer, currentUserId }) {
+  if (!isWorldCupMode && isOriginalsMiniLeague(selectedMiniLeague)) {
+    return buildPremierHistoryEntries(leagueHistoryUsers, selectedMiniLeague)
+      .map(({ player, userId }) => ({ username: player, userId: userId || "" }));
+  }
+  if (leagueHistoryUsers.length) return leagueHistoryUsers.map(user => ({ userId: String(user.userId || ""), username: user.username || "Player" }));
+  if (selectedMiniLeague?.id || isWorldCupMode) return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
+  return PLAYERS.map(username => ({ userId: "", username }));
+}
+
+function mergeLiveStudioRoundupPicks(previous = [], incoming = []) {
+  // A user's ID can change from a legacy row to the loaded account record.
+  // Keep one prediction per display name, and never erase it with a thin fetch.
+  const key = pick => String(pick.username || pick.userId || "").trim().toLowerCase();
+  const picks = new Map(previous.map(pick => [key(pick), pick]));
+  incoming.forEach(pick => {
+    if (hasValidResultScore(pick.prediction)) picks.set(key(pick), pick);
+  });
+  return [...picks.values()];
+}
+
+function mergeLiveStudioFinalRoundup(previous, incoming) {
+  if (!previous?.roundupMatches?.length || !incoming.roundupMatches?.length) return incoming;
+  const matches = incoming.roundupMatches.map(match => ({ ...match,
+    picks: mergeLiveStudioRoundupPicks(previous.roundupMatches.find(old => String(old.fixture.id) === String(match.fixture.id))?.picks, match.picks),
+  }));
+  const lines = [...incoming.lines];
+  lines[1 + matches.length] = buildLiveStudioClosingVerdict({
+    matches: matches.map(match => ({ ...match, finished: true })), leagueName: incoming.roundupLeagueName || "the league",
+  })[0];
+  return { ...incoming, lines, ...buildLiveStudioPlayerRoundupDetails(matches, incoming.id, true) };
+}
+
+function normalizeLiveStudioDeskEntry(entry) {
+  const lateId = entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":70");
+  if (lateId) return { ...entry, title: "Watching the clock" };
+  if (entry.title !== "Watching the clock" || !entry.id?.startsWith("studio:roundup:")) return entry;
+  const kickoffs = [...new Set((entry.roundupMatches || []).map(match => match.fixture.kickoff))];
+  return kickoffs.length === 1
+    ? { ...entry, id: `studio:checkpoint:${kickoffs[0]}:70` } : entry;
+}
+
 export function buildLiveStudioPlayerRoundup({ matches = [], seed = "studio", finished = false }) {
   const players = new Map();
   const uniqueMatches = [...new Map(matches.map(match => [String(match.fixture.id), match])).values()];
@@ -5973,11 +6024,7 @@ function enrichLiveStudioPlayerRoundup(previous, incoming) {
   if (!snapshot.length) return previous;
   const matches = snapshot.map(match => {
     const current = incoming.roundupMatches.find(candidate => String(candidate.fixture.id) === String(match.fixture.id));
-    const picks = new Map((match.picks || []).map(pick => [pick.userId || pick.username, pick]));
-    (current?.picks || []).forEach(pick => {
-      if (hasValidResultScore(pick.prediction)) picks.set(pick.userId || pick.username, pick);
-    });
-    return { ...match, picks: [...picks.values()] };
+    return { ...match, picks: mergeLiveStudioRoundupPicks(match.picks, current?.picks) };
   });
   return { ...previous, ...buildLiveStudioPlayerRoundupDetails(matches, previous.id, previous.id === "studio:closing") };
 }
@@ -6033,6 +6080,7 @@ export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = 
     id: "studio:closing", minute: "FT", tone: "finished", icon: "🎙️", momentMs,
     title: "Full-time around the grounds", verdictLabel: "Back in the studio",
     ...buildLiveStudioPlayerRoundupDetails(matches, "studio:closing", true),
+    roundupLeagueName: leagueName,
     lines: ["Back in the studio. The whistles have gone — let's run through the results.",
       ...matches.map(({ fixture, score }) => `${getLiveStudioTeamName(fixture.homeTeam)} ${score.homeGoals}–${score.awayGoals} ${getLiveStudioTeamName(fixture.awayTeam)} (FT)`),
       ...buildLiveStudioClosingVerdict({ matches, leagueName, tableSwings }), tableLine].filter(Boolean),
@@ -6041,12 +6089,12 @@ export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = 
   };
 }
 
-export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
+export function buildLiveStudioCheckpointEntries({ matches = [], nowMs, allowLate = false }) {
   const active = matches.filter((match) => match.live && !match.paused && !match.finished && hasValidResultScore(match.score));
   const checkpoints = new Map();
   active.forEach((match) => {
     const minute = numeric(match.minute);
-    const mark = [25, 70].find((target) => minute != null && minute >= target && minute < target + 10);
+    const mark = [25, 70].find((target) => minute != null && minute >= target && (minute < target + 10 || (target === 70 && allowLate)));
     if (mark) checkpoints.set(`${match.fixture.kickoff}:${mark}`, mark);
   });
   return [...checkpoints].map(([key, mark]) => {
@@ -6057,10 +6105,10 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
       return pick ? `${pick.username} is on for Bingpot at ${getLiveStudioVenue(match.fixture)}. ${mark === 70 ? "Twenty minutes can feel like a lifetime." : "Plenty of football left. Try to look relaxed."}` : "";
     }).filter(Boolean);
     return {
-      id: seed, minute: `${mark}'`, tone: "live", icon: "🎙️",
+      id: seed, minute: `${mark === 70 && allowLate ? Math.min(...active.filter(match => `${match.fixture.kickoff}:${mark}` === key).map(match => Number(match.minute))) : mark}'`, tone: "live", icon: "🎙️",
       momentMs: Math.max(...active.filter((match) => `${match.fixture.kickoff}:${mark}` === key)
         .map((match) => getMatchEventMomentMs(match.fixture, { minute: Number(match.minute) }, match.matchState || {}))),
-      title: `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
+      title: mark === 70 ? "Watching the clock" : `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
       ...buildLiveStudioPlayerRoundupDetails(active, seed),
       lines: [pickLiveStudioPhrase(seed, mark === 25 ? [
         "Back in the studio. A chance to catch our breath and see how the afternoon is shaping up.",
@@ -6071,7 +6119,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
         "Time for another trip around the grounds. A few prediction slips are starting to feel rather precious.",
         "Let's take stock in the studio. Plenty still riding on the closing stages.",
       ]), ...active.map((match) => `${getLiveStudioTeamName(match.fixture.homeTeam)} ${match.score.homeGoals}–${match.score.awayGoals} ${getLiveStudioTeamName(match.fixture.awayTeam)} (${numeric(match.minute) != null ? `${match.minute}'` : "Live"})`),
-      ...interests.slice(0, 2)],
+      ...interests.slice(0, 2), ...(mark === 70 ? active.map(match => buildLiveStudioLateLine({ ...match, seed: `${seed}:${match.fixture.id}:late` })).filter(Boolean).slice(0, 2) : [])],
     };
   });
 }
@@ -6094,6 +6142,9 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
   if (checkpoints.length) return checkpoints;
   const latestNews = Math.max(...matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff)));
   if (!Number.isFinite(latestNews) || nowMs - latestNews < 3 * 60000) return [];
+  if (active.every(match => numeric(match.minute) >= 70)) {
+    return buildLiveStudioCheckpointEntries({ matches, nowMs, allowLate: true });
+  }
   const firstKickoff = Math.min(...active.map((match) => Date.parse(match.fixture.kickoff)));
   if (nowMs - firstKickoff < 10 * 60000) return [];
   const bucket = Math.floor(nowMs / (10 * 60000));
@@ -11188,21 +11239,9 @@ const currentGwTopScore = useMemo(() => {
   return currentGwPoints;
 }, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
-const liveStudioUsers = useMemo(() => {
-  if (Array.isArray(leagueHistoryUsers) && leagueHistoryUsers.length > 0) {
-    return leagueHistoryUsers.map((user) => ({
-      userId: String(user.userId || ""),
-      username: user.username || "Player",
-    }));
-  }
-  if (selectedMiniLeague?.id) {
-    return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
-  }
-  if (!isWorldCupMode) {
-    return PLAYERS.map((player) => ({ userId: "", username: player }));
-  }
-  return currentPlayer ? [{ userId: currentUserId || "", username: currentPlayer }] : [];
-}, [leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId]);
+const liveStudioUsers = useMemo(() => buildLiveStudioUsers({
+  leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId,
+}), [leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId]);
 
 useEffect(() => {
   const userIds = Array.from(
@@ -11953,6 +11992,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           sortMinute,
           momentMs: entryMomentMs,
           fullTime: isFullTime,
+          kickoff: isKickoff,
           lineups: isLineup ? matchState.lineups : null,
           tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
           title: entryTitle || `News from ${venue}`,
@@ -21092,8 +21132,9 @@ const TABS = [
                       String(entry.fixtureId || "") === String(liveStudioFocusFixtureId));
                   const entryFixture = entry.fixture || liveStudioFixtures.find((fixture) => String(fixture.id) === String(entry.fixtureId || ""));
                   const isStudioRoundup = entry.verdictLabel === "Back in the studio";
+                  const isKickoffCard = entry.kickoff || entry.updateKey?.includes(":kick-off:");
                   const toneColor =
-                    isStudioRoundup ? "#f59e0b" : entry.tone === "live"
+                    isKickoffCard ? "#f87171" : isStudioRoundup ? "#f59e0b" : entry.tone === "live"
                       ? "#22c55e"
                       : entry.tone === "paused"
                       ? "#f59e0b"
@@ -21114,6 +21155,8 @@ const TABS = [
                         border: `1px solid ${
                           isFocusedLiveStudioEntry
                             ? theme.accent
+                            : isKickoffCard
+                            ? "rgba(239,68,68,0.65)"
                             : isStudioRoundup
                             ? "rgba(245,158,11,0.45)"
                             : entry.tone === "live"
@@ -21122,6 +21165,8 @@ const TABS = [
                         }`,
                         background: isFocusedLiveStudioEntry
                           ? "rgba(245,158,11,0.12)"
+                          : isKickoffCard
+                          ? "rgba(239,68,68,0.12)"
                           : isStudioRoundup
                           ? "rgba(245,158,11,0.08)"
                           : entry.tone === "live"
@@ -21183,7 +21228,7 @@ const TABS = [
                         )}
                         <div
                           style={{
-                            color: isStudioRoundup ? toneColor : theme.text,
+                            color: isStudioRoundup || isKickoffCard ? toneColor : theme.text,
                             fontSize: isMobile ? 14 : 15,
                             fontWeight: 950,
                             display: "flex",
