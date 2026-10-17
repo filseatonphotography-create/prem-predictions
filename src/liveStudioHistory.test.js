@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudioCommentaryHistory } from "./App";
+import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudioCommentaryHistory, getSavedLiveStudioFullTimeFixtures } from "./App";
 
 const roundup = { id: "studio:roundup:1", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
 const goal = { id: "goal:1", momentMs: 200, lines: ["Goal for Arsenal!"] };
@@ -60,19 +60,22 @@ test("an earlier closing verdict cannot stay in the feed during a later live gam
   expect(mergeLiveStudioDeskHistory([roundup], [closing])).toEqual([roundup, closing]);
 });
 
-test("a confirmed full-time score and points survive refresh gaps, coverage expiry and a page reload", () => {
+test("individual full-time data survives internally without reappearing as a card", () => {
   const final = { id: "57:full-time", fixtureId: 57, fullTime: true, tone: "finished", momentMs: 300,
     title: "Full time! Arsenal 2-1 Chelsea", lines: ["Bingpot for Phil! 7 prediction points."] };
   const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioCommentaryHistory(feed, "final-result"), { initialProps: { feed: [final] } });
   // A thin refresh temporarily reports an in-play fixture, with no full-time card.
   act(() => rerender({ feed: [goal] }));
-  expect(result.current).toContainEqual(final);
+  expect(result.current).toEqual([goal]);
+  expect([...getSavedLiveStudioFullTimeFixtures("final-result")]).toEqual(["57"]);
   // The fixture leaves the active coverage window; its result still stays in history.
   act(() => rerender({ feed: [] }));
-  expect(result.current).toEqual([final]);
+  expect(result.current).toEqual([]);
+  expect(JSON.parse(sessionStorage.getItem("live-studio-commentary:v1:final-result"))).toContainEqual(final);
   unmount();
   const restored = renderHook(() => useLiveStudioCommentaryHistory([], "final-result"));
-  expect(restored.result.current).toEqual([final]);
+  expect(restored.result.current).toEqual([]);
+  expect([...getSavedLiveStudioFullTimeFixtures("final-result")]).toEqual(["57"]);
 });
 
 test("official corrections update the retained full-time card without duplicates", () => {

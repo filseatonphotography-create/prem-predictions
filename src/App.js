@@ -5341,13 +5341,13 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   const closing = currentFeed.some(entry => entry.id === "studio:closing");
   const loading = currentFeed.every(entry => entry.id === "waiting");
   const entries = new Map();
-  history.filter(entry => entry.id !== "studio:closing" || closing || loading)
+  history.filter(entry => !isLegacyLiveStudioClockCard(entry) && (entry.id !== "studio:closing" || closing || loading))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const previous = entries.get(entry.id);
       entries.set(entry.id, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
     });
-  currentFeed.filter(isRetainedLiveStudioEntry).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
+  currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isLegacyLiveStudioClockCard(entry)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
     const previous = entries.get(entry.id);
     if (entry.id === "studio:closing") entries.set(entry.id, mergeLiveStudioFinalRoundup(previous, entry));
     else if (!previous || entry.fullTime) entries.set(entry.id, entry);
@@ -5385,7 +5385,7 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
   const combined = retained.length
     ? [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
     : currentFeed;
-  return useLiveStudioFeedOrder(combined, scope, enabled);
+  return getVisibleLiveStudioEntries(useLiveStudioFeedOrder(combined, scope, enabled));
 }
 
 export function getLiveStudioChangedTableSnapshot(previousRows = [], currentRows = [], { fullTime = false } = {}) {
@@ -5965,13 +5965,20 @@ function mergeLiveStudioFinalRoundup(previous, incoming) {
   return { ...incoming, lines, ...buildLiveStudioPlayerRoundupDetails(matches, incoming.id, true) };
 }
 
+function isLegacyLiveStudioClockCard(entry) {
+  return entry.title === "Watching the clock" && !entry.id?.startsWith("studio:checkpoint:");
+}
+
 function normalizeLiveStudioDeskEntry(entry) {
   const lateId = entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":70");
-  if (lateId) return { ...entry, title: "Watching the clock" };
-  if (entry.title !== "Watching the clock" || !entry.id?.startsWith("studio:roundup:")) return entry;
-  const kickoffs = [...new Set((entry.roundupMatches || []).map(match => match.fixture.kickoff))];
-  return kickoffs.length === 1
-    ? { ...entry, id: `studio:checkpoint:${kickoffs[0]}:70` } : entry;
+  return lateId ? { ...entry, title: "Watching the clock", minute: "Studio" } : entry;
+}
+
+export function getVisibleLiveStudioEntries(entries = []) {
+  // Individual results remain internal history for the final roundup. Only the
+  // studio FT post is shown, and old timer/filler cards never return on reload.
+  return entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isLegacyLiveStudioClockCard(entry))
+    .map(normalizeLiveStudioDeskEntry);
 }
 
 export function buildLiveStudioPlayerRoundup({ matches = [], seed = "studio", finished = false }) {
@@ -6105,7 +6112,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs, allowLat
       return pick ? `${pick.username} is on for Bingpot at ${getLiveStudioVenue(match.fixture)}. ${mark === 70 ? "Twenty minutes can feel like a lifetime." : "Plenty of football left. Try to look relaxed."}` : "";
     }).filter(Boolean);
     return {
-      id: seed, minute: `${mark === 70 && allowLate ? Math.min(...active.filter(match => `${match.fixture.kickoff}:${mark}` === key).map(match => Number(match.minute))) : mark}'`, tone: "live", icon: "🎙️",
+      id: seed, minute: mark === 70 ? "Studio" : `${mark}'`, tone: "live", icon: "🎙️",
       momentMs: Math.max(...active.filter((match) => `${match.fixture.kickoff}:${mark}` === key)
         .map((match) => getMatchEventMomentMs(match.fixture, { minute: Number(match.minute) }, match.matchState || {}))),
       title: mark === 70 ? "Watching the clock" : `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",

@@ -46,7 +46,8 @@ test("the full app puts new updates first and combines half-time into one studio
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     cards = document.querySelectorAll('article[data-live-studio-fixture-id]');
     expect(cards[0]).toHaveTextContent(/Goal for AVL/);
-    expect(screen.getByText(/Full time!.*3-1/)).toBeInTheDocument();
+    expect(screen.queryByText(/Full time!.*3-1/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Result confirmed")).not.toBeInTheDocument();
     paused = true;
     jest.setSystemTime(Date.parse("2026-10-17T17:20:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
@@ -110,7 +111,8 @@ test("a returning viewer sees all phases in order while old results and studio h
     const checkOrder = () => {
       const articles = [...document.querySelectorAll("article")];
       const index = text => articles.findIndex(card => card.textContent.includes(text));
-      const labels = ["Booking Test player", "Second half!", "Half-time around the grounds", "Goal for AVL!", "Kick off!", "Line-ups confirmed:", "Full time!"];
+      const labels = ["Booking Test player", "Second half!", "Half-time around the grounds", "Goal for AVL!", "Kick off!", "Line-ups confirmed:"];
+      expect(screen.queryByText("Result confirmed")).not.toBeInTheDocument();
       const positions = labels.map(index);
       expect(labels.filter((label, i) => positions[i] < 0)).toEqual([]);
       expect(positions).toEqual([...positions].sort((a, b) => a - b));

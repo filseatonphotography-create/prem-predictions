@@ -10,7 +10,7 @@ const match = minute => ({ fixture: { id: 560607, homeTeam: "Newcastle", awayTea
 test.each([25, 70])("posts a studio check-in around %s minutes even after a recent event", mark => {
   const [entry] = buildLiveStudioDeskEntries({ matches: [match(mark)], nowMs });
   expect(entry.verdictLabel).toBe("Back in the studio");
-  expect(entry.minute).toBe(`${mark}'`);
+  expect(entry.minute).toBe(mark === 70 ? "Studio" : `${mark}'`);
   expect(entry.lines).toContain(`Newcastle United 0–1 Aston Villa (${mark}')`);
   expect(entry.lines.join(" ")).toContain("Phil is on for Bingpot");
   expect(entry.tableSnapshot).toBeUndefined();

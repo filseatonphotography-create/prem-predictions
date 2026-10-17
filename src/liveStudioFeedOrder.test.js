@@ -48,7 +48,7 @@ test("cached invalid final times and studio break times are repaired on upgrade"
   const goal = fixtureEntry("goal", villa, { minute: 36 });
   sessionStorage.setItem("live-studio-commentary:v1:upgrade", JSON.stringify([final, half]));
   const { result } = renderHook(() => useLiveStudioCommentaryHistory([goal], "upgrade"));
-  expect(result.current.map(e => e.id)).toEqual(["goal", "old-final", half.id]);
+  expect(result.current.map(e => e.id)).toEqual(["goal", half.id]);
 });
 
 test("a real later final whistle goes above the goal", () => {
