@@ -4,6 +4,7 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import useLiveResultsPolling from "./useLiveResultsPolling";
+import useLiveStudioFeedOrder from "./liveStudioFeedOrder";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 import {
@@ -5363,9 +5364,10 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
       ? previous : { key: storageKey, entries: next });
     try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
   }, [currentFeed, storageKey, enabled]);
-  if (!retained.length) return currentFeed;
-  return [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
-    .sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0));
+  const combined = retained.length
+    ? [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
+    : currentFeed;
+  return useLiveStudioFeedOrder(combined, scope, enabled);
 }
 
 export function getLiveStudioChangedTableSnapshot(previousRows = [], currentRows = [], { fullTime = false } = {}) {
@@ -5967,6 +5969,38 @@ export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = 
   };
 }
 
+export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
+  const active = matches.filter((match) => match.live && !match.paused && !match.finished && hasValidResultScore(match.score));
+  const checkpoints = new Map();
+  active.forEach((match) => {
+    const minute = numeric(match.minute);
+    const mark = [25, 70].find((target) => minute != null && minute >= target && minute < target + 10);
+    if (mark) checkpoints.set(`${match.fixture.kickoff}:${mark}`, mark);
+  });
+  return [...checkpoints].map(([key, mark]) => {
+    const seed = `studio:checkpoint:${key}`;
+    const interests = active.map((match) => {
+      const exact = (match.picks || []).filter((pick) => getPredictionPointsLabel(pick.prediction, match.score)?.label === "Bingpot");
+      const pick = exact.length ? pickLiveStudioPhrase(`${seed}:${match.fixture.id}`, exact) : null;
+      return pick ? `${pick.username} is on for Bingpot at ${getLiveStudioVenue(match.fixture)}. ${mark === 70 ? "Twenty minutes can feel like a lifetime." : "Plenty of football left. Try to look relaxed."}` : "";
+    }).filter(Boolean);
+    return {
+      id: seed, minute: `${mark}'`, tone: "live", icon: "🎙️", momentMs: nowMs,
+      title: `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
+      lines: [pickLiveStudioPhrase(seed, mark === 25 ? [
+        "Back in the studio. A chance to catch our breath and see how the afternoon is shaping up.",
+        "Let's go around the grounds. The predictions have had time to settle. Or start unravelling.",
+        "Time for a quick studio check-in. Here's where we stand around the grounds.",
+      ] : [
+        "Back in the studio. We're getting to the nervous bit. Let's check the scores.",
+        "Time for another trip around the grounds. A few prediction slips are starting to feel rather precious.",
+        "Let's take stock in the studio. Plenty still riding on the closing stages.",
+      ]), ...active.map((match) => `${getLiveStudioTeamName(match.fixture.homeTeam)} ${match.score.homeGoals}–${match.score.awayGoals} ${getLiveStudioTeamName(match.fixture.awayTeam)} (${numeric(match.minute) != null ? `${match.minute}'` : "Live"})`),
+      ...interests.slice(0, 2)],
+    };
+  });
+}
+
 export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false, completedMatches = [] }) {
   if (!matches.length && !completedMatches.length) return [];
   const active = matches.filter((match) => match.live && !match.paused && match.score);
@@ -5981,6 +6015,8 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
   const halfTimeRoundups = buildLiveStudioHalfTimeRoundups({ matches, nowMs, getTableRows });
   if (halfTimeRoundups.length) return halfTimeRoundups;
   if (!active.length) return [];
+  const checkpoints = buildLiveStudioCheckpointEntries({ matches, nowMs });
+  if (checkpoints.length) return checkpoints;
   const latestNews = Math.max(...matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff)));
   if (!Number.isFinite(latestNews) || nowMs - latestNews < 3 * 60000) return [];
   const firstKickoff = Math.min(...active.map((match) => Date.parse(match.fixture.kickoff)));
@@ -11685,7 +11721,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         });
       }
 
-      return feedEvents.filter((event) => inCoverage || event.statusLabel === "FT").map((event, eventIndex) => {
+      return feedEvents.filter((event) => event.statusLabel !== "HT" && (inCoverage || event.statusLabel === "FT")).map((event, eventIndex) => {
         const entryKind = getLiveStudioEventKind(event);
         const statusLabel = String(event.statusLabel || "");
         const isKickoff = statusLabel === "KO";
@@ -11834,6 +11870,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         return {
           id: isFullTime ? `${fixture.id}:full-time` : `${fixture.id}:${event.type || event.statusLabel || "update"}:${entryMinute}:${eventIndex}`,
           updateKey,
+          orderKey: `${updateKey}:${event.minute ?? "unknown"}:${event.injuryTime ?? ""}`,
           fixtureId: fixture.id,
           fixture,
           minute: entryMinute,
@@ -11896,7 +11933,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   const nextKickoffMs = liveStudioFixtures.map((fixture) => Date.parse(fixture.kickoff))
     .filter((kickoff) => kickoff > liveStudioNow).sort((a, b) => a - b)[0];
   const deskEntries = buildLiveStudioDeskEntries({
-    matches: studioMatches, completedMatches: completedStudioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
+    matches: studioMatches, completedMatches: completedStudioMatches, nowMs: Date.now(), nextKickoffMs, tableSwings,
     leagueName: selectedMiniLeague?.name || "the league",
     getTableRows: buildTableSnapshotAtMoment,
     hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {

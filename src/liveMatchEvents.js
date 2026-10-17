@@ -140,7 +140,11 @@ function getConfirmedPhaseFlags(state = {}) {
 function getMatchEventMomentMs(fixture, event = {}, state = {}) {
   const kickoff = Date.parse(state.utcDate || fixture?.kickoff || "");
   const phaseKey = { HT: "halfTimeAt", SH: "secondHalfAt", FT: "finishedAt" }[event.statusLabel];
-  if (phaseKey && Number.isFinite(Date.parse(state[phaseKey]))) return Date.parse(state[phaseKey]);
+  const phaseTime = phaseKey ? Date.parse(state[phaseKey]) : NaN;
+  const observedTime = Date.parse(state.observedAt || "");
+  // Provider timestamps can be ahead of the server's actual observation. They
+  // must not place an earlier final whistle above a genuinely later live goal.
+  if (Number.isFinite(phaseTime) && (!Number.isFinite(observedTime) || phaseTime <= observedTime)) return phaseTime;
   if (Number.isFinite(Date.parse(event.occurredAt))) return Date.parse(event.occurredAt);
   if (event.estimatedMinute && Number.isFinite(Date.parse(event.detectedAt))) return Date.parse(event.detectedAt);
   const minute = numeric(event.minute);
