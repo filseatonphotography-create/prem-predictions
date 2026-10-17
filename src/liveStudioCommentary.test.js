@@ -234,9 +234,9 @@ describe("Live Studio pacing and quiet periods", () => {
     expect(buildLiveStudioDeskEntries({ matches: [match], nowMs: nowMs + 1000 })).toEqual(entries);
   });
 
-  test("rounds up multiple grounds, but not paused, finished, or unstarted games", () => {
+  test("quiet-period roundups exclude finished and unstarted games", () => {
     const other = { ...match, fixture: { ...matchFixture, id: 18, homeTeam: "Liverpool" }, minute: 60 };
-    const entries = buildLiveStudioDeskEntries({ matches: [match, other, { ...match, live: false, finished: true }, { ...match, paused: true }], nowMs });
+    const entries = buildLiveStudioDeskEntries({ matches: [match, other, { ...match, live: false, finished: true }], nowMs });
     expect(entries).toHaveLength(1);
     expect(entries[0].title).toBe("Around the grounds");
     expect(entries[0].lines[0]).toMatch(/2 games|Emirates/);

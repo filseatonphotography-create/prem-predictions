@@ -53,3 +53,9 @@ test("half-time always carries a table and accurately describes unchanged positi
   const changed = buildLiveStudioHalfTimeTable({ previousRows, currentRows: [...currentRows].reverse().map((row, i) => ({ ...row, position: i + 1 })), seed: "break" });
   expect(changed.line).toMatch(/changed hands|moved|reshuffle/);
 });
+
+test("an earlier closing verdict cannot stay in the feed during a later live game", () => {
+  const closing = { id: "studio:closing", momentMs: 50, lines: ["That's a wrap"] };
+  expect(mergeLiveStudioDeskHistory([closing, roundup], [goal])).toEqual([roundup]);
+  expect(mergeLiveStudioDeskHistory([roundup], [closing])).toEqual([roundup, closing]);
+});

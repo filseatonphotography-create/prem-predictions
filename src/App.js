@@ -5304,7 +5304,9 @@ export function buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed }
 }
 
 export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
-  const entries = new Map(history.map((entry) => [entry.id, entry]));
+  // A closing verdict describes the current session, so never carry an old one
+  // into later games. Score round-ups remain part of the commentary history.
+  const entries = new Map(history.filter((entry) => entry.id !== "studio:closing").map((entry) => [entry.id, entry]));
   currentFeed.filter((entry) => entry.id?.startsWith("studio:")).forEach((entry) => {
     // Freeze round-ups once read; keep the closing result/table up to date.
     if (!entries.has(entry.id) || entry.id === "studio:closing") entries.set(entry.id, entry);
@@ -5861,10 +5863,40 @@ export function getLiveStudioClockMinute(fixture, matchState, nowMs) {
   return Math.max(estimated, latestKnown);
 }
 
-export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [] }) {
+export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableRows }) {
+  const underway = matches.filter((match) => !match.finished && (match.live || match.paused)
+    && numeric(match.score?.homeGoals) != null && numeric(match.score?.awayGoals) != null);
+  const breaks = [...new Set(underway.filter((match) => match.paused).map((match) => match.fixture.kickoff))];
+  return breaks.map((kickoff) => {
+    // Capture the scores and table at the same moment; commentary history freezes
+    // this first published round-up while other matches continue.
+    const momentMs = nowMs;
+    const checkpoint = getTableRows ? buildLiveStudioHalfTimeTable({
+      previousRows: getTableRows(Date.parse(kickoff) - 1),
+      currentRows: getTableRows(momentMs), seed: `half-time:${kickoff}:table`,
+    }) : null;
+    return {
+      id: `studio:half-time:${kickoff}`, minute: "HT", tone: "paused", icon: "🎙️", momentMs, kickoffMs: Date.parse(kickoff),
+      title: "Half-time around the grounds",
+      verdictLabel: "Back in the studio",
+      lines: [pickLiveStudioPhrase(`half-time:${kickoff}`, [
+        "Back in the studio. Kettle on — let's run through the scores around the grounds.",
+        "A half-time breather. Here's how things stand across the games underway.",
+        "While they catch their breath, let's catch up. Here are the scores around the grounds.",
+      ]), ...underway.map((match) => {
+        const label = match.paused ? "HT" : numeric(match.minute) > 0 ? `${match.minute}'` : "Live";
+        return `${getLiveStudioTeamName(match.fixture.homeTeam)} ${match.score.homeGoals}–${match.score.awayGoals} ${getLiveStudioTeamName(match.fixture.awayTeam)} (${label})`;
+      }), ...(checkpoint ? [checkpoint.line] : [])],
+      tableSnapshot: checkpoint?.tableSnapshot,
+      tableLabel: checkpoint?.tableLabel,
+    };
+  });
+}
+
+export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false }) {
   if (!matches.length) return [];
   const active = matches.filter((match) => match.live && !match.paused && match.score);
-  const unfinished = matches.some((match) => !match.finished);
+  const unfinished = hasUnfinishedFixtures || matches.some((match) => !match.finished);
   if (!unfinished && !(nextKickoffMs > nowMs && nextKickoffMs - nowMs < 60 * 60000)) {
     const lines = buildLiveStudioClosingVerdict({ matches, leagueName, tableSwings });
     return lines.length ? [{
@@ -5873,6 +5905,8 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
       title: "That's a wrap from the studio.", verdictLabel: "Closing verdict", lines,
     }] : [];
   }
+  const halfTimeRoundups = buildLiveStudioHalfTimeRoundups({ matches, nowMs, getTableRows });
+  if (halfTimeRoundups.length) return halfTimeRoundups;
   if (!active.length) return [];
   const latestNews = Math.max(...matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff)));
   if (!Number.isFinite(latestNews) || nowMs - latestNews < 3 * 60000) return [];
@@ -11634,7 +11668,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           ? pickLiveStudioPhrase(`${fixture.id}:half-time`, [
               `Half-time at ${venue}. Kettle on. Nobody touch the predictions.`,
               `A breather at ${venue}. A few people will be happy to leave it right there.`,
-              `The whistle goes at ${venue}. Time for tea and a nervous look at the table.`,
+              `The whistle goes at ${venue}. Time for tea and a breather.`,
             ])
           : isStatsCheck
           ? buildLiveStudioStatsLine({
@@ -11680,14 +11714,6 @@ const liveStudioCurrentFeed = useMemo(() => {
             score: entryScore,
             seed: `${fixture.id}:full-table:${entryScore.homeGoals}-${entryScore.awayGoals}`,
           });
-        }
-        if (isHalfTime && entryScore && Number.isFinite(entryMomentMs)) {
-          const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
-          const previousRows = buildTableSnapshotAtMoment(kickoffTime - 1);
-          const checkpoint = buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed: `${fixture.id}:half-time-table` });
-          entryTableSnapshot = checkpoint.tableSnapshot;
-          entryTableLabel = checkpoint.tableLabel;
-          entryTableImpactLine = checkpoint.line;
         }
         if ((entryIsGoal || entryIsGoalDisallowed) && entryScore && Number.isFinite(entryMomentMs)) {
           previousScore = getLiveStudioPreviousScore(fixture, event, entryScore);
@@ -11795,6 +11821,13 @@ const liveStudioCurrentFeed = useMemo(() => {
   const deskEntries = buildLiveStudioDeskEntries({
     matches: studioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
     leagueName: selectedMiniLeague?.name || "the league",
+    getTableRows: buildTableSnapshotAtMoment,
+    hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {
+      const state = getFixtureMatchState(fixture);
+      return Date.parse(fixture.kickoff) <= liveStudioNow
+        && isLiveStudioFixtureInCoverageWindow(fixture, state, liveStudioNow)
+        && !isLiveStudioFinalStatus(state.status);
+    }),
   });
   const finalTableEntry = entries.filter((entry) => entry.fullTime && entry.tableSnapshot)
     .sort((a, b) => b.momentMs - a.momentMs)[0];
