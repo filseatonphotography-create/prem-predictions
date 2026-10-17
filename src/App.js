@@ -24133,6 +24133,9 @@ const TABS = [
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
       {isWorldCupMode ? "World Cup Win Probability" : "Win probabilities"} — {getModeGameweekLabel(gameMode, selectedGameweek)}
     </h2>
+    <p style={{ margin: "-6px 0 12px", color: theme.muted, fontSize: 12, lineHeight: 1.45 }}>
+      These odds are created for fun in the Coins Game and are not real bookmaker odds.
+    </p>
 
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
