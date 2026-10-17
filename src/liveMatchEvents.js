@@ -125,7 +125,15 @@ function mergeMatchPhaseState(previous = {}, incoming = {}, observedAt = new Dat
   const confirmedPause = status === "PAUSED";
   const secondHalf = status === "IN_PLAY" && (prevStatus === "PAUSED" || previous.secondHalfAt || numeric(incoming.minute) > 45);
   if (confirmedPause) merged.halfTimeAt = previous.halfTimeAt || incoming.halfTimeAt || observedAt;
-  if (secondHalf) merged.secondHalfAt = previous.secondHalfAt || incoming.secondHalfAt || observedAt;
+  if (secondHalf) {
+    const minute = numeric(incoming.minute);
+    const observation = Date.parse(observedAt);
+    // Joining midway through a half is not a new restart. Anchor the inferred
+    // transition once so later polls cannot advance it with the current clock.
+    const inferredStart = minute > 48 && Number.isFinite(observation)
+      ? new Date(observation - (minute - 45) * 60000).toISOString() : observedAt;
+    merged.secondHalfAt = previous.secondHalfAt || incoming.secondHalfAt || inferredStart;
+  }
   if (["FINISHED", "AWARDED"].includes(status)) merged.finishedAt = previous.finishedAt || incoming.finishedAt || incoming.lastUpdated || observedAt;
   // A thin browser refresh must not erase detailed lineups or recorded phase transitions.
   for (const key of ["halfTimeAt", "secondHalfAt", "finishedAt", "lineups"]) if (!incoming[key] && previous[key]) merged[key] = previous[key];
@@ -139,19 +147,45 @@ function getConfirmedPhaseFlags(state = {}) {
 }
 function getMatchEventMomentMs(fixture, event = {}, state = {}) {
   const kickoff = Date.parse(state.utcDate || fixture?.kickoff || "");
-  const phaseKey = { HT: "halfTimeAt", SH: "secondHalfAt", FT: "finishedAt" }[event.statusLabel];
-  const phaseTime = phaseKey ? Date.parse(state[phaseKey]) : NaN;
-  const observedTime = Date.parse(state.observedAt || "");
-  // Provider timestamps can be ahead of the server's actual observation. They
-  // must not place an earlier final whistle above a genuinely later live goal.
-  if (Number.isFinite(phaseTime) && (!Number.isFinite(observedTime) || phaseTime <= observedTime)) return phaseTime;
-  if (Number.isFinite(Date.parse(event.occurredAt))) return Date.parse(event.occurredAt);
-  if (event.estimatedMinute && Number.isFinite(Date.parse(event.detectedAt))) return Date.parse(event.detectedAt);
+  if (!Number.isFinite(kickoff)) return 0;
   const minute = numeric(event.minute);
-  if (!Number.isFinite(kickoff) || minute == null) return kickoff;
-  const secondHalfStart = Date.parse(state.secondHalfAt);
-  if (minute > 45 && Number.isFinite(secondHalfStart)) return secondHalfStart + (minute - 45 + (numeric(event.injuryTime) || 0)) * 60000;
-  return kickoff + (minute + (minute > 45 ? 15 : 0) + (numeric(event.injuryTime) || 0)) * 60000;
+  const injury = numeric(event.injuryTime) || 0;
+  const observed = Date.parse(state.observedAt || "");
+  const latest = Math.min(Date.now(), Number.isFinite(observed) ? observed : Date.now()) + 30000;
+  const validTime = (value, from, to) => {
+    const time = Date.parse(value || "");
+    return Number.isFinite(time) && time >= kickoff + from * 60000
+      && time <= kickoff + to * 60000 && time <= latest ? time : null;
+  };
+  const secondHalf = validTime(state.secondHalfAt, 50, 100);
+  if (event.statusLabel === "KO") return kickoff;
+  if (event.statusLabel === "SH") return secondHalf ?? kickoff + 60 * 60000;
+  if (["HT", "FT"].includes(event.statusLabel)) {
+    const halfTime = event.statusLabel === "HT";
+    const phase = halfTime ? validTime(state.halfTimeAt, 35, 75) : validTime(state.finishedAt, 90, 180);
+    const fallback = halfTime ? kickoff + (45 + injury) * 60000
+      : secondHalf != null ? secondHalf + (Math.max(90, minute || 90) - 45 + injury) * 60000
+      : kickoff + (Math.max(90, minute || 90) + 15 + injury) * 60000;
+    // The whistle must follow stoppage-time goals/cards, including when the
+    // provider's finish timestamp is missing or unusable.
+    const latestEvent = (state.matchEvents || []).concat(state.goalEvents || [])
+      .filter(item => !["KO", "HT", "SH", "FT"].includes(item.statusLabel)
+        && !["KICK_OFF", "HALF_TIME", "SECOND_HALF", "FULL_TIME"].includes(item.type)
+        && (!halfTime || (numeric(item.minute) != null && Number(item.minute) <= 45)))
+      .reduce((latestTime, item) => Math.max(latestTime, getMatchEventMomentMs(fixture, item, state) + 1), kickoff);
+    return Math.max(phase ?? fallback, latestEvent);
+  }
+  // A confirmed XI precedes kick-off, even if first fetched after play starts.
+  if (String(event.type || "").toUpperCase() === "LINEUPS") return kickoff - 60000;
+  const elapsed = (minute ?? 0) + (minute > 45 ? 15 : 0) + injury;
+  const occurred = validTime(event.occurredAt, Math.max(-60, elapsed - 15), elapsed + 15);
+  if (occurred != null) return occurred;
+  if (event.estimatedMinute) {
+    const detected = validTime(event.detectedAt, 0, 180);
+    if (detected != null) return detected;
+  }
+  if (minute > 45 && secondHalf != null) return secondHalf + (minute - 45 + injury) * 60000;
+  return kickoff + elapsed * 60000;
 }
 function mergeRecordedMatchState(incoming = {}, recorded = {}) {
   const incomingTime = Date.parse(incoming.lastUpdated || "");

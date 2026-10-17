@@ -42,8 +42,10 @@ test("the full app puts new updates first and combines half-time into one studio
     finalHomeGoals = 3;
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     cards = document.querySelectorAll('article[data-live-studio-fixture-id]');
-    expect(cards[0]).toHaveTextContent(/Full time!.*3-1/);
+    expect(cards[0]).toHaveTextContent(/Goal for AVL/);
+    expect(screen.getByText(/Full time!.*3-1/)).toBeInTheDocument();
     paused = true;
+    jest.setSystemTime(Date.parse("2026-10-17T17:20:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     expect(screen.getByText("Half-time around the grounds")).toBeInTheDocument();
     expect(screen.getAllByText("Back in the studio")).toHaveLength(1);
@@ -51,7 +53,67 @@ test("the full app puts new updates first and combines half-time into one studio
     expect(screen.queryByText(/^Half time!/)).not.toBeInTheDocument();
     paused = false;
     minuteOverride = 70;
+    jest.setSystemTime(Date.parse("2026-10-17T18:00:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     expect(document.querySelector("article")).toHaveTextContent("70-minute studio check-in");
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});
+
+test("a returning viewer sees all phases in order while old results and studio history load", async () => {
+  jest.useFakeTimers({ now: Date.parse("2026-10-17T17:46:00Z") });
+  window.scrollTo = jest.fn();
+  localStorage.clear(); sessionStorage.clear();
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "diagnostic-token", userId: "diagnostic", username: "Diagnostic" }));
+  localStorage.setItem("activeView", "liveStudio");
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7 }));
+  const scope = "diagnostic:premierLeague:7:global:2026-10-17";
+  sessionStorage.setItem(`live-studio-commentary:v1:${scope}`, JSON.stringify([
+    { id: "studio:half-time:2026-10-17T14:00:00Z", title: "Earlier games at half time", momentMs: Date.parse("2026-10-17T17:30:00Z"), lines: ["Old half-time scores"] },
+    { id: "studio:half-time:2026-10-17T16:30:00Z", title: "Half-time around the grounds", momentMs: Date.parse("2026-10-17T17:18:46Z"), lines: ["Newcastle 0–1 Aston Villa (HT)"] },
+    { id: "studio:checkpoint:2026-10-17T14:00:00Z:70", title: "Earlier games at 70 minutes", momentMs: Date.parse("2026-10-17T15:25:00Z"), lines: ["Old studio scores"] },
+  ]));
+  sessionStorage.setItem(`live-studio-order:v1:${scope}`, JSON.stringify({ counter: 900, updates: { "560603:full-time": { sequence: 900 } } }));
+  const goal = { type: "GOAL", minute: 36, scorerName: "Johan Manzambi", teamName: "Aston Villa FC", homeGoals: 0, awayGoals: 1 };
+  const states = {
+    560607: { status: "IN_PLAY", utcDate: "2026-10-17T16:30:00Z", minute: 57, homeGoals: 0, awayGoals: 1,
+      observedAt: "2026-10-17T17:44:56Z", halfTimeAt: "2026-10-17T17:18:46Z", secondHalfAt: "2026-10-17T17:34:10Z", lastUpdated: "2026-10-17T19:44:44Z",
+      lineups: { home: { name: "Newcastle", lineup: [{ name: "Nick Pope", position: "Goalkeeper" }] }, away: { name: "Aston Villa", lineup: [{ name: "Emiliano Martinez", position: "Goalkeeper" }] } },
+      goalEvents: [goal], matchEvents: [goal, { type: "YELLOW_CARD", minute: 55, playerName: "Test player", teamName: "Newcastle United FC" }] },
+    560602: { status: "FINISHED", utcDate: "2026-10-17T14:00:00Z", minute: 90, homeGoals: 1, awayGoals: 0, finishedAt: "2026-10-17T17:55:57Z", observedAt: "2026-10-17T17:44:56Z", goalEvents: [], matchEvents: [] },
+    560603: { status: "FINISHED", utcDate: "2026-10-17T11:30:00Z", minute: 90, homeGoals: 0, awayGoals: 2, finishedAt: "2026-10-17T15:35:41Z", observedAt: "2026-10-17T17:44:56Z", goalEvents: [], matchEvents: [] },
+  };
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async url => {
+    let data = {};
+    if (String(url).includes("/api/results?")) data = Object.entries(states).map(([id, state]) => ({ id: Number(id), ...state,
+      score: { fullTime: { home: state.homeGoals, away: state.awayGoals } },
+    }));
+    if (String(url).includes("/api/match-states/snapshot")) data = states;
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
+  });
+  try {
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); });
+    const checkOrder = () => {
+      const articles = [...document.querySelectorAll("article")];
+      const index = text => articles.findIndex(card => card.textContent.includes(text));
+      const labels = ["Booking Test player", "Second half!", "Half-time around the grounds", "Goal for AVL!", "Kick off!", "Line-ups confirmed:", "Full time!"];
+      const positions = labels.map(index);
+      expect(labels.filter((label, i) => positions[i] < 0)).toEqual([]);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+      expect(index("Earlier games at 70 minutes")).toBeGreaterThan(index("Kick off!"));
+      expect(index("Earlier games at half time")).toBeGreaterThan(index("Earlier games at 70 minutes"));
+    };
+    checkOrder();
+    // League/points information and result corrections enrich old cards; they
+    // must never make earlier football jump above the current game.
+    states[560602].homeGoals = 2;
+    await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
+    checkOrder();
+    cleanup();
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); });
+    checkOrder();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });

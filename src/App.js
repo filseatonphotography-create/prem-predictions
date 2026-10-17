@@ -4,7 +4,7 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import useLiveResultsPolling from "./useLiveResultsPolling";
-import useLiveStudioFeedOrder from "./liveStudioFeedOrder";
+import useLiveStudioFeedOrder, { orderLiveStudioUpdates } from "./liveStudioFeedOrder";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 import {
@@ -5050,15 +5050,7 @@ function getLiveStudioUpdateDomId(updateKey) {
 }
 
 export function sortLiveStudioEntries(entries = []) {
-  return [...entries].sort((a, b) => {
-    const priority = { live: 0, paused: 1, finished: 2, default: 3 };
-    const toneDiff = (priority[a.tone] ?? 9) - (priority[b.tone] ?? 9);
-    if (toneDiff) return toneDiff;
-    if ((a.sortMinute ?? -1) !== (b.sortMinute ?? -1)) {
-      return (b.sortMinute ?? -1) - (a.sortMinute ?? -1);
-    }
-    return String(b.fixtureId || "").localeCompare(String(a.fixtureId || ""));
-  });
+  return orderLiveStudioUpdates(entries).entries;
 }
 
 export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
@@ -5319,7 +5311,23 @@ function isRetainedLiveStudioEntry(entry) {
   return entry?.id?.startsWith("studio:") || entry?.fullTime === true;
 }
 
+function repairLiveStudioHistoryMoment(entry) {
+  if (entry.fullTime && entry.fixture?.kickoff) {
+    const momentMs = getMatchEventMomentMs(entry.fixture, { statusLabel: "FT", minute: Math.max(90, Math.floor(entry.sortMinute || 90)) },
+      { finishedAt: Number.isFinite(entry.momentMs) ? new Date(entry.momentMs).toISOString() : "" });
+    return momentMs === entry.momentMs ? entry : { ...entry, momentMs };
+  }
+  if (entry.id?.startsWith("studio:half-time:")) {
+    const kickoffMs = Date.parse(entry.id.slice("studio:half-time:".length));
+    if (Number.isFinite(kickoffMs) && (entry.momentMs < kickoffMs + 35 * 60000 || entry.momentMs > kickoffMs + 75 * 60000)) {
+      return { ...entry, momentMs: kickoffMs + 45 * 60000 };
+    }
+  }
+  return entry;
+}
+
 function withoutIndividualFullTimeTable(entry) {
+  entry = repairLiveStudioHistoryMoment(entry);
   if (!entry.fullTime || !entry.tableSnapshot) return entry;
   const { tableSnapshot, tableLabel, ...card } = entry;
   const lines = card.lines || [];
@@ -5921,7 +5929,9 @@ export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableR
   return breaks.map((kickoff) => {
     // Capture the scores and table at the same moment; commentary history freezes
     // this first published round-up while other matches continue.
-    const momentMs = nowMs;
+    const paused = underway.filter((match) => match.paused && match.fixture.kickoff === kickoff);
+    const momentMs = Math.max(...paused.map((match) => getMatchEventMomentMs(match.fixture,
+      { statusLabel: "HT", minute: 45 }, match.matchState || {})));
     const checkpoint = getTableRows ? buildLiveStudioHalfTimeTable({
       previousRows: getTableRows(Date.parse(kickoff) - 1),
       currentRows: getTableRows(momentMs), seed: `half-time:${kickoff}:table`,
@@ -5985,7 +5995,9 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
       return pick ? `${pick.username} is on for Bingpot at ${getLiveStudioVenue(match.fixture)}. ${mark === 70 ? "Twenty minutes can feel like a lifetime." : "Plenty of football left. Try to look relaxed."}` : "";
     }).filter(Boolean);
     return {
-      id: seed, minute: `${mark}'`, tone: "live", icon: "🎙️", momentMs: nowMs,
+      id: seed, minute: `${mark}'`, tone: "live", icon: "🎙️",
+      momentMs: Math.max(...active.filter((match) => `${match.fixture.kickoff}:${mark}` === key)
+        .map((match) => getMatchEventMomentMs(match.fixture, { minute: Number(match.minute) }, match.matchState || {}))),
       title: `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
       lines: [pickLiveStudioPhrase(seed, mark === 25 ? [
         "Back in the studio. A chance to catch our breath and see how the afternoon is shaping up.",
@@ -11681,7 +11693,7 @@ const liveStudioCurrentFeed = useMemo(() => {
       });
       const finishedAt = finished ? Date.parse(matchState.finishedAt || "") : NaN;
       const studioMatch = {
-        fixture, score, picks: fixturePicks, events: repairedTimelineEvents,
+        fixture, score, matchState, picks: fixturePicks, events: repairedTimelineEvents,
         live, paused, finished,
         minute: getLiveStudioClockMinute(fixture, matchState, liveStudioNow),
         lastNewsAt: Math.max(kickoffTime, ...eventNewsTimes, Number.isFinite(finishedAt) ? finishedAt : kickoffTime),

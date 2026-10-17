@@ -35,3 +35,10 @@ test("does not invent missed check-ins when joining much later or while at half-
   expect(halfTime.id).toContain("studio:half-time:");
   expect(halfTime.verdictLabel).toBe("Back in the studio");
 });
+
+// A late poll should summarise the action just received, rather than put a
+// snapshot containing that goal below the goal itself.
+test("a checkpoint's timestamp matches the scores it summarises on a late poll", () => {
+  const [entry] = buildLiveStudioDeskEntries({ matches: [match(29)], nowMs: nowMs + 240000 });
+  expect(entry.momentMs).toBe(Date.parse(kickoff) + 29 * 60000);
+});
