@@ -5286,6 +5286,55 @@ export function buildLiveStudioPhaseEvents({ fixture, matchState = {}, score, ev
   return result;
 }
 
+export function buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed }) {
+  const changed = getLiveStudioChangedTableSnapshot(previousRows, currentRows);
+  return {
+    tableSnapshot: { previousRows, currentRows },
+    tableLabel: "Mini-league at half time",
+    line: pickLiveStudioPhrase(seed, changed ? [
+      "Let's check the table at the break. A few seats have changed hands, as things stand.",
+      "Half-time at the table desk. Here's who's moved while we've been watching the football.",
+      "Time for that half-time table check. There's been a reshuffle, and another half still to come.",
+    ] : [
+      "Let's check the table at the break. The order is unchanged, but there's another half to go.",
+      "Here's the half-time table. Everyone holds their place for now. Kettle on.",
+      "A look at the standings at half-time: no change in position, with plenty still to play for.",
+    ]),
+  };
+}
+
+export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
+  const entries = new Map(history.map((entry) => [entry.id, entry]));
+  currentFeed.filter((entry) => entry.id?.startsWith("studio:")).forEach((entry) => {
+    // Freeze round-ups once read; keep the closing result/table up to date.
+    if (!entries.has(entry.id) || entry.id === "studio:closing") entries.set(entry.id, entry);
+  });
+  return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 100);
+}
+
+export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = true) {
+  const storageKey = `live-studio-commentary:v1:${scope}`;
+  const readHistory = (key) => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(key) || "[]");
+      return Array.isArray(saved) ? saved.filter((entry) => entry?.id?.startsWith("studio:")) : [];
+    } catch { return []; }
+  };
+  const [saved, setSaved] = useState(() => ({ key: storageKey, entries: readHistory(storageKey) }));
+  const history = saved.key === storageKey ? saved.entries : readHistory(storageKey);
+  const retained = mergeLiveStudioDeskHistory(history, currentFeed);
+  useEffect(() => {
+    if (!enabled) return;
+    const next = mergeLiveStudioDeskHistory(readHistory(storageKey), currentFeed);
+    setSaved((previous) => previous.key === storageKey && JSON.stringify(previous.entries) === JSON.stringify(next)
+      ? previous : { key: storageKey, entries: next });
+    try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+  }, [currentFeed, storageKey, enabled]);
+  if (!retained.length) return currentFeed;
+  return [...currentFeed.filter((entry) => !entry.id?.startsWith("studio:")), ...retained]
+    .sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0));
+}
+
 export function getLiveStudioChangedTableSnapshot(previousRows = [], currentRows = [], { fullTime = false } = {}) {
   if (fullTime) return { previousRows, currentRows };
   const changed = currentRows.some((row) => {
@@ -5820,6 +5869,7 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
     const lines = buildLiveStudioClosingVerdict({ matches, leagueName, tableSwings });
     return lines.length ? [{
       id: "studio:closing", minute: "Studio", tone: "finished", icon: "🎙️",
+      momentMs: Math.max(...matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff))),
       title: "That's a wrap from the studio.", verdictLabel: "Closing verdict", lines,
     }] : [];
   }
@@ -5854,6 +5904,7 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
   }
   return [{
     id: `studio:roundup:${bucket}`, minute: "Studio", tone: "live", icon: "🎙️",
+    momentMs: bucket * 10 * 60000,
     title: active.length === 1 ? "Watching the clock" : "Around the grounds",
     verdictLabel: "Back in the studio", lines,
   }];
@@ -11242,7 +11293,7 @@ const liveStudioRows = useMemo(() => {
   liveStudioUsers,
 ]);
 
-const liveStudioFeed = useMemo(() => {
+const liveStudioCurrentFeed = useMemo(() => {
   const currentUserName = currentPlayer || loginName || "You";
   const studioGameweekLabel = getModeGameweekLabel(
     gameMode,
@@ -11630,6 +11681,14 @@ const liveStudioFeed = useMemo(() => {
             seed: `${fixture.id}:full-table:${entryScore.homeGoals}-${entryScore.awayGoals}`,
           });
         }
+        if (isHalfTime && entryScore && Number.isFinite(entryMomentMs)) {
+          const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
+          const previousRows = buildTableSnapshotAtMoment(kickoffTime - 1);
+          const checkpoint = buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed: `${fixture.id}:half-time-table` });
+          entryTableSnapshot = checkpoint.tableSnapshot;
+          entryTableLabel = checkpoint.tableLabel;
+          entryTableImpactLine = checkpoint.line;
+        }
         if ((entryIsGoal || entryIsGoalDisallowed) && entryScore && Number.isFinite(entryMomentMs)) {
           previousScore = getLiveStudioPreviousScore(fixture, event, entryScore);
           const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
@@ -11765,6 +11824,12 @@ const liveStudioFeed = useMemo(() => {
   selectedGameweek,
   selectedMiniLeague?.name,
 ]);
+
+const liveStudioFeed = useLiveStudioCommentaryHistory(
+  liveStudioCurrentFeed,
+  `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${selectedMiniLeague?.id || "global"}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`,
+  activeView === "liveStudio"
+);
 
 useEffect(() => {
   if (
