@@ -5274,7 +5274,7 @@ function buildLiveStudioKickoffStakesLine({ fixture, picks, seed }) {
 function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, tableImpactLine, isFocused }) {
   if (statusLabel === "KO") return "Prediction desk";
   if (statusLabel === "HT") return "Half-time check";
-  if (statusLabel === "FT") return tableSnapshot ? "Full-time fallout" : "Result confirmed";
+  if (statusLabel === "FT") return "Result confirmed";
   if (entryKind === "goal") return tableImpactLine ? "Prediction swing" : "Goal flash";
   if (entryKind === "goal-disallowed") return tableImpactLine ? "VAR table swing" : "VAR check";
   if (entryKind === "red-card") return "Match turning point";
@@ -5318,15 +5318,31 @@ function isRetainedLiveStudioEntry(entry) {
   return entry?.id?.startsWith("studio:") || entry?.fullTime === true;
 }
 
+function withoutIndividualFullTimeTable(entry) {
+  if (!entry.fullTime || !entry.tableSnapshot) return entry;
+  const { tableSnapshot, tableLabel, ...card } = entry;
+  const lines = card.lines || [];
+  return { ...card, lines: lines.filter((line, index) => index !== lines.length - 1
+    || !/table|standings|position|order|since kick-off/i.test(line)) };
+}
+
 export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // A closing verdict describes the current session, so never carry an old one
   // into later games. Round-ups and confirmed full-time cards stay in history.
-  const entries = new Map(history.filter((entry) => entry.id !== "studio:closing").map((entry) => [entry.id, entry]));
-  currentFeed.filter(isRetainedLiveStudioEntry).forEach((entry) => {
+  const entries = new Map(history.filter((entry) => entry.id !== "studio:closing").map(withoutIndividualFullTimeTable).map((entry) => [entry.id, entry]));
+  currentFeed.filter(isRetainedLiveStudioEntry).map(withoutIndividualFullTimeTable).forEach((entry) => {
     // Freeze round-ups once read; update a confirmed result if official data is corrected.
     if (!entries.has(entry.id) || entry.fullTime || entry.id === "studio:closing") entries.set(entry.id, entry);
   });
   return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 100);
+}
+
+export function getSavedLiveStudioFullTimeFixtures(scope) {
+  try {
+    const entries = JSON.parse(sessionStorage.getItem(`live-studio-commentary:v1:${scope}`) || "[]");
+    return new Set(Array.isArray(entries) ? entries.filter((entry) => entry?.fullTime && entry.fixtureId != null)
+      .map((entry) => String(entry.fixtureId)) : []);
+  } catch { return new Set(); }
 }
 
 export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = true) {
@@ -5397,8 +5413,9 @@ export function buildLiveStudioTableImpactLine({ previousRows, currentRows, leag
   ]);
 }
 
-export function buildLiveStudioFullTimeTableLine({ previousRows, currentRows, fixture, score, seed }) {
+export function buildLiveStudioFullTimeTableLine({ previousRows, currentRows, fixture, score, seed, resultCount = 1 }) {
   if (!previousRows || !currentRows || !score) return "";
+  const resultText = resultCount === 1 ? "that result" : "those results";
   const changes = currentRows
     .map((row) => {
       const before = previousRows.find(
@@ -5421,17 +5438,34 @@ export function buildLiveStudioFullTimeTableLine({ previousRows, currentRows, fi
       ? ` and leapfrogs ${leapfrogTarget.username}`
       : "";
     return pickLiveStudioPhrase(seed, [
-      `Let's see how that result affected the table. ${change.row.username} moves ${direction} ${places} ${places === 1 ? "place" : "places"}${leapfrogText} after the final whistle.`,
-      `Over to the mini-league table after that result: ${change.row.username} goes ${direction} to ${change.row.position}${leapfrogText}.`,
-      `Here's the table after the final whistle: ${change.row.username} is ${direction} ${places} ${places === 1 ? "spot" : "spots"}${leapfrogText}.`,
+      `Let's see how ${resultText} affected the table. ${change.row.username} moves ${direction} ${places} ${places === 1 ? "place" : "places"}${leapfrogText} since kick-off.`,
+      `Over to the mini-league table after ${resultText}: ${change.row.username} goes ${direction} to ${change.row.position}${leapfrogText} since kick-off.`,
+      `Here's the table after the final whistle: ${change.row.username} is ${direction} ${places} ${places === 1 ? "spot" : "spots"}${leapfrogText} since kick-off.`,
     ]);
   }
 
   return pickLiveStudioPhrase(seed, [
-    "Let's see how that result affected the table. The points are in, and the order stays the same.",
-    "Over to the mini-league table after that result. No change in the order, but here's how everyone finishes.",
-    "Time for the full-time table check. Everyone holds their position after this one.",
+    `Let's see how ${resultText} affected the table. The points are in, and the order is unchanged since kick-off.`,
+    `Over to the mini-league table after ${resultText}. The order is unchanged since kick-off; here's how everyone finishes.`,
+    "Time for the full-time table check. Everyone holds the position they had at kick-off.",
   ]);
+}
+
+export function buildLiveStudioFullTimePointsLines({ picks = [], score, seed }) {
+  const earners = picks.map((pick) => {
+    const points = getFixturePredictionPoints(pick.prediction, score);
+    return points > 0 ? { ...pick, points, label: getPredictionPointsLabel(pick.prediction, score)?.label } : null;
+  }).filter(Boolean).sort((a, b) => Number(b.label === "Bingpot") - Number(a.label === "Bingpot")
+    || b.points - a.points || a.username.localeCompare(b.username));
+  return earners.map(({ username, prediction, points, label }) => {
+    const boosted = prediction.isTriple ? " with the triple" : prediction.isDouble ? " with the double" : "";
+    if (label === "Bingpot") return pickLiveStudioPhrase(`${seed}:${username}:bingpot`, [
+      `Bingpot for ${username}! ${points} prediction points${boosted}. Called it perfectly.`,
+      `${username} nails the Bingpot — ${points} prediction points${boosted}. Lovely stuff.`,
+      `${username} has a Bingpot in the bag. ${points} prediction points${boosted}. Take a bow.`,
+    ]);
+    return `${username} picks up ${points} prediction points${boosted} for ${label === "Correcto" ? "a Correcto" : "the right result"}.`;
+  });
 }
 
 export function buildLiveStudioFullTimeSummary({ fixture, score, probabilities, venue, seed }) {
@@ -5453,7 +5487,7 @@ export function buildLiveStudioFullTimeSummary({ fixture, score, probabilities, 
     `That's the whistle! ${winner} get the win at ${venue}. Predictions locked, breathing resumed.`,
     `${winner} see it through. Now we find out who called it.`,
     `All over at ${venue}. ${winner} take the points, and we can get the calculators out.`,
-    `${winner} have done their bit. Over to the league table for the fallout.`,
+    `${winner} have done their bit. Let's see who called it.`,
   ]);
 }
 
@@ -5908,17 +5942,41 @@ export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableR
   });
 }
 
-export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false }) {
-  if (!matches.length) return [];
+export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = "the league", tableSwings = [], getTableRows }) {
+  if (!matches.length || matches.some((match) => !match.finished || !hasValidResultScore(match.score))) return null;
+  const kickoffs = matches.map((match) => Date.parse(match.fixture.kickoff)).filter(Number.isFinite);
+  const finishTimes = matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff)).filter(Number.isFinite);
+  const momentMs = Math.min(nowMs, finishTimes.length ? Math.max(...finishTimes) : nowMs);
+  const scoresByFixtureId = Object.fromEntries(matches.map((match) => [String(match.fixture.id), match.score]));
+  const tableSnapshot = getTableRows && kickoffs.length ? {
+    previousRows: getTableRows(Math.min(...kickoffs) - 1),
+    currentRows: getTableRows(momentMs, { scoresByFixtureId }),
+  } : null;
+  const tableLine = tableSnapshot ? buildLiveStudioFullTimeTableLine({ ...tableSnapshot,
+    fixture: matches[0].fixture, score: matches[0].score, resultCount: matches.length,
+    seed: `studio:closing:${matches.map((match) => match.fixture.id).join(":")}`,
+  }) : "";
+  return {
+    id: "studio:closing", minute: "FT", tone: "finished", icon: "🎙️", momentMs,
+    title: "Full-time around the grounds", verdictLabel: "Back in the studio",
+    lines: ["Back in the studio. The whistles have gone — let's run through the results.",
+      ...matches.map(({ fixture, score }) => `${getLiveStudioTeamName(fixture.homeTeam)} ${score.homeGoals}–${score.awayGoals} ${getLiveStudioTeamName(fixture.awayTeam)} (FT)`),
+      ...buildLiveStudioClosingVerdict({ matches, leagueName, tableSwings }), tableLine].filter(Boolean),
+    tableSnapshot,
+    tableLabel: "Mini-league: first kick-off to full time",
+  };
+}
+
+export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false, completedMatches = [] }) {
+  if (!matches.length && !completedMatches.length) return [];
   const active = matches.filter((match) => match.live && !match.paused && match.score);
   const unfinished = hasUnfinishedFixtures || matches.some((match) => !match.finished);
   if (!unfinished && !(nextKickoffMs > nowMs && nextKickoffMs - nowMs < 60 * 60000)) {
-    const lines = buildLiveStudioClosingVerdict({ matches, leagueName, tableSwings });
-    return lines.length ? [{
-      id: "studio:closing", minute: "Studio", tone: "finished", icon: "🎙️",
-      momentMs: Math.max(...matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff))),
-      title: "That's a wrap from the studio.", verdictLabel: "Closing verdict", lines,
-    }] : [];
+    const finalMatches = [...new Map([...completedMatches, ...matches].filter((match) => match.finished)
+      .map((match) => [String(match.fixture.id), match])).values()]
+      .sort((a, b) => Date.parse(a.fixture.kickoff) - Date.parse(b.fixture.kickoff));
+    const roundup = buildLiveStudioFinalRoundup({ matches: finalMatches, nowMs, leagueName, tableSwings, getTableRows });
+    return roundup ? [roundup] : [];
   }
   const halfTimeRoundups = buildLiveStudioHalfTimeRoundups({ matches, nowMs, getTableRows });
   if (halfTimeRoundups.length) return halfTimeRoundups;
@@ -6010,9 +6068,9 @@ export function buildLiveStudioClosingVerdict({ matches = [], leagueName = "the 
   return lines;
 }
 
-export function buildLiveStudioEntryLines({ entryKind, statusLabel, revealLine, aside = "", isMilestone = false, stakesLine = "", tableImpactLine = "", betLine = "", previewLines = [] }) {
+export function buildLiveStudioEntryLines({ entryKind, statusLabel, revealLine, aside = "", isMilestone = false, stakesLine = "", tableImpactLine = "", betLine = "", previewLines = [], pointsLines = [] }) {
   if (statusLabel === "KO") return [revealLine, ...previewLines, betLine].filter(Boolean);
-  if (statusLabel === "FT") return [revealLine, betLine, tableImpactLine].filter(Boolean);
+  if (statusLabel === "FT") return [revealLine, ...pointsLines, betLine].filter(Boolean);
   if (["yellow-card", "substitution", "injury"].includes(entryKind)) return [revealLine].filter(Boolean);
   // Keep scorer milestones; use jokes when there is room between the bigger stories.
   return [revealLine, isMilestone ? aside : "", stakesLine || (!isMilestone ? aside : ""), tableImpactLine].filter(Boolean);
@@ -11340,6 +11398,7 @@ const liveStudioRows = useMemo(() => {
   liveStudioUsers,
 ]);
 
+const liveStudioCommentaryScope = `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${selectedMiniLeague?.id || "global"}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`;
 const liveStudioCurrentFeed = useMemo(() => {
   const currentUserName = currentPlayer || loginName || "You";
   const studioGameweekLabel = getModeGameweekLabel(
@@ -11380,6 +11439,10 @@ const liveStudioCurrentFeed = useMemo(() => {
     const scoresByFixtureId = {};
     liveStudioFixtures.forEach((fixture) => {
       const fixtureId = String(fixture.id);
+      if (fixtureOverride?.scoresByFixtureId?.[fixtureId]) {
+        scoresByFixtureId[fixtureId] = fixtureOverride.scoresByFixtureId[fixtureId];
+        return;
+      }
       if (fixtureOverride?.skipFixture && fixtureId === String(fixtureOverride.fixtureId)) return;
       if (fixtureOverride?.score && fixtureId === String(fixtureOverride.fixtureId)) {
         scoresByFixtureId[fixtureId] = fixtureOverride.score;
@@ -11461,13 +11524,21 @@ const liveStudioCurrentFeed = useMemo(() => {
   };
 
   const studioMatches = [];
+  const completedStudioMatches = [];
   const tableSwings = [];
+  const savedFullTimeFixtures = getSavedLiveStudioFullTimeFixtures(liveStudioCommentaryScope);
   const entries = liveStudioFixtures
     .flatMap((fixture) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
-      if (!isLiveStudioFixtureInCoverageWindow(fixture, matchState, liveStudioNow)) return [];
+      const inCoverage = isLiveStudioFixtureInCoverageWindow(fixture, matchState, liveStudioNow);
       const status = String(matchState.status || "").toUpperCase();
+      // Rebuild an already-read result so late prediction/league data can enrich
+      // its points summary and kick-off comparison after live coverage has ended.
+      const refreshSavedFinal = savedFullTimeFixtures.has(String(fixture.id)) && isLiveStudioFinalStatus(status);
+      const sameMatchday = String(fixture.kickoff || "").slice(0, 10) === new Date(liveStudioNow).toISOString().slice(0, 10);
+      const completedInSession = isLiveStudioFinalStatus(status) && (sameMatchday || refreshSavedFinal || inCoverage);
+      if (!inCoverage && !refreshSavedFinal && !completedInSession) return [];
       const result = demoState ? null : results[fixture.id];
       const score = demoState
         ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
@@ -11573,12 +11644,14 @@ const liveStudioCurrentFeed = useMemo(() => {
           ? kickoffTime + (minute + (minute > 45 ? 15 : 0)) * 60000 : kickoffTime;
       });
       const finishedAt = finished ? Date.parse(matchState.finishedAt || "") : NaN;
-      studioMatches.push({
+      const studioMatch = {
         fixture, score, picks: fixturePicks, events: repairedTimelineEvents,
         live, paused, finished,
         minute: getLiveStudioClockMinute(fixture, matchState, liveStudioNow),
         lastNewsAt: Math.max(kickoffTime, ...eventNewsTimes, Number.isFinite(finishedAt) ? finishedAt : kickoffTime),
-      });
+      };
+      if (inCoverage) studioMatches.push(studioMatch);
+      if (completedInSession) completedStudioMatches.push(studioMatch);
       const getScoreSnapshotAtTimelineMinute = (minute) => {
         const snapshotMinute = Number(minute);
         if (!Number.isFinite(snapshotMinute)) return null;
@@ -11612,7 +11685,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         });
       }
 
-      return feedEvents.map((event, eventIndex) => {
+      return feedEvents.filter((event) => inCoverage || event.statusLabel === "FT").map((event, eventIndex) => {
         const entryKind = getLiveStudioEventKind(event);
         const statusLabel = String(event.statusLabel || "");
         const isKickoff = statusLabel === "KO";
@@ -11715,19 +11788,6 @@ const liveStudioCurrentFeed = useMemo(() => {
         let entryTableSnapshot = null;
         let entryTableImpactLine = "";
         let entryTableLabel = "";
-        if (isFullTime && entryScore && Number.isFinite(entryMomentMs)) {
-          const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
-          const previousRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, skipFixture: true });
-          entryTableSnapshot = getLiveStudioChangedTableSnapshot(previousRows, currentRows, { fullTime: true });
-          entryTableLabel = "Mini-league at full time";
-          entryTableImpactLine = buildLiveStudioFullTimeTableLine({
-            previousRows,
-            currentRows,
-            fixture,
-            score: entryScore,
-            seed: `${fixture.id}:full-table:${entryScore.homeGoals}-${entryScore.awayGoals}`,
-          });
-        }
         if ((entryIsGoal || entryIsGoalDisallowed) && entryScore && Number.isFinite(entryMomentMs)) {
           previousScore = getLiveStudioPreviousScore(fixture, event, entryScore);
           const currentRows = buildTableSnapshotAtMoment(entryMomentMs, { fixtureId: fixture.id, score: entryScore });
@@ -11791,6 +11851,9 @@ const liveStudioCurrentFeed = useMemo(() => {
             isMilestone: /hat-trick|Leave some for everyone else/.test(aside),
             stakesLine: entryStakesLine, tableImpactLine: entryTableImpactLine,
             betLine: isFullTime ? fullTimeBetLine : kickoffBetLine,
+            pointsLines: isFullTime ? buildLiveStudioFullTimePointsLines({
+              picks: fixturePicks, score: entryScore, seed: `${fixture.id}:full-time-points`,
+            }) : [],
             previewLines: predictionPreviewLines.slice(1),
           }),
           tableSnapshot: entryTableSnapshot,
@@ -11833,7 +11896,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   const nextKickoffMs = liveStudioFixtures.map((fixture) => Date.parse(fixture.kickoff))
     .filter((kickoff) => kickoff > liveStudioNow).sort((a, b) => a - b)[0];
   const deskEntries = buildLiveStudioDeskEntries({
-    matches: studioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
+    matches: studioMatches, completedMatches: completedStudioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
     leagueName: selectedMiniLeague?.name || "the league",
     getTableRows: buildTableSnapshotAtMoment,
     hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {
@@ -11843,12 +11906,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         && !isLiveStudioFinalStatus(state.status);
     }),
   });
-  const finalTableEntry = entries.filter((entry) => entry.fullTime && entry.tableSnapshot)
-    .sort((a, b) => b.momentMs - a.momentMs)[0];
-  const studioEntries = deskEntries.map((entry) => entry.id === "studio:closing" && finalTableEntry
-    ? { ...entry, tableSnapshot: finalTableEntry.tableSnapshot, tableLabel: "Mini-league after the final whistle" }
-    : entry);
-  return [...studioEntries, ...sortedEntries];
+  return [...deskEntries, ...sortedEntries];
 }, [
   coinsState.bets,
   currentPlayer,
@@ -11863,6 +11921,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   liveStudioUsers,
   loginName,
   liveStudioDemoGameweek,
+  liveStudioCommentaryScope,
   liveStudioNow,
   liveStudioCoinsByUserId,
   matchStatesByFixtureId,
@@ -11874,7 +11933,7 @@ const liveStudioCurrentFeed = useMemo(() => {
 
 const liveStudioFeed = useLiveStudioCommentaryHistory(
   liveStudioCurrentFeed,
-  `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${selectedMiniLeague?.id || "global"}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`,
+  liveStudioCommentaryScope,
   activeView === "liveStudio"
 );
 

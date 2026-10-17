@@ -288,8 +288,8 @@ describe("Live Studio closing verdict", () => {
     expect(buildLiveStudioClosingVerdict({ matches: [match, { ...match, finished: false }] })).toEqual([]);
     const entries = buildLiveStudioDeskEntries({ matches: [match], nowMs });
     expect(entries).toHaveLength(1);
-    expect(entries[0].verdictLabel).toBe("Closing verdict");
-    expect(entries[0].tableSnapshot).toBeUndefined();
+    expect(entries[0].verdictLabel).toBe("Back in the studio");
+    expect(entries[0].tableSnapshot).toBeNull();
   });
 
   test("does not claim heartbreak from a goal that was superseded", () => {

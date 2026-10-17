@@ -60,10 +60,9 @@ test("an earlier closing verdict cannot stay in the feed during a later live gam
   expect(mergeLiveStudioDeskHistory([roundup], [closing])).toEqual([roundup, closing]);
 });
 
-test("a confirmed full-time score and table survive refresh gaps, coverage expiry and a page reload", () => {
+test("a confirmed full-time score and points survive refresh gaps, coverage expiry and a page reload", () => {
   const final = { id: "57:full-time", fixtureId: 57, fullTime: true, tone: "finished", momentMs: 300,
-    title: "Full time! Arsenal 2-1 Chelsea", lines: ["Let's see how that result affected the table."],
-    tableSnapshot: { previousRows: [], currentRows: [{ username: "Phil", position: 1, points: 24 }] } };
+    title: "Full time! Arsenal 2-1 Chelsea", lines: ["Bingpot for Phil! 7 prediction points."] };
   const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioCommentaryHistory(feed, "final-result"), { initialProps: { feed: [final] } });
   // A thin refresh temporarily reports an in-play fixture, with no full-time card.
   act(() => rerender({ feed: [goal] }));
@@ -78,6 +77,6 @@ test("a confirmed full-time score and table survive refresh gaps, coverage expir
 
 test("official corrections update the retained full-time card without duplicates", () => {
   const final = { id: "57:full-time", fixtureId: 57, fullTime: true, momentMs: 300, title: "Full time! Arsenal 2-1 Chelsea" };
-  const corrected = { ...final, title: "Full time! Arsenal 1-1 Chelsea", tableSnapshot: { previousRows: [], currentRows: [] } };
+  const corrected = { ...final, title: "Full time! Arsenal 1-1 Chelsea" };
   expect(mergeLiveStudioDeskHistory([final], [corrected])).toEqual([corrected]);
 });
