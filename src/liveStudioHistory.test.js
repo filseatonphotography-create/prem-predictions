@@ -59,3 +59,25 @@ test("an earlier closing verdict cannot stay in the feed during a later live gam
   expect(mergeLiveStudioDeskHistory([closing, roundup], [goal])).toEqual([roundup]);
   expect(mergeLiveStudioDeskHistory([roundup], [closing])).toEqual([roundup, closing]);
 });
+
+test("a confirmed full-time score and table survive refresh gaps, coverage expiry and a page reload", () => {
+  const final = { id: "57:full-time", fixtureId: 57, fullTime: true, tone: "finished", momentMs: 300,
+    title: "Full time! Arsenal 2-1 Chelsea", lines: ["Let's see how that result affected the table."],
+    tableSnapshot: { previousRows: [], currentRows: [{ username: "Phil", position: 1, points: 24 }] } };
+  const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioCommentaryHistory(feed, "final-result"), { initialProps: { feed: [final] } });
+  // A thin refresh temporarily reports an in-play fixture, with no full-time card.
+  act(() => rerender({ feed: [goal] }));
+  expect(result.current).toContainEqual(final);
+  // The fixture leaves the active coverage window; its result still stays in history.
+  act(() => rerender({ feed: [] }));
+  expect(result.current).toEqual([final]);
+  unmount();
+  const restored = renderHook(() => useLiveStudioCommentaryHistory([], "final-result"));
+  expect(restored.result.current).toEqual([final]);
+});
+
+test("official corrections update the retained full-time card without duplicates", () => {
+  const final = { id: "57:full-time", fixtureId: 57, fullTime: true, momentMs: 300, title: "Full time! Arsenal 2-1 Chelsea" };
+  const corrected = { ...final, title: "Full time! Arsenal 1-1 Chelsea", tableSnapshot: { previousRows: [], currentRows: [] } };
+  expect(mergeLiveStudioDeskHistory([final], [corrected])).toEqual([corrected]);
+});

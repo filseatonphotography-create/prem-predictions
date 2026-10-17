@@ -100,3 +100,25 @@ test("a late synthetic goal cannot mask the real scorer and verified minute", ()
   expect(event.scorerName).toBe(real.scorerName);
   expect(formatGoalMinute(event)).toBe("12'");
 });
+
+describe("recorded goal and VAR history between browser refreshes", () => {
+  const { mergeRecordedMatchState } = require("./liveMatchEvents");
+  const goal = { type: "GOAL", minute: 76, teamName: "Manchester City FC", scorerName: "City scorer", homeGoals: 4, awayGoals: 1 };
+  const ruledOut = { type: "GOAL_DISALLOWED", minute: 78, teamName: "Manchester City FC", previousHomeGoals: 4, previousAwayGoals: 1, homeGoals: 3, awayGoals: 1 };
+  const recorded = { status: "IN_PLAY", homeGoals: 3, awayGoals: 1, lastUpdated: "2026-10-17T15:35:00Z", goalEvents: [goal], matchEvents: [goal, ruledOut] };
+
+  test("a corrected provider list cannot erase a goal and its cancellation recorded by the server", () => {
+    const incoming = { status: "IN_PLAY", homeGoals: 3, awayGoals: 1, lastUpdated: "2026-10-17T15:36:00Z", goalEvents: [], matchEvents: [] };
+    const merged = mergeRecordedMatchState(incoming, recorded);
+    expect(merged.matchEvents.map(event => event.type)).toEqual(["GOAL", "GOAL_DISALLOWED"]);
+    expect(merged.homeGoals).toBe(3);
+    expect(merged.goalEvents[0].scorerName).toBe("City scorer");
+  });
+
+  test("a stale response cannot roll back a newer VAR correction or repeat a goal", () => {
+    const stale = { status: "IN_PLAY", homeGoals: 4, awayGoals: 1, lastUpdated: "2026-10-17T15:33:00Z", goalEvents: [goal], matchEvents: [goal] };
+    const merged = mergeRecordedMatchState(stale, recorded);
+    expect(merged.homeGoals).toBe(3);
+    expect(merged.matchEvents.map(event => event.type)).toEqual(["GOAL", "GOAL_DISALLOWED"]);
+  });
+});

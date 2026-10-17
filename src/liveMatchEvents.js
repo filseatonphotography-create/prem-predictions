@@ -75,7 +75,20 @@ function mergeMatchEvents(...lists) {
     if (!preferred.synthetic) { delete merged.synthetic; delete merged.estimatedMinute; }
     result[index] = merged;
   });
-  return result;
+  return result.map(event => {
+    if (event.type !== "GOAL_DISALLOWED" || !event.estimatedMinute) return event;
+    const removedGoal = result.filter(goal => goal.type === "GOAL"
+      && numeric(event.previousHomeGoals) != null && numeric(event.previousAwayGoals) != null
+      && goal.homeGoals === Number(event.previousHomeGoals) && goal.awayGoals === Number(event.previousAwayGoals))
+      .sort((a, b) => (numeric(b.minute) || 0) - (numeric(a.minute) || 0))[0];
+    if (!removedGoal) return event;
+    // Keep an estimated correction after the goal it cancels, even when an old
+    // fallback clock placed it near kick-off. Do not invent a verified minute.
+    return Object.assign({}, event, {
+      sortMinute: Math.max(numeric(event.sortMinute) || numeric(event.minute) || 0,
+        (numeric(removedGoal.minute) || 0) + (numeric(removedGoal.injuryTime) || 0) / 100 + 0.001),
+    });
+  });
 }
 function normalizeMatchEvents(source = {}) {
   if (!source || typeof source !== "object") return [];
@@ -129,10 +142,21 @@ function getMatchEventMomentMs(fixture, event = {}, state = {}) {
   const phaseKey = { HT: "halfTimeAt", SH: "secondHalfAt", FT: "finishedAt" }[event.statusLabel];
   if (phaseKey && Number.isFinite(Date.parse(state[phaseKey]))) return Date.parse(state[phaseKey]);
   if (Number.isFinite(Date.parse(event.occurredAt))) return Date.parse(event.occurredAt);
+  if (event.estimatedMinute && Number.isFinite(Date.parse(event.detectedAt))) return Date.parse(event.detectedAt);
   const minute = numeric(event.minute);
   if (!Number.isFinite(kickoff) || minute == null) return kickoff;
   const secondHalfStart = Date.parse(state.secondHalfAt);
   if (minute > 45 && Number.isFinite(secondHalfStart)) return secondHalfStart + (minute - 45 + (numeric(event.injuryTime) || 0)) * 60000;
   return kickoff + (minute + (minute > 45 ? 15 : 0) + (numeric(event.injuryTime) || 0)) * 60000;
 }
-module.exports = { numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };
+function mergeRecordedMatchState(incoming = {}, recorded = {}) {
+  const incomingTime = Date.parse(incoming.lastUpdated || "");
+  const recordedTime = Date.parse(recorded.lastUpdated || "");
+  const recordedIsNewer = Number.isFinite(incomingTime) && Number.isFinite(recordedTime) && recordedTime > incomingTime;
+  const current = recordedIsNewer ? Object.assign({}, incoming, recorded) : Object.assign({}, recorded, incoming);
+  const merged = mergeMatchPhaseState(recorded, current);
+  merged.goalEvents = mergeMatchEvents(recorded.goalEvents, incoming.goalEvents);
+  merged.matchEvents = mergeMatchEvents(recorded.matchEvents, incoming.matchEvents);
+  return merged;
+}
+module.exports = { mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };

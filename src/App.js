@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import "./App.css";
 import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
+import LiveStudioLineups from "./LiveStudioLineups";
+import useLiveResultsPolling from "./useLiveResultsPolling";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
 import {
@@ -87,7 +89,9 @@ const {
   hasNumericScoreValue,
 } = require("./matchScoreUtils");
 
-const { normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
+const { mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
+
+const { getResultsRefreshInterval } = require("./liveResultsRefresh");
 
 // ---- CONFIG ----
 // Fetch all users' avatars from backend
@@ -2647,6 +2651,11 @@ export function normalizeApiLineups(match = {}) {
   return { home, away };
 }
 
+export function getRecordedMatchStateUpdates(recordedStates = {}, fixtures = []) {
+  return Object.fromEntries(fixtures.map((fixture) => [String(fixture.id), recordedStates[String(fixture.id)]])
+    .filter(([, state]) => state && typeof state === "object"));
+}
+
 export function buildFixtureSyncPayload(matches, fixtures) {
   const updatedResults = {};
   const matchStateUpdates = {};
@@ -3189,13 +3198,15 @@ async function apiGetResultsSnapshot() {
 }
 
 async function apiGetMatchStatesSnapshot() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(`${BACKEND_BASE}/api/match-states/snapshot`);
+    const res = await fetch(`${BACKEND_BASE}/api/match-states/snapshot`, { signal: controller.signal, cache: "no-store" });
     if (!res.ok) throw new Error("Match states fetch failed");
     return await res.json();
   } catch {
     return {};
-  }
+  } finally { clearTimeout(timer); }
 }
 
 async function apiGetSeasonWinners() {
@@ -3540,48 +3551,47 @@ async function apiJoinLeague(token, code, mode = PREMIER_MODE) {
 }
 
 // Results & Odds (unchanged)
-// eslint-disable-next-line no-unused-vars
-async function fetchCompetitionResults(mode = PREMIER_MODE) {
+export async function fetchCompetitionResults(mode = PREMIER_MODE) {
   let timeoutId = null;
+  let fallbackAttempted = false;
+  const fallback = async () => {
+    fallbackAttempted = true;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch("https://predictionaddiction.net/.netlify/functions/results", {
+        signal: controller.signal, cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const matches = await response.json();
+      if (!Array.isArray(matches)) throw new Error("Invalid results feed");
+      return { matches, error: null, updatedAt: Date.now(), rateLimited: false, timedOut: false };
+    } finally { clearTimeout(timer); }
+  };
   try {
     const controller = new AbortController();
     timeoutId = setTimeout(() => controller.abort(), 30000);
-    
-    let res = await fetch(`${BACKEND_BASE}/api/results?mode=${encodeURIComponent(getModeKey(mode))}`, {
-      signal: controller.signal
+    const res = await fetch(`${BACKEND_BASE}/api/results?mode=${encodeURIComponent(getModeKey(mode))}`, {
+      signal: controller.signal, cache: "no-store",
     });
-    
     if (res.ok) {
       const updatedHeader = res.headers.get("x-results-updated");
       const matches = await res.json();
-      const updatedAt = updatedHeader ? Number(updatedHeader) : null;
       if (Array.isArray(matches) && matches.length > 0) {
-        return { matches, error: null, updatedAt, rateLimited: false, timedOut: false };
+        return { matches, error: null, updatedAt: updatedHeader ? Number(updatedHeader) : null, rateLimited: false, timedOut: false };
       }
-      // If backend returns empty in Premier League mode, fall back to Netlify source
     }
-
-    if (res.status === 429) {
-      return { matches: [], error: null, updatedAt: null, rateLimited: true, timedOut: false };
-    }
-
-    if (mode === PREMIER_MODE) {
-      // Fallback: hit Netlify function directly if backend can't fetch live results
-      res = await fetch("https://predictionaddiction.net/.netlify/functions/results");
-      if (!res.ok) return { matches: [], error: `HTTP ${res.status}`, rateLimited: false, timedOut: false };
-      const matches = await res.json();
-      return { matches, error: null, updatedAt: Date.now(), rateLimited: false, timedOut: false };
-    }
-
+    if (res.status === 429) return { matches: [], error: null, updatedAt: null, rateLimited: true, timedOut: false };
+    if (mode === PREMIER_MODE) return await fallback();
     return { matches: [], error: `HTTP ${res.status}`, updatedAt: null, rateLimited: false, timedOut: false };
   } catch (err) {
-    if (err.name === 'AbortError') {
-      return { matches: [], error: null, updatedAt: null, rateLimited: false, timedOut: true };
+    // A slow/unreachable backend should not prevent access to the independent feed.
+    if (mode === PREMIER_MODE && !fallbackAttempted) {
+      try { return await fallback(); } catch {}
     }
+    if (err.name === "AbortError") return { matches: [], error: null, updatedAt: null, rateLimited: false, timedOut: true };
     return { matches: [], error: err.message, updatedAt: null, rateLimited: false, timedOut: false };
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
+  } finally { if (timeoutId) clearTimeout(timeoutId); }
 }
 
 async function fetchPremierLeagueStandings() {
@@ -5052,6 +5062,7 @@ export function sortLiveStudioEntries(entries = []) {
 
 export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
   const kind = getLiveStudioEventKind(event);
+  if (kind === "lineup") return `Line-ups confirmed: ${getLiveStudioTeamName(fixture.homeTeam)} v ${getLiveStudioTeamName(fixture.awayTeam)}`;
   const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
   if (statusLabel === "KO") return "Kick off!";
   if (["SH", "HT", "FT"].includes(statusLabel)) {
@@ -5303,13 +5314,17 @@ export function buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed }
   };
 }
 
+function isRetainedLiveStudioEntry(entry) {
+  return entry?.id?.startsWith("studio:") || entry?.fullTime === true;
+}
+
 export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // A closing verdict describes the current session, so never carry an old one
-  // into later games. Score round-ups remain part of the commentary history.
+  // into later games. Round-ups and confirmed full-time cards stay in history.
   const entries = new Map(history.filter((entry) => entry.id !== "studio:closing").map((entry) => [entry.id, entry]));
-  currentFeed.filter((entry) => entry.id?.startsWith("studio:")).forEach((entry) => {
-    // Freeze round-ups once read; keep the closing result/table up to date.
-    if (!entries.has(entry.id) || entry.id === "studio:closing") entries.set(entry.id, entry);
+  currentFeed.filter(isRetainedLiveStudioEntry).forEach((entry) => {
+    // Freeze round-ups once read; update a confirmed result if official data is corrected.
+    if (!entries.has(entry.id) || entry.fullTime || entry.id === "studio:closing") entries.set(entry.id, entry);
   });
   return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 100);
 }
@@ -5319,7 +5334,7 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
   const readHistory = (key) => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(key) || "[]");
-      return Array.isArray(saved) ? saved.filter((entry) => entry?.id?.startsWith("studio:")) : [];
+      return Array.isArray(saved) ? saved.filter(isRetainedLiveStudioEntry) : [];
     } catch { return []; }
   };
   const [saved, setSaved] = useState(() => ({ key: storageKey, entries: readHistory(storageKey) }));
@@ -5333,7 +5348,7 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
     try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
   }, [currentFeed, storageKey, enabled]);
   if (!retained.length) return currentFeed;
-  return [...currentFeed.filter((entry) => !entry.id?.startsWith("studio:")), ...retained]
+  return [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
     .sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0));
 }
 
@@ -9040,41 +9055,51 @@ const premierLeagueInsights = useMemo(() => {
         ? "Refreshing World Cup results…"
         : "Refreshing Premier League results…"
     );
-    const { matches, error, rateLimited, timedOut } = await fetchCompetitionResults(mode);
-    if (rateLimited) {
+    const [feed, recordedStates] = await Promise.all([fetchCompetitionResults(mode), apiGetMatchStatesSnapshot()]);
+    const { matches, error, rateLimited, timedOut } = feed;
+    const recordedUpdates = getRecordedMatchStateUpdates(recordedStates, fixtures);
+    const hasRecordedUpdates = Object.keys(recordedUpdates).length > 0;
+    if (rateLimited && !hasRecordedUpdates) {
       setApiStatus("Auto results: rate limited, using cached data");
       setResultsRefreshing(false);
       return;
     }
-    if (timedOut) {
+    if (timedOut && !hasRecordedUpdates) {
       setApiStatus(mode === WORLD_CUP_MODE
         ? "WC live sync slow, using scheduled kick-off times"
         : "Auto results: upstream slow, using existing data");
       setResultsRefreshing(false);
       return;
     }
-    if (error) {
+    if (error && !hasRecordedUpdates) {
       setApiStatus(mode === WORLD_CUP_MODE
         ? "WC live sync unavailable, using scheduled kick-off times"
         : `Auto results: failed (${error})`);
       setResultsRefreshing(false);
       return;
     }
-    setApiStatus("Auto results: loaded");
-    if (matches?.length) {
+    setApiStatus(error || timedOut || rateLimited ? "Live updates: using server event history" : "Auto results: loaded");
+    if (matches?.length || hasRecordedUpdates) {
       const {
         updatedResults,
         matchStateUpdates: rawMatchStateUpdates,
         fixtureOverrides,
         matchedCount,
       } = buildFixtureSyncPayload(matches, fixtures);
+      const trackedUpdates = { ...recordedUpdates, ...Object.fromEntries(Object.entries(rawMatchStateUpdates).map(([id, incoming]) =>
+        [id, mergeRecordedMatchState(incoming, recordedUpdates[id] || {})])) };
       const matchStateUpdates = enrichMatchStateUpdatesWithSyntheticGoals(
-        rawMatchStateUpdates,
+        trackedUpdates,
         matchStatesByFixtureId,
         results,
         fixtures
       );
 
+      Object.entries(matchStateUpdates).forEach(([id, state]) => {
+        if (hasStartedMatchStatus(state) && numeric(state.homeGoals) != null && numeric(state.awayGoals) != null) {
+          updatedResults[id] = { homeGoals: Number(state.homeGoals), awayGoals: Number(state.awayGoals) };
+        }
+      });
       if (Object.keys(fixtureOverrides).length) {
         setFixtureOverridesByMode((prev) => ({
           ...prev,
@@ -9093,7 +9118,7 @@ const premierLeagueInsights = useMemo(() => {
           )
         );
       }
-      if (matchedCount || Object.keys(matchStateUpdates).length) {
+      if (!error && !timedOut && !rateLimited && (matchedCount || Object.keys(matchStateUpdates).length)) {
         apiSaveResultsSnapshot(updatedResults, matchStateUpdates);
       }
     }
@@ -9178,23 +9203,11 @@ useEffect(() => {
   return undefined;
 }, []);
 
-useEffect(() => {
-  let cancelled = false;
-  let intervalId = null;
-
-  const runRefresh = async () => {
-    if (cancelled) return;
-    await refreshAutoResults(gameMode, activeFixtures);
-  };
-
-  runRefresh();
-  intervalId = setInterval(runRefresh, 2 * 60 * 1000);
-
-  return () => {
-    cancelled = true;
-    if (intervalId) clearInterval(intervalId);
-  };
-}, [gameMode]);
+useLiveResultsPolling(
+  () => refreshAutoResults(gameMode, activeFixtures),
+  gameMode,
+  getResultsRefreshInterval(activeView, matchStatesByFixtureId)
+);
 
 // ---------- COINS: LOAD WHEN USER OR GAMEWEEK CHANGES ----------
 useEffect(() => {
@@ -11608,7 +11621,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         const isFullTime = statusLabel === "FT";
         const isStatsCheck = entryKind === "stats";
         const isLineup = entryKind === "lineup";
-        const entryScoreFallback = isKickoff
+        const entryScoreFallback = isLineup ? null : isKickoff
           ? { homeGoals: 0, awayGoals: 0 }
           : isStatsCheck
           ? null
@@ -11619,7 +11632,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           : isFullTime || ["goal", "goal-disallowed"].includes(entryKind)
           ? score
           : getScoreSnapshotAtTimelineMinute(getLiveStudioEventSortMinute(event));
-        const entryScore = getLiveStudioEventScore(event, entryScoreFallback);
+        const entryScore = isLineup ? null : getLiveStudioEventScore(event, entryScoreFallback);
         const entryIsGoal = entryKind === "goal";
         const entryIsGoalDisallowed = entryKind === "goal-disallowed";
         const entryMinuteFallback =
@@ -11678,7 +11691,7 @@ const liveStudioCurrentFeed = useMemo(() => {
               seed: `${fixture.id}:stats:${event.minute}`,
             })
           : isLineup
-          ? buildLiveStudioLineupsLine({ fixture, matchState }) || "Starting line-ups are confirmed."
+          ? "The team sheets are in. Here are the starting XIs."
           : isFullTime
           ? buildLiveStudioFullTimeSummary({
               fixture,
@@ -11734,7 +11747,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         if (entryTableSnapshot && (entryIsGoal || entryIsGoalDisallowed)) {
           tableSwings.push({ fixture, event, ...entryTableSnapshot });
         }
-        const entryStakesLine = !isKickoff && !isFullTime ? buildLiveStudioStakesLine({
+        const entryStakesLine = !isKickoff && !isFullTime && !isLineup ? buildLiveStudioStakesLine({
           fixture, event, score: entryScore, previousScore, picks: fixturePicks, history: repairedTimelineEvents,
           seed: `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:stakes`,
         }) : "";
@@ -11759,7 +11772,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         });
 
         return {
-          id: `${fixture.id}:${event.type || event.statusLabel || "update"}:${entryMinute}:${eventIndex}`,
+          id: isFullTime ? `${fixture.id}:full-time` : `${fixture.id}:${event.type || event.statusLabel || "update"}:${entryMinute}:${eventIndex}`,
           updateKey,
           fixtureId: fixture.id,
           fixture,
@@ -11767,6 +11780,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           sortMinute,
           momentMs: entryMomentMs,
           fullTime: isFullTime,
+          lineups: isLineup ? matchState.lineups : null,
           tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
           title: entryTitle || `News from ${venue}`,
           icon: entryIcon,
@@ -20920,7 +20934,7 @@ const TABS = [
                       data-live-studio-fixture-id={entry.fixtureId || undefined}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "58px minmax(0, 1fr)",
+                        gridTemplateColumns: entry.lineups ? "minmax(0, 1fr)" : "58px minmax(0, 1fr)",
                         gap: 10,
                         padding: isMobile ? 10 : 12,
                         borderRadius: 8,
@@ -20945,7 +20959,7 @@ const TABS = [
                           fontWeight: 950,
                           textAlign: "center",
                           fontVariantNumeric: "tabular-nums",
-                          display: "grid",
+                          display: entry.lineups ? "none" : "grid",
                           justifyItems: "center",
                           gap: 3,
                         }}
@@ -21038,6 +21052,15 @@ const TABS = [
                             </div>
                           ))}
                         </div>
+                        {entry.lineups && entryFixture && <LiveStudioLineups
+                          theme={theme} isMobile={isMobile}
+                          teams={["home", "away"].map((side) => {
+                            const name = side === "home" ? entryFixture.homeTeam : entryFixture.awayTeam;
+                            return { ...entry.lineups[side], name: getLiveStudioTeamName(name),
+                              badge: isWorldCupMode ? null : resolveTeamBadge(name),
+                              flag: isWorldCupMode ? getWorldCupFlag(name) : null };
+                          })}
+                        />}
                         {entry.tableSnapshot && (
                           <div
                             style={{

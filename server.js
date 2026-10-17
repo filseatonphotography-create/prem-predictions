@@ -1,3 +1,4 @@
+const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
 const express = require("express");
 const cors = require("cors");
@@ -560,7 +561,6 @@ const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 
 let resultsCacheByKey = {};
 let resultsCacheAtByKey = {};
-const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let standingsCache = null;
 let standingsCacheAt = 0;
 const STANDINGS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -3670,6 +3670,7 @@ app.get("/api/results/snapshot", (req, res) => {
 });
 
 app.get("/api/match-states/snapshot", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const current = loadMatchStates() || {};
     return res.json(current);
@@ -3683,12 +3684,13 @@ app.get("/api/match-states/snapshot", (req, res) => {
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const mode = normalizeLeagueMode(req.query && req.query.mode);
     maybeRunLiveFixtureNotifier(`api-results:${mode}`, 30 * 1000, mode);
     const { cacheKey } = getResultsFetchConfig(mode);
     const now = Date.now();
-    if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < RESULTS_CACHE_TTL_MS) {
+    if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < getResultsCacheTtl(resultsCacheByKey[cacheKey], now)) {
       res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
       res.setHeader("X-Results-Mode", mode);
       return res.json(resultsCacheByKey[cacheKey]);
@@ -5052,6 +5054,10 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       }
 
       const matches = Array.isArray(result.value) ? result.value : [];
+      // Keep browser results as fresh as the notifier's copy of the provider feed.
+      const { cacheKey } = getResultsFetchConfig(competition.mode);
+      resultsCacheByKey[cacheKey] = matches;
+      resultsCacheAtByKey[cacheKey] = Date.now();
       summary.byMode[competition.mode].fetchedMatches = matches.length;
       matches.forEach((match) => {
         liveMatches.push({ match, fixtures: competition.fixtures, mode: competition.mode });
@@ -5307,7 +5313,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
 
 setInterval(runDeadlineNotifier, 60 * 1000);
 setTimeout(runDeadlineNotifier, 5 * 1000);
-setInterval(() => maybeRunLiveFixtureNotifier("timer", 55 * 1000, "all"), 60 * 1000);
+setInterval(() => maybeRunLiveFixtureNotifier("timer", 25 * 1000, "all"), 30 * 1000);
 setTimeout(() => maybeRunLiveFixtureNotifier("startup", 0, "all"), 10 * 1000);
 
 // Get VAPID public key
