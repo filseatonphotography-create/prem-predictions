@@ -1,71 +1,10 @@
+const { normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, formatGoalMinute } = require("./src/liveMatchEvents");
 function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
   if (!Number.isFinite(nextHome) || !Number.isFinite(nextAway)) return false;
 
   const hadPreviousScore = Number.isFinite(prevHome) && Number.isFinite(prevAway);
   const previousTotal = hadPreviousScore ? prevHome + prevAway : 0;
   return nextHome + nextAway > previousTotal;
-}
-
-function getGoalEventArrays(source) {
-  if (!source || typeof source !== "object") return [];
-  return [
-    source.goalEvents,
-    source.goals,
-    source.scorers,
-    source.events,
-    source.incidents,
-    source.bookings,
-    source.substitutions,
-    source.score?.goals,
-  ].filter(Array.isArray);
-}
-
-function getGoalPersonName(goal) {
-  return String(
-    goal?.scorer?.name ||
-      goal?.player?.name ||
-      goal?.footballer?.name ||
-      goal?.athlete?.name ||
-      goal?.scorerName ||
-      goal?.playerName ||
-      goal?.name ||
-      ""
-  ).trim();
-}
-
-function getGoalTeamName(goal) {
-  return String(
-    goal?.team?.name ||
-      goal?.teamName ||
-      goal?.club?.name ||
-      goal?.side ||
-      ""
-  ).trim();
-}
-
-function getGoalTeamId(goal) {
-  const id = goal?.team?.id ?? goal?.teamId ?? goal?.club?.id;
-  return id == null ? "" : String(id);
-}
-
-function getGoalMinute(goal) {
-  const minute = Number(goal?.minute ?? goal?.time ?? goal?.matchMinute);
-  const injuryTime = Number(goal?.injuryTime ?? goal?.addedTime ?? goal?.stoppageTime);
-  if (!Number.isFinite(minute)) return null;
-  return {
-    minute,
-    injuryTime: Number.isFinite(injuryTime) && injuryTime > 0 ? injuryTime : null,
-  };
-}
-
-function getGoalScore(goal) {
-  const score = goal?.score || goal?.result || {};
-  const home = Number(score.home ?? score.homeGoals);
-  const away = Number(score.away ?? score.awayGoals);
-  return {
-    home: Number.isFinite(home) ? home : null,
-    away: Number.isFinite(away) ? away : null,
-  };
 }
 
 function getPersonId(person) {
@@ -116,83 +55,6 @@ function normalizeLineups(source = {}) {
   return { home, away };
 }
 
-function isGoalLikeEvent(goal) {
-  const type = String(goal?.type || goal?.eventType || goal?.kind || "").toUpperCase();
-  if (!type) return true;
-  return type.includes("GOAL");
-}
-
-function normalizeGoalEvents(source) {
-  return getGoalEventArrays(source)
-    .flat()
-    .filter((goal) => goal && typeof goal === "object" && isGoalLikeEvent(goal))
-    .map((goal) => {
-      const time = getGoalMinute(goal);
-      const score = getGoalScore(goal);
-      return {
-        scorerName: getGoalPersonName(goal),
-        assistName: getPersonName(goal?.assist),
-        teamName: getGoalTeamName(goal),
-        teamId: getGoalTeamId(goal),
-        minute: time?.minute ?? null,
-        injuryTime: time?.injuryTime ?? null,
-        homeGoals: score.home,
-        awayGoals: score.away,
-        type: String(goal.type || goal.eventType || goal.kind || "").trim(),
-      };
-    })
-    .filter(
-      (goal) =>
-        goal.scorerName ||
-        goal.teamName ||
-        goal.teamId ||
-        Number.isFinite(goal.minute) ||
-        (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals))
-    );
-}
-
-function normalizeMatchEvents(source) {
-  return getGoalEventArrays(source)
-    .flat()
-    .filter((event) => event && typeof event === "object")
-    .map((event) => {
-      const type = String(event.type || event.eventType || event.kind || event.detail || "").trim();
-      const playerName = String(
-        getGoalPersonName(event) || event.playerOut?.name || event.playerOut || ""
-      ).trim();
-      const teamName = getGoalTeamName(event);
-      const time = getGoalMinute(event);
-      const card = String(event.card || event.cardType || event.booking || "").trim();
-      const reason = String(event.reason || event.injury || event.description || "").trim();
-      const score = getGoalScore(event);
-      const substituteName = String(
-        event.substitute?.name ||
-          event.substitution?.name ||
-          event.substituteName ||
-          event.playerIn?.name ||
-          event.playerIn ||
-          ""
-      ).trim();
-      return {
-        type,
-        playerName,
-        teamName,
-        teamId: getGoalTeamId(event),
-        minute: time?.minute ?? null,
-        injuryTime: time?.injuryTime ?? null,
-        card,
-        reason,
-        substituteName,
-        playerOutName: String(event.playerOut?.name || event.playerOut || event.assist?.name || "").trim(),
-        playerInName: String(event.playerIn?.name || event.playerIn || event.substitute?.name || "").trim(),
-        assistName: getPersonName(event?.assist),
-        homeGoals: score.home,
-        awayGoals: score.away,
-      };
-    })
-    .filter((event) => event.type || event.playerName || event.teamName || Number.isFinite(event.minute));
-}
-
 function namesMatch(a, b) {
   const left = normalizeFootballTeamName(a);
   const right = normalizeFootballTeamName(b);
@@ -216,18 +78,12 @@ function getGoalSide(goal, match, fixture) {
     }
   }
 
-  if (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals)) {
-    return Number(goal.homeGoals) > Number(goal.awayGoals) ? "home" : "away";
-  }
 
   return "";
 }
 
 function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, nextHome, nextAway }) {
-  const events = [
-    ...normalizeGoalEvents(match),
-    ...normalizeGoalEvents(matchState),
-  ];
+  const events = mergeMatchEvents(normalizeGoalEvents(match), normalizeGoalEvents(matchState));
   if (!events.length) return null;
 
   const previousTotal =
@@ -253,8 +109,8 @@ function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, ne
     return !scoringSide || !side || side === scoringSide;
   });
 
-  const ranked = candidates.length ? candidates : events;
-  return ranked.sort((a, b) => {
+  const ranked = candidates;
+  const selected = ranked.sort((a, b) => {
     const scoreTotalA =
       Number.isFinite(a.homeGoals) && Number.isFinite(a.awayGoals)
         ? a.homeGoals + a.awayGoals
@@ -266,21 +122,17 @@ function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, ne
     if (scoreTotalB !== scoreTotalA) return scoreTotalB - scoreTotalA;
     return Number(b.minute || -1) - Number(a.minute || -1);
   })[0] || null;
-}
-
-function formatGoalMinute(goal) {
-  if (!goal || !Number.isFinite(Number(goal.minute))) return "";
-  const minute = Number(goal.minute);
-  const injuryTime = Number(goal.injuryTime);
-  return Number.isFinite(injuryTime) && injuryTime > 0
-    ? `${minute}+${injuryTime}'`
-    : `${minute}'`;
+  if (!selected) return null;
+  const side = scoringSide || getGoalSide(selected, match, fixture);
+  return { ...selected, scoringSide: side,
+    teamName: selected.teamName || (side === "home" ? fixture?.homeTeam : side === "away" ? fixture?.awayTeam : "") || "" };
 }
 
 function buildGoalAlertBody(fixture, homeGoals, awayGoals, goal) {
-  const scorer = String(goal?.scorerName || "").trim();
-  if (scorer) return scorer;
-  return "";
+  const scorer = String(goal?.scorerName || goal?.playerName || "").trim();
+  const team = String(goal?.teamName || "").trim();
+  const minute = formatGoalMinute(goal);
+  return [scorer ? `${scorer}${team ? ` for ${team}` : ""}` : team ? `Goal for ${team}` : "", minute].filter(Boolean).join(" · ");
 }
 
 function getPredictionScoreValues(prediction, result) {

@@ -9,7 +9,7 @@ const {
 describe("goal alert details", () => {
   const fixture = { homeTeam: "Arsenal", awayTeam: "Chelsea" };
 
-  test("formats scorer without an unreliable minute when a goal event is available", () => {
+  test("formats the scorer, team and verified added-time minute", () => {
     const match = {
       homeTeam: { id: 57, name: "Arsenal FC" },
       awayTeam: { id: 61, name: "Chelsea FC" },
@@ -39,7 +39,7 @@ describe("goal alert details", () => {
       nextAway: 1,
     });
 
-    expect(buildGoalAlertBody(fixture, 1, 1, goal)).toBe("Cole Palmer");
+    expect(buildGoalAlertBody(fixture, 1, 1, goal)).toBe("Cole Palmer for Chelsea FC · 67+2'");
   });
 
   test("omits fallback scoreline body text when scorer data is unavailable", () => {
@@ -70,7 +70,7 @@ describe("goal alert details", () => {
         goalEvents: [{ playerName: "Marta", time: 44, teamName: "Brazil" }],
       })
     ).toEqual([
-      {
+      expect.objectContaining({
         scorerName: "Marta",
         assistName: "",
         teamName: "Brazil",
@@ -79,8 +79,8 @@ describe("goal alert details", () => {
         injuryTime: null,
         homeGoals: null,
         awayGoals: null,
-        type: "",
-      },
+        type: "GOAL",
+      }),
     ]);
   });
 

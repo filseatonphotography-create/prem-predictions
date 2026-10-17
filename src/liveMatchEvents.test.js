@@ -1,0 +1,102 @@
+const { normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, shouldPushMatchEvent, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs } = require("./liveMatchEvents");
+const { buildGoalAlertBody, getLatestGoalEvent } = require("../notificationUtils");
+const fixture = { homeTeam: "Arsenal", awayTeam: "Chelsea", kickoff: "2026-10-17T14:00:00Z" };
+const raw = {
+  homeTeam: { id: 57, name: "Arsenal" }, awayTeam: { id: 61, name: "Chelsea" },
+  goals: [{ type: "REGULAR", minute: 12, team: { id: 57, name: "Arsenal" }, scorer: { name: "Bukayo Saka" }, score: { home: 1, away: 0 } },
+    { type: "PENALTY", minute: 45, injuryTime: 3, team: { id: 61, name: "Chelsea" }, scorer: { name: "Cole Palmer" }, score: { home: 1, away: 1 } }],
+  bookings: [{ minute: 30, team: { id: 61, name: "Chelsea" }, player: { name: "Booked player" }, card: "YELLOW" },
+    { minute: 62, team: { id: 57, name: "Arsenal" }, player: { name: "Sent off player" }, card: "YELLOW_RED" }],
+  substitutions: [{ minute: 70, team: { id: 57, name: "Arsenal" }, playerOut: { name: "Off player" }, playerIn: { name: "On player" } }],
+};
+
+test("normalizes provider regular goals and penalties without losing player/time details", () => {
+  expect(normalizeGoalEvents(raw)).toEqual([
+    expect.objectContaining({ type: "GOAL", scorerName: "Bukayo Saka", minute: 12, homeGoals: 1, awayGoals: 0 }),
+    expect.objectContaining({ type: "GOAL", goalType: "PENALTY", scorerName: "Cole Palmer", minute: 45, injuryTime: 3, homeGoals: 1, awayGoals: 1 }),
+  ]);
+  const latest = getLatestGoalEvent({ match: raw, fixture, prevHome: 1, prevAway: 0, nextHome: 1, nextAway: 1 });
+  expect(buildGoalAlertBody(fixture, 1, 1, latest)).toBe("Cole Palmer for Chelsea · 45+3'");
+});
+
+test("converts raw substitutions and both kinds of cards to studio event types", () => {
+  expect(normalizeMatchEvents(raw)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ type: "YELLOW_CARD", playerName: "Booked player", minute: 30 }),
+    expect.objectContaining({ type: "RED_CARD", playerName: "Sent off player", minute: 62 }),
+    expect.objectContaining({ type: "SUBSTITUTION", playerName: "Off player", substituteName: "On player", minute: 70 }),
+  ]));
+});
+
+test("combines goalEvents and matchEvents without hiding goals behind cards", () => {
+  const goalEvents = normalizeGoalEvents(raw);
+  const matchEvents = normalizeMatchEvents({ bookings: raw.bookings });
+  expect(normalizeMatchEvents({ goalEvents, matchEvents }).filter(event => event.type === "GOAL")).toHaveLength(2);
+});
+
+test("recognizes own goals and disallowed goals separately", () => {
+  const events = normalizeMatchEvents({ goals: [{ ...raw.goals[0], type: "OWN" }], events: [{ ...raw.goals[1], type: "GOAL_DISALLOWED" }] });
+  expect(events[0].goalType).toBe("OWN_GOAL");
+  expect(events[1].type).toBe("GOAL_DISALLOWED");
+  expect(normalizeGoalEvents({ matchEvents: events })).toHaveLength(1);
+});
+
+test("replaces a score-only synthetic goal when the real scorer arrives", () => {
+  const synthetic = { type: "GOAL", minute: 15, homeGoals: 1, awayGoals: 0, synthetic: true, estimatedMinute: true, teamName: "Arsenal" };
+  const result = mergeMatchEvents([synthetic], normalizeGoalEvents(raw).slice(0, 1));
+  expect(result).toHaveLength(1);
+  expect(result[0]).toMatchObject({ scorerName: "Bukayo Saka", minute: 12 });
+  expect(result[0].synthetic).toBeUndefined();
+  expect(formatGoalMinute(result[0])).toBe("12'");
+  expect(mergeMatchEvents(result, [synthetic])).toEqual(result);
+});
+
+test("retains two distinct real goals when VAR allowed the same scoreline twice", () => {
+  const one = { ...normalizeGoalEvents(raw)[0] };
+  const two = { ...one, minute: 20 };
+  expect(mergeMatchEvents([one], [two])).toHaveLength(2);
+});
+
+test("does not fabricate 0-0 or a zero-minute goal from null values", () => {
+  const event = normalizeGoalEvents({ goals: [{ scorerName: "Saka", minute: null, homeGoals: null, awayGoals: null }] })[0];
+  expect(event.minute).toBeNull();
+  expect(event.homeGoals).toBeNull();
+  expect(formatGoalMinute(event)).toBe("");
+  expect(formatGoalMinute({ minute: 85, synthetic: true, estimatedMinute: true })).toBe("");
+  expect(formatGoalMinute({ minute: 90, injuryTime: 4 })).toBe("90+4'");
+});
+
+test.each(["substitution", "yellow-card", "red-card", "SUBSTITUTION", "YELLOW_CARD", "RED_CARD", "lineup", "update"])("%s stays out of push notifications", kind => {
+  expect(shouldPushMatchEvent(kind)).toBe(false);
+});
+
+test.each(["goal", "goal-disallowed", "kick-off", "half-time", "second-half", "full-time"])("keeps %s pushes enabled", kind => {
+  expect(shouldPushMatchEvent(kind)).toBe(true);
+});
+
+test("a populated half-time score does not prove the whistle has gone", () => {
+  expect(getConfirmedPhaseFlags({ status: "IN_PLAY", minute: 36, halfTimeHomeGoals: 1, halfTimeAwayGoals: 0 })).toEqual({ halfTime: false, secondHalf: false, finished: false });
+});
+
+test("records confirmed phases and preserves them across thin refreshes", () => {
+  const lineups = { home: { lineup: [{ name: "Starter" }] } };
+  const paused = mergeMatchPhaseState({ lineups }, { status: "PAUSED" }, "2026-10-17T14:49:00Z");
+  const resumed = mergeMatchPhaseState(paused, { status: "IN_PLAY" }, "2026-10-17T15:05:00Z");
+  const refresh = mergeMatchPhaseState(resumed, { status: "IN_PLAY" }, "2026-10-17T15:06:00Z");
+  expect(refresh.lineups).toEqual(lineups);
+  expect(refresh.halfTimeAt).toBe("2026-10-17T14:49:00Z");
+  expect(refresh.secondHalfAt).toBe("2026-10-17T15:05:00Z");
+  expect(getConfirmedPhaseFlags(refresh)).toEqual({ halfTime: true, secondHalf: true, finished: false });
+  expect(getMatchEventMomentMs(fixture, { minute: 70 }, refresh)).toBe(Date.parse("2026-10-17T15:30:00Z"));
+});
+
+test("does not attribute an unknown new goal to an earlier scorer", () => {
+  expect(getLatestGoalEvent({ match: { goals: raw.goals.slice(0, 1) }, fixture, prevHome: 3, prevAway: 0, nextHome: 3, nextAway: 1 })).toBeNull();
+});
+
+test("a late synthetic goal cannot mask the real scorer and verified minute", () => {
+  const real = normalizeGoalEvents(raw)[0];
+  const synthetic = { type: "GOAL", homeGoals: 1, awayGoals: 0, minute: 18, synthetic: true, estimatedMinute: true };
+  const event = getLatestGoalEvent({ match: { goals: [raw.goals[0]] }, matchState: { goalEvents: [synthetic] }, fixture, prevHome: 0, prevAway: 0, nextHome: 1, nextAway: 0 });
+  expect(event.scorerName).toBe(real.scorerName);
+  expect(formatGoalMinute(event)).toBe("12'");
+});

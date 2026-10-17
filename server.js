@@ -30,6 +30,8 @@ const {
   isPushTypeEnabled,
 } = require("./notificationUtils");
 
+const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
+
 const BUILD_ID = "2025-11-22-a";
 console.log("SERVER BUILD:", BUILD_ID);
 
@@ -3470,7 +3472,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
           nextEvents.forEach((event, index) => {
             const eventKind = getLivePushEventKind(event);
-            if (eventKind === "goal") return;
+            if (eventKind === "goal" || !shouldPushMatchEvent(eventKind)) return;
             const eventKeyPart = getLivePushEventKeyPart(event, index);
             if (previousEventKeys.has(eventKeyPart)) return;
             const eventPayload = buildLiveMatchEventPayload(fixture, event);
@@ -3684,31 +3686,14 @@ app.get("/api/results", async (req, res) => {
   try {
     const mode = normalizeLeagueMode(req.query && req.query.mode);
     maybeRunLiveFixtureNotifier(`api-results:${mode}`, 30 * 1000, mode);
-    const { cacheKey, url, headers } = getResultsFetchConfig(mode);
+    const { cacheKey } = getResultsFetchConfig(mode);
     const now = Date.now();
     if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < RESULTS_CACHE_TTL_MS) {
       res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
       res.setHeader("X-Results-Mode", mode);
       return res.json(resultsCacheByKey[cacheKey]);
     }
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-    const apiRes = await fetch(url, {
-      headers,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!apiRes.ok) {
-      const errorText = await apiRes.text().catch(() => "");
-      console.error("Football-Data API error:", apiRes.status, errorText);
-      return res
-        .status(apiRes.status)
-        .json({ error: "Football-Data API error", status: apiRes.status });
-    }
-
-    const data = await apiRes.json();
-    const matches = Array.isArray(data.matches) ? data.matches : [];
+    const matches = await fetchLiveMatches(mode);
     resultsCacheByKey[cacheKey] = matches;
     resultsCacheAtByKey[cacheKey] = Date.now();
     res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
@@ -4077,7 +4062,7 @@ function buildLiveStudioUrl(fixtureId, eventKey = "") {
 }
 
 function formatLivePushScore(fixture, homeGoals, awayGoals) {
-  if (!Number.isFinite(Number(homeGoals)) || !Number.isFinite(Number(awayGoals))) {
+  if (numeric(homeGoals) == null || numeric(awayGoals) == null) {
     return `${fixture.homeTeam} v ${fixture.awayTeam}`;
   }
   return `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`;
@@ -4130,19 +4115,8 @@ function getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event = {}) {
     return getLivePushTeamCode(eventTeam);
   }
 
-  const eventHomeGoals = Number(event?.homeGoals);
-  const eventAwayGoals = Number(event?.awayGoals);
-  if (Number.isFinite(eventHomeGoals) && Number.isFinite(eventAwayGoals)) {
-    if (eventHomeGoals > eventAwayGoals) return getLivePushTeamCode(fixture.homeTeam);
-    if (eventAwayGoals > eventHomeGoals) return getLivePushTeamCode(fixture.awayTeam);
-  }
-
-  const home = Number(homeGoals);
-  const away = Number(awayGoals);
-  if (Number.isFinite(home) && Number.isFinite(away)) {
-    if (home > away) return getLivePushTeamCode(fixture.homeTeam);
-    if (away > home) return getLivePushTeamCode(fixture.awayTeam);
-  }
+  if (event?.scoringSide === "home") return getLivePushTeamCode(fixture.homeTeam);
+  if (event?.scoringSide === "away") return getLivePushTeamCode(fixture.awayTeam);
   return "";
 }
 
@@ -4192,8 +4166,8 @@ function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKe
 
   return {
     ...payload,
-    title: "Live Studio update",
-    body: `Something has happened in ${fixtureLabel}. Tap to join Live Studio.`,
+    title: eventKind === "goal-disallowed" ? "Goal ruled out" : "Goal alert",
+    body: `${eventKind === "goal-disallowed" ? "A goal has been ruled out" : "There's been a goal"} in ${fixtureLabel}. Tap to join Live Studio.`,
     url: buildLiveStudioUrl(fixtureId, eventKey),
   };
 }
@@ -4219,11 +4193,7 @@ function getLivePushEventKind(event = {}) {
 }
 
 function formatLivePushMinute(event = {}) {
-  if (event?.synthetic && event?.estimatedMinute) return "";
-  const minute = Number(event.minute);
-  if (!Number.isFinite(minute)) return "";
-  const injuryTime = Number(event.injuryTime);
-  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
+  return formatGoalMinute(event);
 }
 
 function getLivePushEventKeyPart(event = {}) {
@@ -4517,33 +4487,12 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
   };
 }
 
-function getMatchStateEventKey(event = {}, index = 0) {
-  return [
-    getLivePushEventKeyPart(event, index),
-    event.homeGoals ?? "",
-    event.awayGoals ?? "",
-    event.previousHomeGoals ?? "",
-    event.previousAwayGoals ?? "",
-    event.syntheticIndex ?? "",
-  ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
-}
-
 function mergeMatchStateEventLists(existingEvents, incomingEvents) {
-  const merged = [];
-  const seen = new Set();
-  [...(Array.isArray(existingEvents) ? existingEvents : []), ...(Array.isArray(incomingEvents) ? incomingEvents : [])]
-    .filter((event) => event && typeof event === "object")
-    .forEach((event, index) => {
-      const key = getMatchStateEventKey(event, index);
-      if (seen.has(key)) return;
-      seen.add(key);
-      merged.push(event);
-    });
-  return merged;
+  return mergeMatchEvents(existingEvents || [], incomingEvents || []);
 }
 
 function mergeMatchStatePreservingEvents(existing = {}, incoming = {}) {
-  const merged = { ...(existing || {}), ...(incoming || {}) };
+  const merged = mergeMatchPhaseState(existing, incoming);
   const goalEvents = mergeMatchStateEventLists(existing.goalEvents, incoming.goalEvents);
   const matchEvents = mergeMatchStateEventLists(existing.matchEvents, incoming.matchEvents);
   if (goalEvents.length) merged.goalEvents = goalEvents;
@@ -4599,13 +4548,11 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
       body: `There is an injury concern${teamSuffix}${player ? ` for ${player}` : ""}${at}.`,
     };
   }
-  return {
-    title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
-    body: `${fixture.homeTeam} vs ${fixture.awayTeam} has a new update${at}.`,
-  };
+  return null;
 }
 
 async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, scoreLabel, payload) {
+  if (!isMeaningfulFixturePush(eventKind, payload)) return false;
   const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
   const liveUpdatesEnabled = isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId));
   const fixtureBellEnabled = hasFixtureNotificationEnabled(userId, fixtureId);
@@ -4975,14 +4922,14 @@ async function fetchLiveMatches(mode) {
         const status = String(match?.status || "").toUpperCase();
         const kickoffTime = Date.parse(match?.utcDate);
         const recentlyActive =
+          (["SCHEDULED", "TIMED"].includes(status) && Number.isFinite(kickoffTime) && kickoffTime - now <= 90 * 60000 && kickoffTime >= now) ||
           status === "IN_PLAY" ||
           status === "PAUSED" ||
           (["FINISHED", "AWARDED"].includes(status) &&
             Number.isFinite(kickoffTime) &&
             Math.abs(now - kickoffTime) <= 36 * 60 * 60 * 1000);
         const hasEvents =
-          normalizeGoalEvents(match).length > 0 ||
-          normalizeMatchEvents(match).some((event) => getLivePushEventKind(event) !== "update");
+          [match.goals, match.bookings, match.substitutions].every(Array.isArray);
         const hasLineups = Boolean(normalizeLineups(match));
         if (!match?.id || (hasEvents && hasLineups) || !recentlyActive) return match;
         const detail = await fetchJson(`${FOOTBALL_DATA_API_BASE}/matches/${match.id}`, headers);
@@ -5163,6 +5110,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         status,
         homeGoals,
         awayGoals,
+        ...(numeric(match.minute) != null ? { minute: Number(match.minute) } : {}),
         goalEvents: normalizeGoalEvents(match),
         matchEvents: normalizeMatchEvents(match),
         homeTeam: match.homeTeam?.name || "",
@@ -5232,7 +5180,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
 
       nextEvents.forEach((event, index) => {
         const eventKind = getLivePushEventKind(event);
-        if (eventKind === "goal") return;
+        if (eventKind === "goal" || !shouldPushMatchEvent(eventKind)) return;
         const eventKeyPart = getLivePushEventKeyPart(event, index);
         if (previousEventKeys.has(eventKeyPart)) return;
         const eventPayload = buildLiveMatchEventPayload(fixture, event);
