@@ -1,4 +1,6 @@
 // Shared provider conversion: the studio and notifier must see the same events.
+// Keep this CommonJS module free of object spread: CRA injects ESM helpers for
+// spread, which makes Webpack reject module.exports at browser startup.
 function numeric(value) {
   return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
 }
@@ -28,8 +30,7 @@ function normalizeEvent(event, source = "", match = {}) {
   const playerOutName = personName(event.playerOut || event.playerOutName);
   const playerInName = personName(event.playerIn || event.playerInName || event.substitute || event.substituteName || event.substitution);
   const scorerName = personName(event.scorer || event.scorerName || (type === "GOAL" ? event.player || event.playerName : ""));
-  return {
-    ...event,
+  return Object.assign({}, event, {
     type,
     goalType: event.goalType || (type === "GOAL" ? event.type === "OWN" ? "OWN_GOAL" : event.type || "" : ""),
     scorerName,
@@ -46,7 +47,7 @@ function normalizeEvent(event, source = "", match = {}) {
     playerOutName,
     playerInName,
     assistName: personName(event.assist || event.assistName),
-  };
+  });
 }
 function sameEvent(a, b) {
   if (a.type !== b.type) return false;
@@ -69,7 +70,7 @@ function mergeMatchEvents(...lists) {
     const previous = result[index];
     const preferred = previous.synthetic && !event.synthetic ? event : event.synthetic && !previous.synthetic ? previous : event;
     const fallback = preferred === event ? previous : event;
-    const merged = { ...fallback, ...preferred };
+    const merged = Object.assign({}, fallback, preferred);
     Object.keys(merged).forEach(key => { if (merged[key] == null || merged[key] === "") merged[key] = fallback[key]; });
     if (!preferred.synthetic) { delete merged.synthetic; delete merged.estimatedMinute; }
     result[index] = merged;
@@ -105,7 +106,7 @@ function formatGoalMinute(event) {
   return `${Number(event.minute)}${numeric(event.injuryTime) > 0 ? `+${Number(event.injuryTime)}` : ""}'`;
 }
 function mergeMatchPhaseState(previous = {}, incoming = {}, observedAt = new Date().toISOString()) {
-  const merged = { ...previous, ...incoming };
+  const merged = Object.assign({}, previous, incoming);
   const status = String(incoming.status || previous.status || "").toUpperCase();
   const prevStatus = String(previous.status || "").toUpperCase();
   const confirmedPause = status === "PAUSED";
