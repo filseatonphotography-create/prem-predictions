@@ -5342,6 +5342,7 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   currentFeed.filter(isRetainedLiveStudioEntry).map(withoutIndividualFullTimeTable).forEach((entry) => {
     // Freeze round-ups once read; update a confirmed result if official data is corrected.
     if (!entries.has(entry.id) || entry.fullTime || entry.id === "studio:closing") entries.set(entry.id, entry);
+    else entries.set(entry.id, enrichLiveStudioPlayerRoundup(entries.get(entry.id), entry));
   });
   return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 100);
 }
@@ -5922,6 +5923,65 @@ export function getLiveStudioClockMinute(fixture, matchState, nowMs) {
   return Math.max(estimated, latestKnown);
 }
 
+export function buildLiveStudioPlayerRoundup({ matches = [], seed = "studio", finished = false }) {
+  const players = new Map();
+  const uniqueMatches = [...new Map(matches.map(match => [String(match.fixture.id), match])).values()];
+  uniqueMatches.filter(match => hasValidResultScore(match.score)).forEach(match => {
+    const seen = new Set();
+    (match.picks || []).forEach(({ userId, username, prediction }) => {
+      const key = userId || username;
+      if (!key || seen.has(key) || !hasValidResultScore(prediction)) return;
+      seen.add(key);
+      const row = players.get(key) || { username, points: 0, bingpots: 0, boosts: new Set() };
+      const points = getTotalPoints(prediction, match.score);
+      row.points += points;
+      if (getPredictionPointsLabel(prediction, match.score)?.label === "Bingpot") row.bingpots += 1;
+      if (points && prediction.isDouble) row.boosts.add("double");
+      if (points && prediction.isTriple) row.boosts.add("triple");
+      players.set(key, row);
+    });
+  });
+  return [...players.values()].sort((a, b) => b.points - a.points || a.username.localeCompare(b.username)).map(row => {
+    const points = `${row.points} prediction ${row.points === 1 ? "point" : "points"}`;
+    const extra = [row.bingpots ? `${row.bingpots} Bingpot${row.bingpots === 1 ? "" : "s"}${finished ? " banked" : " in play"}` : "",
+      row.boosts.size ? `${[...row.boosts].join(" and ")} boost${row.boosts.size === 1 ? "" : "s"} included` : ""].filter(Boolean).join("; ");
+    const line = pickLiveStudioPhrase(`${seed}:${row.username}:points`, finished ? [
+      `${row.username} finishes with ${points} from these games.`,
+      `${points} from these games for ${row.username}. That's their final return.`,
+    ] : [
+      `${row.username} is in line for ${points} from these games, as things stand.`,
+      `${row.username} is on for ${points} from these games. Still a bit of football between them and payday.`,
+      `At the prediction desk: ${row.username} has ${points} coming from these games if the scores stay put.`,
+    ]);
+    return `${line}${extra ? ` ${extra}.` : ""}`;
+  });
+}
+
+function buildLiveStudioPlayerRoundupDetails(matches, seed, finished = false) {
+  return {
+    playerRoundup: buildLiveStudioPlayerRoundup({ matches, seed, finished }),
+    // Keep the score snapshot so late prediction loading can fill in players
+    // without changing the result or publication time of an earlier roundup.
+    roundupMatches: matches.map(({ fixture, score, picks = [] }) => ({ fixture, score, picks })),
+  };
+}
+
+function enrichLiveStudioPlayerRoundup(previous, incoming) {
+  if (!incoming.roundupMatches?.length) return previous;
+  const snapshot = previous.roundupMatches || incoming.roundupMatches.filter(match =>
+    previous.lines?.some(line => line.includes(`${getLiveStudioTeamName(match.fixture.homeTeam)} ${match.score.homeGoals}–${match.score.awayGoals} ${getLiveStudioTeamName(match.fixture.awayTeam)}`)));
+  if (!snapshot.length) return previous;
+  const matches = snapshot.map(match => {
+    const current = incoming.roundupMatches.find(candidate => String(candidate.fixture.id) === String(match.fixture.id));
+    const picks = new Map((match.picks || []).map(pick => [pick.userId || pick.username, pick]));
+    (current?.picks || []).forEach(pick => {
+      if (hasValidResultScore(pick.prediction)) picks.set(pick.userId || pick.username, pick);
+    });
+    return { ...match, picks: [...picks.values()] };
+  });
+  return { ...previous, ...buildLiveStudioPlayerRoundupDetails(matches, previous.id, previous.id === "studio:closing") };
+}
+
 export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableRows }) {
   const underway = matches.filter((match) => !match.finished && (match.live || match.paused)
     && numeric(match.score?.homeGoals) != null && numeric(match.score?.awayGoals) != null);
@@ -5940,6 +6000,7 @@ export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableR
       id: `studio:half-time:${kickoff}`, minute: "HT", tone: "paused", icon: "🎙️", momentMs, kickoffMs: Date.parse(kickoff),
       title: "Half-time around the grounds",
       verdictLabel: "Back in the studio",
+      ...buildLiveStudioPlayerRoundupDetails(underway, `studio:half-time:${kickoff}`),
       lines: [pickLiveStudioPhrase(`half-time:${kickoff}`, [
         "Back in the studio. Kettle on — let's run through the scores around the grounds.",
         "A half-time breather. Here's how things stand across the games underway.",
@@ -5971,6 +6032,7 @@ export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = 
   return {
     id: "studio:closing", minute: "FT", tone: "finished", icon: "🎙️", momentMs,
     title: "Full-time around the grounds", verdictLabel: "Back in the studio",
+    ...buildLiveStudioPlayerRoundupDetails(matches, "studio:closing", true),
     lines: ["Back in the studio. The whistles have gone — let's run through the results.",
       ...matches.map(({ fixture, score }) => `${getLiveStudioTeamName(fixture.homeTeam)} ${score.homeGoals}–${score.awayGoals} ${getLiveStudioTeamName(fixture.awayTeam)} (FT)`),
       ...buildLiveStudioClosingVerdict({ matches, leagueName, tableSwings }), tableLine].filter(Boolean),
@@ -5999,6 +6061,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
       momentMs: Math.max(...active.filter((match) => `${match.fixture.kickoff}:${mark}` === key)
         .map((match) => getMatchEventMomentMs(match.fixture, { minute: Number(match.minute) }, match.matchState || {}))),
       title: `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
+      ...buildLiveStudioPlayerRoundupDetails(active, seed),
       lines: [pickLiveStudioPhrase(seed, mark === 25 ? [
         "Back in the studio. A chance to catch our breath and see how the afternoon is shaping up.",
         "Let's go around the grounds. The predictions have had time to settle. Or start unravelling.",
@@ -6062,6 +6125,7 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
     momentMs: bucket * 10 * 60000,
     title: active.length === 1 ? "Watching the clock" : "Around the grounds",
     verdictLabel: "Back in the studio", lines,
+    ...buildLiveStudioPlayerRoundupDetails(active, `studio:roundup:${bucket}`),
   }];
 }
 
@@ -21027,8 +21091,9 @@ const TABS = [
                     (liveStudioFocusFixtureId &&
                       String(entry.fixtureId || "") === String(liveStudioFocusFixtureId));
                   const entryFixture = entry.fixture || liveStudioFixtures.find((fixture) => String(fixture.id) === String(entry.fixtureId || ""));
+                  const isStudioRoundup = entry.verdictLabel === "Back in the studio";
                   const toneColor =
-                    entry.tone === "live"
+                    isStudioRoundup ? "#f59e0b" : entry.tone === "live"
                       ? "#22c55e"
                       : entry.tone === "paused"
                       ? "#f59e0b"
@@ -21049,12 +21114,16 @@ const TABS = [
                         border: `1px solid ${
                           isFocusedLiveStudioEntry
                             ? theme.accent
+                            : isStudioRoundup
+                            ? "rgba(245,158,11,0.45)"
                             : entry.tone === "live"
                             ? "rgba(34,197,94,0.45)"
                             : theme.line
                         }`,
                         background: isFocusedLiveStudioEntry
                           ? "rgba(245,158,11,0.12)"
+                          : isStudioRoundup
+                          ? "rgba(245,158,11,0.08)"
                           : entry.tone === "live"
                           ? "rgba(34,197,94,0.08)"
                           : "rgba(255,255,255,0.04)",
@@ -21114,7 +21183,7 @@ const TABS = [
                         )}
                         <div
                           style={{
-                            color: theme.text,
+                            color: isStudioRoundup ? toneColor : theme.text,
                             fontSize: isMobile ? 14 : 15,
                             fontWeight: 950,
                             display: "flex",
@@ -21160,6 +21229,18 @@ const TABS = [
                             </div>
                           ))}
                         </div>
+                        {entry.playerRoundup?.length > 0 && (
+                          <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
+                            <div style={{ color: toneColor, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.8 }}>
+                              Mini-league prediction desk
+                            </div>
+                            {entry.playerRoundup.map((line, index) => (
+                              <div key={`${entry.id}:player:${index}`} style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+                                {line}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {entry.lineups && entryFixture && <LiveStudioLineups
                           theme={theme} isMobile={isMobile}
                           teams={["home", "away"].map((side) => {

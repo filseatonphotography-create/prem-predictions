@@ -1,5 +1,5 @@
 import React from "react";
-import { act, render, screen, cleanup } from "@testing-library/react";
+import { act, render, screen, cleanup, within } from "@testing-library/react";
 import App from "./App";
 
 jest.setTimeout(30000);
@@ -10,7 +10,7 @@ test("the full app puts new updates first and combines half-time into one studio
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "diagnostic-token", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
-  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7, predictions: { diagnostic: { 560607: { homeGoals: 0, awayGoals: 1 } } } }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7, predictions: { diagnostic: { 560607: { homeGoals: 0, awayGoals: 1 } }, Dave: { 560607: { homeGoals: 0, awayGoals: 1, isDouble: true } }, Emma: { 560607: { homeGoals: 0, awayGoals: 0 } } } }));
   let scored = false;
   let paused = false;
   let minuteOverride = null;
@@ -51,11 +51,20 @@ test("the full app puts new updates first and combines half-time into one studio
     expect(screen.getAllByText("Back in the studio")).toHaveLength(1);
     expect(screen.queryByText("Half-time check")).not.toBeInTheDocument();
     expect(screen.queryByText(/^Half time!/)).not.toBeInTheDocument();
+    const halfCard = screen.getByText("Half-time around the grounds").closest("article");
+    expect(within(halfCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
+    expect(within(halfCard).getByText(/Emma.*0 prediction points/)).toBeInTheDocument();
+    expect(screen.getByText("Half-time around the grounds").parentElement).toHaveStyle({ color: "#f59e0b" });
     paused = false;
     minuteOverride = 70;
     jest.setSystemTime(Date.parse("2026-10-17T18:00:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
-    expect(document.querySelector("article")).toHaveTextContent("70-minute studio check-in");
+    const checkInCard = document.querySelector("article");
+    expect(checkInCard).toHaveTextContent("70-minute studio check-in");
+    expect(checkInCard.style.border).toBe(halfCard.style.border);
+    expect(checkInCard.style.background).toBe(halfCard.style.background);
+    expect(screen.getByText("70-minute studio check-in").parentElement).toHaveStyle({ color: "#f59e0b" });
+    expect(within(checkInCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
 
