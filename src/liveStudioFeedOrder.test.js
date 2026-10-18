@@ -1,7 +1,7 @@
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import useLiveStudioFeedOrder, { orderLiveStudioUpdates } from "./liveStudioFeedOrder";
 const { getMatchEventMomentMs, mergeMatchPhaseState } = require("./liveMatchEvents");
-const { useLiveStudioCommentaryHistory } = require("./App");
+const { useLiveStudioCommentaryHistory, getLiveStudioGoalArrivalKey } = require("./App");
 const at = time => Date.parse(`2026-10-17T${time}:00Z`);
 const villa = { id: 560607, kickoff: "2026-10-17T16:30:00Z" };
 const chelsea = { id: 560603, kickoff: "2026-10-17T11:30:00Z" };
@@ -12,7 +12,7 @@ const fixtureEntry = (id, fixture, event, state = {}) => ({
   momentMs: getMatchEventMomentMs(fixture, event, state),
 });
 
-beforeEach(() => { jest.useFakeTimers({ now: at("17:46") }); sessionStorage.clear(); });
+beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(at("17:46")); sessionStorage.clear(); });
 afterEach(() => jest.useRealTimers());
 
 test("a mixed matchday is chronological on first load, even when history arrives last", () => {
@@ -77,4 +77,66 @@ test("the whistles stay above stoppage-time action when phase timestamps are mis
     .toBeGreaterThan(getMatchEventMomentMs(villa, firstHalfGoal, state));
   expect(getMatchEventMomentMs(villa, { statusLabel: "FT", minute: 90 }, state))
     .toBeGreaterThan(getMatchEventMomentMs(villa, finalGoal, state));
+});
+
+
+test("updates arriving after the next game's lineups go above them and never move on refresh or reload", () => {
+  const lineup = { id: "next:lineups", updateKey: "next:lineup", momentMs: at("18:29"), title: "Next game lineups" };
+  const earlier = { id: "earlier", momentMs: at("17:00") };
+  const initial = [lineup, earlier];
+  const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioFeedOrder(feed, "arrival", true), { initialProps: { feed: initial } });
+  expect(result.current.map(entry => entry.id)).toEqual([lineup.id, earlier.id]);
+  const kinds = ["goal", "yellow-card", "substitution", "studio:checkpoint:25", "second-half", "full-time"];
+  const received = [];
+  for (const kind of kinds) {
+    const entry = { id: kind, updateKey: `live:${kind}`, momentMs: at("17:05"), title: kind };
+    received.unshift(entry);
+    act(() => rerender({ feed: [lineup, earlier, ...received].reverse() }));
+    expect(result.current.map(post => post.id)).toEqual([...received.map(post => post.id), lineup.id, earlier.id]);
+  }
+  const expected = result.current.map(post => post.updateKey || post.id);
+  const enriched = [...received, lineup, earlier].reverse().map((post, index) => ({ ...post, momentMs: at("19:00") + index * 60000, title: "Updated details", lines: ["New scorer or player points"] }));
+  act(() => rerender({ feed: enriched }));
+  expect(result.current.map(post => post.updateKey || post.id)).toEqual(expected);
+  unmount();
+  // A thin first response after reload must not re-seed a different order.
+  const restored = renderHook(({ feed }) => useLiveStudioFeedOrder(feed, "arrival", true), { initialProps: { feed: [lineup] } });
+  act(() => restored.rerender({ feed: enriched.reverse() }));
+  expect(restored.result.current.map(post => post.updateKey || post.id)).toEqual(expected);
+});
+
+test("a provisional goal gaining a scorer and corrected minute stays in its original position", () => {
+  const goal = { id: "synthetic", updateKey: "match:goal:1-0", momentMs: at("17:01") };
+  const lineup = { id: "lineup", updateKey: "next:lineup", momentMs: at("18:29") };
+  const { result, rerender } = renderHook(({ feed }) => useLiveStudioFeedOrder(feed, "enrichment"), { initialProps: { feed: [goal] } });
+  act(() => rerender({ feed: [goal, lineup] }));
+  const enriched = { ...goal, id: "provider-goal", momentMs: at("19:00"), title: "Scorer confirmed" };
+  act(() => rerender({ feed: [enriched, lineup] }));
+  expect(result.current).toEqual([lineup, enriched]);
+});
+
+test("a later final roundup is a new arrival, while corrections to the same results stay put", () => {
+  const final = ids => ({ id: "studio:closing", momentMs: at("16:00"), roundupMatches: ids.map(id => ({ fixture: { id } })) });
+  const first = final([1]);
+  const goal = { id: "goal", momentMs: at("17:01") };
+  const seeded = orderLiveStudioUpdates([first]);
+  const live = orderLiveStudioUpdates([goal], seeded.state);
+  const finish = orderLiveStudioUpdates([goal, final([1, 2])], live.state);
+  expect(finish.entries[0].id).toBe("studio:closing");
+  const next = orderLiveStudioUpdates([goal, { ...final([2, 1]), title: "Corrected points" }], finish.state);
+  expect(next.state.counter).toBe(finish.state.counter);
+});
+
+
+test("a new goal restoring the same score after VAR gets its own arrival above intervening updates", () => {
+  const fixture = { id: 1, homeTeam: "Arsenal", awayTeam: "Chelsea" };
+  const first = { type: "GOAL", minute: 6, homeGoals: 0, awayGoals: 1 };
+  const reversed = { type: "GOAL_DISALLOWED", minute: 8, homeGoals: 0, awayGoals: 0, previousHomeGoals: 0, previousAwayGoals: 1 };
+  const later = { ...first, minute: 10 };
+  const events = [first, reversed, later], updateKey = "1:goal:0-1", score = { homeGoals: 0, awayGoals: 1 };
+  const old = { id: "first", arrivalKey: getLiveStudioGoalArrivalKey(fixture, first, events, updateKey, score) };
+  const next = { id: "later", arrivalKey: getLiveStudioGoalArrivalKey(fixture, later, events, updateKey, score) };
+  expect(next.arrivalKey).not.toBe(old.arrivalKey);
+  const seeded = orderLiveStudioUpdates([old, { id: "booking" }]);
+  expect(orderLiveStudioUpdates([old, { id: "booking" }, next], seeded.state).entries[0]).toBe(next);
 });

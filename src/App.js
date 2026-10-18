@@ -5008,6 +5008,20 @@ function getLiveStudioUpdateKey({ fixtureId, event, statusLabel = "", score = nu
   return `${fixtureId}:${kind}:${getLiveStudioUpdateKeyPart(event)}`;
 }
 
+export function getLiveStudioGoalArrivalKey(fixture, event, events, updateKey, score) {
+  const reversals = events.filter(past => {
+    if (getLiveStudioEventKind(past) !== "goal-disallowed" || getLiveStudioEventSortMinute(past) >= getLiveStudioEventSortMinute(event)) return false;
+    const cancelled = getLiveStudioPreviousScore(fixture, past, getLiveStudioEventScore(past));
+    return score && cancelled?.homeGoals === score.homeGoals && cancelled?.awayGoals === score.awayGoals;
+  }).length;
+  const earlierGoals = events.filter(past => getLiveStudioEventKind(past) === "goal"
+    && getLiveStudioEventSortMinute(past) < getLiveStudioEventSortMinute(event)
+    && getLiveStudioEventScore(past)?.homeGoals === score?.homeGoals
+    && getLiveStudioEventScore(past)?.awayGoals === score?.awayGoals).length;
+  const occurrence = Math.max(reversals, earlierGoals);
+  return occurrence ? `${updateKey}:repeat:${occurrence}` : updateKey;
+}
+
 function getLiveStudioUpdateDomId(updateKey) {
   return updateKey ? `live-studio-update-${String(updateKey).replace(/[^a-z0-9_-]+/gi, "-")}` : "";
 }
@@ -5949,13 +5963,36 @@ export function buildLiveStudioUsers({ leagueHistoryUsers = [], selectedMiniLeag
   return PLAYERS.map(username => ({ userId: "", username }));
 }
 
+function buildLiveStudioRoundupBetLine({ fixture, bet, score, username, seed }) {
+  const stake = Number(bet?.stake);
+  if (!Number.isFinite(stake) || stake <= 0 || !["H", "D", "A"].includes(bet?.side) || !hasValidResultScore(score)) return "";
+  const selection = bet.side === "D" ? "a draw" : `${getLiveStudioTeamName(bet.side === "H" ? fixture.homeTeam : fixture.awayTeam)} to win`;
+  const match = `${getLiveStudioTeamName(fixture.homeTeam)} v ${getLiveStudioTeamName(fixture.awayTeam)}`;
+  const winning = getLiveStudioLeadingSide(score) === bet.side;
+  const outlook = pickLiveStudioPhrase(`${seed}:${username}:${fixture.id}:bet`, winning ? [
+    "That's going their way for now.",
+    "On course for a winning bet if it stays like this.",
+    "Looking good for now. Football can still have other ideas.",
+  ] : [
+    "That stake is at risk with the score as it stands.",
+    "They need a twist before the whistle to rescue that bet.",
+    "The current result would cost them the stake. Still time for a rescue.",
+  ]);
+  return `${username} has ${formatLiveStudioCoins(stake)} ${stake === 1 ? "coin" : "coins"} backing ${selection} in ${match}. ${outlook}`;
+}
+
 function mergeLiveStudioRoundupPicks(previous = [], incoming = []) {
   // A user's ID can change from a legacy row to the loaded account record.
   // Keep one prediction per display name, and never erase it with a thin fetch.
   const key = pick => String(pick.username || pick.userId || "").trim().toLowerCase();
   const picks = new Map(previous.map(pick => [key(pick), pick]));
   incoming.forEach(pick => {
-    if (hasValidResultScore(pick.prediction)) picks.set(key(pick), pick);
+    if (!hasValidResultScore(pick.prediction) && !hasLiveStudioCoinsBet(pick.bet)) return;
+    const previousPick = picks.get(key(pick));
+    picks.set(key(pick), { ...previousPick, ...pick,
+      prediction: hasValidResultScore(pick.prediction) ? pick.prediction : previousPick?.prediction,
+      bet: hasLiveStudioCoinsBet(pick.bet) ? pick.bet : previousPick?.bet,
+    });
   });
   return [...picks.values()];
 }
@@ -5997,16 +6034,23 @@ function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finis
   const uniqueMatches = [...new Map(matches.map(match => [String(match.fixture.id), match])).values()];
   uniqueMatches.filter(match => hasValidResultScore(match.score)).forEach(match => {
     const seen = new Set();
-    (match.picks || []).forEach(({ userId, username, prediction }) => {
+    (match.picks || []).forEach(({ userId, username, prediction, bet }) => {
       const key = userId || username;
-      if (!key || seen.has(key) || !hasValidResultScore(prediction)) return;
+      const hasPrediction = hasValidResultScore(prediction);
+      const betLine = !finished && !match.finished
+        ? buildLiveStudioRoundupBetLine({ fixture: match.fixture, bet, score: match.score, username, seed }) : "";
+      if (!key || seen.has(key) || (!hasPrediction && !betLine)) return;
       seen.add(key);
-      const row = players.get(key) || { userId: userId || "", username, points: 0, bingpots: 0, boosts: new Set() };
-      const points = getTotalPoints(prediction, match.score);
-      row.points += points;
-      if (getPredictionPointsLabel(prediction, match.score)?.label === "Bingpot") row.bingpots += 1;
-      if (points && prediction.isDouble) row.boosts.add("double");
-      if (points && prediction.isTriple) row.boosts.add("triple");
+      const row = players.get(key) || { userId: userId || "", username, points: 0, predictionCount: 0, bingpots: 0, boosts: new Set(), bets: [] };
+      if (hasPrediction) {
+        row.predictionCount += 1;
+        const points = getTotalPoints(prediction, match.score);
+        row.points += points;
+        if (getPredictionPointsLabel(prediction, match.score)?.label === "Bingpot") row.bingpots += 1;
+        if (points && prediction.isDouble) row.boosts.add("double");
+        if (points && prediction.isTriple) row.boosts.add("triple");
+      }
+      if (betLine) row.bets.push(betLine);
       players.set(key, row);
     });
   });
@@ -6022,7 +6066,8 @@ function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finis
       `${row.username} is on for ${points} from these games. Still a bit of football between them and payday.`,
       `${row.username} has ${points} coming from these games if the scores stay put.`,
     ]);
-    return { userId: row.userId, username: row.username, line: `${line}${extra ? ` ${extra}.` : ""}` };
+    return { userId: row.userId, username: row.username,
+      line: [row.predictionCount ? `${line}${extra ? ` ${extra}.` : ""}` : "", ...row.bets].filter(Boolean).join(" ") };
   });
 }
 
@@ -11944,6 +11989,9 @@ const liveStudioCurrentFeed = useMemo(() => {
         return {
           id: isFullTime ? `${fixture.id}:full-time` : `${fixture.id}:${event.type || event.statusLabel || "update"}:${entryMinute}:${eventIndex}`,
           updateKey,
+          arrivalKey: entryIsGoal
+            ? getLiveStudioGoalArrivalKey(fixture, event, repairedTimelineEvents, updateKey, entryScore)
+            : event.id != null && !entryIsGoalDisallowed ? `${fixture.id}:event:${event.id}` : updateKey,
           orderKey: `${updateKey}:${event.minute ?? "unknown"}:${event.injuryTime ?? ""}`,
           fixtureId: fixture.id,
           fixture,

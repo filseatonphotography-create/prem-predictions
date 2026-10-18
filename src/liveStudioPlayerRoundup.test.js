@@ -104,3 +104,59 @@ test("saved player summaries use current account IDs for profile avatars, retain
   const legacy = { playerRoundup: ["At the prediction desk: Phil has 14 prediction points coming from these games if the scores stay put."] };
   expect(getLiveStudioPlayerUpdates(legacy, users)).toEqual([{ userId: "phil-account", username: "Phil", line: "Phil has 14 prediction points coming from these games if the scores stay put." }]);
 });
+
+test("studio visits mention each live bet's selection and stake, including players without a prediction", () => {
+  const games = [match(1, { picks: [
+    { ...pick("Phil", 2, 1), bet: { side: "H", stake: 4 } },
+    { username: "Dave", userId: "dave", bet: { side: "D", stake: 1 } },
+    pick("Emma", 0, 1),
+  ] })];
+  const [entry] = buildLiveStudioDeskEntries({ matches: games, nowMs });
+  const phil = entry.playerRoundup.find(line => line.includes("Phil"));
+  const dave = entry.playerRoundup.find(line => line.includes("Dave"));
+  expect(phil).toContain("4 coins backing Arsenal to win");
+  expect(phil).toMatch(/going their way|winning bet|Looking good/);
+  expect(dave).toContain("1 coin backing a draw");
+  expect(dave).toMatch(/at risk|rescue|cost them/);
+  expect(dave).not.toContain("prediction points");
+  expect(entry.playerRoundup.find(line => line.includes("Emma"))).not.toContain("coins");
+  expect(entry.playerRoundup.join(" ")).not.toMatch(/balance|coins table|coin standings/i);
+});
+
+test("late bets enrich the original roundup without changing its score snapshot or publication time", () => {
+  const [original] = buildLiveStudioDeskEntries({ matches: [match(1)], nowMs });
+  const [withBets] = buildLiveStudioDeskEntries({ matches: [match(1, { minute: 29, score: { homeGoals: 0, awayGoals: 1 }, picks: [
+    { username: "Phil", userId: "phil", bet: { side: "H", stake: 4 } },
+    { username: "Dave", userId: "dave", bet: { side: "D", stake: 2 } },
+  ] })], nowMs: nowMs + 240000 });
+  const [enriched] = mergeLiveStudioDeskHistory([original], [withBets]);
+  expect(enriched.momentMs).toBe(original.momentMs);
+  expect(enriched.playerRoundup.find(line => line.includes("Phil"))).toContain("14 prediction points");
+  expect(enriched.playerRoundup.find(line => line.includes("Phil"))).toContain("4 coins backing Arsenal to win");
+  expect(enriched.playerRoundup.find(line => line.includes("Phil"))).toMatch(/going their way|winning bet|Looking good/);
+  const [thin] = buildLiveStudioDeskEntries({ matches: [match(1)], nowMs });
+  expect(mergeLiveStudioDeskHistory([enriched], [thin])[0].playerRoundup).toEqual(enriched.playerRoundup);
+});
+
+test("finished bets and invalid selections are not presented as bets still in play", () => {
+  const picks = [{ ...pick("Phil", 2, 1), bet: { side: "H", stake: 4 } },
+    { username: "Invalid", userId: "invalid", bet: { side: "unknown", stake: 10 } }];
+  const finished = buildLiveStudioPlayerRoundup({ matches: [match(1, { picks })], finished: true });
+  expect(finished.join(" ")).not.toContain("coins backing");
+  expect(finished).toHaveLength(1);
+  const active = buildLiveStudioPlayerRoundup({ matches: [match(1, { picks })] });
+  expect(active).toHaveLength(1);
+});
+
+
+test.each([15, 25, 45, 60, 75, 85])("the %s-minute visit includes live bets without a balance or coins ranking", minute => {
+  const [entry] = buildLiveStudioDeskEntries({ matches: [match(1, { minute, paused: minute === 45, picks: [
+    { ...pick("Phil", 2, 1), bet: { side: "H", stake: 4 } },
+  ] }), match(2, { minute, paused: minute === 45, fixture: { ...match(2).fixture, homeTeam: "Liverpool", awayTeam: "Everton" }, picks: [
+    { ...pick("Phil", 2, 1), bet: { side: "A", stake: 2 } },
+  ] })], nowMs });
+  expect(entry.playerRoundup).toHaveLength(1);
+  expect(entry.playerRoundup[0]).toContain("4 coins backing Arsenal to win");
+  expect(entry.playerRoundup[0]).toContain("2 coins backing Everton to win");
+  expect(entry.playerRoundup[0]).not.toMatch(/balance|coin standings|coins table/i);
+});

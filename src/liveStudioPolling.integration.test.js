@@ -12,26 +12,33 @@ test("the full app puts new updates first and combines half-time into one studio
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
   localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7, predictions: { diagnostic: { 560607: { homeGoals: 0, awayGoals: 1 } }, Dave: { 560607: { homeGoals: 0, awayGoals: 1, isDouble: true } }, Emma: { 560607: { homeGoals: 0, awayGoals: 0 } } } }));
   let scored = false;
+  let nextLineups = false;
   let paused = false;
   let minuteOverride = null;
   let finalHomeGoals = 2;
   const finishedRaw = () => ({ id: 560602, homeTeam: { name: "Fulham FC" }, awayTeam: { name: "Hull City AFC" }, utcDate: "2026-10-17T14:00:00Z", status: "FINISHED", minute: 90, lastUpdated: "2026-10-17T19:00:00Z", score: { fullTime: { home: finalHomeGoals, away: 1 } }, goals: [] });
   const raw = () => ({ id: 560607, homeTeam: { name: "Newcastle United FC" }, awayTeam: { name: "Aston Villa FC" }, utcDate: "2026-10-17T16:30:00Z", status: paused ? "PAUSED" : "IN_PLAY", minute: minuteOverride ?? (paused ? 45 : scored ? 41 : 1), lastUpdated: scored ? "2026-10-17T19:11:00Z" : "2026-10-17T18:31:00Z", score: { fullTime: { home: 0, away: scored ? 1 : 0 } }, goals: scored ? [{ type: "REGULAR", minute: 36, scorer: { name: "Johan Manzambi" }, team: { name: "Aston Villa FC" }, score: { home: 0, away: 1 } }] : [] });
+  const nextFixture = { id: 560608, status: "TIMED", utcDate: "2026-10-17T18:30:00Z", homeTeam: { name: "Nottingham Forest FC" }, awayTeam: { name: "Arsenal FC" }, score: {},
+    lineups: { home: { lineup: [{ name: "Next home keeper", position: "Goalkeeper" }] }, away: { lineup: [{ name: "Next away keeper", position: "Goalkeeper" }] } } };
   const originalFetch = global.fetch;
   global.fetch = jest.fn(async url => {
     let data = {};
-    if (String(url).includes("/api/results?")) data = [raw(), finishedRaw()];
+    if (String(url).includes("/api/results?")) data = [raw(), finishedRaw(), ...(nextLineups ? [nextFixture] : [])];
     if (String(url).includes("/api/results/snapshot")) data = { 560607: { homeGoals: 0, awayGoals: scored ? 1 : 0 } };
     if (String(url).includes("/api/match-states/snapshot")) data = { 560607: { status: raw().status, utcDate: raw().utcDate, minute: raw().minute, homeGoals: 0, awayGoals: scored ? 1 : 0, lastUpdated: raw().lastUpdated, goalEvents: raw().goals, matchEvents: raw().goals }, 560602: {
       status: "FINISHED", minute: 90, utcDate: finishedRaw().utcDate, homeGoals: finalHomeGoals, awayGoals: 1,
       finishedAt: finishedRaw().lastUpdated, lastUpdated: finishedRaw().lastUpdated, observedAt: "2026-10-17T16:00:00Z", goalEvents: [], matchEvents: [],
     } };
+    if (String(url).includes("/api/match-states/snapshot") && nextLineups) data[560608] = nextFixture;
     return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
   });
   try {
     render(<App />);
     await act(async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); });
 
+    nextLineups = true;
+    await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
+    expect(document.querySelector("article")).toHaveTextContent("Line-ups confirmed: Nottingham Forest v Arsenal");
     scored = true;
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
 
@@ -72,7 +79,7 @@ test("the full app puts new updates first and combines half-time into one studio
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
 
-test("a returning viewer sees all phases in order while old results and studio history load", async () => {
+test("a returning viewer keeps restored history and new updates in their original arrival order", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:46:00Z"));
   window.scrollTo = jest.fn();
   localStorage.clear(); sessionStorage.clear();
@@ -108,6 +115,7 @@ test("a returning viewer sees all phases in order while old results and studio h
   try {
     render(<App />);
     await act(async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); });
+    let firstOrder;
     const checkOrder = () => {
       const articles = [...document.querySelectorAll("article")];
       const index = text => articles.findIndex(card => card.textContent.includes(text));
@@ -115,7 +123,10 @@ test("a returning viewer sees all phases in order while old results and studio h
       expect(screen.queryByText("Result confirmed")).not.toBeInTheDocument();
       const positions = labels.map(index);
       expect(labels.filter((label, i) => positions[i] < 0)).toEqual([]);
-      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+      const displayed = [...labels, "Earlier games at 75 minutes", "Earlier games at half time"].sort((a, b) => index(a) - index(b));
+      if (!firstOrder) firstOrder = displayed;
+      expect(displayed).toEqual(firstOrder);
+      expect(index("Booking Test player")).toBe(0);
       expect(index("Earlier games at 75 minutes")).toBeGreaterThan(index("Kick off!"));
       expect(index("Earlier games at half time")).toBeGreaterThan(index("Earlier games at 75 minutes"));
     };

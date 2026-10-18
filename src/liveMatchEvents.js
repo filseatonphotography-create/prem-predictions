@@ -49,11 +49,23 @@ function normalizeEvent(event, source = "", match = {}) {
     assistName: personName(event.assist || event.assistName),
   });
 }
-function sameEvent(a, b) {
+function sameEvent(a, b, allEvents = []) {
   if (a.type !== b.type) return false;
   if (a.id != null && b.id != null) return String(a.id) === String(b.id);
   const scoring = ["GOAL", "GOAL_DISALLOWED"].includes(a.type);
   const sameScore = a.homeGoals != null && a.awayGoals != null && a.homeGoals === b.homeGoals && a.awayGoals === b.awayGoals;
+  if (a.type === "GOAL" && sameScore) {
+    const time = item => (numeric(item.sortMinute) ?? numeric(item.minute) ?? 0) + (numeric(item.injuryTime) || 0) / 100;
+    // A changed scorer/minute can describe the same goal. The same score may
+    // legitimately recur after VAR, so keep goals on either side of a reversal.
+    const reversalBetween = allEvents.some(item => item.type === "GOAL_DISALLOWED"
+      && time(item) >= Math.min(time(a), time(b)) && time(item) < Math.max(time(a), time(b)));
+    if (reversalBetween) return false;
+    if (a.synthetic || b.synthetic || Math.abs(time(a) - time(b)) <= 1) return true;
+    // Without a recorded reversal, widely separated real goals are still
+    // distinct. Do not guess that one is a correction to the other.
+    return false;
+  }
   if (scoring && sameScore && (a.synthetic || b.synthetic)) return true;
   if (a.minute !== b.minute || a.injuryTime !== b.injuryTime) return false;
   if (a.teamName && b.teamName && a.teamName !== b.teamName) return false;
@@ -63,9 +75,9 @@ function sameEvent(a, b) {
 }
 function mergeMatchEvents(...lists) {
   const result = [];
-  lists.flat().filter(event => event && typeof event === "object").forEach(raw => {
-    const event = normalizeEvent(raw);
-    const index = result.findIndex(previous => sameEvent(previous, event));
+  const events = lists.flat().filter(event => event && typeof event === "object").map(raw => normalizeEvent(raw));
+  events.forEach(event => {
+    const index = result.findIndex(previous => sameEvent(previous, event, events));
     if (index < 0) { result.push(event); return; }
     const previous = result[index];
     const preferred = previous.synthetic && !event.synthetic ? event : event.synthetic && !previous.synthetic ? previous : event;

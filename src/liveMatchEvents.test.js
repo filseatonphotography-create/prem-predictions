@@ -122,3 +122,15 @@ describe("recorded goal and VAR history between browser refreshes", () => {
     expect(merged.matchEvents.map(event => event.type)).toEqual(["GOAL", "GOAL_DISALLOWED"]);
   });
 });
+
+test("corrected goal details replace the original event, while a new goal after VAR is retained", () => {
+  const { mergeMatchEvents } = require("./liveMatchEvents");
+  const original = { type: "GOAL", minute: 6, scorerName: "Initial scorer", homeGoals: 0, awayGoals: 1 };
+  const corrected = { ...original, minute: 7, scorerName: "Confirmed scorer" };
+  expect(mergeMatchEvents([original], [corrected])).toEqual([expect.objectContaining({ minute: 7, scorerName: "Confirmed scorer" })]);
+  const reversed = { type: "GOAL_DISALLOWED", minute: 8, homeGoals: 0, awayGoals: 0, previousHomeGoals: 0, previousAwayGoals: 1 };
+  const later = { ...original, minute: 10, scorerName: "Another scorer" };
+  const events = mergeMatchEvents([original], [later, reversed]);
+  expect(events.filter(event => event.type === "GOAL").map(event => event.minute)).toEqual([6, 10]);
+  expect(events.filter(event => event.type === "GOAL_DISALLOWED")).toHaveLength(1);
+});
