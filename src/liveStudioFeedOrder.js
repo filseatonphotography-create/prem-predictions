@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { readLiveStudioCache, writeLiveStudioCache } from "./liveStudioStorage";
 
 function chronological(entries) {
   return [...entries].sort((a, b) =>
@@ -63,7 +64,7 @@ export function orderLiveStudioUpdates(entries = [], previous = {}, { historical
 
 function readOrder(key) {
   try {
-    const saved = JSON.parse(sessionStorage.getItem(key) || "null");
+    const saved = readLiveStudioCache(key);
     if (saved && Number.isSafeInteger(saved.counter) && saved.updates && typeof saved.updates === "object" && !Array.isArray(saved.updates)) {
       return { counter: saved.counter, updates: Object.fromEntries(Object.entries(saved.updates).filter(([, sequence]) => Number.isFinite(sequence))), meta: saved.meta || {} };
     }
@@ -79,10 +80,10 @@ export default function useLiveStudioFeedOrder(entries, scope, enabled = true, l
   const previous = saved.current?.key === key ? saved.current.state
     : stored;
   const ordered = orderLiveStudioUpdates(entries, previous, { historicalIds });
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled || !ready) return;
     saved.current = { key, state: ordered.state };
-    try { sessionStorage.setItem(key, JSON.stringify(ordered.state)); } catch {}
+    writeLiveStudioCache(key, ordered.state);
   }, [key, enabled, ready, ordered.state]);
   return ordered.entries;
 }

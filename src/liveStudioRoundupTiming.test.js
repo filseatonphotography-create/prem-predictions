@@ -7,7 +7,7 @@ const game = (id, minute) => ({ fixture: { id, homeTeam: "Arsenal", awayTeam: "C
   minute, live: true, paused: false, finished: false, lastNewsAt: kickoff,
   score: { homeGoals: 0, awayGoals: 0 }, picks: [],
 });
-beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(kickoff + 20 * 60000); sessionStorage.clear(); });
+beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(kickoff + 20 * 60000); sessionStorage.clear(); localStorage.clear(); });
 afterEach(() => jest.useRealTimers());
 
 test.each([6, 7, 10, 20, 24, 35, 40, 65, 69, 70, 80, 84])("no unscheduled around-the-grounds post at %s match minutes, even when the wall clock is ahead", minute => {

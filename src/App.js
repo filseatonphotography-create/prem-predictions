@@ -1,10 +1,11 @@
 import { getPredictionPoints as scoreSavedPrediction, normalizePredictionBoosts } from "./predictionRules";
-import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
 import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
+import { readLiveStudioCache, writeLiveStudioCache } from "./liveStudioStorage";
 import useLiveResultsPolling from "./useLiveResultsPolling";
 import useLiveStudioFeedOrder, { orderLiveStudioUpdates } from "./liveStudioFeedOrder";
 import FIXTURES from "./fixtures";
@@ -5350,7 +5351,7 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
 
 export function getSavedLiveStudioFullTimeFixtures(scope) {
   try {
-    const entries = JSON.parse(sessionStorage.getItem(`live-studio-commentary:v1:${scope}`) || "[]");
+    const entries = readLiveStudioCache(`live-studio-commentary:v1:${scope}`, []);
     return new Set(Array.isArray(entries) ? entries.filter((entry) => entry?.fullTime && entry.fixtureId != null)
       .map((entry) => String(entry.fixtureId)) : []);
   } catch { return new Set(); }
@@ -5360,19 +5361,19 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
   const storageKey = `live-studio-commentary:v1:${scope}`;
   const readHistory = (key) => {
     try {
-      const saved = JSON.parse(sessionStorage.getItem(key) || "[]");
+      const saved = readLiveStudioCache(key, []);
       return Array.isArray(saved) ? saved.filter(isRetainedLiveStudioEntry) : [];
     } catch { return []; }
   };
   const [saved, setSaved] = useState(() => ({ key: storageKey, entries: readHistory(storageKey) }));
   const history = saved.key === storageKey ? saved.entries : readHistory(storageKey);
   const retained = mergeLiveStudioDeskHistory(history, currentFeed);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!enabled || !ready) return;
     const next = mergeLiveStudioDeskHistory(readHistory(storageKey), currentFeed);
     setSaved((previous) => previous.key === storageKey && JSON.stringify(previous.entries) === JSON.stringify(next)
       ? previous : { key: storageKey, entries: next });
-    try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
+    writeLiveStudioCache(storageKey, next);
   }, [currentFeed, storageKey, enabled, ready]);
   const combined = retained.length
     ? [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
@@ -9421,7 +9422,8 @@ const premierLeagueInsights = useMemo(() => {
       }
 
       if (Object.keys(matchStateUpdates).length) {
-        setMatchStatesByFixtureId((prev) => ({ ...prev, ...matchStateUpdates }));
+        setMatchStatesByFixtureId(prev => ({ ...prev, ...Object.fromEntries(Object.entries(matchStateUpdates)
+          .map(([id, incoming]) => [id, mergeRecordedMatchState(incoming, prev[id] || {})])) }));
       }
       if (matchedCount || Object.keys(matchStateUpdates).length) {
         setResults((prev) =>
@@ -9491,7 +9493,8 @@ useEffect(() => {
         );
       }
       if (matchStatesSnapshot && Object.keys(matchStatesSnapshot).length > 0) {
-        setMatchStatesByFixtureId((prev) => ({ ...prev, ...matchStatesSnapshot }));
+        setMatchStatesByFixtureId(prev => ({ ...prev, ...Object.fromEntries(Object.entries(matchStatesSnapshot)
+          .map(([id, incoming]) => [id, mergeRecordedMatchState(incoming, prev[id] || {})])) }));
         setStudioSnapshotMode(gameMode);
         setResults((prev) => stripUnstartedResults(prev, matchStatesSnapshot));
         setFixtureOverridesByMode((prev) => ({

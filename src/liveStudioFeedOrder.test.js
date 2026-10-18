@@ -12,7 +12,7 @@ const fixtureEntry = (id, fixture, event, state = {}) => ({
   momentMs: getMatchEventMomentMs(fixture, event, state),
 });
 
-beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(at("17:46")); sessionStorage.clear(); });
+beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(at("17:46")); sessionStorage.clear(); localStorage.clear(); });
 afterEach(() => jest.useRealTimers());
 
 test("a mixed matchday is chronological on first load, even when history arrives last", () => {
@@ -198,4 +198,15 @@ test("a corrupt studio-only ledger is rebuilt after hydration, with match update
   const restored = renderHook(({ ready }) => useLiveStudioCommentaryHistory([], scope, true, scope, ready), { initialProps: { ready: false } });
   act(() => restored.rerender({ ready: true }));
   expect(restored.result.current.map(post => post.id)).toEqual([fresh.id, ...expected]);
+});
+
+test("a page restart preserves arrival order even when its tab session is recreated", () => {
+  const lineup = { id: "lineup", momentMs: at("18:29") };
+  const goal = { id: "goal", momentMs: at("17:40") };
+  const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioFeedOrder(feed, "restart"), { initialProps: { feed: [lineup] } });
+  act(() => rerender({ feed: [lineup, goal] }));
+  expect(result.current).toEqual([goal, lineup]);
+  unmount(); sessionStorage.clear();
+  const restarted = renderHook(() => useLiveStudioFeedOrder([lineup, goal], "restart"));
+  expect(restarted.result.current).toEqual([goal, lineup]);
 });

@@ -55,11 +55,11 @@ test("the final table compares kick-off standings with full-time, including conc
 });
 
 test("previously read full-time cards can be enriched without reviving another league's history", () => {
-  sessionStorage.clear();
+  sessionStorage.clear(); localStorage.clear();
   sessionStorage.setItem("live-studio-commentary:v1:league-1", JSON.stringify([
     { id: "57:full-time", fixtureId: 57, fullTime: true }, { id: "studio:roundup:1", fixtureId: 999 },
   ]));
   expect([...getSavedLiveStudioFullTimeFixtures("league-1")]).toEqual(["57"]);
   expect([...getSavedLiveStudioFullTimeFixtures("league-2")]).toEqual([]);
-  sessionStorage.clear();
+  sessionStorage.clear(); localStorage.clear();
 });

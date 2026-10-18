@@ -213,9 +213,15 @@ function shouldSendRecentFullTimeUpdate(fixture, state = {}, nowMs = Date.now())
   return finished <= nowMs && nowMs - finished <= 90 * 60000;
 }
 function mergeRecordedMatchState(incoming = {}, recorded = {}) {
-  const incomingTime = Date.parse(incoming.lastUpdated || "");
-  const recordedTime = Date.parse(recorded.lastUpdated || "");
-  const recordedIsNewer = Number.isFinite(incomingTime) && Number.isFinite(recordedTime) && recordedTime > incomingTime;
+  const hasObservationTimes = Number.isFinite(Date.parse(incoming.observedAt || "")) && Number.isFinite(Date.parse(recorded.observedAt || ""));
+  const incomingTime = Date.parse((hasObservationTimes ? incoming.observedAt : incoming.lastUpdated) || "");
+  const recordedTime = Date.parse((hasObservationTimes ? recorded.observedAt : recorded.lastUpdated) || "");
+  const sameProviderVersion = !hasObservationTimes && Number.isFinite(incomingTime) && incomingTime === recordedTime;
+  const recordedClockAhead = numeric(recorded.minute) != null && numeric(incoming.minute) != null && Number(recorded.minute) > Number(incoming.minute);
+  const recordedFinal = ["FINISHED", "AWARDED"].includes(String(recorded.status).toUpperCase())
+    && !["FINISHED", "AWARDED"].includes(String(incoming.status).toUpperCase());
+  const recordedIsNewer = Number.isFinite(incomingTime) && Number.isFinite(recordedTime) && recordedTime > incomingTime
+    || sameProviderVersion && (recordedClockAhead || recordedFinal);
   const current = recordedIsNewer ? Object.assign({}, incoming, recorded) : Object.assign({}, recorded, incoming);
   const merged = mergeMatchPhaseState(recorded, current);
   merged.goalEvents = mergeMatchEvents(recorded.goalEvents, incoming.goalEvents);

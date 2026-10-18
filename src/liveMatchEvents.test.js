@@ -176,3 +176,21 @@ test("recent confirmed full-time remains eligible after the status transition, w
     expect(shouldSendRecentFullTimeUpdate(fixture, state)).toBe(false);
   } finally { jest.useRealTimers(); }
 });
+
+
+test("a late snapshot cannot rewind the clock when the provider timestamp is unchanged", () => {
+  const { mergeRecordedMatchState } = require("./liveMatchEvents");
+  const current = { status: "IN_PLAY", minute: 75, lastUpdated: "2026-10-18T16:30:00Z", observedAt: "2026-10-18T14:30:00Z" };
+  const stale = { status: "PAUSED", minute: 45, lastUpdated: current.lastUpdated, observedAt: "2026-10-18T13:48:00Z" };
+  expect(mergeRecordedMatchState(stale, current)).toMatchObject(current);
+  const finished = { status: "FINISHED", minute: 90, lastUpdated: current.lastUpdated, observedAt: "2026-10-18T14:55:00Z" };
+  expect(mergeRecordedMatchState(finished, current)).toMatchObject(finished);
+});
+
+
+test("cached provider details cannot rewind a server clock from the same provider version", () => {
+  const { mergeRecordedMatchState } = require("./liveMatchEvents");
+  const recorded = { status: "IN_PLAY", minute: 75, lastUpdated: "2026-10-18T16:30:00Z", observedAt: "2026-10-18T14:30:00Z" };
+  expect(mergeRecordedMatchState({ status: "PAUSED", minute: 45, lastUpdated: recorded.lastUpdated }, recorded)).toMatchObject(recorded);
+  expect(mergeRecordedMatchState({ status: "IN_PLAY", minute: 76, lastUpdated: recorded.lastUpdated }, recorded)).toMatchObject({ status: "IN_PLAY", minute: 76 });
+});

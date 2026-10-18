@@ -1,5 +1,5 @@
 import React from "react";
-import { act, render, screen, cleanup, within } from "@testing-library/react";
+import { act, render, screen, cleanup, within, fireEvent } from "@testing-library/react";
 import App from "./App";
 
 jest.setTimeout(30000);
@@ -226,5 +226,46 @@ test("a second-half phase reconstructed at 84 minutes does not jump above existi
     const restartIndex = cards.findIndex(card => card.textContent.includes("Second half!"));
     expect(restartIndex).toBeGreaterThan(lineupIndex);
     expect(cards[restartIndex].firstElementChild).toHaveTextContent("2H");
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});
+
+test("a late startup snapshot cannot replace the newer state already shown by a Studio refresh", async () => {
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T18:00:00Z"));
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
+  localStorage.setItem("activeView", "liveStudio");
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7, predictions: {} }));
+  const goal = { type: "GOAL", minute: 10, homeGoals: 0, awayGoals: 1, scorerName: "Villa scorer", teamName: "Aston Villa FC" };
+  const latest = { status: "IN_PLAY", minute: 75, utcDate: "2026-10-17T16:30:00Z", homeGoals: 0, awayGoals: 1,
+    observedAt: "2026-10-17T18:00:00Z", lastUpdated: "2026-10-17T19:59:00Z", goalEvents: [goal], matchEvents: [goal] };
+  const stale = { ...latest, status: "PAUSED", minute: 45, observedAt: "2026-10-17T17:20:00Z", lastUpdated: latest.lastUpdated };
+  let resolveStartup;
+  const startup = new Promise(resolve => { resolveStartup = resolve; });
+  let snapshots = 0;
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async url => {
+    let data = {};
+    if (String(url).includes("/api/match-states/snapshot")) data = ++snapshots === 1 ? await startup : { 560607: latest };
+    if (String(url).includes("/api/results?")) data = [{ id: 560607, ...latest,
+      homeTeam: { name: "Newcastle United FC" }, awayTeam: { name: "Aston Villa FC" }, goals: [goal], score: { fullTime: { home: 0, away: 1 } } }];
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
+  });
+  try {
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); });
+    expect(document.querySelector("article")).toHaveTextContent("75-minute studio check-in");
+    const before = [...document.querySelectorAll("article")].map(card => card.id);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh studio" })); for (let i = 0; i < 40; i++) await Promise.resolve(); });
+    expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
+    await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 40; i++) await Promise.resolve(); });
+    expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
+    await act(async () => { resolveStartup({ 560607: stale }); for (let i = 0; i < 40; i++) await Promise.resolve(); });
+    expect(document.querySelector("article")).toHaveTextContent("75-minute studio check-in");
+    expect(screen.queryByText("Half-time around the grounds")).not.toBeInTheDocument();
+    expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
+    cleanup(); render(<App />);
+    await act(async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); });
+    expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });

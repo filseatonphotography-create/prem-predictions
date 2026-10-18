@@ -4,7 +4,7 @@ import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudio
 const roundup = { id: "studio:checkpoint:test:25", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
 const goal = { id: "goal:1", momentMs: 200, lines: ["Goal for Arsenal!"] };
 
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
 
 test("round-ups remain after a goal, half-time and full-time, without duplicates", () => {
   let history = mergeLiveStudioDeskHistory([], [roundup]);

@@ -78,7 +78,7 @@ test("legacy and loaded account IDs for the same player do not create duplicates
 });
 
 test("the saved full rundown survives loading, a partial final response and a second page reload", () => {
-  sessionStorage.clear();
+  sessionStorage.clear(); localStorage.clear();
   const full = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false })], nowMs });
   const partial = buildLiveStudioDeskEntries({ matches: [match(1, { finished: true, live: false, picks: [pick("Dave", 3, 2)] })], nowMs });
   sessionStorage.setItem("live-studio-commentary:v1:refresh-final", JSON.stringify(full));
@@ -89,7 +89,7 @@ test("the saved full rundown survives loading, a partial final response and a se
   unmount();
   const restored = renderHook(() => useLiveStudioCommentaryHistory(partial, "refresh-final"));
   expect(restored.result.current.find(entry => entry.id === "studio:closing").playerRoundup).toHaveLength(3);
-  restored.unmount(); sessionStorage.clear();
+  restored.unmount(); sessionStorage.clear(); localStorage.clear();
 });
 
 
