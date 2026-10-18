@@ -201,7 +201,7 @@ describe("Live Studio pacing and quiet periods", () => {
   const matchFixture = { ...fixture, kickoff: new Date(kickoff).toISOString() };
   const pick = { username: "Dave", prediction: { homeGoals: 1, awayGoals: 1 } };
   const match = { fixture: matchFixture, score: { homeGoals: 1, awayGoals: 1 }, live: true, paused: false, finished: false,
-    minute: 82, lastNewsAt: kickoff + 75 * 60000, picks: [pick], events: [] };
+    minute: 87, lastNewsAt: kickoff + 75 * 60000, picks: [pick], events: [] };
   const nowMs = kickoff + 100 * 60000;
 
   test("adds late tension only in the final ten minutes, without repeating a score", () => {
@@ -234,12 +234,10 @@ describe("Live Studio pacing and quiet periods", () => {
     expect(buildLiveStudioDeskEntries({ matches: [match], nowMs: nowMs + 1000 })).toEqual(entries);
   });
 
-  test("quiet-period roundups exclude finished and unstarted games", () => {
-    const other = { ...match, fixture: { ...matchFixture, id: 18, homeTeam: "Liverpool" }, minute: 60 };
-    const entries = buildLiveStudioDeskEntries({ matches: [match, other, { ...match, live: false, finished: true }], nowMs });
-    expect(entries).toHaveLength(1);
-    expect(entries[0].title).toBe("Around the grounds");
-    expect(entries[0].lines[0]).toMatch(/2 games|Emirates/);
+  test("quiet periods do not add an unscheduled studio roundup", () => {
+    const other = { ...match, fixture: { ...matchFixture, id: 18, homeTeam: "Liverpool" }, minute: 65 };
+    const entries = buildLiveStudioDeskEntries({ matches: [{ ...match, minute: 40 }, other, { ...match, live: false, finished: true }], nowMs });
+    expect(entries).toEqual([]);
     expect(buildLiveStudioDeskEntries({ matches: [{ ...match, live: false }], nowMs })).toEqual([]);
   });
 

@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudioCommentaryHistory, getSavedLiveStudioFullTimeFixtures } from "./App";
 
-const roundup = { id: "studio:roundup:1", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
+const roundup = { id: "studio:checkpoint:test:25", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
 const goal = { id: "goal:1", momentMs: 200, lines: ["Goal for Arsenal!"] };
 
 beforeEach(() => sessionStorage.clear());

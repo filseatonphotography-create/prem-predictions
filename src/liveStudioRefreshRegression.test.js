@@ -14,31 +14,31 @@ test("loading a partial Originals account list retains its full player roster wi
   expect(buildLiveStudioUsers({ ...options, selectedMiniLeague: { id: "private" }, leagueHistoryUsers: [{ username: "Phil", userId: "phil" }] })).toEqual([{ username: "Phil", userId: "phil" }]);
 });
 
-test("one Watching the clock card covers the scheduled 70-minute check-in and later quiet periods", () => {
-  const seventy = buildLiveStudioDeskEntries({ matches: [game(70)], nowMs: Date.parse(kickoff) + 85 * 60000 });
-  const eightyTwo = buildLiveStudioDeskEntries({ matches: [game(82)], nowMs: Date.parse(kickoff) + 97 * 60000 });
+test("one Watching the clock card covers the late-game visit from 85 minutes without repeated posts", () => {
+  const eightyFive = buildLiveStudioDeskEntries({ matches: [game(85)], nowMs: Date.parse(kickoff) + 100 * 60000 });
+  const eightySeven = buildLiveStudioDeskEntries({ matches: [game(87)], nowMs: Date.parse(kickoff) + 102 * 60000 });
   const ninety = buildLiveStudioDeskEntries({ matches: [game(90)], nowMs: Date.parse(kickoff) + 105 * 60000 });
-  expect(seventy[0].title).toBe("Watching the clock");
-  expect(seventy[0].minute).toBe("Studio");
-  expect(eightyTwo[0].id).toBe(seventy[0].id);
-  expect(ninety[0].id).toBe(seventy[0].id);
-  const history = mergeLiveStudioDeskHistory(mergeLiveStudioDeskHistory(seventy, eightyTwo), ninety);
+  expect(eightyFive[0].title).toBe("Watching the clock");
+  expect(eightyFive[0].minute).toBe("Studio");
+  expect(eightySeven[0].id).toBe(eightyFive[0].id);
+  expect(ninety[0].id).toBe(eightyFive[0].id);
+  const history = mergeLiveStudioDeskHistory(mergeLiveStudioDeskHistory(eightyFive, eightySeven), ninety);
   expect(history).toHaveLength(1);
-  expect(history[0].momentMs).toBe(seventy[0].momentMs);
+  expect(history[0].momentMs).toBe(eightyFive[0].momentMs);
   expect(history[0].playerRoundup).toHaveLength(1);
 });
 
 test("previously saved duplicate late cards are combined during reload", () => {
-  const [scheduled] = buildLiveStudioDeskEntries({ matches: [game(70)], nowMs: Date.parse(kickoff) + 85 * 60000 });
+  const [scheduled] = buildLiveStudioDeskEntries({ matches: [game(85)], nowMs: Date.parse(kickoff) + 100 * 60000 });
   const old = { ...scheduled, id: "studio:roundup:old-bucket", title: "Watching the clock", momentMs: scheduled.momentMs + 600000 };
-  const history = mergeLiveStudioDeskHistory([old, { ...scheduled, title: "70-minute studio check-in" }], []);
+  const history = mergeLiveStudioDeskHistory([old, { ...scheduled, title: "Watching the clock" }], []);
   expect(history).toHaveLength(1);
   expect(history[0].title).toBe("Watching the clock");
   expect(history[0].momentMs).toBe(scheduled.momentMs);
 });
 
 test("small clock cards with no snapshot cannot survive refresh or repeat at 78 minutes", () => {
-  const [scheduled] = buildLiveStudioDeskEntries({ matches: [game(70)], nowMs: Date.parse(kickoff) + 85 * 60000 });
+  const [scheduled] = buildLiveStudioDeskEntries({ matches: [game(85)], nowMs: Date.parse(kickoff) + 100 * 60000 });
   const small = { id: "studio:roundup:early", title: "Watching the clock", minute: "Studio", momentMs: scheduled.momentMs - 60000, lines: ["Old filler"] };
   const repeated = { ...small, id: "studio:roundup:78", momentMs: scheduled.momentMs + 8 * 60000 };
   const history = mergeLiveStudioDeskHistory([small, scheduled, repeated], [repeated]);

@@ -5143,9 +5143,21 @@ export function buildLiveStudioEventLine({ fixture, event, score, seed }) {
       `${player || team} is off${at}. Predictions built on a calm finish are suddenly under pressure.`,
     ],
     "yellow-card": [
-      `Yellow card for ${player || team}${at}. A little less room for error now.`,
+      `Yellow card for ${player || team}${at}. Careful now.`,
       `${player || team} goes into the book${at}.`,
-      `A booking for ${player || team}${at}; not decisive yet, but it adds a little edge.`,
+      `A booking for ${player || team}${at}. One to keep an eye on.`,
+      `${player || team} sees yellow${at}. The next challenge needs a bit of thought.`,
+      `The referee reaches for yellow${at}. ${player || team} is on a warning.`,
+      `Yellow for ${player || team}${at}. A little more caution required from here.`,
+      `${player || team} is booked${at}. That changes the calculation for the rest of this one.`,
+      `A yellow card${at}, and it's ${player || team} in the notebook.`,
+      `${player || team} picks up a yellow${at}. Still on the pitch, but walking a finer line.`,
+      `Booking for ${player || team}${at}. There's a warning to carry through the remaining minutes.`,
+      `${player || team} sees yellow${at}. No prizes for collecting those.`,
+      `Yellow card, ${player || team}${at}. A souvenir nobody asked for.`,
+      `${player || team} goes into the referee's notebook${at}. Hardly a glowing review.`,
+      `A booking for ${player || team}${at}. Time to engage the sensible football settings.`,
+      `Yellow for ${player || team}${at}. The referee has made a note. Probably not a thank-you note.`,
     ],
     injury: [
       `Concern at ${team}${player ? ` for ${player}` : ""}${at}. We'll wait for news.`,
@@ -5961,11 +5973,15 @@ function mergeLiveStudioFinalRoundup(previous, incoming) {
 }
 
 function isLegacyLiveStudioClockCard(entry) {
-  return entry.title === "Watching the clock" && !entry.id?.startsWith("studio:checkpoint:");
+  // Unscheduled quiet-period posts used a wall-clock bucket, which could put
+  // them ahead of real match events. Retire cached copies as well as new ones.
+  return (entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":70"))
+    || entry.id?.startsWith("studio:roundup:")
+    || (entry.title === "Watching the clock" && !entry.id?.startsWith("studio:checkpoint:"));
 }
 
 function normalizeLiveStudioDeskEntry(entry) {
-  const lateId = entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":70");
+  const lateId = entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":85");
   return lateId ? { ...entry, title: "Watching the clock", minute: "Studio" } : entry;
 }
 
@@ -5976,7 +5992,7 @@ export function getVisibleLiveStudioEntries(entries = []) {
     .map(normalizeLiveStudioDeskEntry);
 }
 
-export function buildLiveStudioPlayerRoundup({ matches = [], seed = "studio", finished = false }) {
+function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finished = false }) {
   const players = new Map();
   const uniqueMatches = [...new Map(matches.map(match => [String(match.fixture.id), match])).values()];
   uniqueMatches.filter(match => hasValidResultScore(match.score)).forEach(match => {
@@ -5985,7 +6001,7 @@ export function buildLiveStudioPlayerRoundup({ matches = [], seed = "studio", fi
       const key = userId || username;
       if (!key || seen.has(key) || !hasValidResultScore(prediction)) return;
       seen.add(key);
-      const row = players.get(key) || { username, points: 0, bingpots: 0, boosts: new Set() };
+      const row = players.get(key) || { userId: userId || "", username, points: 0, bingpots: 0, boosts: new Set() };
       const points = getTotalPoints(prediction, match.score);
       row.points += points;
       if (getPredictionPointsLabel(prediction, match.score)?.label === "Bingpot") row.bingpots += 1;
@@ -6004,9 +6020,30 @@ export function buildLiveStudioPlayerRoundup({ matches = [], seed = "studio", fi
     ] : [
       `${row.username} is in line for ${points} from these games, as things stand.`,
       `${row.username} is on for ${points} from these games. Still a bit of football between them and payday.`,
-      `At the prediction desk: ${row.username} has ${points} coming from these games if the scores stay put.`,
+      `${row.username} has ${points} coming from these games if the scores stay put.`,
     ]);
-    return `${line}${extra ? ` ${extra}.` : ""}`;
+    return { userId: row.userId, username: row.username, line: `${line}${extra ? ` ${extra}.` : ""}` };
+  });
+}
+
+export function buildLiveStudioPlayerRoundup(options) {
+  return buildLiveStudioPlayerRoundupRows(options).map(row => row.line);
+}
+
+export function getLiveStudioPlayerUpdates(entry, users = []) {
+  const rows = entry.roundupMatches?.length
+    ? buildLiveStudioPlayerRoundupRows({ matches: entry.roundupMatches, seed: entry.id, finished: entry.id === "studio:closing" })
+    : (entry.playerRoundup || []).map(line => {
+      // Older saved posts contain plain text. Match longer names first so Ann
+      // is not mistaken for Anna while their account information loads.
+      const user = [...users].sort((a, b) => b.username.length - a.username.length)
+        .find(candidate => line.includes(candidate.username));
+      return { userId: user?.userId || "", username: user?.username || "Player", line };
+    });
+  return rows.map(row => {
+    const account = users.find(user => user.username === row.username);
+    return { ...row, userId: account?.userId || row.userId,
+      line: row.line.replace(/^At the prediction desk:\s*/i, "") };
   });
 }
 
@@ -6091,28 +6128,44 @@ export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = 
   };
 }
 
-export function buildLiveStudioCheckpointEntries({ matches = [], nowMs, allowLate = false }) {
+export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
   const active = matches.filter((match) => match.live && !match.paused && !match.finished && hasValidResultScore(match.score));
   const checkpoints = new Map();
-  active.forEach((match) => {
+  const clocks = new Map();
+  active.forEach(match => {
     const minute = numeric(match.minute);
-    const mark = [25, 70].find((target) => minute != null && minute >= target && (minute < target + 10 || (target === 70 && allowLate)));
-    if (mark) checkpoints.set(`${match.fixture.kickoff}:${mark}`, mark);
+    if (minute != null) clocks.set(match.fixture.kickoff, Math.max(clocks.get(match.fixture.kickoff) ?? 0, minute));
+  });
+  clocks.forEach((minute, kickoff) => {
+    // One clock per kick-off group prevents staggered provider refreshes from
+    // publishing an old around-the-grounds visit beside a newer check-in.
+    const mark = [15, 25, 60, 75, 85].find(target => minute >= target
+      && (target === 85 || minute < target + (target === 25 ? 10 : 5)));
+    const latestNews = Math.max(...active.filter(match => match.fixture.kickoff === kickoff)
+      .map(match => match.lastNewsAt || Date.parse(kickoff)));
+    if (mark === 85 && nowMs - latestNews < 3 * 60000) return;
+    if (mark) checkpoints.set(`${kickoff}:${mark}`, mark);
   });
   return [...checkpoints].map(([key, mark]) => {
     const seed = `studio:checkpoint:${key}`;
+    const aroundGrounds = mark === 15 || mark === 60;
+    const late = mark === 85;
     const interests = active.map((match) => {
       const exact = (match.picks || []).filter((pick) => getPredictionPointsLabel(pick.prediction, match.score)?.label === "Bingpot");
       const pick = exact.length ? pickLiveStudioPhrase(`${seed}:${match.fixture.id}`, exact) : null;
-      return pick ? `${pick.username} is on for Bingpot at ${getLiveStudioVenue(match.fixture)}. ${mark === 70 ? "Twenty minutes can feel like a lifetime." : "Plenty of football left. Try to look relaxed."}` : "";
+      return pick ? `${pick.username} is on for Bingpot at ${getLiveStudioVenue(match.fixture)}. ${late ? "Five minutes can feel like a lifetime." : mark === 75 ? "A quarter of an hour can feel like a lifetime." : "Plenty of football left. Try to look relaxed."}` : "";
     }).filter(Boolean);
     return {
-      id: seed, minute: mark === 70 ? "Studio" : `${mark}'`, tone: "live", icon: "🎙️",
+      id: seed, minute: late ? "Studio" : `${mark}'`, tone: "live", icon: "🎙️",
       momentMs: Math.max(...active.filter((match) => `${match.fixture.kickoff}:${mark}` === key)
         .map((match) => getMatchEventMomentMs(match.fixture, { minute: Number(match.minute) }, match.matchState || {}))),
-      title: mark === 70 ? "Watching the clock" : `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
+      title: late ? "Watching the clock" : aroundGrounds ? "Around the grounds" : `${mark}-minute studio check-in`, verdictLabel: "Back in the studio",
       ...buildLiveStudioPlayerRoundupDetails(active, seed),
-      lines: [pickLiveStudioPhrase(seed, mark === 25 ? [
+      lines: [pickLiveStudioPhrase(seed, aroundGrounds ? [
+        "Let's go around the grounds and see where everyone's predictions stand.",
+        "A trip around the grounds. Here's how the scores and prediction slips are shaping up.",
+        "Back in the studio. Let's catch up with the action and our mini-league players.",
+      ] : mark === 25 ? [
         "Back in the studio. A chance to catch our breath and see how the afternoon is shaping up.",
         "Let's go around the grounds. The predictions have had time to settle. Or start unravelling.",
         "Time for a quick studio check-in. Here's where we stand around the grounds.",
@@ -6121,7 +6174,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs, allowLat
         "Time for another trip around the grounds. A few prediction slips are starting to feel rather precious.",
         "Let's take stock in the studio. Plenty still riding on the closing stages.",
       ]), ...active.map((match) => `${getLiveStudioTeamName(match.fixture.homeTeam)} ${match.score.homeGoals}–${match.score.awayGoals} ${getLiveStudioTeamName(match.fixture.awayTeam)} (${numeric(match.minute) != null ? `${match.minute}'` : "Live"})`),
-      ...interests.slice(0, 2), ...(mark === 70 ? active.map(match => buildLiveStudioLateLine({ ...match, seed: `${seed}:${match.fixture.id}:late` })).filter(Boolean).slice(0, 2) : [])],
+      ...interests.slice(0, 2), ...(late ? active.map(match => buildLiveStudioLateLine({ ...match, seed: `${seed}:${match.fixture.id}:late` })).filter(Boolean).slice(0, 2) : [])],
     };
   });
 }
@@ -6142,44 +6195,9 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
   if (!active.length) return [];
   const checkpoints = buildLiveStudioCheckpointEntries({ matches, nowMs });
   if (checkpoints.length) return checkpoints;
-  const latestNews = Math.max(...matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff)));
-  if (!Number.isFinite(latestNews) || nowMs - latestNews < 3 * 60000) return [];
-  if (active.every(match => numeric(match.minute) >= 70)) {
-    return buildLiveStudioCheckpointEntries({ matches, nowMs, allowLate: true });
-  }
-  const firstKickoff = Math.min(...active.map((match) => Date.parse(match.fixture.kickoff)));
-  if (nowMs - firstKickoff < 10 * 60000) return [];
-  const bucket = Math.floor(nowMs / (10 * 60000));
-  const seed = `studio:${bucket}`;
-  const lateStories = active.map((match) => ({
-    fixture: match.fixture,
-    line: buildLiveStudioLateLine({ ...match, seed: `${seed}:${match.fixture.id}` }),
-  })).filter((story) => story.line);
-  if (active.length === 1 && !lateStories.length) return [];
-  const places = active.slice(0, 3).map((match) => getLiveStudioVenue(match.fixture));
-  const intro = active.length === 1 ? `Nervous times at ${places[0]}.` : pickLiveStudioPhrase(seed, [
-    `${active.length} games still going. Let's take a breath and go around the grounds.`,
-    `A moment to catch up. ${active.length} games in play, and plenty still riding on them.`,
-    `Back in the studio: we're keeping an eye on ${places.join(", ")}${active.length > 3 ? " and the rest" : ""}.`,
-  ]);
-  const lines = [intro];
-  lateStories.slice(0, 2).forEach((story) => lines.push(active.length > 1 ? `At ${getLiveStudioVenue(story.fixture)}: ${story.line}` : story.line));
-  if (!lateStories.length) {
-    const interests = active.map((match) => {
-      const exact = (match.picks || []).filter((pick) => getPredictionPointsLabel(pick.prediction, match.score)?.label === "Bingpot");
-      const pick = exact.length ? pickLiveStudioPhrase(`${seed}:${match.fixture.id}`, exact) : null;
-      return pick ? `${pick.username} has Bingpot to protect at ${getLiveStudioVenue(match.fixture)}.` : "";
-    }).filter(Boolean);
-    lines.push(...interests.slice(0, 2));
-    if (!interests.length) lines.push("No new goal to interrupt us with just now. A chance to breathe before the next twist.");
-  }
-  return [{
-    id: `studio:roundup:${bucket}`, minute: "Studio", tone: "live", icon: "🎙️",
-    momentMs: bucket * 10 * 60000,
-    title: active.length === 1 ? "Watching the clock" : "Around the grounds",
-    verdictLabel: "Back in the studio", lines,
-    ...buildLiveStudioPlayerRoundupDetails(active, `studio:roundup:${bucket}`),
-  }];
+  // The scheduled visits above include the late-game clock watch. No
+  // additional quiet-period post can collide with one of those visits.
+  return [];
 }
 
 export function buildLiveStudioClosingVerdict({ matches = [], leagueName = "the league", tableSwings = [] }) {
@@ -11972,7 +11990,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   const nextKickoffMs = liveStudioFixtures.map((fixture) => Date.parse(fixture.kickoff))
     .filter((kickoff) => kickoff > liveStudioNow).sort((a, b) => a - b)[0];
   const deskEntries = buildLiveStudioDeskEntries({
-    matches: studioMatches, completedMatches: completedStudioMatches, nowMs: Date.now(), nextKickoffMs, tableSwings,
+    matches: studioMatches, completedMatches: completedStudioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
     leagueName: selectedMiniLeague?.name || "the league",
     getTableRows: buildTableSnapshotAtMoment,
     hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {
@@ -21202,11 +21220,29 @@ const TABS = [
                             <div style={{ color: toneColor, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.8 }}>
                               Mini-league prediction desk
                             </div>
-                            {entry.playerRoundup.map((line, index) => (
-                              <div key={`${entry.id}:player:${index}`} style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-                                {line}
-                              </div>
-                            ))}
+                            {getLiveStudioPlayerUpdates(entry, liveStudioUsers).map((player, index) => {
+                              const row = { player: player.username, userId: player.userId };
+                              const avatar = getAvatarForRow(row);
+                              return (
+                                <section key={`${entry.id}:player:${player.userId || player.username}`}
+                                  aria-label={`${player.username}'s studio update`}
+                                  style={{ minWidth: 0, padding: "10px 0", borderTop: index > 0 ? `1px solid ${theme.line}` : undefined }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                                    <div style={{ flex: "0 0 auto" }}>
+                                      <PlayerAvatar size={32} seed={avatar.seed} avatarStyle={avatar.style}
+                                        title={`${player.username}'s profile avatar`} favoriteMode={gameMode}
+                                        favoriteTeam={activeFavoriteByUserId[String(player.userId || "")] || activeFavoriteByUsername[player.username] || ""} />
+                                    </div>
+                                    <strong style={{ color: theme.text, fontSize: isMobile ? 13 : 14, overflowWrap: "anywhere" }}>
+                                      {player.username}
+                                    </strong>
+                                  </div>
+                                  <p style={{ margin: "7px 0 0", color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+                                    {player.line}
+                                  </p>
+                                </section>
+                              );
+                            })}
                           </div>
                         )}
                         {entry.lineups && entryFixture && <LiveStudioLineups

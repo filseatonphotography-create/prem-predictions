@@ -60,14 +60,14 @@ test("the full app puts new updates first and combines half-time into one studio
     expect(within(halfCard).getByText(/Emma.*0 prediction points/)).toBeInTheDocument();
     expect(screen.getByText("Half-time around the grounds").parentElement).toHaveStyle({ color: "#f59e0b" });
     paused = false;
-    minuteOverride = 70;
+    minuteOverride = 75;
     jest.setSystemTime(Date.parse("2026-10-17T18:00:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     const checkInCard = document.querySelector("article");
-    expect(checkInCard).toHaveTextContent("Watching the clock");
+    expect(checkInCard).toHaveTextContent("75-minute studio check-in");
     expect(checkInCard.style.border).toBe(halfCard.style.border);
     expect(checkInCard.style.background).toBe(halfCard.style.background);
-    expect(screen.getByText("Watching the clock").parentElement).toHaveStyle({ color: "#f59e0b" });
+    expect(screen.getByText("75-minute studio check-in").parentElement).toHaveStyle({ color: "#f59e0b" });
     expect(within(checkInCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
@@ -84,7 +84,7 @@ test("a returning viewer sees all phases in order while old results and studio h
   sessionStorage.setItem(`live-studio-commentary:v1:${scope}`, JSON.stringify([
     { id: "studio:half-time:2026-10-17T14:00:00Z", title: "Earlier games at half time", momentMs: Date.parse("2026-10-17T17:30:00Z"), lines: ["Old half-time scores"] },
     { id: "studio:half-time:2026-10-17T16:30:00Z", title: "Half-time around the grounds", momentMs: Date.parse("2026-10-17T17:18:46Z"), lines: ["Newcastle 0–1 Aston Villa (HT)"] },
-    { id: "studio:checkpoint:2026-10-17T14:00:00Z:70", title: "Earlier games at 70 minutes", momentMs: Date.parse("2026-10-17T15:25:00Z"), lines: ["Old studio scores"] },
+    { id: "studio:checkpoint:2026-10-17T14:00:00Z:75", title: "Earlier games at 75 minutes", momentMs: Date.parse("2026-10-17T15:25:00Z"), lines: ["Old studio scores"] },
   ]));
   sessionStorage.setItem(`live-studio-order:v1:${scope}`, JSON.stringify({ counter: 900, updates: { "560603:full-time": { sequence: 900 } } }));
   const goal = { type: "GOAL", minute: 36, scorerName: "Johan Manzambi", teamName: "Aston Villa FC", homeGoals: 0, awayGoals: 1 };
@@ -116,8 +116,8 @@ test("a returning viewer sees all phases in order while old results and studio h
       const positions = labels.map(index);
       expect(labels.filter((label, i) => positions[i] < 0)).toEqual([]);
       expect(positions).toEqual([...positions].sort((a, b) => a - b));
-      expect(index("Watching the clock")).toBeGreaterThan(index("Kick off!"));
-      expect(index("Earlier games at half time")).toBeGreaterThan(index("Watching the clock"));
+      expect(index("Earlier games at 75 minutes")).toBeGreaterThan(index("Kick off!"));
+      expect(index("Earlier games at half time")).toBeGreaterThan(index("Earlier games at 75 minutes"));
     };
     checkOrder();
     // League/points information and result corrections enrich old cards; they

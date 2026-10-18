@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import App, { buildLeaguePredictionSources, getFixturePredictionPoints, mergeCloudPredictionsPreservingLocalBoosts } from "./App";
 
 const league = { id: "score-test", name: "Friends", members: ["phil-id", "tin-id", "phil-old"] };
@@ -26,6 +26,7 @@ test("canonical league picks ignore the viewing player, local boosts and account
 });
 
 test("two signed-in viewers see the same league and Studio totals despite different local caches", async () => {
+  jest.setSystemTime(Date.parse("2026-10-17T20:00:00Z"));
   const originalFetch = global.fetch;
   let viewerId = "phil-id";
   let remote = JSON.parse(JSON.stringify(cloud));
@@ -33,6 +34,7 @@ test("two signed-in viewers see the same league and Studio totals despite differ
   global.fetch = jest.fn(async url => {
     const path = String(url);
     let data = {};
+    if (path.includes("/api/avatar/all")) data = { "phil-id": { seed: "phil-profile", style: "bottts" }, "tin-id": { seed: "tin-profile", style: "lorelei" } };
     if (path.includes("/api/leagues/my?")) data = { leagues: [league] };
     if (path.includes("/api/predictions/league/")) { requests += 1; data = { users, predictionsByUserId: remote }; }
     if (path.includes("/api/predictions/my")) data = { predictions: remote[viewerId] };
@@ -60,6 +62,17 @@ test("two signed-in viewers see the same league and Studio totals despite differ
       const buttons = screen.getAllByRole("button", { name: "Live Studio" });
       await act(async () => { buttons[0].click(); }); await flush();
       expect(readStudio()).toEqual({ Phil: 21, "Tin Tin": 16 });
+      const philUpdate = screen.getAllByRole("region", { name: "Phil's studio update" })[0];
+      const tinUpdate = screen.getAllByRole("region", { name: "Tin Tin's studio update" })[0];
+      expect(philUpdate).not.toBe(tinUpdate);
+      expect(within(philUpdate).getByText("Phil", { selector: "strong" })).toBeInTheDocument();
+      expect(within(philUpdate).getByAltText("Phil's profile avatar").getAttribute("src")).toContain("bottts/svg?seed=phil-profile");
+      expect(within(tinUpdate).getByAltText("Tin Tin's profile avatar").getAttribute("src")).toContain("lorelei/svg?seed=tin-profile");
+      expect(philUpdate.querySelector("p")).toHaveTextContent("21 prediction points");
+      expect(tinUpdate.querySelector("p")).toHaveTextContent("16 prediction points");
+      expect(tinUpdate.style.borderTop).toContain("1px solid");
+      expect(philUpdate.textContent).not.toContain("At the prediction desk:");
+      expect(tinUpdate.textContent).not.toContain("At the prediction desk:");
       const before = requests;
       remote["tin-id"][560603] = { homeGoals: 0, awayGoals: 0 };
       await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 50; i++) await Promise.resolve(); }); await flush();

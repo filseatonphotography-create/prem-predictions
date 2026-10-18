@@ -3,7 +3,9 @@
 export function orderLiveStudioUpdates(entries = []) {
   return { entries: [...entries].sort((a, b) =>
     (b.momentMs || 0) - (a.momentMs || 0)
-    || Number(Boolean(b.id?.startsWith("studio:"))) - Number(Boolean(a.id?.startsWith("studio:")))
+    // Provider times often have only minute precision. A goal/card sharing a
+    // roundup's timestamp takes precedence over the studio commentary.
+    || Number(Boolean(a.id?.startsWith("studio:"))) - Number(Boolean(b.id?.startsWith("studio:")))
     || (b.sortMinute ?? -1) - (a.sortMinute ?? -1)
     || String(a.orderKey || a.id).localeCompare(String(b.orderKey || b.id))) };
 }

@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { useLiveStudioCommentaryHistory, buildLiveStudioPlayerRoundup, buildLiveStudioDeskEntries, mergeLiveStudioDeskHistory } from "./App";
+import { useLiveStudioCommentaryHistory, buildLiveStudioPlayerRoundup, getLiveStudioPlayerUpdates, buildLiveStudioDeskEntries, mergeLiveStudioDeskHistory } from "./App";
 
 const kickoff = "2026-10-17T14:00:00Z";
 const nowMs = Date.parse(kickoff) + 25 * 60000;
@@ -25,8 +25,8 @@ test("every player gets their projected total, including boosts, Bingpots and ze
   expect(zero).toMatch(/0 prediction points/);
 });
 
-test.each(["25-minute", "70-minute", "half-time", "quiet", "final"])("the %s studio visit includes the prediction desk", phase => {
-  const game = match(1, phase === "70-minute" ? { minute: 70 } : phase === "half-time" ? { paused: true } : phase === "quiet" ? { minute: 40 } : phase === "final" ? { finished: true, live: false } : {});
+test.each(["15-minute", "25-minute", "60-minute", "75-minute", "late", "half-time", "final"])("the %s studio visit includes the prediction desk", phase => {
+  const game = match(1, phase === "late" ? { minute: 85, lastNewsAt: nowMs - 5 * 60000 } : phase.endsWith("-minute") ? { minute: Number(phase.split("-")[0]) } : phase === "half-time" ? { paused: true } : phase === "quiet" ? { minute: 40 } : phase === "final" ? { finished: true, live: false } : {});
   const [entry] = buildLiveStudioDeskEntries({ matches: phase === "quiet" ? [game, match(2, { minute: 40 })] : [game], nowMs });
   expect(entry.verdictLabel).toBe("Back in the studio");
   expect(entry.playerRoundup).toHaveLength(3);
@@ -90,4 +90,17 @@ test("the saved full rundown survives loading, a partial final response and a se
   const restored = renderHook(() => useLiveStudioCommentaryHistory(partial, "refresh-final"));
   expect(restored.result.current.find(entry => entry.id === "studio:closing").playerRoundup).toHaveLength(3);
   restored.unmount(); sessionStorage.clear();
+});
+
+
+test("saved player summaries use current account IDs for profile avatars, retaining every player's points", () => {
+  const [entry] = buildLiveStudioDeskEntries({ matches: [match(1)], nowMs });
+  const users = [{ username: "Phil", userId: "phil-account" }, { username: "Dave", userId: "dave-account" }, { username: "Emma", userId: "emma-account" }];
+  const updates = getLiveStudioPlayerUpdates(entry, users);
+  expect(updates).toHaveLength(3);
+  expect(updates.find(row => row.username === "Phil")).toEqual(expect.objectContaining({ userId: "phil-account", line: expect.stringContaining("14 prediction points") }));
+  expect(updates.find(row => row.username === "Emma").line).toContain("0 prediction points");
+  expect(updates.every(row => !row.line.includes("At the prediction desk:"))).toBe(true);
+  const legacy = { playerRoundup: ["At the prediction desk: Phil has 14 prediction points coming from these games if the scores stay put."] };
+  expect(getLiveStudioPlayerUpdates(legacy, users)).toEqual([{ userId: "phil-account", username: "Phil", line: "Phil has 14 prediction points coming from these games if the scores stay put." }]);
 });

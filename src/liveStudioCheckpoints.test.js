@@ -7,10 +7,10 @@ const match = minute => ({ fixture: { id: 560607, homeTeam: "Newcastle", awayTea
   minute, lastNewsAt: nowMs, picks: [{ username: "Phil", prediction: { homeGoals: 0, awayGoals: 1 } }],
 });
 
-test.each([25, 70])("posts a studio check-in around %s minutes even after a recent event", mark => {
+test.each([15, 25, 60, 75])("posts a studio check-in around %s minutes even after a recent event", mark => {
   const [entry] = buildLiveStudioDeskEntries({ matches: [match(mark)], nowMs });
   expect(entry.verdictLabel).toBe("Back in the studio");
-  expect(entry.minute).toBe(mark === 70 ? "Studio" : `${mark}'`);
+  expect(entry.minute).toBe(`${mark}'`);
   expect(entry.lines).toContain(`Newcastle United 0–1 Aston Villa (${mark}')`);
   expect(entry.lines.join(" ")).toContain("Phil is on for Bingpot");
   expect(entry.tableSnapshot).toBeUndefined();
@@ -22,12 +22,12 @@ test("one check-in per mark and kick-off group stays in history without repeated
   const later = buildLiveStudioDeskEntries({ matches: [match(29)], nowMs: nowMs + 240000 });
   const retained = mergeLiveStudioDeskHistory(first, later);
   expect(retained).toEqual(first);
-  const seventy = buildLiveStudioDeskEntries({ matches: [match(70)], nowMs: nowMs + 60 * 60000 });
+  const seventy = buildLiveStudioDeskEntries({ matches: [match(75)], nowMs: nowMs + 60 * 60000 });
   expect(mergeLiveStudioDeskHistory(retained, seventy)).toHaveLength(2);
 });
 
 test("does not invent missed check-ins when joining much later or while at half-time", () => {
-  for (const minute of [24, 40, 45, 60, 69, 85]) {
+  for (const minute of [6, 7, 24, 40, 45, 69, 70, 80, 84]) {
     const entries = buildLiveStudioDeskEntries({ matches: [match(minute)], nowMs });
     expect(entries.some(entry => entry.id.startsWith("studio:checkpoint:"))).toBe(false);
   }
