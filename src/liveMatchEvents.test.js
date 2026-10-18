@@ -134,3 +134,45 @@ test("corrected goal details replace the original event, while a new goal after 
   expect(events.filter(event => event.type === "GOAL").map(event => event.minute)).toEqual([6, 10]);
   expect(events.filter(event => event.type === "GOAL_DISALLOWED")).toHaveLength(1);
 });
+
+
+test("lineup timeline uses the recorded announcement time and preserves it through thin refreshes", () => {
+  const { mergeRecordedMatchState } = require("./liveMatchEvents");
+  const fixture = { kickoff: "2026-10-18T15:30:00Z" };
+  const announcedAt = "2026-10-18T14:20:00Z";
+  const state = mergeRecordedMatchState({ status: "TIMED" }, { lineupsAnnouncedAt: announcedAt });
+  expect(state.lineupsAnnouncedAt).toBe(announcedAt);
+  expect(getMatchEventMomentMs(fixture, { type: "LINEUPS" }, state)).toBe(Date.parse(announcedAt));
+  expect(getMatchEventMomentMs(fixture, { type: "LINEUPS" })).toBeLessThan(Date.parse(fixture.kickoff) - 60000);
+});
+
+
+test("the server records a fresh lineup announcement once and does not invent a new announcement for legacy lineups", () => {
+  const fs = require("fs"), vm = require("vm");
+  const source = fs.readFileSync("server.js", "utf8");
+  const start = source.indexOf("function mergeMatchStatePreservingEvents(");
+  const end = source.indexOf("\nfunction buildLiveMatchEventPayload(", start);
+  const context = { mergeMatchPhaseState, mergeMatchStateEventLists: mergeMatchEvents };
+  vm.runInNewContext(`${source.slice(start, end)}; this.merge = mergeMatchStatePreservingEvents;`, context);
+  const lineups = { home: { lineup: [{ name: "Keeper" }] } };
+  const first = context.merge({}, { status: "TIMED", lineups, observedAt: "2026-10-18T14:20:00Z" });
+  expect(first.lineupsAnnouncedAt).toBe("2026-10-18T14:20:00Z");
+  expect(context.merge(first, { status: "TIMED", lineups, observedAt: "2026-10-18T14:30:00Z" }).lineupsAnnouncedAt).toBe(first.lineupsAnnouncedAt);
+  expect(context.merge({ lineups }, { status: "TIMED", lineups }).lineupsAnnouncedAt).toBeUndefined();
+});
+
+
+test("recent confirmed full-time remains eligible after the status transition, while old results never replay", () => {
+  const { shouldSendRecentFullTimeUpdate } = require("./liveMatchEvents");
+  const kickoff = Date.parse("2026-10-18T13:00:00Z");
+  const fixture = { kickoff: new Date(kickoff).toISOString() };
+  const state = { status: "FINISHED", minute: 90, utcDate: fixture.kickoff, homeGoals: 2, awayGoals: 1, finishedAt: "2026-10-18T14:55:00Z" };
+  jest.useFakeTimers(); jest.setSystemTime(kickoff + 140 * 60000);
+  try {
+    expect(shouldSendRecentFullTimeUpdate(fixture, state)).toBe(true);
+    expect(shouldSendRecentFullTimeUpdate(fixture, { ...state, status: "IN_PLAY" })).toBe(false);
+    expect(shouldSendRecentFullTimeUpdate(fixture, { ...state, homeGoals: null })).toBe(false);
+    jest.setSystemTime(kickoff + 300 * 60000);
+    expect(shouldSendRecentFullTimeUpdate(fixture, state)).toBe(false);
+  } finally { jest.useRealTimers(); }
+});

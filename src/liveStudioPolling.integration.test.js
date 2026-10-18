@@ -13,11 +13,12 @@ test("the full app puts new updates first and combines half-time into one studio
   localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7, predictions: { diagnostic: { 560607: { homeGoals: 0, awayGoals: 1 } }, Dave: { 560607: { homeGoals: 0, awayGoals: 1, isDouble: true } }, Emma: { 560607: { homeGoals: 0, awayGoals: 0 } } } }));
   let scored = false;
   let nextLineups = false;
+  let ended = false;
   let paused = false;
   let minuteOverride = null;
   let finalHomeGoals = 2;
   const finishedRaw = () => ({ id: 560602, homeTeam: { name: "Fulham FC" }, awayTeam: { name: "Hull City AFC" }, utcDate: "2026-10-17T14:00:00Z", status: "FINISHED", minute: 90, lastUpdated: "2026-10-17T19:00:00Z", score: { fullTime: { home: finalHomeGoals, away: 1 } }, goals: [] });
-  const raw = () => ({ id: 560607, homeTeam: { name: "Newcastle United FC" }, awayTeam: { name: "Aston Villa FC" }, utcDate: "2026-10-17T16:30:00Z", status: paused ? "PAUSED" : "IN_PLAY", minute: minuteOverride ?? (paused ? 45 : scored ? 41 : 1), lastUpdated: scored ? "2026-10-17T19:11:00Z" : "2026-10-17T18:31:00Z", score: { fullTime: { home: 0, away: scored ? 1 : 0 } }, goals: scored ? [{ type: "REGULAR", minute: 36, scorer: { name: "Johan Manzambi" }, team: { name: "Aston Villa FC" }, score: { home: 0, away: 1 } }] : [] });
+  const raw = () => ({ id: 560607, homeTeam: { name: "Newcastle United FC" }, awayTeam: { name: "Aston Villa FC" }, utcDate: "2026-10-17T16:30:00Z", status: ended ? "FINISHED" : paused ? "PAUSED" : "IN_PLAY", minute: minuteOverride ?? (paused ? 45 : scored ? 41 : 1), lastUpdated: scored ? "2026-10-17T19:11:00Z" : "2026-10-17T18:31:00Z", score: { fullTime: { home: 0, away: scored ? 1 : 0 } }, goals: scored ? [{ type: "REGULAR", minute: 36, scorer: { name: "Johan Manzambi" }, team: { name: "Aston Villa FC" }, score: { home: 0, away: 1 } }] : [] });
   const nextFixture = { id: 560608, status: "TIMED", utcDate: "2026-10-17T18:30:00Z", homeTeam: { name: "Nottingham Forest FC" }, awayTeam: { name: "Arsenal FC" }, score: {},
     lineups: { home: { lineup: [{ name: "Next home keeper", position: "Goalkeeper" }] }, away: { lineup: [{ name: "Next away keeper", position: "Goalkeeper" }] } } };
   const originalFetch = global.fetch;
@@ -65,6 +66,12 @@ test("the full app puts new updates first and combines half-time into one studio
     const halfCard = screen.getByText("Half-time around the grounds").closest("article");
     expect(within(halfCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
     expect(within(halfCard).getByText(/Emma.*0 prediction points/)).toBeInTheDocument();
+    const halfScores = within(halfCard).getByRole("list", { name: "Scores around the grounds" });
+    expect(within(halfScores).getByRole("listitem", { name: "Newcastle United 0, Aston Villa 1, HT" })).toBeInTheDocument();
+    expect(within(halfScores).getByTitle("Newcastle United")).toHaveTextContent("NEW");
+    expect(within(halfScores).getByTitle("Aston Villa")).toHaveTextContent("AVL");
+    expect(within(halfCard).getAllByText(/Dave.*14 prediction points/)).toHaveLength(1);
+    expect(within(halfCard).queryByText("Newcastle United 0–1 Aston Villa (HT)")).not.toBeInTheDocument();
     expect(screen.getByText("Half-time around the grounds").parentElement).toHaveStyle({ color: "#f59e0b" });
     paused = false;
     minuteOverride = 75;
@@ -76,6 +83,16 @@ test("the full app puts new updates first and combines half-time into one studio
     expect(checkInCard.style.background).toBe(halfCard.style.background);
     expect(screen.getByText("75-minute studio check-in").parentElement).toHaveStyle({ color: "#f59e0b" });
     expect(within(checkInCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
+    ended = true; minuteOverride = 90;
+    jest.setSystemTime(Date.parse("2026-10-17T18:20:00Z"));
+    await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 50; i++) await Promise.resolve(); });
+    const finalCard = screen.getByText("Full-time around the grounds").closest("article");
+    const finalScores = within(finalCard).getByRole("list", { name: "Scores around the grounds" });
+    expect(within(finalScores).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(finalScores).getByRole("listitem", { name: "Newcastle United 0, Aston Villa 1, FT" })).toBeInTheDocument();
+    expect(within(finalCard).getAllByText(/Dave.*14 prediction points/)).toHaveLength(1);
+    expect(within(finalCard).queryByText(/^Best return/)).not.toBeInTheDocument();
+    expect(within(finalCard).getByText("Mini-league: first kick-off to full time")).toBeInTheDocument();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
 
@@ -172,5 +189,41 @@ test("confirmed half-time appears while the detailed provider response is still 
     expect(screen.getByText("Half-time around the grounds")).toBeInTheDocument();
     await act(async () => { finishProvider(); for (let i = 0; i < 50; i++) await Promise.resolve(); });
     expect(screen.getAllByText("Half-time around the grounds")).toHaveLength(1);
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});
+
+test("a second-half phase reconstructed at 84 minutes does not jump above existing goals or next-game lineups", async () => {
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T18:10:00Z"));
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
+  localStorage.setItem("activeView", "liveStudio");
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7 }));
+  let minute = 45;
+  const goal = { type: "GOAL", minute: 80, scorerName: "Current scorer", teamName: "Aston Villa FC", homeGoals: 0, awayGoals: 1 };
+  const states = () => ({
+    560607: { status: "IN_PLAY", minute, utcDate: "2026-10-17T16:30:00Z", homeTeam: { name: "Newcastle United FC" }, awayTeam: { name: "Aston Villa FC" }, homeGoals: 0, awayGoals: 1, goalEvents: [goal], matchEvents: [goal] },
+    560608: { status: "TIMED", utcDate: "2026-10-17T18:30:00Z", homeTeam: { name: "Nottingham Forest FC" }, awayTeam: { name: "Arsenal FC" }, lineupsAnnouncedAt: "2026-10-17T17:45:00Z",
+      lineups: { home: { lineup: [{ name: "Home keeper", position: "Goalkeeper" }] }, away: { lineup: [{ name: "Away keeper", position: "Goalkeeper" }] } } },
+  });
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async url => {
+    let data = {};
+    if (String(url).includes("/api/match-states/snapshot")) data = states();
+    if (String(url).includes("/api/results?")) data = Object.entries(states()).map(([id, state]) => ({ id: Number(id), ...state, score: state.status === "IN_PLAY" ? { fullTime: { home: 0, away: 1 } } : {} }));
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
+  });
+  try {
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); });
+    expect(document.querySelector("article")).toHaveTextContent("Goal for AVL!");
+    minute = 84;
+    await act(async () => { screen.getByRole("button", { name: "Refresh studio" }).click(); for (let i = 0; i < 60; i++) await Promise.resolve(); });
+    const cards = [...document.querySelectorAll("article")];
+    expect(cards[0]).toHaveTextContent("Goal for AVL!");
+    const lineupIndex = cards.findIndex(card => card.textContent.includes("Line-ups confirmed:"));
+    const restartIndex = cards.findIndex(card => card.textContent.includes("Second half!"));
+    expect(restartIndex).toBeGreaterThan(lineupIndex);
+    expect(cards[restartIndex].firstElementChild).toHaveTextContent("2H");
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });

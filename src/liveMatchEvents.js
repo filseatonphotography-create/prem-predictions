@@ -148,7 +148,7 @@ function mergeMatchPhaseState(previous = {}, incoming = {}, observedAt = new Dat
   }
   if (["FINISHED", "AWARDED"].includes(status)) merged.finishedAt = previous.finishedAt || incoming.finishedAt || incoming.lastUpdated || observedAt;
   // A thin browser refresh must not erase detailed lineups or recorded phase transitions.
-  for (const key of ["halfTimeAt", "secondHalfAt", "finishedAt", "lineups"]) if (!incoming[key] && previous[key]) merged[key] = previous[key];
+  for (const key of ["halfTimeAt", "secondHalfAt", "finishedAt", "lineups", "lineupsAnnouncedAt"]) if (!incoming[key] && previous[key]) merged[key] = previous[key];
   return merged;
 }
 function getConfirmedPhaseFlags(state = {}) {
@@ -188,7 +188,12 @@ function getMatchEventMomentMs(fixture, event = {}, state = {}) {
     return Math.max(phase ?? fallback, latestEvent);
   }
   // A confirmed XI precedes kick-off, even if first fetched after play starts.
-  if (String(event.type || "").toUpperCase() === "LINEUPS") return kickoff - 60000;
+  if (String(event.type || "").toUpperCase() === "LINEUPS") {
+    const announced = validTime(state.lineupsAnnouncedAt, -90, 0);
+    // Legacy records have no announcement timestamp. Use the pre-match lineup
+    // window, never the future minute immediately before kickoff.
+    return announced ?? kickoff - 60 * 60000;
+  }
   const elapsed = (minute ?? 0) + (minute > 45 ? 15 : 0) + injury;
   const occurred = validTime(event.occurredAt, Math.max(-60, elapsed - 15), elapsed + 15);
   if (occurred != null) return occurred;
@@ -198,6 +203,14 @@ function getMatchEventMomentMs(fixture, event = {}, state = {}) {
   }
   if (minute > 45 && secondHalf != null) return secondHalf + (minute - 45 + injury) * 60000;
   return kickoff + elapsed * 60000;
+}
+function shouldSendRecentFullTimeUpdate(fixture, state = {}, nowMs = Date.now()) {
+  if (!["FINISHED", "AWARDED"].includes(String(state.status).toUpperCase())
+    || numeric(state.homeGoals) == null || numeric(state.awayGoals) == null) return false;
+  const kickoff = Date.parse(state.utcDate || fixture?.kickoff || "");
+  if (!Number.isFinite(kickoff) || nowMs < kickoff || nowMs - kickoff > 6 * 60 * 60000) return false;
+  const finished = getMatchEventMomentMs(fixture, { statusLabel: "FT", minute: 90 }, state);
+  return finished <= nowMs && nowMs - finished <= 90 * 60000;
 }
 function mergeRecordedMatchState(incoming = {}, recorded = {}) {
   const incomingTime = Date.parse(incoming.lastUpdated || "");
@@ -209,4 +222,4 @@ function mergeRecordedMatchState(incoming = {}, recorded = {}) {
   merged.matchEvents = mergeMatchEvents(recorded.matchEvents, incoming.matchEvents);
   return merged;
 }
-module.exports = { mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };
+module.exports = { shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };

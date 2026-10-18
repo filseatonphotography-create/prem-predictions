@@ -54,9 +54,9 @@ test("half-time always carries a table and accurately describes unchanged positi
   expect(changed.line).toMatch(/changed hands|moved|reshuffle/);
 });
 
-test("an earlier closing verdict cannot stay in the feed during a later live game", () => {
+test("a completed session roundup stays in history during the next live game", () => {
   const closing = { id: "studio:closing", momentMs: 50, lines: ["That's a wrap"] };
-  expect(mergeLiveStudioDeskHistory([closing, roundup], [goal])).toEqual([roundup]);
+  expect(mergeLiveStudioDeskHistory([closing, roundup], [goal])).toEqual([roundup, closing]);
   expect(mergeLiveStudioDeskHistory([roundup], [closing])).toEqual([roundup, closing]);
 });
 

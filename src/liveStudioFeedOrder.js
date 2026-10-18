@@ -19,18 +19,45 @@ function identity(entry) {
 
 export function orderLiveStudioUpdates(entries = [], previous = {}) {
   const updates = { ...(previous.updates || {}) };
-  let counter = Math.max(Number.isSafeInteger(previous.counter) ? previous.counter : 0,
-    ...Object.values(updates).filter(Number.isSafeInteger), 0);
+  const meta = { ...(previous.meta || {}) };
+  let counter = Math.ceil(Math.max(Number.isSafeInteger(previous.counter) ? previous.counter : 0,
+    ...Object.values(updates).filter(Number.isFinite), 0));
   const eligible = entry => entry.id !== "waiting" && entry.id !== "countdown";
-  // Seed an existing feed once. Thereafter only genuinely unseen posts receive
-  // a new sequence. Text, points, lineups and event-time corrections cannot move it.
+  const historical = [];
   chronological(entries).reverse().filter(eligible).forEach(entry => {
     const key = identity(entry);
-    if (!Number.isSafeInteger(updates[key])) updates[key] = ++counter;
+    const known = Number.isFinite(updates[key]);
+    const recoveringPhase = entry.backfilled && (!meta[key] || meta[key].backfilled);
+    // Repair legacy lineups once: their old bootstrap position used tomorrow's
+    // kickoff instead of an announcement time. Other existing cards stay fixed.
+    const repairingLineup = Boolean(entry.lineups && known && !meta[key]);
+    if (recoveringPhase || repairingLineup) {
+      delete updates[key];
+      historical.push(entry);
+      return;
+    }
+    if (!known) updates[key] = ++counter;
+    if (!meta[key]) meta[key] = { backfilled: false };
+  });
+  historical.forEach(entry => {
+    const key = identity(entry);
+    if (meta[key]?.position != null) {
+      updates[key] = meta[key].position;
+      return;
+    }
+    // A reconstructed phase is history, not a freshly published update. Insert
+    // it between existing cards without changing their relative arrival order.
+    const known = chronological(entries.filter(candidate => Number.isFinite(updates[identity(candidate)])));
+    const older = known.find(candidate => (candidate.momentMs || 0) <= (entry.momentMs || 0));
+    const positions = [...new Set(Object.values(updates).filter(Number.isFinite))].sort((a, b) => a - b);
+    const lower = older ? updates[identity(older)] : (positions[0] ?? 0) - 1;
+    const upper = positions.find(position => position > lower) ?? lower + 2;
+    updates[key] = (lower + upper) / 2;
+    meta[key] = { backfilled: true, position: updates[key] };
   });
   return {
     entries: chronological(entries).sort((a, b) => (updates[identity(b)] || 0) - (updates[identity(a)] || 0)),
-    state: { counter, updates },
+    state: { counter, updates, meta },
   };
 }
 
@@ -38,17 +65,19 @@ function readOrder(key) {
   try {
     const saved = JSON.parse(sessionStorage.getItem(key) || "null");
     if (saved && Number.isSafeInteger(saved.counter) && saved.updates && typeof saved.updates === "object" && !Array.isArray(saved.updates)) {
-      return { counter: saved.counter, updates: Object.fromEntries(Object.entries(saved.updates).filter(([, sequence]) => Number.isSafeInteger(sequence) && sequence > 0)) };
+      return { counter: saved.counter, updates: Object.fromEntries(Object.entries(saved.updates).filter(([, sequence]) => Number.isFinite(sequence))), meta: saved.meta || {} };
     }
   } catch { /* A missing or damaged cache starts a fresh timeline. */ }
   return {};
 }
 
-export default function useLiveStudioFeedOrder(entries, scope, enabled = true) {
+export default function useLiveStudioFeedOrder(entries, scope, enabled = true, legacyScope = scope) {
   // v2 starts clean instead of importing the retired event-time/arrival cache.
   const key = `live-studio-order:v2:${scope}`;
   const saved = useRef(null);
-  const previous = saved.current?.key === key ? saved.current.state : readOrder(key);
+  const stored = readOrder(key);
+  const previous = saved.current?.key === key ? saved.current.state
+    : stored.updates ? stored : readOrder(`live-studio-order:v2:${legacyScope}`);
   const ordered = orderLiveStudioUpdates(entries, previous);
   useEffect(() => {
     if (!enabled) return;

@@ -4,6 +4,7 @@ import "./App.css";
 import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
+import LiveStudioScores from "./LiveStudioScores";
 import useLiveResultsPolling from "./useLiveResultsPolling";
 import useLiveStudioFeedOrder, { orderLiveStudioUpdates } from "./liveStudioFeedOrder";
 import FIXTURES from "./fixtures";
@@ -5325,12 +5326,10 @@ function withoutIndividualFullTimeTable(entry) {
 }
 
 export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
-  // Final roundups survive partial player fetches, but never carry a closing
-  // verdict into another live session. Late check-ins share one stable identity.
-  const closing = currentFeed.some(entry => entry.id === "studio:closing");
-  const loading = currentFeed.every(entry => entry.id === "waiting");
+  // Keep published final roundups as history when the next game starts.
+  // Late check-ins share one stable identity.
   const entries = new Map();
-  history.filter(entry => !isLegacyLiveStudioClockCard(entry) && (entry.id !== "studio:closing" || closing || loading))
+  history.filter(entry => !isLegacyLiveStudioClockCard(entry))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const previous = entries.get(entry.id);
@@ -5353,7 +5352,7 @@ export function getSavedLiveStudioFullTimeFixtures(scope) {
   } catch { return new Set(); }
 }
 
-export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = true) {
+export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = true, orderScope = scope) {
   const storageKey = `live-studio-commentary:v1:${scope}`;
   const readHistory = (key) => {
     try {
@@ -5374,7 +5373,7 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
   const combined = retained.length
     ? [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
     : currentFeed;
-  return getVisibleLiveStudioEntries(useLiveStudioFeedOrder(combined, scope, enabled));
+  return getVisibleLiveStudioEntries(useLiveStudioFeedOrder(combined, orderScope, enabled, scope));
 }
 
 export function getLiveStudioChangedTableSnapshot(previousRows = [], currentRows = [], { fullTime = false } = {}) {
@@ -6097,7 +6096,8 @@ function buildLiveStudioPlayerRoundupDetails(matches, seed, finished = false) {
     playerRoundup: buildLiveStudioPlayerRoundup({ matches, seed, finished }),
     // Keep the score snapshot so late prediction loading can fill in players
     // without changing the result or publication time of an earlier roundup.
-    roundupMatches: matches.map(({ fixture, score, picks = [] }) => ({ fixture, score, picks })),
+    roundupMatches: matches.map(({ fixture, score, picks = [], minute, paused, scoreLabel, finished: matchFinished }) => ({ fixture, score, picks,
+      scoreLabel: finished || matchFinished ? "FT" : scoreLabel || (paused ? "HT" : numeric(minute) != null ? `${minute}′` : "Live") })),
   };
 }
 
@@ -6227,8 +6227,8 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
 export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false, completedMatches = [] }) {
   if (!matches.length && !completedMatches.length) return [];
   const active = matches.filter((match) => match.live && !match.paused && match.score);
-  const unfinished = hasUnfinishedFixtures || matches.some((match) => !match.finished);
-  if (!unfinished && !(nextKickoffMs > nowMs && nextKickoffMs - nowMs < 60 * 60000)) {
+  const unfinished = hasUnfinishedFixtures || matches.some(match => !match.finished && (match.live || match.paused || (Date.parse(match.fixture.kickoff) <= nowMs && hasStartedMatchStatus(match.matchState || {}))));
+  if (!unfinished) {
     const finalMatches = [...new Map([...completedMatches, ...matches].filter((match) => match.finished)
       .map((match) => [String(match.fixture.id), match])).values()]
       .sort((a, b) => Date.parse(a.fixture.kickoff) - Date.parse(b.fixture.kickoff));
@@ -11871,7 +11871,7 @@ const liveStudioCurrentFeed = useMemo(() => {
             : isLineup
             ? "XI"
             : statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "");
-        const entryMinute = formatLiveStudioMinute(
+        const entryMinute = isSecondHalf ? "2H" : formatLiveStudioMinute(
           event,
           entryMinuteFallback
         );
@@ -11999,6 +11999,8 @@ const liveStudioCurrentFeed = useMemo(() => {
           sortMinute,
           momentMs: entryMomentMs,
           fullTime: isFullTime,
+          backfilled: isSecondHalf && (finished || getLiveStudioClockMinute(fixture, matchState, liveStudioNow) > 50
+            || liveStudioNow - entryMomentMs > 5 * 60000),
           kickoff: isKickoff,
           lineups: isLineup ? matchState.lineups : null,
           tone: live ? "live" : paused ? "paused" : finished ? "finished" : "default",
@@ -12094,7 +12096,8 @@ const liveStudioCurrentFeed = useMemo(() => {
 const liveStudioFeed = useLiveStudioCommentaryHistory(
   liveStudioCurrentFeed,
   liveStudioCommentaryScope,
-  activeView === "liveStudio"
+  activeView === "liveStudio",
+  `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`
 );
 
 useEffect(() => {
@@ -21267,7 +21270,7 @@ const TABS = [
                           </span>
                         </div>
                         <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
-                          {entry.lines.map((line, index) => (
+                          {(isStudioRoundup && entry.roundupMatches?.length ? entry.lines.slice(0, 1) : entry.lines).map((line, index) => (
                             <div
                               key={`${entry.id}:${index}`}
                               style={{
@@ -21281,6 +21284,13 @@ const TABS = [
                             </div>
                           ))}
                         </div>
+                        {isStudioRoundup && entry.roundupMatches?.length > 0 && (
+                          <LiveStudioScores theme={theme} isMobile={isMobile} matches={entry.roundupMatches.map(match => ({
+                            id: match.fixture.id, score: match.score, status: match.scoreLabel || (entry.minute === "FT" ? "FT" : entry.minute === "HT" ? "HT" : ""),
+                            home: { name: getLiveStudioTeamName(match.fixture.homeTeam), code: getTeamCode(match.fixture.homeTeam, gameMode), badge: resolveTeamBadge(match.fixture.homeTeam), flag: isWorldCupMode ? getWorldCupFlag(match.fixture.homeTeam) : "" },
+                            away: { name: getLiveStudioTeamName(match.fixture.awayTeam), code: getTeamCode(match.fixture.awayTeam, gameMode), badge: resolveTeamBadge(match.fixture.awayTeam), flag: isWorldCupMode ? getWorldCupFlag(match.fixture.awayTeam) : "" },
+                          }))} />
+                        )}
                         {entry.playerRoundup?.length > 0 && (
                           <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
                             <div style={{ color: toneColor, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.8 }}>

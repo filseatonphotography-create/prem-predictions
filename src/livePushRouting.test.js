@@ -8,16 +8,17 @@ function dispatcher() {
   const end = source.indexOf("\nfunction findFixtureById(", start);
   const send = jest.fn(async () => true);
   const reserve = jest.fn(() => true);
+  const finish = jest.fn();
   const context = {
     shouldPushMatchEvent, isMeaningfulFixturePush,
     isPushTypeEnabled: () => true, getPushNotificationPrefs: () => ({}), hasFixtureNotificationEnabled: () => true,
-    reserveFixtureNotificationEvent: reserve,
+    reserveFixtureNotificationEvent: reserve, finishFixtureNotificationEvent: finish,
     maybeApplyNoSpoilerFixturePayload: (_user, _fixture, _kind, _key, payload) => payload,
     buildLiveStudioUrl: () => "/?view=liveStudio", sendPushNotification: send,
   };
   vm.createContext(context);
   vm.runInContext(`${source.slice(start, end)}; this.dispatch = sendFixtureUpdateNotification;`, context);
-  return { dispatch: context.dispatch, send, reserve };
+  return { dispatch: context.dispatch, send, reserve, finish };
 }
 
 test.each(["substitution", "yellow-card", "red-card"])("the actual notification dispatcher blocks %s for both subscriber paths", async kind => {
@@ -81,4 +82,34 @@ test.each(["goal", "goal-disallowed"])("spoiler-free %s alerts still describe th
   expect(payload.title).toMatch(/Goal/);
   expect(payload.body).toMatch(kind === "goal" ? /been a goal/ : /ruled out/);
   expect(payload.body).not.toMatch(/Maeda|1-0|Something has happened/);
+});
+
+
+test.each([false, "throw"])("a failed push (%s) releases its reservation for a later retry", async failure => {
+  const { dispatch, send, finish } = dispatcher();
+  if (failure === "throw") send.mockRejectedValueOnce(new Error("Push service unavailable"));
+  else send.mockResolvedValueOnce(false);
+  expect(await dispatch("user", "57", "full-time", "2-1", { title: "Full time", body: "Arsenal 2-1 Chelsea" })).toBe(false);
+  expect(finish).toHaveBeenCalledWith("user", "57:full-time:2-1", true, false);
+});
+
+test("notification reservations retry failed or interrupted sends, and permanently deduplicate accepted sends", () => {
+  const source = fs.readFileSync("server.js", "utf8");
+  const start = source.indexOf("function reserveFixtureNotificationEvent(");
+  const end = source.indexOf("\nfunction getPushNotificationPrefs(", start);
+  let data = {}, now = 1000;
+  const context = { PUSH_SUBSCRIPTIONS_FILE: "unused", Date: { now: () => now },
+    loadJson: () => JSON.parse(JSON.stringify(data)), saveJson: (_file, next) => { data = next; } };
+  vm.runInNewContext(`${source.slice(start, end)}; this.reserve = reserveFixtureNotificationEvent; this.finish = finishFixtureNotificationEvent;`, context);
+  const first = context.reserve("user", "ft");
+  expect(context.reserve("user", "ft")).toBe(false);
+  context.finish("user", "ft", first, false);
+  expect(context.reserve("user", "ft")).toBeTruthy();
+  now += 61000;
+  const retry = context.reserve("user", "ft");
+  expect(retry).toBeTruthy();
+  context.finish("user", "ft", first, true); // A stale completion cannot claim the newer reservation.
+  expect(data.user.notifLog.fixtureUpdates.ft.state).toBe("pending");
+  context.finish("user", "ft", retry, true);
+  expect(context.reserve("user", "ft")).toBe(false);
 });

@@ -26,7 +26,7 @@ test("a mixed matchday is chronological on first load, even when history arrives
   const half = { id: `studio:half-time:${villa.kickoff}`, momentMs: at("17:18") };
   const oldDesk = { id: "studio:roundup:old", momentMs: at("15:30") };
   const feed = [oldFinal, earlyFinal, kickoff, goal, restart, half, lineup, oldDesk, booking];
-  const expected = ["booking", "restart", half.id, "goal", "kickoff", "lineup", "old-final", oldDesk.id, "chelsea-final"];
+  const expected = ["booking", "restart", half.id, "goal", "kickoff", "old-final", "lineup", oldDesk.id, "chelsea-final"];
   expect(orderLiveStudioUpdates(feed).entries.map(e => e.id)).toEqual(expected);
   const enriched = feed.map(e => e.fullTime || e.id === "kickoff" ? { ...e, lines: ["Phil has a new points total"], tableSnapshot: { currentRows: [] } } : e);
   expect(orderLiveStudioUpdates(enriched.reverse()).entries.map(e => e.id)).toEqual(expected);
@@ -139,4 +139,36 @@ test("a new goal restoring the same score after VAR gets its own arrival above i
   expect(next.arrivalKey).not.toBe(old.arrivalKey);
   const seeded = orderLiveStudioUpdates([old, { id: "booking" }]);
   expect(orderLiveStudioUpdates([old, { id: "booking" }, next], seeded.state).entries[0]).toBe(next);
+});
+
+
+test("legacy future-dated lineups and late reconstructed second-half posts are repaired once without moving other updates", () => {
+  const goal = { id: "goal", momentMs: at("16:50") };
+  const lineup = { id: "lineup", lineups: {}, momentMs: at("17:30") };
+  const booking = { id: "booking", momentMs: at("17:45") };
+  const restart = { id: "restart", backfilled: true, momentMs: at("17:05") };
+  const previous = { counter: 9, updates: { goal: 1, lineup: 8, booking: 3, restart: 9 } };
+  const fixed = orderLiveStudioUpdates([lineup, restart, goal, booking], previous);
+  expect(fixed.entries).toEqual([booking, lineup, restart, goal]);
+  expect(orderLiveStudioUpdates([goal, booking, restart, lineup], fixed.state).entries).toEqual(fixed.entries);
+  const lateGoal = { id: "lateGoal", momentMs: at("17:10") };
+  expect(orderLiveStudioUpdates([...fixed.entries, lateGoal], fixed.state).entries).toEqual([lateGoal, ...fixed.entries]);
+});
+
+test("a restart actually published at the start of the half keeps its position when the game later reaches 84 minutes", () => {
+  const lineup = { id: "lineup", momentMs: at("17:30"), lineups: {} };
+  const restart = { id: "restart", momentMs: at("17:35") };
+  const first = orderLiveStudioUpdates([lineup, restart]);
+  const later = orderLiveStudioUpdates([lineup, { ...restart, backfilled: true }], first.state);
+  expect(later.entries.map(entry => entry.id)).toEqual(["restart", "lineup"]);
+});
+
+test("loading a league does not reset the shared arrival order", () => {
+  const lineup = { id: "lineup", momentMs: at("18:29") };
+  const goal = { id: "goal", momentMs: at("17:40") };
+  const { result, rerender } = renderHook(({ feed, scope }) => useLiveStudioCommentaryHistory(feed, scope, true, "shared-matchday"), { initialProps: { feed: [lineup], scope: "loading-league" } });
+  act(() => rerender({ feed: [lineup, goal], scope: "loading-league" }));
+  expect(result.current).toEqual([goal, lineup]);
+  act(() => rerender({ feed: [lineup, goal], scope: "originals-league" }));
+  expect(result.current).toEqual([goal, lineup]);
 });

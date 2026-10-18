@@ -281,8 +281,8 @@ describe("Live Studio closing verdict", () => {
     expect(lines[0]).toContain("7 prediction points each");
   });
 
-  test("waits for all matches to finish and for an imminent next kickoff", () => {
-    expect(buildLiveStudioDeskEntries({ matches: [match], nowMs, nextKickoffMs: nowMs + 30 * 60000 })).toEqual([]);
+  test("waits for matches in play to finish without delaying for the next kickoff", () => {
+    expect(buildLiveStudioDeskEntries({ matches: [match], nowMs, nextKickoffMs: nowMs + 30 * 60000 })).toHaveLength(1);
     expect(buildLiveStudioClosingVerdict({ matches: [match, { ...match, finished: false }] })).toEqual([]);
     const entries = buildLiveStudioDeskEntries({ matches: [match], nowMs });
     expect(entries).toHaveLength(1);

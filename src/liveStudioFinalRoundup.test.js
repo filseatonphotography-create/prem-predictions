@@ -51,3 +51,13 @@ test("old saved full-time cards lose their standings while keeping their points 
   expect(card.tableSnapshot).toBeUndefined();
   expect(card.tableLabel).toBeUndefined();
 });
+
+
+test("confirmed results publish immediately while the next game has lineups or kicks off shortly", () => {
+  const upcoming = { fixture: { id: 9, homeTeam: "Forest", awayTeam: "Arsenal", kickoff: new Date(nowMs + 15 * 60000).toISOString() }, finished: false, live: false, score: null };
+  const entries = buildLiveStudioDeskEntries({ matches: [...matches, upcoming], completedMatches: matches, nowMs, nextKickoffMs: nowMs + 15 * 60000 });
+  expect(entries).toHaveLength(1);
+  expect(entries[0].minute).toBe("FT");
+  expect(entries[0].roundupMatches.map(match => match.fixture.id)).toEqual([1, 2]);
+  expect(entries[0].roundupMatches.every(match => match.scoreLabel === "FT")).toBe(true);
+});

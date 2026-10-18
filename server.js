@@ -1,3 +1,4 @@
+const { shouldSendRecentFullTimeUpdate } = require("./src/liveMatchEvents");
 const { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave } = require("./src/predictionRules");
 const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
@@ -3527,7 +3528,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
             });
           }
 
-          if (statusNow === "FINISHED" && statusBefore !== "FINISHED" && hasScoreNow) {
+          if (isFinalMatchStatus(statusNow) && hasScoreNow && shouldSendRecentFullTimeUpdate(fixture, Object.assign({}, mergedMatchStates[fixtureId], { status: statusNow, homeGoals: update.nextHome, awayGoals: update.nextAway }))) {
             subscribedUserIds.forEach((userId) => {
               sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${update.nextHome}-${update.nextAway}`, {
                 title: buildLivePushHeader({
@@ -3962,7 +3963,9 @@ async function sendPushNotification(userId, type, payload) {
     subscriptions: activeDevices,
     lastDelivery: {
       type,
+      eventKey: payload.tag || null,
       attemptedAt: new Date().toISOString(),
+      failureCodes: deliveryResults.filter(result => !result.accepted).map(result => result.statusCode || "network"),
       acceptedCount,
       failedCount: deliveryResults.length - acceptedCount,
     },
@@ -4005,9 +4008,12 @@ function reserveFixtureNotificationEvent(userId, eventKey) {
   const existing = subscriptions[userId] || {};
   const notifLog = existing.notifLog || {};
   const fixtureUpdates = notifLog.fixtureUpdates || {};
-  if (fixtureUpdates[eventKey]) return false;
+  const previous = fixtureUpdates[eventKey];
+  if (typeof previous === "number" || previous?.state === "accepted") return false;
+  if (previous?.state === "pending" && Date.now() - previous.reservedAt < 60000) return false;
 
-  fixtureUpdates[eventKey] = Date.now();
+  const reservedAt = Date.now();
+  fixtureUpdates[eventKey] = { state: "pending", reservedAt };
   subscriptions[userId] = {
     ...existing,
     notifLog: {
@@ -4016,7 +4022,16 @@ function reserveFixtureNotificationEvent(userId, eventKey) {
     },
   };
   saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
-  return true;
+  return reservedAt;
+}
+
+function finishFixtureNotificationEvent(userId, eventKey, reservedAt, accepted) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const event = subscriptions[userId]?.notifLog?.fixtureUpdates?.[eventKey];
+  if (event?.state !== "pending" || event.reservedAt !== reservedAt) return;
+  if (accepted) subscriptions[userId].notifLog.fixtureUpdates[eventKey] = { state: "accepted", acceptedAt: Date.now() };
+  else delete subscriptions[userId].notifLog.fixtureUpdates[eventKey];
+  saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }
 
 function getPushNotificationPrefs(userId) {
@@ -4465,6 +4480,12 @@ function mergeMatchStateEventLists(existingEvents, incomingEvents) {
 
 function mergeMatchStatePreservingEvents(existing = {}, incoming = {}) {
   const merged = mergeMatchPhaseState(existing, incoming);
+  // Preserve the first confirmed pre-match announcement across notifier polls
+  // and browser syncs. Existing legacy lineups have no recoverable first time.
+  const hasLineups = value => Boolean(value?.home?.lineup?.length || value?.away?.lineup?.length);
+  if (hasLineups(incoming.lineups) && !hasLineups(existing.lineups) && ["TIMED", "SCHEDULED"].includes(String(incoming.status).toUpperCase())) {
+    merged.lineupsAnnouncedAt = incoming.lineupsAnnouncedAt || incoming.observedAt || new Date().toISOString();
+  }
   const goalEvents = mergeMatchStateEventLists(existing.goalEvents, incoming.goalEvents);
   const matchEvents = mergeMatchStateEventLists(existing.matchEvents, incoming.matchEvents);
   if (goalEvents.length) merged.goalEvents = goalEvents;
@@ -4529,7 +4550,8 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
   const liveUpdatesEnabled = isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId));
   const fixtureBellEnabled = hasFixtureNotificationEnabled(userId, fixtureId);
   if (!liveUpdatesEnabled && !fixtureBellEnabled) return false;
-  if (!reserveFixtureNotificationEvent(userId, eventKey)) return false;
+  const reservation = reserveFixtureNotificationEvent(userId, eventKey);
+  if (!reservation) return false;
   const nextPayload = maybeApplyNoSpoilerFixturePayload(
     userId,
     fixtureId,
@@ -4537,11 +4559,18 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
     eventKey,
     payload
   );
-  return sendPushNotification(userId, liveUpdatesEnabled ? "liveUpdates" : "fixtureBell", {
-    ...nextPayload,
-    url: buildLiveStudioUrl(fixtureId, eventKey),
-    tag: eventKey,
-  });
+  try {
+    const accepted = await sendPushNotification(userId, liveUpdatesEnabled ? "liveUpdates" : "fixtureBell", {
+      ...nextPayload,
+      url: buildLiveStudioUrl(fixtureId, eventKey),
+      tag: eventKey,
+    });
+    finishFixtureNotificationEvent(userId, eventKey, reservation, accepted);
+    return accepted;
+  } catch {
+    finishFixtureNotificationEvent(userId, eventKey, reservation, false);
+    return false;
+  }
 }
 
 function findFixtureById(fixtureId) {
@@ -5241,7 +5270,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         });
       }
 
-      if (status === "FINISHED" && prevStatus !== "FINISHED" && hasScoreNow) {
+      if (isFinalMatchStatus(status) && hasScoreNow && shouldSendRecentFullTimeUpdate(fixture, nextState)) {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
           notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${homeGoals}-${awayGoals}`, {
