@@ -3933,7 +3933,7 @@ async function sendPushNotification(userId, type, payload) {
   const deliveryResults = await Promise.all(
     devices.map(async (device) => {
       try {
-        await webpush.sendNotification(device, JSON.stringify(payload));
+        await webpush.sendNotification(device, JSON.stringify(payload), { timeout: 10000 });
         return { endpoint: device.endpoint, accepted: true, expired: false };
       } catch (err) {
         console.error(`Push notification error for user ${userId}:`, err);
@@ -5259,15 +5259,17 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       }
     });
 
+    // Publish confirmed match phases and scores before waiting for devices.
+    // A slow push delivery must never hold the Studio snapshot behind it.
+    if (statesChanged) saveMatchStates(nextMatchStates);
+    if (resultsChanged) saveResults(nextResults);
+    summary.lastPublishedAt = new Date().toISOString();
+    liveNotifierStatus = { ...liveNotifierStatus, ...summary };
     if (notificationTasks.length) {
       const deliveryResults = await Promise.allSettled(notificationTasks);
       summary.acceptedNotifications = deliveryResults.filter(
         (result) => result.status === "fulfilled" && result.value
       ).length;
-    }
-    if (statesChanged) saveMatchStates(nextMatchStates);
-    if (resultsChanged) {
-      saveResults(nextResults);
     }
     summary.lastFinishedAt = new Date().toISOString();
     liveNotifierStatus = summary;

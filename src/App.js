@@ -9298,7 +9298,25 @@ const premierLeagueInsights = useMemo(() => {
         ? "Refreshing World Cup results…"
         : "Refreshing Premier League results…"
     );
-    const [feed, recordedStates] = await Promise.all([fetchCompetitionResults(mode), apiGetMatchStatesSnapshot()]);
+    const [feed, recordedStates] = await Promise.all([
+      fetchCompetitionResults(mode),
+      apiGetMatchStatesSnapshot().then(snapshot => {
+        // The server may already have the whistle while the detailed provider
+        // request is still running. Show confirmed events without waiting for it.
+        const updates = getRecordedMatchStateUpdates(snapshot, fixtures);
+        if (Object.keys(updates).length) {
+          setMatchStatesByFixtureId(previous => ({ ...previous, ...Object.fromEntries(
+            Object.entries(updates).map(([id, state]) => [id, mergeRecordedMatchState(state, previous[id] || {})])) }));
+          setFixtureOverridesByMode(previous => ({ ...previous,
+            [mode]: mergeFixtureOverrides(previous[mode], buildFixtureOverridesFromMatchStates(updates, fixtures)) }));
+          const scores = Object.fromEntries(Object.entries(updates)
+            .filter(([, state]) => hasStartedMatchStatus(state) && numeric(state.homeGoals) != null && numeric(state.awayGoals) != null)
+            .map(([id, state]) => [id, { homeGoals: Number(state.homeGoals), awayGoals: Number(state.awayGoals) }]));
+          setResults(previous => stripUnstartedResults({ ...previous, ...scores }, { ...matchStatesByFixtureId, ...updates }));
+        }
+        return snapshot;
+      }),
+    ]);
     const { matches, error, rateLimited, timedOut } = feed;
     const recordedUpdates = getRecordedMatchStateUpdates(recordedStates, fixtures);
     const hasRecordedUpdates = Object.keys(recordedUpdates).length > 0;

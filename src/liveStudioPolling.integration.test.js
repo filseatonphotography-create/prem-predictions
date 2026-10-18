@@ -131,3 +131,35 @@ test("a returning viewer sees all phases in order while old results and studio h
     checkOrder();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
+
+test("confirmed half-time appears while the detailed provider response is still pending", async () => {
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:14:00Z"));
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
+  localStorage.setItem("activeView", "liveStudio");
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 7, predictions: {}, results: {} }));
+  const originalFetch = global.fetch;
+  let paused = false, finishProvider;
+  const response = data => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => data });
+  const state = () => ({ status: paused ? "PAUSED" : "IN_PLAY", minute: paused ? 45 : 44, utcDate: "2026-10-17T16:30:00Z", homeGoals: 0, awayGoals: 0,
+    observedAt: paused ? "2026-10-17T17:20:00Z" : "2026-10-17T17:14:00Z", lastUpdated: "2026-10-17T17:14:00Z",
+    ...(paused ? { halfTimeAt: "2026-10-17T17:20:00Z" } : {}), matchEvents: [], goalEvents: [] });
+  global.fetch = jest.fn(async url => {
+    const path = String(url);
+    if (path.includes("/api/results?")) return paused ? new Promise(resolve => { finishProvider = () => resolve(response([])); }) : response([]);
+    if (path.includes("/api/match-states/snapshot")) return response({ 560607: state() });
+    return response({});
+  });
+  try {
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); });
+    expect(screen.queryByText("Half-time around the grounds")).not.toBeInTheDocument();
+    paused = true; jest.setSystemTime(Date.parse("2026-10-17T17:20:00Z"));
+    await act(async () => { screen.getByRole("button", { name: "Refresh studio" }).click(); for (let i = 0; i < 50; i++) await Promise.resolve(); });
+    expect(finishProvider).toEqual(expect.any(Function));
+    expect(screen.getByText("Half-time around the grounds")).toBeInTheDocument();
+    await act(async () => { finishProvider(); for (let i = 0; i < 50; i++) await Promise.resolve(); });
+    expect(screen.getAllByText("Half-time around the grounds")).toHaveLength(1);
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});
