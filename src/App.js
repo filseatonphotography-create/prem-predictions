@@ -5298,7 +5298,7 @@ export function buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed }
 }
 
 function isRetainedLiveStudioEntry(entry) {
-  return entry?.id?.startsWith("studio:") || entry?.fullTime === true;
+  return Boolean(entry?.id && !["waiting", "countdown"].includes(entry.id));
 }
 
 function repairLiveStudioHistoryMoment(entry) {
@@ -5329,19 +5329,23 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // Keep published final roundups as history when the next game starts.
   // Late check-ins share one stable identity.
   const entries = new Map();
+  const keyFor = entry => entry.id === "studio:closing" ? entry.id : entry.arrivalKey || entry.updateKey || entry.id;
   history.filter(entry => !isLegacyLiveStudioClockCard(entry))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
-      const previous = entries.get(entry.id);
-      entries.set(entry.id, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
+      const key = keyFor(entry);
+      const previous = entries.get(key);
+      entries.set(key, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
     });
   currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isLegacyLiveStudioClockCard(entry)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
-    const previous = entries.get(entry.id);
-    if (entry.id === "studio:closing") entries.set(entry.id, mergeLiveStudioFinalRoundup(previous, entry));
-    else if (!previous || entry.fullTime) entries.set(entry.id, entry);
-    else entries.set(entry.id, enrichLiveStudioPlayerRoundup(previous, entry));
+    const key = keyFor(entry);
+    const previous = entries.get(key);
+    if (entry.id === "studio:closing") entries.set(key, mergeLiveStudioFinalRoundup(previous, entry));
+    else if (!entry.id.startsWith("studio:")) entries.set(key, { ...entry, momentMs: previous?.momentMs ?? entry.momentMs });
+    else if (!previous) entries.set(key, entry);
+    else entries.set(key, enrichLiveStudioPlayerRoundup(previous, entry));
   });
-  return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 100);
+  return [...entries.values()].sort((a, b) => (b.momentMs || 0) - (a.momentMs || 0)).slice(0, 500);
 }
 
 export function getSavedLiveStudioFullTimeFixtures(scope) {
@@ -5352,7 +5356,7 @@ export function getSavedLiveStudioFullTimeFixtures(scope) {
   } catch { return new Set(); }
 }
 
-export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = true, orderScope = scope) {
+export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = true, orderScope = scope, ready = true) {
   const storageKey = `live-studio-commentary:v1:${scope}`;
   const readHistory = (key) => {
     try {
@@ -5364,16 +5368,17 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
   const history = saved.key === storageKey ? saved.entries : readHistory(storageKey);
   const retained = mergeLiveStudioDeskHistory(history, currentFeed);
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !ready) return;
     const next = mergeLiveStudioDeskHistory(readHistory(storageKey), currentFeed);
     setSaved((previous) => previous.key === storageKey && JSON.stringify(previous.entries) === JSON.stringify(next)
       ? previous : { key: storageKey, entries: next });
     try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch {}
-  }, [currentFeed, storageKey, enabled]);
+  }, [currentFeed, storageKey, enabled, ready]);
   const combined = retained.length
     ? [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
     : currentFeed;
-  return getVisibleLiveStudioEntries(useLiveStudioFeedOrder(combined, orderScope, enabled, scope));
+  const restoredIds = history.filter(entry => !currentFeed.some(current => current.id === entry.id)).map(entry => entry.id);
+  return getVisibleLiveStudioEntries(useLiveStudioFeedOrder(ready ? combined : history, orderScope, enabled, scope, ready, restoredIds));
 }
 
 export function getLiveStudioChangedTableSnapshot(previousRows = [], currentRows = [], { fullTime = false } = {}) {
@@ -7411,6 +7416,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
   const [matchStatesByFixtureId, setMatchStatesByFixtureId] = useState({});
+  const [studioSnapshotMode, setStudioSnapshotMode] = useState(null);
   const [odds, setOdds] = useState({});
   const [fixtureOverridesByMode, setFixtureOverridesByMode] = useState(() => ({
     [PREMIER_MODE]: {},
@@ -9359,6 +9365,7 @@ const premierLeagueInsights = useMemo(() => {
             .map(([id, state]) => [id, { homeGoals: Number(state.homeGoals), awayGoals: Number(state.awayGoals) }]));
           setResults(previous => stripUnstartedResults({ ...previous, ...scores }, { ...matchStatesByFixtureId, ...updates }));
         }
+        if (Object.keys(updates).length) setStudioSnapshotMode(mode);
         return snapshot;
       }),
     ]);
@@ -9431,6 +9438,7 @@ const premierLeagueInsights = useMemo(() => {
     if (mode === WORLD_CUP_MODE) {
       setApiStatus(matches?.length ? "WC fixtures/results synced" : "WC sync ready");
     }
+    setStudioSnapshotMode(mode);
     setResultsRefreshing(false);
   };
 
@@ -9484,6 +9492,7 @@ useEffect(() => {
       }
       if (matchStatesSnapshot && Object.keys(matchStatesSnapshot).length > 0) {
         setMatchStatesByFixtureId((prev) => ({ ...prev, ...matchStatesSnapshot }));
+        setStudioSnapshotMode(gameMode);
         setResults((prev) => stripUnstartedResults(prev, matchStatesSnapshot));
         setFixtureOverridesByMode((prev) => ({
           ...prev,
@@ -11798,7 +11807,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         return event.minute != null && Number.isFinite(minute)
           ? kickoffTime + (minute + (minute > 45 ? 15 : 0)) * 60000 : kickoffTime;
       });
-      const finishedAt = finished ? Date.parse(matchState.finishedAt || "") : NaN;
+      const finishedAt = finished ? getMatchEventMomentMs(fixture, { statusLabel: "FT", minute: 90 }, matchState) : NaN;
       const studioMatch = {
         fixture, score, matchState, picks: fixturePicks, events: repairedTimelineEvents,
         live, paused, finished,
@@ -11840,7 +11849,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         });
       }
 
-      return feedEvents.filter((event) => event.statusLabel !== "HT" && (inCoverage || event.statusLabel === "FT")).map((event, eventIndex) => {
+      return feedEvents.filter((event) => event.statusLabel !== "HT" && (inCoverage || completedInSession || event.statusLabel === "FT")).map((event, eventIndex) => {
         const entryKind = getLiveStudioEventKind(event);
         const statusLabel = String(event.statusLabel || "");
         const isKickoff = statusLabel === "KO";
@@ -11999,7 +12008,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           sortMinute,
           momentMs: entryMomentMs,
           fullTime: isFullTime,
-          backfilled: isSecondHalf && (finished || getLiveStudioClockMinute(fixture, matchState, liveStudioNow) > 50
+          backfilled: !inCoverage || isSecondHalf && (finished || getLiveStudioClockMinute(fixture, matchState, liveStudioNow) > 50
             || liveStudioNow - entryMomentMs > 5 * 60000),
           kickoff: isKickoff,
           lineups: isLineup ? matchState.lineups : null,
@@ -12097,7 +12106,8 @@ const liveStudioFeed = useLiveStudioCommentaryHistory(
   liveStudioCurrentFeed,
   liveStudioCommentaryScope,
   activeView === "liveStudio",
-  `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`
+  `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`,
+  liveStudioDemoEnabled || studioSnapshotMode === gameMode
 );
 
 useEffect(() => {

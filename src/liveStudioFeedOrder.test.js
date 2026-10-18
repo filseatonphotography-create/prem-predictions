@@ -172,3 +172,30 @@ test("loading a league does not reset the shared arrival order", () => {
   act(() => rerender({ feed: [lineup, goal], scope: "originals-league" }));
   expect(result.current).toEqual([goal, lineup]);
 });
+
+
+test("a corrupt studio-only ledger is rebuilt after hydration, with match updates between every check-in", () => {
+  const scope = "repair-matchday";
+  const post = (id, time) => ({ id, momentMs: at(time), lines: [id] });
+  const posts = [post("studio:checkpoint:25", "14:25"), post("goal-30", "14:30"),
+    post("studio:half-time:2026-10-17T14:00:00Z", "14:47"), post("booking-50", "15:05"),
+    post("studio:checkpoint:60", "15:15"), post("goal-65", "15:20"),
+    post("studio:checkpoint:75", "15:30"), post("sub-80", "15:35"),
+    post("studio:checkpoint:85", "15:40"), post("goal-90", "15:45"),
+    post("studio:closing", "15:50"), post("later-kickoff", "16:30")];
+  const oldStudio = posts.filter(post => post.id.startsWith("studio:"));
+  sessionStorage.setItem(`live-studio-commentary:v1:${scope}`, JSON.stringify(oldStudio));
+  sessionStorage.setItem(`live-studio-order:v2:${scope}`, JSON.stringify({ counter: 99, updates: Object.fromEntries([...oldStudio].reverse().map((post, index) => [post.id, 90 + index])) }));
+  const { result, rerender, unmount } = renderHook(({ feed, ready }) => useLiveStudioCommentaryHistory(feed, scope, true, scope, ready), { initialProps: { feed: [], ready: false } });
+  expect(sessionStorage.getItem(`live-studio-order:v3:${scope}`)).toBeNull();
+  act(() => rerender({ feed: posts.filter(post => !post.id.startsWith("studio:")), ready: true }));
+  const expected = [...posts].reverse().map(post => post.id);
+  expect(result.current.map(post => post.id)).toEqual(expected);
+  const fresh = post("fresh-goal", "16:32");
+  act(() => rerender({ feed: [fresh], ready: true }));
+  expect(result.current.map(post => post.id)).toEqual([fresh.id, ...expected]);
+  unmount();
+  const restored = renderHook(({ ready }) => useLiveStudioCommentaryHistory([], scope, true, scope, ready), { initialProps: { ready: false } });
+  act(() => restored.rerender({ ready: true }));
+  expect(restored.result.current.map(post => post.id)).toEqual([fresh.id, ...expected]);
+});

@@ -35,7 +35,7 @@ test("cached early roundups are removed on load and goals and bookings stay newe
   unmount();
   const restored = renderHook(() => useLiveStudioCommentaryHistory([goal2, goal1, booking], scope));
   expect(restored.result.current).toEqual([booking, goal2, goal1]);
-  expect(JSON.parse(sessionStorage.getItem(`live-studio-commentary:v1:${scope}`))).toEqual([]);
+  expect(JSON.parse(sessionStorage.getItem(`live-studio-commentary:v1:${scope}`))).toEqual([booking, goal2, goal1]);
 });
 
 test("later goals rise above a scheduled studio check-in and stay there as it is enriched", () => {

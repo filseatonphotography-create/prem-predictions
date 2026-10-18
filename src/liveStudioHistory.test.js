@@ -11,7 +11,7 @@ test("round-ups remain after a goal, half-time and full-time, without duplicates
   history = mergeLiveStudioDeskHistory(history, [goal]);
   history = mergeLiveStudioDeskHistory(history, [{ id: "half-time" }]);
   history = mergeLiveStudioDeskHistory(history, [roundup, { id: "full-time" }]);
-  expect(history).toEqual([roundup]);
+  expect(history).toEqual([goal, roundup, { id: "half-time" }, { id: "full-time" }]);
 });
 
 test("the actual commentary hook keeps read text when conditions change and after refresh", () => {
@@ -22,7 +22,7 @@ test("the actual commentary hook keeps read text when conditions change and afte
   act(() => rerender({ feed: [goal], scope: "league-1" }));
   expect(result.current).toEqual([goal, roundup]);
   act(() => rerender({ feed: [{ ...roundup, lines: ["Different text"] }], scope: "league-1" }));
-  expect(result.current).toEqual([roundup]);
+  expect(result.current).toEqual([goal, roundup]);
   unmount();
   const restored = renderHook(() => useLiveStudioCommentaryHistory([goal], "league-1"));
   expect(restored.result.current).toEqual([goal, roundup]);
@@ -56,7 +56,7 @@ test("half-time always carries a table and accurately describes unchanged positi
 
 test("a completed session roundup stays in history during the next live game", () => {
   const closing = { id: "studio:closing", momentMs: 50, lines: ["That's a wrap"] };
-  expect(mergeLiveStudioDeskHistory([closing, roundup], [goal])).toEqual([roundup, closing]);
+  expect(mergeLiveStudioDeskHistory([closing, roundup], [goal])).toEqual([goal, roundup, closing]);
   expect(mergeLiveStudioDeskHistory([roundup], [closing])).toEqual([roundup, closing]);
 });
 
@@ -70,11 +70,11 @@ test("individual full-time data survives internally without reappearing as a car
   expect([...getSavedLiveStudioFullTimeFixtures("final-result")]).toEqual(["57"]);
   // The fixture leaves the active coverage window; its result still stays in history.
   act(() => rerender({ feed: [] }));
-  expect(result.current).toEqual([]);
+  expect(result.current).toEqual([goal]);
   expect(JSON.parse(sessionStorage.getItem("live-studio-commentary:v1:final-result"))).toContainEqual(final);
   unmount();
   const restored = renderHook(() => useLiveStudioCommentaryHistory([], "final-result"));
-  expect(restored.result.current).toEqual([]);
+  expect(restored.result.current).toEqual([goal]);
   expect([...getSavedLiveStudioFullTimeFixtures("final-result")]).toEqual(["57"]);
 });
 
@@ -82,4 +82,11 @@ test("official corrections update the retained full-time card without duplicates
   const final = { id: "57:full-time", fixtureId: 57, fullTime: true, momentMs: 300, title: "Full time! Arsenal 2-1 Chelsea" };
   const corrected = { ...final, title: "Full time! Arsenal 1-1 Chelsea" };
   expect(mergeLiveStudioDeskHistory([final], [corrected])).toEqual([corrected]);
+});
+
+
+test("a scorer correction retains one match post despite a changed event index", () => {
+  const first = { id: "goal:index:1", updateKey: "match:goal:1-0", momentMs: 150, title: "Goal" };
+  const enriched = { ...first, id: "goal:index:2", momentMs: 190, title: "Saka scores" };
+  expect(mergeLiveStudioDeskHistory([roundup, first], [enriched])).toEqual([{ ...enriched, momentMs: 150 }, roundup]);
 });

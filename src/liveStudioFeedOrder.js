@@ -17,7 +17,7 @@ function identity(entry) {
   return String(entry.arrivalKey || entry.updateKey || entry.id);
 }
 
-export function orderLiveStudioUpdates(entries = [], previous = {}) {
+export function orderLiveStudioUpdates(entries = [], previous = {}, { historicalIds = [] } = {}) {
   const updates = { ...(previous.updates || {}) };
   const meta = { ...(previous.meta || {}) };
   let counter = Math.ceil(Math.max(Number.isSafeInteger(previous.counter) ? previous.counter : 0,
@@ -27,7 +27,7 @@ export function orderLiveStudioUpdates(entries = [], previous = {}) {
   chronological(entries).reverse().filter(eligible).forEach(entry => {
     const key = identity(entry);
     const known = Number.isFinite(updates[key]);
-    const recoveringPhase = entry.backfilled && (!meta[key] || meta[key].backfilled);
+    const recoveringPhase = (entry.backfilled || historicalIds.includes(entry.id)) && (!meta[key] || meta[key].backfilled);
     // Repair legacy lineups once: their old bootstrap position used tomorrow's
     // kickoff instead of an announcement time. Other existing cards stay fixed.
     const repairingLineup = Boolean(entry.lineups && known && !meta[key]);
@@ -71,18 +71,18 @@ function readOrder(key) {
   return {};
 }
 
-export default function useLiveStudioFeedOrder(entries, scope, enabled = true, legacyScope = scope) {
-  // v2 starts clean instead of importing the retired event-time/arrival cache.
-  const key = `live-studio-order:v2:${scope}`;
+export default function useLiveStudioFeedOrder(entries, scope, enabled = true, legacyScope = scope, ready = true, historicalIds = []) {
+  // Repair the old partial-load ledger once, after the server snapshot arrives.
+  const key = `live-studio-order:v3:${scope}`;
   const saved = useRef(null);
   const stored = readOrder(key);
   const previous = saved.current?.key === key ? saved.current.state
-    : stored.updates ? stored : readOrder(`live-studio-order:v2:${legacyScope}`);
-  const ordered = orderLiveStudioUpdates(entries, previous);
+    : stored;
+  const ordered = orderLiveStudioUpdates(entries, previous, { historicalIds });
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !ready) return;
     saved.current = { key, state: ordered.state };
     try { sessionStorage.setItem(key, JSON.stringify(ordered.state)); } catch {}
-  }, [key, enabled, ordered.state]);
+  }, [key, enabled, ready, ordered.state]);
   return ordered.entries;
 }

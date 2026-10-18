@@ -45,9 +45,10 @@ test("the full app puts new updates first and combines half-time into one studio
 
 
     expect(screen.getByText(/Johan Manzambi.*scor|Johan Manzambi.*net|Johan Manzambi.*name|Johan Manzambi has/)).toBeInTheDocument();
-    const kickoffCard = screen.getByText("Kick off!").closest("article");
+    const kickoffHeading = screen.getAllByText("Kick off!").find(heading => heading.closest("article").getAttribute("data-live-studio-fixture-id") === "560607");
+    const kickoffCard = kickoffHeading.closest("article");
     expect(kickoffCard.style.border).toMatch(/239,\s*68,\s*68/);
-    expect(screen.getByText("Kick off!").parentElement).toHaveStyle({ color: "#f87171" });
+    expect(kickoffHeading.parentElement).toHaveStyle({ color: "#f87171" });
     let cards = document.querySelectorAll('article[data-live-studio-fixture-id]');
     expect(cards[0]).toHaveTextContent(/Goal for AVL/);
     finalHomeGoals = 3;
