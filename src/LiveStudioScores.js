@@ -17,7 +17,6 @@ export default function LiveStudioScores({ matches = [], theme, isMobile }) {
       <Team team={match.home} size={isMobile ? 24 : 28} />
       <div style={{ textAlign: "center", fontVariantNumeric: "tabular-nums", minWidth: 49 }}>
         <div style={{ fontSize: isMobile ? 21 : 24, fontWeight: 950, whiteSpace: "nowrap" }}>{match.score.homeGoals} – {match.score.awayGoals}</div>
-        {match.status && <div style={{ fontSize: 10, color: theme.muted, fontWeight: 800, marginTop: 2 }}>{match.status}</div>}
       </div>
       <Team team={match.away} size={isMobile ? 24 : 28} away />
     </div>)}
