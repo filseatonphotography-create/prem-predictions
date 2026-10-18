@@ -4,7 +4,7 @@ import App from "./App";
 
 jest.setTimeout(30000);
 test("the full app puts new updates first and combines half-time into one studio post", async () => {
-  jest.useFakeTimers({ now: Date.parse("2026-10-17T17:12:00Z") });
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:12:00Z"));
   window.scrollTo = jest.fn();
   localStorage.clear(); sessionStorage.clear();
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "diagnostic-token", userId: "diagnostic", username: "Diagnostic" }));
@@ -73,7 +73,7 @@ test("the full app puts new updates first and combines half-time into one studio
 });
 
 test("a returning viewer sees all phases in order while old results and studio history load", async () => {
-  jest.useFakeTimers({ now: Date.parse("2026-10-17T17:46:00Z") });
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:46:00Z"));
   window.scrollTo = jest.fn();
   localStorage.clear(); sessionStorage.clear();
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "diagnostic-token", userId: "diagnostic", username: "Diagnostic" }));

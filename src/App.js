@@ -1,3 +1,4 @@
+import { getPredictionPoints as scoreSavedPrediction, normalizePredictionBoosts } from "./predictionRules";
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 import FixturePointsBox from "./FixturePointsBox";
@@ -708,47 +709,14 @@ function keepSupportedFixturePredictions(allPredictions = {}) {
 export function normalizeCaptainsByGameweek(predsForUser, fixturesSource = FIXTURES) {
   if (!predsForUser || typeof predsForUser !== "object") return predsForUser;
 
-  const fixtureById = new Map(
-    (fixturesSource || []).map((fixture) => [String(fixture.id), fixture])
-  );
-  const byGw = {};
-
-  Object.entries(predsForUser).forEach(([fixtureId, pred]) => {
-    if (!pred || !pred.isDouble) return;
-
-    const fx = fixtureById.get(String(fixtureId));
-    if (!fx) return;
-
-    const gw = fx.gameweek;
-    const ts = typeof pred.updatedAt === "number" ? pred.updatedAt : 0;
-
-    if (!byGw[gw]) byGw[gw] = [];
-    byGw[gw].push({ fixtureId, ts });
-  });
-
-  const cloned = { ...predsForUser };
-
-  Object.values(byGw).forEach((arr) => {
-    if (arr.length <= 1) return;
-
-    arr.sort((a, b) => a.ts - b.ts);
-    const keepId = arr[arr.length - 1].fixtureId;
-
-    arr.forEach(({ fixtureId }) => {
-      if (fixtureId === keepId) return;
-      const prev = cloned[fixtureId];
-      if (!prev) return;
-      cloned[fixtureId] = { ...prev, isDouble: false };
-    });
-  });
-
-  return cloned;
+  return normalizePredictionBoosts(predsForUser, [fixturesSource || []]);
 }
 
 export function mergeCloudPredictionsPreservingLocalBoosts(
   cloudPreds = {},
   localPreds = {},
-  fixturesSource = FIXTURES
+  fixturesSource = FIXTURES,
+  nowMs = Date.now()
 ) {
   const merged = { ...(cloudPreds || {}) };
 
@@ -758,6 +726,9 @@ export function mergeCloudPredictionsPreservingLocalBoosts(
     const fixtureId = String(fixture.id);
     const localPred = localPreds?.[fixtureId] || localPreds?.[fixture.id];
     if (!localPred) return;
+    const kickoff = Date.parse(fixture.kickoff || "");
+    const deadline = kickoff - (fixture.kickoffTimeConfirmed === false ? 0 : 3600000);
+    if (Number.isFinite(deadline) && nowMs >= deadline) return;
 
     const cloudPred = merged[fixtureId] || merged[fixture.id];
     if (!cloudPred) {
@@ -3459,6 +3430,7 @@ async function apiGetLeaguePredictions(token, leagueId) {
   const res = await fetch(
     `${BACKEND_BASE}/api/predictions/league/${leagueId}`,
     {
+      cache: "no-store",
       headers: { Authorization: `Bearer ${token}` },
     }
   );
@@ -3747,16 +3719,7 @@ function getBasePoints(predHome, predAway, realHome, realAway) {
 }
 
 function getTotalPoints(pred, result) {
-  if (!pred || !result) return 0;
-  let total = getBasePoints(
-    pred.homeGoals,
-    pred.awayGoals,
-    result.homeGoals,
-    result.awayGoals
-  );
-  if (pred.isDouble) total *= 2;
-  if (pred.isTriple) total *= 3;
-  return total;
+  return scoreSavedPrediction(pred, result);
 }
 
 export function getFixturePredictionPoints(prediction, score) {
@@ -5932,6 +5895,38 @@ export function getLiveStudioClockMinute(fixture, matchState, nowMs) {
   return Math.max(estimated, latestKnown);
 }
 
+function getLeaguePredictionKey(user = {}) {
+  const name = String(user.username || "").trim();
+  const legacyName = name.replace(/_legacy$/i, "");
+  return PLAYERS.includes(legacyName) ? legacyName : String(user.userId || "");
+}
+
+export function buildLeaguePredictionSources({ users = [], predictionsByUserId = {}, league = {}, isWorldCupMode = false }) {
+  const ids = league.members || league.memberUserIds || [];
+  const members = new Set(ids.map(String));
+  const eligible = users.filter(user => !members.size || members.has(String(user.userId)));
+  // Canonical account selection must never depend on who is viewing the table.
+  const ranked = [...eligible].sort((a, b) =>
+    Number(/_legacy$/i.test(a.username || "")) - Number(/_legacy$/i.test(b.username || ""))
+    || Object.keys(predictionsByUserId[b.userId] || {}).length - Object.keys(predictionsByUserId[a.userId] || {}).length
+    || String(a.userId).localeCompare(String(b.userId)));
+  const userIdByKey = {};
+  ranked.forEach(user => {
+    const key = getLeaguePredictionKey(user);
+    if (key && !userIdByKey[key]) userIdByKey[key] = String(user.userId);
+  });
+  const keys = !isWorldCupMode && isOriginalsMiniLeague(league)
+    ? [...new Set([...PLAYERS, ...Object.keys(userIdByKey)])] : Object.keys(userIdByKey);
+  const predictionsByKey = {};
+  keys.forEach(key => {
+    const remote = normalizePredictionBoosts(predictionsByUserId[userIdByKey[key]] || {}, [FIXTURES, WORLD_CUP_FIXTURES]);
+    predictionsByKey[key] = isWorldCupMode
+      ? keepOnlyWorldCupPredictions({ [key]: remote })[key] || {}
+      : keepSupportedFixturePredictions({ [key]: remote })[key] || {};
+  });
+  return { keys, userIdByKey, predictionsByKey };
+}
+
 export function buildLiveStudioUsers({ leagueHistoryUsers = [], selectedMiniLeague, isWorldCupMode = false, currentPlayer, currentUserId }) {
   if (!isWorldCupMode && isOriginalsMiniLeague(selectedMiniLeague)) {
     return buildPremierHistoryEntries(leagueHistoryUsers, selectedMiniLeague)
@@ -7542,6 +7537,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   });
   const [computedWeeklyTotals, setComputedWeeklyTotals] = useState(null);
   const [computedLeagueTotals, setComputedLeagueTotals] = useState(null);
+  const [leagueRefreshRevision, setLeagueRefreshRevision] = useState(0);
+  const [predictionSaveError, setPredictionSaveError] = useState("");
   const [computedTotalsLeagueId, setComputedTotalsLeagueId] = useState("");
   const [leagueUsernamesByUserId, setLeagueUsernamesByUserId] = useState({});
   const [leagueHistoryUsers, setLeagueHistoryUsers] = useState([]);
@@ -9887,7 +9884,7 @@ useEffect(() => {
 
           return {
             ...resetSafePrev,
-            [key]: { ...merged },
+            [key]: normalizePredictionBoosts(merged, [FIXTURES, WORLD_CUP_FIXTURES]),
           };
         });
       } catch (err) {
@@ -10000,6 +9997,17 @@ useEffect(() => {
 }, [myLeagues, currentUserId, gameMode]);
   
 useEffect(() => {
+  if (DEV_USE_LOCAL || !isLoggedIn || !authToken || !selectedMiniLeague?.id) return;
+  const refresh = () => {
+    if (document.visibilityState === "visible") setLeagueRefreshRevision(value => value + 1);
+  };
+  const timer = window.setInterval(refresh, 30000);
+  window.addEventListener("focus", refresh);
+  document.addEventListener("visibilitychange", refresh);
+  return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+}, [isLoggedIn, authToken, selectedMiniLeague?.id]);
+
+useEffect(() => {
   if (DEV_USE_LOCAL) return;
   if (!isLoggedIn || !authToken) {
     setComputedWeeklyTotals(null);
@@ -10035,9 +10043,10 @@ useEffect(() => {
   });
   const shouldRefreshLeagueData =
     leaguePredictionsCacheRef.current.key !== leagueDataKey ||
+    leaguePredictionsCacheRef.current.revision !== leagueRefreshRevision ||
     !leaguePredictionsCacheRef.current.data;
 
-  if (shouldRefreshLeagueData) {
+  if (leaguePredictionsCacheRef.current.key !== leagueDataKey) {
     setComputedWeeklyTotals(null);
     setComputedLeagueTotals(null);
     setComputedTotalsLeagueId("");
@@ -10047,31 +10056,15 @@ useEffect(() => {
 
   let cancelled = false;
 
-  const toLegacyKey = (u) => {
-    const uname = (u.username || "").trim();
-
-    // Exact legacy names stay as-is
-    if (PLAYERS.includes(uname)) return uname;
-
-    // Anything like "Phil_legacy" -> "Phil"
-    if (/_legacy$/i.test(uname)) {
-      const base = uname.replace(/_legacy$/i, "");
-      if (PLAYERS.includes(base)) return base;
-      return base; // if not a known legacy player, still use base string
-    }
-
-    // Otherwise use their userId (modern user)
-    return String(u.userId || "");
-  };
 
   async function recalcFromLeague() {
     try {
-      // 1) Fetch all league predictions from backend only when league context changes.
+      // Read one shared server snapshot; refresh periodically and on returning to the app.
       const data = shouldRefreshLeagueData
         ? await apiGetLeaguePredictions(authToken, leagueId)
         : leaguePredictionsCacheRef.current.data;
       if (shouldRefreshLeagueData) {
-        leaguePredictionsCacheRef.current = { key: leagueDataKey, data };
+        leaguePredictionsCacheRef.current = { key: leagueDataKey, data, revision: leagueRefreshRevision };
       }
       const users = data.users || [];
       const predictionsByUserId = data.predictionsByUserId || {};
@@ -10095,106 +10088,16 @@ useEffect(() => {
         memberIdSet.size === 0
           ? users
           : users.filter((u) => memberIdSet.has(String(u.userId)));
-      const historyUsersByName = {};
-      leagueUsers.forEach((u) => {
-        const name = (u?.username || "").trim();
-        const userId = String(u?.userId || "");
-        if (!name || !userId) return;
-        const predictionCount = Object.keys(predictionsByUserId[userId] || {}).length;
-        const existing = historyUsersByName[name];
-        if (!existing || predictionCount > existing.predictionCount) {
-          historyUsersByName[name] = { userId, username: name, predictionCount };
-        }
+      const { keys, userIdByKey, predictionsByKey: predsForCalc } = buildLeaguePredictionSources({
+        users: leagueUsers, predictionsByUserId, league: leagueObj, isWorldCupMode,
       });
-      const nextLeagueHistoryUsers = Object.values(historyUsersByName).map(
-        ({ userId, username }) => {
-          const source = leagueUsers.find((u) => String(u?.userId || "") === String(userId)) || {};
-          return {
-            userId,
-            username,
-            createdAt: source.createdAt || "",
-            favoriteTeam: source.favoriteTeam || "",
-            favoriteCountry: source.favoriteCountry || "",
-          };
-        }
-      );
-
-      // 3) Keys = league members (mapped). The legacy Originals league keeps
-      // its historical player rows, but new private leagues must not inherit them.
-      const memberKeys = leagueUsers.map(toLegacyKey);
-      const keys = !isWorldCupMode && isOriginalsMiniLeague(leagueObj)
-        ? Array.from(new Set([...PLAYERS, ...memberKeys]))
-        : Array.from(new Set(memberKeys));
-
-      // 4) Build predictions for calculation:
-      //    start with any local preds for these keys, then overlay remote
-      const userIdByKey = {};
-      const rankedLeagueUsers = [...leagueUsers].sort((a, b) => {
-        const aName = (a?.username || "").trim();
-        const bName = (b?.username || "").trim();
-        const aIsCurrent = String(a?.userId || "") === String(currentUserId || "");
-        const bIsCurrent = String(b?.userId || "") === String(currentUserId || "");
-        if (aIsCurrent !== bIsCurrent) return aIsCurrent ? -1 : 1;
-
-        const aIsLegacyAlias = /_legacy$/i.test(aName);
-        const bIsLegacyAlias = /_legacy$/i.test(bName);
-        if (aIsLegacyAlias !== bIsLegacyAlias) return aIsLegacyAlias ? 1 : -1;
-
-        const aIsExactLegacy = PLAYERS.includes(aName);
-        const bIsExactLegacy = PLAYERS.includes(bName);
-        if (aIsExactLegacy !== bIsExactLegacy) return aIsExactLegacy ? -1 : 1;
-
-        return 0;
+      const nextLeagueHistoryUsers = Object.entries(userIdByKey).map(([key, userId]) => {
+        const source = leagueUsers.find(user => String(user.userId) === userId) || {};
+        return { userId, username: PLAYERS.includes(key) ? key : source.username || "Player",
+          createdAt: source.createdAt || "", favoriteTeam: source.favoriteTeam || "", favoriteCountry: source.favoriteCountry || "" };
       });
 
-      rankedLeagueUsers.forEach((u) => {
-        const key = toLegacyKey(u);
-        if (!userIdByKey[key]) userIdByKey[key] = String(u.userId || "");
-      });
-
-      if (!isWorldCupMode && currentUserId && currentPlayer && PLAYERS.includes(currentPlayer)) {
-        userIdByKey[currentPlayer] = currentUserId;
-      }
-
-      const predsForCalc = {};
-
-      keys.forEach((k) => {
-        // Only use this user's predictions, do not fallback to any other user
-        const legacyData = predictions[k] || {};
-        const userId = userIdByKey[k];
-        const cloudDataRaw = userId ? (predictionsByUserId[userId] || {}) : {};
-        const cloudData = isWorldCupMode
-          ? (keepOnlyWorldCupPredictions({ [k]: cloudDataRaw })[k] || {})
-          : (keepSupportedFixturePredictions({ [k]: cloudDataRaw })[k] || {});
-        const philMergedData = k === "Phil" ? (predictions["Phil_merged"] || {}) : {};
-
-        // Normalise all fixture IDs to STRING keys
-        const legacyDataStr = Object.fromEntries(
-          Object.entries(legacyData).map(([id, val]) => [String(id), val])
-        );
-        const cloudDataStr = Object.fromEntries(
-          Object.entries(cloudData).map(([id, val]) => [String(id), val])
-        );
-        const philMergedDataStr = Object.fromEntries(
-          Object.entries(philMergedData).map(([id, val]) => [String(id), val])
-        );
-
-        // Prefer cloud data when available; only fall back to the local Phil merge
-        // for legacy migration cases where the backend has no current record yet.
-        if (Object.keys(cloudDataStr).length > 0) {
-          predsForCalc[k] = { ...cloudDataStr };
-        } else if (k === "Phil" && Object.keys(philMergedDataStr).length > 0) {
-          predsForCalc[k] = isWorldCupMode ? { ...philMergedDataStr } : {};
-        } else {
-          predsForCalc[k] = isWorldCupMode ? { ...legacyDataStr } : {};
-        }
-      });
-
-      if (currentPredictionKey && predsForCalc[currentPredictionKey] && predictions[currentPredictionKey]) {
-        predsForCalc[currentPredictionKey] = { ...predictions[currentPredictionKey] };
-      }
-
-      // 5) Compute weekly totals (spreadsheet base + recalculated points)
+      // Calculate every member from the same predictions and result snapshot.
       const weeklyTotals = {};
       activeGameweeks.forEach((gw) => {
         weeklyTotals[gw] = {};
@@ -10212,7 +10115,7 @@ useEffect(() => {
         });
       });
 
-      // 6) League totals (sum of weekly)
+      // League totals are the sum of those weekly scores.
       const leagueTotals = {};
       keys.forEach((k) => {
         leagueTotals[k] = activeGameweeks.reduce(
@@ -10265,7 +10168,7 @@ useEffect(() => {
   return () => {
     cancelled = true;
   };
-}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, gameMode, currentUserId, currentPlayer, currentPredictionKey]);
+}, [results, predictions, isLoggedIn, authToken, myLeagues, selectedMiniLeague, activeFixtures, activeGameweeks, isWorldCupMode, gameMode, currentUserId, currentPlayer, currentPredictionKey, leagueRefreshRevision]);
 
 useEffect(() => {
   if (DEV_USE_LOCAL) return;
@@ -11044,6 +10947,7 @@ setNewPasswordInput("");
         Array.isArray(changesToPersist) &&
         changesToPersist.length > 0
       ) {
+        setPredictionSaveError("");
         const toSave = [...changesToPersist];
         const timerKey = `${playerKey}:${fixtureIdNum}`;
         pendingPredictionSavesRef.current[timerKey] = { authToken, toSave };
@@ -11061,8 +10965,10 @@ setNewPasswordInput("");
             });
 
             pendingItems.forEach(({ fixtureId: id, prediction }) => {
-              apiSavePrediction(pendingSave.authToken, id, prediction).catch((err) => {
-                console.error("apiSavePrediction error", { fixtureId: id, err });
+              apiSavePrediction(pendingSave.authToken, id, prediction).then(() => {
+                setLeagueRefreshRevision(value => value + 1);
+              }).catch(err => {
+                setPredictionSaveError(err.message || "Your prediction was not saved. Please try again.");
               });
             });
           } catch (err) {
@@ -11295,10 +11201,18 @@ useEffect(() => {
   };
 }, [gameMode, liveStudioUsers, selectedGameweek]);
 
+const leaguePredictionSources = useMemo(() => buildLeaguePredictionSources({
+  users: leagueHistoryUsers, predictionsByUserId: leaguePredictionsByUserId,
+  league: selectedMiniLeague || {}, isWorldCupMode,
+}), [leagueHistoryUsers, leaguePredictionsByUserId, selectedMiniLeague, isWorldCupMode]);
+
 const liveStudioPredictionsForUser = useCallback(
   (user) => {
     const userId = String(user?.userId || "");
     const username = user?.username || "";
+    if (selectedMiniLeague?.id) {
+      return leaguePredictionSources.predictionsByKey[getLeaguePredictionKey(user)] || {};
+    }
     if (userId && String(userId) === String(currentUserId || "")) {
       return predictions[currentPredictionKey] || {};
     }
@@ -11315,6 +11229,8 @@ const liveStudioPredictionsForUser = useCallback(
     globalPredictionsByUserId,
     leaguePredictionsByUserId,
     predictions,
+    selectedMiniLeague?.id,
+    leaguePredictionSources,
   ]
 );
 
@@ -22663,6 +22579,7 @@ const TABS = [
     </div>
   </section>
 )}
+        {predictionSaveError && <div role="alert" style={{ padding: 12, border: "1px solid #ef4444", borderRadius: 8, color: "#fca5a5" }}>Prediction not saved: {predictionSaveError}</div>}
         {/* Mini League Table */}
         {activeView === "league" && (
           <section style={cardStyle}>

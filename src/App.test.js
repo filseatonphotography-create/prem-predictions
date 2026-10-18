@@ -1109,7 +1109,8 @@ describe("World Cup sync helpers", () => {
     const merged = mergeCloudPredictionsPreservingLocalBoosts(
       cloudPreds,
       localPreds,
-      [fixture]
+      [fixture],
+      Date.parse("2026-06-18T00:00:00Z")
     );
 
     expect(merged[920028].isDouble).toBe(true);

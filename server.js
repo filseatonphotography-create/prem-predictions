@@ -1,3 +1,4 @@
+const { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave } = require("./src/predictionRules");
 const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
 const express = require("express");
@@ -421,8 +422,18 @@ const savePasswordResetTokens = (tokens) =>
   saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
 
 // Predictions (userId -> { fixtureId -> prediction })
-const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
-const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
+const loadPredictions = () => {
+  const raw = loadJson(PREDICTIONS_FILE, {});
+  const groups = [loadFixturesFromSrc(), loadWorldCupFixturesFromSrc()];
+  return Object.fromEntries(Object.entries(raw).map(([id, picks]) => [id, normalizePredictionBoosts(picks, groups)]));
+};
+const savePredictions = (preds) => {
+  // Write completely before replacing the authoritative file. A failed disk
+  // write must reach the caller rather than return a false success response.
+  const temporary = `${PREDICTIONS_FILE}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  try { fs.writeFileSync(temporary, JSON.stringify(preds, null, 2), "utf8"); fs.renameSync(temporary, PREDICTIONS_FILE); }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+};
 
 // Totals/history (leagueId -> { weeklyTotals, leagueTotals, updatedAt })
 const loadTotals = () => loadJson(TOTALS_FILE, {});
@@ -810,31 +821,6 @@ function getResult(home, away) {
   return "D";
 }
 
-function getPredictionPoints(prediction, result) {
-  if (!prediction || !result) return 0;
-
-  const ph = Number(prediction.homeGoals);
-  const pa = Number(prediction.awayGoals);
-  const rh = Number(result.homeGoals);
-  const ra = Number(result.awayGoals);
-
-  if ([ph, pa, rh, ra].some((n) => !Number.isFinite(n))) return 0;
-
-  let points = 0;
-  if (ph === rh && pa === ra) {
-    points = 7;
-  } else {
-    const predRes = getResult(ph, pa);
-    const realRes = getResult(rh, ra);
-    if (predRes === realRes && ph - pa === rh - ra) points = 4;
-    else if (predRes === realRes) points = 2;
-  }
-
-  if (prediction.isTriple) points *= 3;
-  else if (prediction.isDouble) points *= 2;
-
-  return points;
-}
 
 function hasSettledCoinsResult(result) {
   if (!result) return false;
@@ -2656,38 +2642,22 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
       return res.status(400).json({ error: "prediction object is required." });
     }
 
-        const allPreds = loadPredictions();
-    if (!allPreds[userId]) allPreds[userId] = {};
-
-    const now = Date.now();
-
-    const clean = {
-      homeGoals:
-        prediction.homeGoals === "" || prediction.homeGoals === null
-          ? ""
-          : String(prediction.homeGoals),
-      awayGoals:
-        prediction.awayGoals === "" || prediction.awayGoals === null
-          ? ""
-          : String(prediction.awayGoals),
-      isDouble: !!prediction.isDouble,
-      isTriple: !!prediction.isTriple,
-      updatedAt: now,
-    };
-
-    console.log("SAVE incoming:", {
-  userId,
-  fixtureId,
-  clean
-});
-
-    allPreds[userId][fixtureId] = clean;
-    savePredictions(allPreds);
-
-    return res.json({ ok: true });
+    const allPreds = loadPredictions();
+    const states = loadMatchStates();
+    const groups = [loadFixturesFromSrc(), loadWorldCupFixturesFromSrc()].map(fixtures =>
+      applyMatchStateKickoffOverrides(fixtures, states).map(fixture => Object.assign({}, fixture, {
+        predictionLocked: hasStartedMatchStatus(states[String(fixture.id)] || {}),
+      })));
+    const saved = applyPredictionSave(allPreds[userId] || {}, fixtureId, prediction, groups);
+    if (saved.changed) {
+      allPreds[userId] = saved.predictions;
+      savePredictions(allPreds);
+    }
+    return res.json({ ok: true, predictions: saved.predictions });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error("predictions/save error", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Could not save your prediction. Please retry." });
   }
 });
 
