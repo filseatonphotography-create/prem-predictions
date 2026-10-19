@@ -14764,6 +14764,23 @@ useEffect(() => {
     boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
   };
 
+  const headerActionButtonStyle = {
+    width: "100%",
+    minWidth: 0,
+    height: isMobile ? 40 : 36,
+    boxSizing: "border-box",
+    padding: isMobile ? "5px 4px" : "6px 8px",
+    borderRadius: 999,
+    border: `1px solid ${theme.accent}`,
+    background: "rgba(56,189,248,0.08)",
+    color: theme.accent,
+    fontSize: isMobile ? 11 : 13,
+    lineHeight: 1.2,
+    fontWeight: 900,
+    cursor: "pointer",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
+  };
+
   const wcMenuTextColor = "#f59e0b";
   const premierModeTextColor = "#38bdf8";
 
@@ -19450,7 +19467,7 @@ if (!isLoggedIn) {
           >
             {[
               ["/auth-showcase/table.jpg", "Table insight", "Form and difficulty in one place."],
-              ["/auth-showcase/results.jpg", "Results / Live Scores", "Follow live scores, prediction points and coin returns."],
+              ["/auth-showcase/results.jpg", "Live Scores & Results", "Follow live scores, prediction points and coin returns."],
               ["/auth-showcase/leagues.jpg", "Mini-leagues", "Create private rooms and compete with mates."],
             ].map(([src, title, copy]) => (
               <section
@@ -20186,7 +20203,7 @@ if (!isLoggedIn) {
           }}
         >
           {/* Title + API status (centered) */}
-          <div style={{ textAlign: "center" }}>
+          <div style={{ textAlign: "center", width: "100%", minWidth: 0 }}>
                             <h1
   style={{
     marginTop: "0.8rem",
@@ -20237,39 +20254,38 @@ if (!isLoggedIn) {
               style={{
                 marginTop: 8,
                 display: "grid",
-                gridTemplateColumns: isMobile ? "58px auto 58px" : "74px auto 74px",
-                justifyContent: "center",
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
                 alignItems: "center",
                 gap: isMobile ? 6 : 8,
                 width: "100%",
+                maxWidth: 540,
+                marginInline: "auto",
               }}
             >
               <button
                 type="button"
+                className={liveStudioLiveFixture ? "live-studio-live-button" : undefined}
                 onClick={() => {
-                  setActiveView(activeView === "predictionIq" ? FANTASY_IQ_VIEW_ID : "predictionIq");
+                  if (liveStudioLiveFixture?.gameweek) {
+                    setSelectedGameweek(Number(liveStudioLiveFixture.gameweek));
+                  }
+                  setActiveView("liveStudio");
                   setShowMobileMenu(false);
                   setShowLeaguesMenu(false);
                 }}
-                disabled={isWorldCupMode}
                 style={{
-                  width: "100%",
-                  minHeight: isMobile ? 28 : 31,
-                  padding: isMobile ? "5px 4px" : "6px 8px",
-                  borderRadius: 999,
-                  border: `1px solid ${theme.accent}`,
-                  background: activeView === "predictionIq" || activeView === FANTASY_IQ_VIEW_ID ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.08)",
-                  color: activeView === "predictionIq" || activeView === FANTASY_IQ_VIEW_ID ? theme.text : theme.accent,
-                  fontSize: isMobile ? 11 : 12,
-                  fontWeight: 900,
-                  cursor: isWorldCupMode ? "default" : "pointer",
-                  opacity: isWorldCupMode ? 0 : 1,
-                  pointerEvents: isWorldCupMode ? "none" : "auto",
-                  whiteSpace: "nowrap",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
+                  ...headerActionButtonStyle,
+                  background: activeView === "liveStudio" ? "rgba(56,189,248,0.15)" : headerActionButtonStyle.background,
+                  color: activeView === "liveStudio" ? theme.text : theme.accent,
+                  ...(liveStudioLiveFixture ? {
+                    border: "1px solid rgba(34,197,94,0.75)",
+                    background: "linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))",
+                    color: "#052e16",
+                    boxShadow: "0 0 0 0 rgba(34,197,94,0.45)",
+                  } : {}),
                 }}
               >
-                {activeView === "predictionIq" ? "Fantasy IQ" : "IQ Report"}
+                Live Studio
               </button>
               <button
                 type="button"
@@ -20282,45 +20298,29 @@ if (!isLoggedIn) {
                 }}
                 disabled={activeView === "predictions" && resultsRefreshing}
                 style={{
-                  width: "auto",
-                  minWidth: isMobile ? 148 : 178,
-                  padding: isMobile ? "6px 12px" : "7px 14px",
-                  borderRadius: 999,
-                  border: `1px solid ${theme.accent}`,
+                  ...headerActionButtonStyle,
                   background: theme.accent,
                   color: "#08111f",
-                  fontSize: isMobile ? 15 : 17,
-                  fontWeight: 900,
                   cursor:
                     activeView === "predictions" && resultsRefreshing ? "wait" : "pointer",
-                  boxShadow: "0 8px 20px rgba(0,0,0,0.2)",
                 }}
               >
-                {activeView === "predictions" ? "Refresh Page" : "Make Predictions"}
+                Predictions
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setActiveView("badges");
+                  setActiveView("results");
                   setShowMobileMenu(false);
                   setShowLeaguesMenu(false);
                 }}
                 style={{
-                  width: "100%",
-                  minHeight: isMobile ? 28 : 31,
-                  padding: isMobile ? "5px 4px" : "6px 8px",
-                  borderRadius: 999,
-                  border: `1px solid ${theme.accent}`,
-                  background: activeView === "badges" ? "rgba(56,189,248,0.15)" : "rgba(56,189,248,0.08)",
-                  color: activeView === "badges" ? theme.text : theme.accent,
-                  fontSize: isMobile ? 11 : 12,
-                  fontWeight: 900,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.16)",
+                  ...headerActionButtonStyle,
+                  background: activeView === "results" ? "rgba(56,189,248,0.15)" : headerActionButtonStyle.background,
+                  color: activeView === "results" ? theme.text : theme.accent,
                 }}
               >
-                Badges
+                Live Scores &amp; Results
               </button>
             </div>
           </div>
@@ -20718,9 +20718,6 @@ if (!isLoggedIn) {
  {/* Tabs */}
 {(() => {
 const TABS = [
-  { id: "predictions", label: isWorldCupMode ? "WC Predictions" : "Predictions" },
-  { id: "liveStudio", label: "Live Studio" },
-  { id: "results", label: isWorldCupMode ? "WC Results / Live Scores" : "Results / Live Scores" },
   { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
   ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
   ...(!isWorldCupMode ? [{ id: FANTASY_IQ_VIEW_ID, label: "Fantasy IQ" }] : []),
@@ -21002,34 +20999,7 @@ const TABS = [
               </div>
             )}
           </div>
-          {liveStudioLiveFixture && (
-            <button
-              type="button"
-              className="live-studio-live-button"
-              onClick={() => {
-                if (liveStudioLiveFixture.gameweek) {
-                  setSelectedGameweek(Number(liveStudioLiveFixture.gameweek));
-                }
-                setActiveView("liveStudio");
-              }}
-              style={{
-                gridColumn: "1 / -1",
-                justifySelf: "center",
-                border: "1px solid rgba(34,197,94,0.75)",
-                background: "linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))",
-                color: "#052e16",
-                borderRadius: 999,
-                padding: "7px 13px",
-                fontSize: 13,
-                fontWeight: 950,
-                cursor: "pointer",
-                boxShadow: "0 0 0 0 rgba(34,197,94,0.45)",
-              }}
-              title="Open Live Studio"
-            >
-              Live Studio
-            </button>
-          )}
+
         </section>
 
         {activeView === "liveStudio" && (
@@ -22607,7 +22577,7 @@ const TABS = [
 {activeView === "results" && (
   <section style={cardStyle}>
     <h2 style={{ marginTop: 0, fontSize: 18 }}>
-      {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Results / Live Scores" : "Results / Live Scores"}
+      {getModeGameweekLabel(gameMode, selectedGameweek)} {isWorldCupMode ? "WC Live Scores & Results" : "Live Scores & Results"}
     </h2>
     {isWorldCupMode && (
       <div style={{ marginTop: -4, marginBottom: 10, fontSize: 12, fontWeight: 700, color: theme.accent }}>
