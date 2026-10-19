@@ -14784,6 +14784,18 @@ useEffect(() => {
   const wcMenuTextColor = "#f59e0b";
   const premierModeTextColor = "#38bdf8";
 
+  const headerMenuTabs = [
+  { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
+  ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
+  ...(!isWorldCupMode ? [{ id: FANTASY_IQ_VIEW_ID, label: "Fantasy IQ" }] : []),
+  { id: "badges", label: "Badges" },
+  { id: "history", label: isWorldCupMode ? "WC History" : "History" },
+  { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
+  { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
+  { id: "rules", label: "Rules" },
+  { id: "welcome", label: "Welcome Video" },
+];
+
   const pillBtn = (active) => ({
     padding: "8px 12px",
     borderRadius: 999,
@@ -20507,8 +20519,11 @@ if (!isLoggedIn) {
     </button>
 
     {isMobile && (
+      <div style={{ position: "relative", display: "inline-block" }}>
       <button
         type="button"
+        aria-expanded={showMobileMenu}
+        aria-controls="header-mobile-menu"
         onClick={() => {
           setShowLeaguesMenu(false);
           setShowMobileMenu((v) => !v);
@@ -20529,6 +20544,57 @@ if (!isLoggedIn) {
       >
         Menu ▾
       </button>
+      {showMobileMenu && (
+      <div
+        id="header-mobile-menu"
+        style={{
+          position: "absolute",
+          top: "100%",
+          right: 0,
+          marginTop: 6,
+          zIndex: 1000,
+        }}
+      >
+        <div
+          style={{
+            background: theme.panel,
+            border: `1px solid ${theme.line}`,
+            borderRadius: 10,
+            padding: 6,
+            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+            minWidth: 180,
+            maxWidth: "calc(100vw - 24px)",
+            boxSizing: "border-box",
+          }}
+        >
+          {headerMenuTabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                if (t.id === "predictions") {
+                  openPredictionsMenuView();
+                } else {
+                  setActiveView(t.id);
+                  setShowMobileMenu(false);
+                }
+              }}
+              style={{
+                ...pillBtn(activeView === t.id),
+                display: "block",
+                textAlign: "left",
+                padding: "6px 10px",
+                fontSize: 14,
+                whiteSpace: "nowrap", // menu width = longest label
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      )}
+      </div>
     )}
   </div>
 )}
@@ -20717,69 +20783,8 @@ if (!isLoggedIn) {
 )}
  {/* Tabs */}
 {(() => {
-const TABS = [
-  { id: "summary", label: isWorldCupMode ? "WC Summary" : "Summary" },
-  ...(!isWorldCupMode ? [{ id: "predictionIq", label: "Prediction IQ" }] : []),
-  ...(!isWorldCupMode ? [{ id: FANTASY_IQ_VIEW_ID, label: "Fantasy IQ" }] : []),
-  { id: "badges", label: "Badges" },
-  { id: "history", label: isWorldCupMode ? "WC History" : "History" },
-  { id: "winprob", label: isWorldCupMode ? "WC Win Probability" : "Win Probabilities" },
-  { id: "settings", label: isWorldCupMode ? "WC Settings" : "Settings" },
-  { id: "rules", label: "Rules" },
-  { id: "welcome", label: "Welcome Video" },
-];
-
-  // ---- MOBILE: floating dropdown triggered by the header "Menu" button ----
-  if (isMobile) {
-    if (!showMobileMenu) return null;
-
-    return (
-      <div
-        style={{
-          position: "fixed",
-          top: 190,          // positioned below the header/menu button
-          right: 16,         // aligned with right side
-          zIndex: 1000,
-        }}
-      >
-        <div
-          style={{
-            background: theme.panel,
-            border: `1px solid ${theme.line}`,
-            borderRadius: 10,
-            padding: 6,
-            boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
-            minWidth: 180,
-          }}
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => {
-                if (t.id === "predictions") {
-                  openPredictionsMenuView();
-                } else {
-                  setActiveView(t.id);
-                  setShowMobileMenu(false);
-                }
-              }}
-              style={{
-                ...pillBtn(activeView === t.id),
-                display: "block",
-                textAlign: "left",
-                padding: "6px 10px",
-                fontSize: 14,
-                whiteSpace: "nowrap", // menu width = longest label
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  // Mobile navigation lives beside its trigger in the header.
+  if (isMobile) return null;
 
   // ---- DESKTOP: keep your pill buttons exactly as before ----
   return (
@@ -20791,7 +20796,7 @@ const TABS = [
     justifyContent: "center",  // <--- add this
   }}
 >
-      {TABS.map((t) => (
+      {headerMenuTabs.map((t) => (
         <button
           key={t.id}
           style={pillBtn(activeView === t.id)}
