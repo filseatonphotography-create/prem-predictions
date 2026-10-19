@@ -14808,6 +14808,7 @@ useEffect(() => {
     color: isWorldCupMode ? wcMenuTextColor : active ? theme.text : theme.muted,
     cursor: "pointer",
     fontSize: 13,
+    fontWeight: 700,
     whiteSpace: "nowrap",
   });
 
@@ -23977,7 +23978,7 @@ if (!isLoggedIn) {
           });
 
           // Get best gambler from coins league
-          if (isWorldCupMode && coinsLeagueRows && coinsLeagueRows.length > 0) {
+          if (coinsLeagueRows && coinsLeagueRows.length > 0) {
             const topGambler = coinsLeagueRows[0];
             const coins = topGambler.profit !== undefined ? topGambler.profit : (topGambler.points || 0);
             stats.bestGambler = { name: topGambler.player, coins: coins };
