@@ -798,6 +798,7 @@ describe("World Cup sync helpers", () => {
     expect(payload.matchStateUpdates).toEqual({
       102: {
         status: "FINISHED",
+        minute: null,
         homeGoals: 2,
         awayGoals: 1,
         goalEvents: [],

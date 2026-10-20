@@ -49,3 +49,25 @@ test("device delivery has a timeout so an unresponsive push service cannot block
   expect(await context.send("user", "liveUpdates", { title: "Half-time" })).toBe(true);
   expect(send).toHaveBeenCalledWith(device, JSON.stringify({ title: "Half-time" }), { timeout: 10000 });
 });
+
+test("the notifier clears a retained clock when the provider stops supplying a minute", async () => {
+  const source = fs.readFileSync("server.js", "utf8");
+  const start = source.indexOf("async function runLiveFixtureNotifier(");
+  const end = source.indexOf("\nsetInterval(runDeadlineNotifier", start);
+  const fixture = { id: 560606, homeTeam: "Tottenham", awayTeam: "Coventry", kickoff: "2026-10-19T19:00:00Z" };
+  const match = { id: fixture.id, homeTeam: { name: fixture.homeTeam }, awayTeam: { name: fixture.awayTeam }, status: "IN_PLAY", minute: null, utcDate: fixture.kickoff, score: { fullTime: { home: 1, away: 0 } } };
+  const saveStates = jest.fn();
+  const context = {
+    liveNotifierStatus: {}, normalizeLeagueMode: m => m, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
+    fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "test" }), resultsCacheByKey: {}, resultsCacheAtByKey: {},
+    normalizeGoalEvents: () => [], normalizeMatchEvents: () => [], normalizeLineups: () => null,
+    loadResults: () => ({ [fixture.id]: { homeGoals: 1, awayGoals: 0 } }), loadMatchStates: () => ({ [fixture.id]: { status: "IN_PLAY", minute: 0 } }), loadPredictions: () => ({}),
+    findLocalFixtureForApiMatch: () => fixture, getMatchScoreForPrediction, numeric: value => value == null ? null : Number(value),
+    isFinalMatchStatus: () => false, getPreviousLiveScore: () => ({ hadScoreBefore: true, prevHome: 1, prevAway: 0 }),
+    mergeMatchStatePreservingEvents: mergeMatchPhaseState, enrichMatchStateWithSyntheticGoal: ({ matchState }) => matchState,
+    hasStartedMatchStatus, getLiveStudioNotificationUserIds: () => [], saveMatchStates: saveStates, saveResults: jest.fn(), console: { error: jest.fn() },
+  };
+  vm.runInNewContext(`${source.slice(start, end)}; this.run = runLiveFixtureNotifier;`, context);
+  await context.run("test", "premier");
+  expect(saveStates).toHaveBeenCalledWith({ [fixture.id]: expect.objectContaining({ status: "IN_PLAY", minute: null }) });
+});

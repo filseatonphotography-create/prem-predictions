@@ -194,3 +194,20 @@ test("cached provider details cannot rewind a server clock from the same provide
   expect(mergeRecordedMatchState({ status: "PAUSED", minute: 45, lastUpdated: recorded.lastUpdated }, recorded)).toMatchObject(recorded);
   expect(mergeRecordedMatchState({ status: "IN_PLAY", minute: 76, lastUpdated: recorded.lastUpdated }, recorded)).toMatchObject({ status: "IN_PLAY", minute: 76 });
 });
+
+test("a detailed response from before the whistle cannot undo confirmed half-time", () => {
+  const { mergeRecordedMatchState } = require("./liveMatchEvents");
+  const recorded = {
+    status: "PAUSED", minute: 45, homeGoals: 1, awayGoals: 0,
+    lastUpdated: "2026-10-19T19:49:00Z", observedAt: "2026-10-19T19:50:26.660Z",
+    halfTimeAt: "2026-10-19T19:50:26.660Z",
+  };
+  const stale = { status: "IN_PLAY", minute: 45, homeGoals: 1, awayGoals: 0, lastUpdated: recorded.lastUpdated };
+  const merged = mergeRecordedMatchState(stale, recorded);
+  expect(merged.status).toBe("PAUSED");
+  expect(merged.halfTimeAt).toBe(recorded.halfTimeAt);
+  expect(merged.secondHalfAt).toBeUndefined();
+  const resumed = mergeRecordedMatchState({ ...stale, minute: 46, lastUpdated: "2026-10-19T20:06:00Z" }, recorded);
+  expect(resumed.status).toBe("IN_PLAY");
+  expect(resumed.secondHalfAt).toBeDefined();
+});

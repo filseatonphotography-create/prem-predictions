@@ -220,8 +220,12 @@ function mergeRecordedMatchState(incoming = {}, recorded = {}) {
   const recordedClockAhead = numeric(recorded.minute) != null && numeric(incoming.minute) != null && Number(recorded.minute) > Number(incoming.minute);
   const recordedFinal = ["FINISHED", "AWARDED"].includes(String(recorded.status).toUpperCase())
     && !["FINISHED", "AWARDED"].includes(String(incoming.status).toUpperCase());
+  const recordedAtHalfTime = String(recorded.status).toUpperCase() === "PAUSED"
+    && String(incoming.status).toUpperCase() === "IN_PLAY"
+    && (numeric(incoming.minute) == null || Number(incoming.minute) <= 45)
+    && !incoming.secondHalfAt;
   const recordedIsNewer = Number.isFinite(incomingTime) && Number.isFinite(recordedTime) && recordedTime > incomingTime
-    || sameProviderVersion && (recordedClockAhead || recordedFinal);
+    || sameProviderVersion && (recordedClockAhead || recordedFinal || recordedAtHalfTime);
   const current = recordedIsNewer ? Object.assign({}, incoming, recorded) : Object.assign({}, recorded, incoming);
   const merged = mergeMatchPhaseState(recorded, current);
   merged.goalEvents = mergeMatchEvents(recorded.goalEvents, incoming.goalEvents);

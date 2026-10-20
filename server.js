@@ -5115,7 +5115,8 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         status,
         homeGoals,
         awayGoals,
-        ...(numeric(match.minute) != null ? { minute: Number(match.minute) } : {}),
+        // Clear an unavailable clock so a retained 0/45 cannot freeze Studio check-ins.
+        minute: numeric(match.minute),
         goalEvents: normalizeGoalEvents(match),
         matchEvents: normalizeMatchEvents(match),
         homeTeam: match.homeTeam?.name || "",

@@ -2689,7 +2689,8 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       status,
       homeGoals,
       awayGoals,
-      ...(match.minute != null && Number.isFinite(Number(match.minute)) ? { minute: Number(match.minute) } : {}),
+      // Clear an unavailable clock so a retained 0/45 cannot freeze Studio check-ins.
+      minute: numeric(match.minute),
       goalEvents: normalizeGoalEvents(match),
       matchEvents: normalizeMatchEvents(match),
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
@@ -5919,7 +5920,11 @@ export function getLiveStudioClockMinute(fixture, matchState, nowMs) {
   if (!Number.isFinite(kickoff) || nowMs < kickoff) return null;
   // Use a conservative clock when the provider supplies no live minute; allow for half-time.
   const elapsed = Math.floor((nowMs - kickoff) / 60000);
-  const estimated = elapsed < 60 ? Math.min(45, elapsed) : Math.min(90, elapsed - 15);
+  const secondHalf = Date.parse(matchState.secondHalfAt || "");
+  const hasConfirmedRestart = Number.isFinite(secondHalf) && secondHalf >= kickoff + 45 * 60000 && secondHalf <= nowMs;
+  const estimated = hasConfirmedRestart
+    ? Math.min(90, 45 + Math.floor((nowMs - secondHalf) / 60000))
+    : elapsed < 60 ? Math.min(45, elapsed) : Math.min(90, elapsed - 15);
   const latestKnown = getLiveStudioEvents(matchState)
     .filter((event) => !isEstimatedSyntheticLiveStudioEvent(event))
     .reduce((minute, event) => Math.max(minute, Number(event.minute) || 0), 0);
