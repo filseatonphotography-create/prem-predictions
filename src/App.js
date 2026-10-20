@@ -14899,6 +14899,12 @@ useEffect(() => {
     whiteSpace: "nowrap",
   });
 
+  const menuItemStyle = (active) => ({
+    ...pillBtn(active),
+    fontWeight: 700,
+    color: isWorldCupMode ? wcMenuTextColor : "#fff",
+  });
+
   const getBadgeDisplayValue = (badge, badgeStats = {}) => {
     if (badge.medalType) {
       if (badge.medalType === "gold") {
@@ -20523,13 +20529,13 @@ if (!isLoggedIn) {
                 setShowMobileMenu(false);
               }}
               style={{
-                ...pillBtn(activeView === item.id),
+                ...menuItemStyle(activeView === item.id),
                 display: "block",
                 textAlign: "left",
                 padding: "6px 10px",
                 fontSize: 14,
                 whiteSpace: "nowrap",
-                color: itemColor,
+                ...(itemColor ? { color: itemColor } : {}),
               }}
             >
               {item.label}
@@ -20668,7 +20674,7 @@ if (!isLoggedIn) {
                 }
               }}
               style={{
-                ...pillBtn(activeView === t.id),
+                ...menuItemStyle(activeView === t.id),
                 display: "block",
                 textAlign: "left",
                 padding: "6px 10px",
@@ -20887,7 +20893,7 @@ if (!isLoggedIn) {
       {headerMenuTabs.map((t) => (
         <button
           key={t.id}
-          style={pillBtn(activeView === t.id)}
+          style={menuItemStyle(activeView === t.id)}
           onClick={() => {
             if (t.id === "predictions") {
               openPredictionsMenuView();
