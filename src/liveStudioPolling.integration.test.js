@@ -61,10 +61,10 @@ test("the full app puts new updates first and combines half-time into one studio
     jest.setSystemTime(Date.parse("2026-10-17T17:20:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 30; i++) await Promise.resolve(); });
     expect(screen.getByText("Half-time around the grounds")).toBeInTheDocument();
-    expect(screen.getAllByText("Back in the studio")).toHaveLength(1);
     expect(screen.queryByText("Half-time check")).not.toBeInTheDocument();
     expect(screen.queryByText(/^Half time!/)).not.toBeInTheDocument();
     const halfCard = screen.getByText("Half-time around the grounds").closest("article");
+    expect(within(halfCard).getAllByText("Back in the studio")).toHaveLength(1);
     expect(within(halfCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
     expect(within(halfCard).getByText(/Emma.*0 prediction points/)).toBeInTheDocument();
     const halfScores = within(halfCard).getByRole("list", { name: "Scores around the grounds" });
@@ -262,7 +262,9 @@ test("a late startup snapshot cannot replace the newer state already shown by a 
     expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
     await act(async () => { resolveStartup({ 560607: stale }); for (let i = 0; i < 40; i++) await Promise.resolve(); });
     expect(document.querySelector("article")).toHaveTextContent("75-minute studio check-in");
-    expect(screen.queryByText("Half-time around the grounds")).not.toBeInTheDocument();
+    // A recovered half-time card is historical; the stale response must neither
+    // move it above the current visit nor duplicate it.
+    expect(screen.getAllByText("Half-time around the grounds")).toHaveLength(1);
     expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
     cleanup(); render(<App />);
     await act(async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); });

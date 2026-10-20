@@ -6235,7 +6235,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
   });
 }
 
-export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false, completedMatches = [] }) {
+function buildLiveStudioCurrentDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false, completedMatches = [] }) {
   if (!matches.length && !completedMatches.length) return [];
   const active = matches.filter((match) => match.live && !match.paused && match.score);
   const unfinished = hasUnfinishedFixtures || matches.some(match => !match.finished && (match.live || match.paused || (Date.parse(match.fixture.kickoff) <= nowMs && hasStartedMatchStatus(match.matchState || {}))));
@@ -6254,6 +6254,87 @@ export function buildLiveStudioDeskEntries({ matches = [], nowMs, nextKickoffMs 
   // The scheduled visits above include the late-game clock watch. No
   // additional quiet-period post can collide with one of those visits.
   return [];
+}
+
+// Rebuild missed desk visits from verified scores, rather than requiring the
+// browser to have been open during each short publishing window.
+export function buildLiveStudioRecoveredDeskEntries({ matches = [], nowMs, getScoreAtMoment, getTableRows }) {
+  if (!getScoreAtMoment) return [];
+  const games = [...new Map(matches.map(match => [String(match.fixture.id), match])).values()];
+  const completeTimeline = (match) => {
+    let previous = { homeGoals: 0, awayGoals: 0 };
+    const scoring = (match.events || getLiveStudioEvents(match.matchState || {}))
+      .filter(event => ["goal", "goal-disallowed"].includes(getLiveStudioEventKind(event)))
+      .sort((a, b) => getMatchEventMomentMs(match.fixture, a, match.matchState || {}) - getMatchEventMomentMs(match.fixture, b, match.matchState || {}));
+    for (const event of scoring) {
+      if (numeric(event.minute) == null || isEstimatedSyntheticLiveStudioEvent(event)) return false;
+      const score = getLiveStudioEventScore(event, null);
+      if (!score) return false;
+      const homeChange = score.homeGoals - previous.homeGoals;
+      const awayChange = score.awayGoals - previous.awayGoals;
+      const direction = getLiveStudioEventKind(event) === "goal" ? 1 : -1;
+      if (!((homeChange === direction && awayChange === 0) || (awayChange === direction && homeChange === 0))) return false;
+      previous = score;
+    }
+    return previous.homeGoals === match.score?.homeGoals && previous.awayGoals === match.score?.awayGoals;
+  };
+  const verified = new Set(games.filter(completeTimeline).map(match => String(match.fixture.id)));
+  const snapshotAt = (momentMs) => games.flatMap(match => {
+    const state = match.matchState || {};
+    const kickoff = Date.parse(match.fixture.kickoff);
+    if (!Number.isFinite(kickoff) || momentMs < kickoff || String(state.status).toUpperCase() === "AWARDED") return [];
+    const phases = getConfirmedPhaseFlags(state);
+    const halfTime = getMatchEventMomentMs(match.fixture, { statusLabel: "HT", minute: 45 }, state);
+    const restart = getMatchEventMomentMs(match.fixture, { statusLabel: "SH", minute: 45 }, state);
+    const finish = getMatchEventMomentMs(match.fixture, { statusLabel: "FT", minute: 90 }, state);
+    if (match.finished && momentMs >= finish) return [];
+    const paused = phases.halfTime && momentMs >= halfTime && momentMs < restart;
+    const halfScore = getLiveStudioHalfTimeScore(state, null);
+    if (!verified.has(String(match.fixture.id)) && !(paused && halfScore)) return [];
+    const score = paused && halfScore ? halfScore : getScoreAtMoment(match.fixture, momentMs);
+    if (!hasValidResultScore(score)) return [];
+    const events = (match.events || getLiveStudioEvents(state)).filter(event => getMatchEventMomentMs(match.fixture, event, state) <= momentMs);
+    const minute = paused ? 45 : momentMs >= restart && phases.halfTime
+      ? 45 + Math.floor((momentMs - restart) / 60000) : Math.floor((momentMs - kickoff) / 60000);
+    return [{ ...match, score, minute, events, live: true, paused, finished: false,
+      lastNewsAt: Math.max(kickoff, ...events.map(event => getMatchEventMomentMs(match.fixture, event, state))) }];
+  });
+  const recovered = new Map();
+  const groups = [...new Set(games.map(match => match.fixture.kickoff))];
+  groups.forEach(kickoff => {
+    const group = games.filter(match => match.fixture.kickoff === kickoff);
+    const elapsedMinute = Math.max(...group.map(match => match.finished ? 90 : match.paused ? 45 : numeric(match.minute) ?? 0));
+    for (const mark of [15, 25, 60, 75, 85]) {
+      // A current visit keeps its live snapshot. Only recover windows already
+      // missed, and never recover a clock-watch while the game is still live.
+      if (mark === 85 ? group.some(match => !match.finished) : elapsedMinute < mark + (mark === 25 ? 10 : 5)) continue;
+      const momentMs = Math.max(...group.map(match => getMatchEventMomentMs(match.fixture, { minute: mark }, match.matchState || {})));
+      if (momentMs > nowMs) continue;
+      const snapshots = snapshotAt(momentMs);
+      if (group.some(match => !snapshots.some(snapshot => String(snapshot.fixture.id) === String(match.fixture.id)))) continue;
+      const id = `studio:checkpoint:${kickoff}:${mark}`;
+      const entry = buildLiveStudioCheckpointEntries({ matches: snapshots, nowMs: momentMs }).find(entry => entry.id === id);
+      if (entry) recovered.set(id, { ...entry, momentMs, backfilled: true });
+    }
+    const confirmed = group.filter(match => getConfirmedPhaseFlags(match.matchState || {}).halfTime);
+    if (!confirmed.length || group.some(match => match.paused)) return;
+    const momentMs = Math.max(...confirmed.map(match => getMatchEventMomentMs(match.fixture, { statusLabel: "HT", minute: 45 }, match.matchState || {})));
+    if (momentMs > nowMs) return;
+    const id = `studio:half-time:${kickoff}`;
+    const snapshots = snapshotAt(momentMs);
+    if (confirmed.some(match => !snapshots.some(snapshot => String(snapshot.fixture.id) === String(match.fixture.id) && snapshot.paused))) return;
+    const entry = buildLiveStudioHalfTimeRoundups({ matches: snapshots, nowMs: momentMs, getTableRows }).find(entry => entry.id === id);
+    if (entry) recovered.set(id, { ...entry, momentMs, backfilled: true });
+  });
+  return [...recovered.values()];
+}
+
+export function buildLiveStudioDeskEntries(options) {
+  const current = buildLiveStudioCurrentDeskEntries(options);
+  const recovered = buildLiveStudioRecoveredDeskEntries({ ...options,
+    matches: [...(options.matches || []), ...(options.completedMatches || [])] });
+  const currentIds = new Set(current.map(entry => entry.id));
+  return [...recovered.filter(entry => !currentIds.has(entry.id)), ...current];
 }
 
 export function buildLiveStudioClosingVerdict({ matches = [], leagueName = "the league", tableSwings = [] }) {
@@ -12078,6 +12159,7 @@ const liveStudioCurrentFeed = useMemo(() => {
     matches: studioMatches, completedMatches: completedStudioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
     leagueName: selectedMiniLeague?.name || "the league",
     getTableRows: buildTableSnapshotAtMoment,
+    getScoreAtMoment: getFixtureScoreAtMoment,
     hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {
       const state = getFixtureMatchState(fixture);
       return Date.parse(fixture.kickoff) <= liveStudioNow
