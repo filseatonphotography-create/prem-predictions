@@ -83,7 +83,11 @@ test("the full app puts new updates first and combines half-time into one studio
     expect(checkInCard.style.border).toBe(halfCard.style.border);
     expect(checkInCard.style.background).toBe(halfCard.style.background);
     expect(screen.getByText("75-minute studio check-in").parentElement).toHaveStyle({ color: "#f59e0b" });
-    expect(within(checkInCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
+    // The score is unchanged since the previous visit: use a brief collective
+    // summary rather than repeating Dave's full prediction rundown.
+    expect(within(checkInCard).queryByRole("region", { name: "Dave's studio update" })).not.toBeInTheDocument();
+    expect(checkInCard).toHaveTextContent("No new points swings since we last checked in.");
+    expect(checkInCard).toHaveTextContent("Aston Villa to win");
     ended = true; minuteOverride = 90;
     jest.setSystemTime(Date.parse("2026-10-17T18:20:00Z"));
     await act(async () => { jest.advanceTimersByTime(30000); for (let i = 0; i < 50; i++) await Promise.resolve(); });

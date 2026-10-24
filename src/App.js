@@ -6004,8 +6004,50 @@ function normalizeLiveStudioDeskEntry(entry) {
 export function getVisibleLiveStudioEntries(entries = []) {
   // Individual results remain internal history for the final roundup. Only the
   // studio FT post is shown, and old timer/filler cards never return on reload.
-  return entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
+  const visible = entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
     .map(normalizeLiveStudioDeskEntry);
+  return visible.map(entry => {
+    if (!entry.id?.startsWith("studio:checkpoint:") || !entry.roundupMatches?.length) return entry;
+    const previous = visible.filter(candidate => candidate.roundupMatches?.length && candidate.momentMs < entry.momentMs)
+      .sort((a, b) => b.momentMs - a.momentMs)[0];
+    if (!previous || !sameLiveStudioScores(previous.roundupMatches, entry.roundupMatches)) return entry;
+    const matchIds = new Set(entry.roundupMatches.map(match => String(match.fixture.id)));
+    const interveningGoal = visible.some(candidate => matchIds.has(String(candidate.fixtureId))
+      && candidate.momentMs > previous.momentMs && candidate.momentMs <= entry.momentMs
+      && (candidate.goalCommentary || /:goal(?:-disallowed)?:/.test(candidate.updateKey || "")));
+    if (interveningGoal) return entry;
+    return { ...entry, compactCheckIn: true, lines: buildLiveStudioUnchangedSummary(entry) };
+  });
+}
+
+function sameLiveStudioScores(previous, current) {
+  return previous.length === current.length && current.every(match => {
+    const before = previous.find(candidate => String(candidate.fixture.id) === String(match.fixture.id));
+    return before && hasValidResultScore(before.score) && hasValidResultScore(match.score)
+      && Number(before.score.homeGoals) === Number(match.score.homeGoals)
+      && Number(before.score.awayGoals) === Number(match.score.awayGoals);
+  });
+}
+
+function buildLiveStudioUnchangedSummary(entry) {
+  const intro = pickLiveStudioPhrase(`${entry.id}:unchanged`, [
+    "Back in the studio. No change to the scores since our last visit; the prediction picture holds steady.",
+    "Still the same scores around the grounds. No new points swings since we last checked in.",
+    "A quick word from the studio: the scores haven't moved, so the same predictions are still in play.",
+  ]);
+  const outlooks = entry.roundupMatches.slice(0, 2).flatMap(match => {
+    const counts = { H: 0, D: 0, A: 0 };
+    (match.picks || []).filter(pick => hasValidResultScore(pick.prediction)).forEach(pick => {
+      counts[getLiveStudioPredictionSide(pick.prediction)] += 1;
+    });
+    const sides = Object.entries(counts).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]);
+    if (!sides.length) return [];
+    const game = `${getLiveStudioTeamName(match.fixture.homeTeam)} v ${getLiveStudioTeamName(match.fixture.awayTeam)}`;
+    const selection = side => side === "D" ? "a draw" : getLiveStudioSideLabel(match.fixture, side).replace(/ win$/, " to win");
+    if (sides.length === 1) return [`${game}: ${sides[0][1] === 1 ? "the sole submitted prediction is" : `all ${sides[0][1]} submitted predictions are`} still backing ${selection(sides[0][0])}.`];
+    return [`${game}: ${sides.map(([side, count]) => `${count} ${count === 1 ? "pick backs" : "picks back"} ${selection(side)}`).join(", ")}. The split hasn't changed.`];
+  });
+  return [intro, ...outlooks];
 }
 
 export function buildLiveStudioPredictionOutlook({ fixture, prediction, score, username, seed }) {
@@ -6140,6 +6182,7 @@ export function buildLiveStudioPlayerRoundup(options) {
 }
 
 export function getLiveStudioPlayerUpdates(entry, users = []) {
+  if (entry.compactCheckIn) return [];
   const rows = entry.roundupMatches?.length
     ? buildLiveStudioPlayerRoundupRows({ matches: entry.roundupMatches, seed: entry.id, finished: entry.id === "studio:closing" })
     : (entry.playerRoundup || []).map(line => {
@@ -21449,7 +21492,7 @@ if (!isLoggedIn) {
                           </span>
                         </div>
                         <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
-                          {(isStudioRoundup && entry.roundupMatches?.length ? entry.lines.slice(0, 1) : entry.lines).map((line, index) => (
+                          {(isStudioRoundup && entry.roundupMatches?.length && !entry.compactCheckIn ? entry.lines.slice(0, 1) : entry.lines).map((line, index) => (
                             <div
                               key={`${entry.id}:${index}`}
                               style={{
@@ -21463,14 +21506,14 @@ if (!isLoggedIn) {
                             </div>
                           ))}
                         </div>
-                        {isStudioRoundup && entry.roundupMatches?.length > 0 && (
+                        {isStudioRoundup && !entry.compactCheckIn && entry.roundupMatches?.length > 0 && (
                           <LiveStudioScores theme={theme} isMobile={isMobile} matches={entry.roundupMatches.map(match => ({
                             id: match.fixture.id, score: match.score, status: match.scoreLabel || (entry.minute === "FT" ? "FT" : entry.minute === "HT" ? "HT" : ""),
                             home: { name: getLiveStudioTeamName(match.fixture.homeTeam), code: getTeamCode(match.fixture.homeTeam, gameMode), badge: resolveTeamBadge(match.fixture.homeTeam), flag: isWorldCupMode ? getWorldCupFlag(match.fixture.homeTeam) : "" },
                             away: { name: getLiveStudioTeamName(match.fixture.awayTeam), code: getTeamCode(match.fixture.awayTeam, gameMode), badge: resolveTeamBadge(match.fixture.awayTeam), flag: isWorldCupMode ? getWorldCupFlag(match.fixture.awayTeam) : "" },
                           }))} />
                         )}
-                        {entry.playerRoundup?.length > 0 && (
+                        {!entry.compactCheckIn && entry.playerRoundup?.length > 0 && (
                           <div style={{ display: "grid", gap: 4, marginTop: 10 }}>
                             <div style={{ color: toneColor, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.8 }}>
                               Mini-league prediction desk

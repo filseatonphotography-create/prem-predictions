@@ -145,3 +145,10 @@ reactions include ordinary points swings and retain loaded prediction context
 through partial responses. Historical league tables are rebuilt at their
 original match moment when the complete roster arrives, keeping every member
 and the original score/time instead of freezing the initial founder-only rows.
+
+Scheduled check-ins compare their recorded scores with the preceding Studio
+visit. With the same fixtures/scores and no intervening goal, they display a
+brief collective prediction summary instead of repeating every player's rundown
+or the score panel. A changed score restores detailed player updates. Half-time
+and full-time retain their fuller reports; saved prediction context remains
+available and the concise presentation is restored after reopening.
