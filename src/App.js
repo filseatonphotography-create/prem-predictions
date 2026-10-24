@@ -3375,10 +3375,11 @@ async function apiSetFixturePushPref(token, fixtureId, enabled) {
   return data.fixturePrefs || {};
 }
 
-async function apiSendTestPush(token) {
+async function apiSendTestPush(token, delaySeconds = 0) {
   const res = await fetch(`${BACKEND_BASE}/api/push/test`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ delaySeconds }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Test notification failed.");
@@ -25669,6 +25670,30 @@ if (!isLoggedIn) {
                         type="button"
                         onClick={async () => {
                           try {
+                            await enablePushNotifications({ refreshExisting: false });
+                            const result = await apiSendTestPush(authToken, 15);
+                            if (!result.scheduled) {
+                              alert("The server needs updating before it can schedule a background test.");
+                              return;
+                            }
+                            alert("Test scheduled for 15 seconds from now. Close the app and lock your phone to check background delivery.");
+                          } catch (err) {
+                            alert(`Background test failed: ${err.message}`);
+                          }
+                        }}
+                        style={{
+                          width: "100%", marginTop: 10, padding: "10px 16px",
+                          borderRadius: 8, border: `1px solid ${theme.line}`,
+                          background: theme.panel, color: theme.text,
+                          fontSize: 14, fontWeight: 700, cursor: "pointer",
+                        }}
+                      >
+                        Test with app closed (15 seconds)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
                             const enabledFixture = activeFixtures.find(
                               (fixture) => fixturePushPrefs[String(fixture.id)] === true
                             );
@@ -25712,7 +25737,11 @@ if (!isLoggedIn) {
                             alert(
                               [
                                 `Live worker: ${status.running ? "running" : "idle"}`,
-                                `Last run: ${status.lastFinishedAt || status.lastStartedAt || "never"}`,
+                                ...(status.uptimeSeconds != null ? [`Server uptime: ${status.uptimeSeconds}s`] : []),
+                                ...(status.deviceCount != null ? [`Registered devices: ${status.deviceCount}`] : []),
+                                ...(status.liveUpdatesEnabled != null ? [`Live alerts: ${status.liveUpdatesEnabled ? "enabled" : "disabled"}`] : []),
+                                `Last completed run: ${status.lastFinishedAt || "none yet"}`,
+                                ...(status.running ? [`Current run started: ${status.lastStartedAt || "unknown"}`] : []),
                                 `Reason: ${status.lastReason || "n/a"}`,
                                 `Mode: ${status.mode || "all"}`,
                                 `Fetched matches: ${status.fetchedMatches || 0}`,
@@ -25722,6 +25751,11 @@ if (!isLoggedIn) {
                                 `Subscribed fixtures: ${status.subscribedFixtures || 0}`,
                                 `Attempted sends: ${status.attemptedNotifications || 0}`,
                                 `Accepted sends: ${status.acceptedNotifications || 0}`,
+                                ...(status.lastDelivery ? [
+                                  `Last delivery: ${status.lastDelivery.type} at ${status.lastDelivery.attemptedAt}`,
+                                  `Devices accepted: ${status.lastDelivery.acceptedCount || 0}, failed: ${status.lastDelivery.failedCount || 0}`,
+                                  `Delivery errors: ${(status.lastDelivery.failureCodes || []).join(", ") || "none"}`,
+                                ] : []),
                                 ...Object.entries(status.byMode || {}).map(
                                   ([mode, modeStatus]) =>
                                     `${mode}: fetched ${modeStatus.fetchedMatches || 0}, matched ${modeStatus.matchedFixtures || 0}, subscribed ${modeStatus.subscribedFixtures || 0}`

@@ -47,7 +47,9 @@ test("device delivery has a timeout so an unresponsive push service cannot block
   };
   vm.runInNewContext(`${source.slice(start, end)}; this.send = sendPushNotification;`, context);
   expect(await context.send("user", "liveUpdates", { title: "Half-time" })).toBe(true);
-  expect(send).toHaveBeenCalledWith(device, JSON.stringify({ title: "Half-time" }), { timeout: 10000 });
+  expect(send).toHaveBeenCalledWith(device, JSON.stringify({ title: "Half-time" }), {
+    timeout: 10000, urgency: "high", TTL: 300,
+  });
 });
 
 test("the notifier clears a retained clock when the provider stops supplying a minute", async () => {

@@ -85,3 +85,29 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/t
    Or use a tool like [dotenv](https://www.npmjs.com/package/dotenv) to load from `.env` automatically.
 
 If you change the secret, you must log in again to get a new token.
+
+## Background push notifications on Render
+
+The Node server runs deadline and live match notification timers. It must stay
+running when browsers are closed. Use a paid Render service for this backend.
+An accepted push means the push provider accepted the request; it does not prove
+the phone displayed it.
+
+Saved subscriptions, preferences and delivery logs live in `DATA_DIR`, which
+defaults to the repository's `data/` directory. A paid service still needs a
+persistent disk to retain these files across restarts and deployments. To move
+an existing installation, back up and copy **all current backend data files**
+to the disk before setting `DATA_DIR` to that directory (for example,
+`/var/data/prem-predictions`). Do not switch an existing service to an empty
+directory: users, predictions and subscriptions share this storage location.
+Keep the existing VAPID keys stable across deployments.
+
+Settings → Notifications → Check live notification status shows the worker's
+last poll, provider errors, registered device count, live alert preference and
+last push delivery outcome. Inspect this before using the test notification,
+which replaces the last delivery record. A background check must also confirm
+receipt with the app closed; a successful foreground test alone is insufficient.
+Use “Test with app closed (15 seconds)” to schedule a server-side test, then
+close the app and lock the phone before it sends. Check delivery status after
+reopening. This short test is held in server memory and requires the server to
+remain running for those 15 seconds.

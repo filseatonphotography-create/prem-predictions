@@ -35,13 +35,17 @@ const {
 
 const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2025-11-22-a";
+const BUILD_ID = "2026-10-24-push-delivery";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
 const MAX_USERNAME_LENGTH = 11;
 
 const app = express();
+app.get("/api/health", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ status: "ok", buildId: BUILD_ID });
+});
 
 // GET /api/coins/user/:userId?gameweek=GW
 // Returns coins state for any user (read-only, no auth restrictions)
@@ -160,7 +164,11 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
   res.json(avatars);
 });
 // ---------------------------------------------------------------------------
-const DATA_DIR = path.join(__dirname, "data");
+// Point DATA_DIR at a persistent disk in production so subscriptions survive
+// restarts and deploys along with the rest of the app's saved data.
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
 const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
 const WORLD_CUP_FIXTURES_SRC_FILE = path.join(__dirname, "src", "worldCupFixtures.js");
@@ -3688,9 +3696,15 @@ app.get("/api/results", async (req, res) => {
 });
 
 app.get("/api/push/live-status", authMiddleware, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const record = loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[req.user.id] || {};
   return res.json({
     running: liveNotifierRunning,
     ...liveNotifierStatus,
+    uptimeSeconds: Math.floor(process.uptime()),
+    deviceCount: getDeviceSubscriptions(record).length,
+    liveUpdatesEnabled: isPushTypeEnabled("liveUpdates", record.notifPrefs),
+    lastDelivery: record.lastDelivery || null,
   });
 });
 
@@ -3934,7 +3948,11 @@ async function sendPushNotification(userId, type, payload) {
   const deliveryResults = await Promise.all(
     devices.map(async (device) => {
       try {
-        await webpush.sendNotification(device, JSON.stringify(payload), { timeout: 10000 });
+        await webpush.sendNotification(device, JSON.stringify(payload), {
+          timeout: 10000,
+          urgency: "high",
+          TTL: type === "deadline1h" || type === "deadline24h" ? 900 : 300,
+        });
         return { endpoint: device.endpoint, accepted: true, expired: false };
       } catch (err) {
         console.error(`Push notification error for user ${userId}:`, err);
@@ -4616,6 +4634,26 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
 });
 
 app.post("/api/push/test", authMiddleware, async (req, res) => {
+  const delaySeconds = req.body?.delaySeconds ?? 0;
+  if (delaySeconds !== 0 && delaySeconds !== 15) {
+    return res.status(400).json({ error: "delaySeconds must be 0 or 15" });
+  }
+  if (delaySeconds === 15) {
+    const userId = req.user.id;
+    const record = loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[userId];
+    const deviceCount = getDeviceSubscriptions(record).length;
+    if (!deviceCount) {
+      return res.status(410).json({ error: "No registered push subscription. Enable notifications first." });
+    }
+    setTimeout(() => {
+      sendPushNotification(userId, "test", {
+        title: "Background notification test",
+        body: "This test was sent after 15 seconds. If you received it with the app closed, background delivery worked.",
+        url: "/",
+      }).catch(err => console.error("Background push test failed:", err));
+    }, 15000);
+    return res.json({ ok: true, scheduled: true, delaySeconds, deviceCount });
+  }
   const sent = await sendPushNotification(req.user.id, "test", {
     title: "Test notification",
     body: "Prediction Addiction push notifications are working.",
@@ -4855,11 +4893,19 @@ function runDeadlineNotifier() {
           url: "/",
         }).then((sent) => {
           if (!sent) return;
-          typeLog[logKey] = Date.now();
-          log[type] = typeLog;
-          sub.notifLog = log;
-          subscriptions[userId] = sub;
-          saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+          // Delivery is asynchronous: other sends, device removals and prefs
+          // may have changed the file since this deadline scan began.
+          const latest = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+          const latestRecord = latest[userId];
+          if (!latestRecord) return;
+          latestRecord.notifLog = {
+            ...(latestRecord.notifLog || {}),
+            [type]: {
+              ...(latestRecord.notifLog?.[type] || {}),
+              [logKey]: Date.now(),
+            },
+          };
+          saveJson(PUSH_SUBSCRIPTIONS_FILE, latest);
         });
       });
     });
@@ -5015,7 +5061,14 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
     byMode: {},
     competitionErrors: {},
   };
-  liveNotifierStatus = { ...liveNotifierStatus, ...summary };
+  // Keep the last completed poll's counters and errors visible while fetching.
+  // Clearing them here made every in-progress poll look like an empty success.
+  liveNotifierStatus = {
+    ...liveNotifierStatus,
+    lastStartedAt: summary.lastStartedAt,
+    lastReason: reason,
+    mode: normalizedModeFilter,
+  };
 
   try {
     const competitionInputs = [
