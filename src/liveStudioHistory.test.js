@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudioCommentaryHistory, getSavedLiveStudioFullTimeFixtures } from "./App";
 
-const roundup = { id: "studio:checkpoint:test:25", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
+const roundup = { id: "studio:checkpoint:test:20", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
 const goal = { id: "goal:1", momentMs: 200, lines: ["Goal for Arsenal!"] };
 
 test("cached lineup posts adopt the notification link without duplicating the refreshed post", () => {
@@ -96,4 +96,18 @@ test("a scorer correction retains one match post despite a changed event index",
   const first = { id: "goal:index:1", updateKey: "match:goal:1-0", momentMs: 150, title: "Goal" };
   const enriched = { ...first, id: "goal:index:2", momentMs: 190, title: "Saka scores" };
   expect(mergeLiveStudioDeskHistory([roundup, first], [enriched])).toEqual([{ ...enriched, momentMs: 150 }, roundup]);
+});
+
+test("cancelled stats checks and the superseded 25-minute visit are removed from saved history", () => {
+  const retired = [
+    { id: "57:stats:20", title: "Stats check", momentMs: 250 },
+    { id: "legacy-data", lines: ["The data desk checked in with another update."], momentMs: 250 },
+    { id: "studio:checkpoint:2026-10-24T11:30:00Z:25", momentMs: 250 },
+  ];
+  expect(mergeLiveStudioDeskHistory([...retired, goal], [roundup])).toEqual([goal, roundup]);
+});
+
+test("legacy kick-off posts recover the flag used by the red card styling", () => {
+  const old = { id: "560614:KICK_OFF:0:1", fixtureId: 560614, title: "Kick-off!", momentMs: 100 };
+  expect(mergeLiveStudioDeskHistory([old], [])[0]).toMatchObject({ kickoff: true, updateKey: "560614:kick-off:0-0" });
 });

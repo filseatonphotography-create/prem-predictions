@@ -7,6 +7,7 @@ import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
 import PushDiagnostics from "./PushDiagnostics";
 import { readLiveStudioCache, writeLiveStudioCache } from "./liveStudioStorage";
+import { readLiveStudioMatchStates, writeLiveStudioMatchStates } from "./liveStudioMatchStateCache";
 import useLiveResultsPolling from "./useLiveResultsPolling";
 import useLiveStudioFeedOrder, { orderLiveStudioUpdates } from "./liveStudioFeedOrder";
 import FIXTURES from "./fixtures";
@@ -209,6 +210,10 @@ function normalizePushPrefs(prefs = {}) {
     });
   }
   return next;
+}
+function readSavedGameMode() {
+  try { return localStorage.getItem(GAME_MODE_STORAGE_KEY) || "premierLeague"; }
+  catch { return "premierLeague"; }
 }
 const PREMIER_MODE = "premierLeague";
 const WORLD_CUP_MODE = "worldCup";
@@ -5269,14 +5274,14 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // Late check-ins share one stable identity.
   const entries = new Map();
   const keyFor = entry => entry.id === "studio:closing" ? entry.id : entry.arrivalKey || entry.updateKey || entry.id;
-  history.filter(entry => !isLegacyLiveStudioClockCard(entry) && !isUnverifiedDisallowedPost(entry))
+  history.filter(entry => !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const key = keyFor(entry);
       const previous = entries.get(key);
       entries.set(key, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
     });
-  currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isLegacyLiveStudioClockCard(entry)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
+  currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isRetiredLiveStudioEntry(entry)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
     const key = keyFor(entry);
     const previous = entries.get(key);
     if (entry.id === "studio:closing") entries.set(key, mergeLiveStudioFinalRoundup(previous, entry));
@@ -5956,15 +5961,23 @@ function mergeLiveStudioFinalRoundup(previous, incoming) {
   return { ...incoming, lines, ...buildLiveStudioPlayerRoundupDetails(matches, incoming.id, true) };
 }
 
-function isLegacyLiveStudioClockCard(entry) {
-  // Unscheduled quiet-period posts used a wall-clock bucket, which could put
-  // them ahead of real match events. Retire cached copies as well as new ones.
-  return (entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":70"))
+function isRetiredLiveStudioEntry(entry) {
+  const checkpoint = entry.id?.startsWith("studio:checkpoint:");
+  const stats = /(?:^|[: _-])stats?(?:[: _-]|$)/i.test(`${entry.id || ""} ${entry.updateKey || ""}`)
+    || /stats? check/i.test(`${entry.title || ""} ${entry.verdictLabel || ""}`)
+    || (entry.lines || []).some(line => /^(?:Stats check|A quick .*data check|The data desk checked in)/i.test(line));
+  return stats || (checkpoint && (entry.id.endsWith(":25") || entry.id.endsWith(":70")))
     || entry.id?.startsWith("studio:roundup:")
-    || (entry.title === "Watching the clock" && !entry.id?.startsWith("studio:checkpoint:"));
+    || (entry.title === "Watching the clock" && !checkpoint);
 }
 
 function normalizeLiveStudioDeskEntry(entry) {
+  const kickoff = entry.kickoff || entry.updateKey?.includes(":kick-off:") || /:KICK_OFF:/i.test(entry.id || "")
+    || /^kick[ -]?off!/i.test(entry.title || "");
+  if (kickoff && !entry.kickoff) {
+    const key = entry.fixtureId != null ? `${entry.fixtureId}:kick-off:0-0` : entry.updateKey;
+    return { ...entry, kickoff: true, ...(key ? { updateKey: key, arrivalKey: key } : {}) };
+  }
   if (entry.lineups && entry.fixtureId != null) {
     const key = `${entry.fixtureId}:lineup:confirmed`;
     return entry.updateKey === key && entry.arrivalKey === key
@@ -5977,7 +5990,7 @@ function normalizeLiveStudioDeskEntry(entry) {
 export function getVisibleLiveStudioEntries(entries = []) {
   // Individual results remain internal history for the final roundup. Only the
   // studio FT post is shown, and old timer/filler cards never return on reload.
-  return entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isLegacyLiveStudioClockCard(entry) && !isUnverifiedDisallowedPost(entry))
+  return entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
     .map(normalizeLiveStudioDeskEntry);
 }
 
@@ -6137,11 +6150,8 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
   clocks.forEach((minute, kickoff) => {
     // One clock per kick-off group prevents staggered provider refreshes from
     // publishing an old around-the-grounds visit beside a newer check-in.
-    const mark = [15, 25, 60, 75, 85].find(target => minute >= target
-      && (target === 85 || minute < target + (target === 25 ? 10 : 5)));
-    const latestNews = Math.max(...active.filter(match => match.fixture.kickoff === kickoff)
-      .map(match => match.lastNewsAt || Date.parse(kickoff)));
-    if (mark === 85 && nowMs - latestNews < 3 * 60000) return;
+    const mark = [15, 20, 60, 75, 85].find(target => minute >= target
+      && (target === 85 || minute < target + (target === 20 ? 10 : 5)));
     if (mark) checkpoints.set(`${kickoff}:${mark}`, mark);
   });
   return [...checkpoints].map(([key, mark]) => {
@@ -6163,7 +6173,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
         "Let's go around the grounds and see where everyone's predictions stand.",
         "A trip around the grounds. Here's how the scores and prediction slips are shaping up.",
         "Back in the studio. Let's catch up with the action and our mini-league players.",
-      ] : mark === 25 ? [
+      ] : mark === 20 ? [
         "Back in the studio. A chance to catch our breath and see how the afternoon is shaping up.",
         "Let's go around the grounds. The predictions have had time to settle. Or start unravelling.",
         "Time for a quick studio check-in. Here's where we stand around the grounds.",
@@ -6246,10 +6256,10 @@ export function buildLiveStudioRecoveredDeskEntries({ matches = [], nowMs, getSc
   groups.forEach(kickoff => {
     const group = games.filter(match => match.fixture.kickoff === kickoff);
     const elapsedMinute = Math.max(...group.map(match => match.finished ? 90 : match.paused ? 45 : numeric(match.minute) ?? 0));
-    for (const mark of [15, 25, 60, 75, 85]) {
+    for (const mark of [15, 20, 60, 75, 85]) {
       // A current visit keeps its live snapshot. Only recover windows already
       // missed, and never recover a clock-watch while the game is still live.
-      if (mark === 85 ? group.some(match => !match.finished) : elapsedMinute < mark + (mark === 25 ? 10 : 5)) continue;
+      if (mark === 85 ? group.some(match => !match.finished) : elapsedMinute < mark + (mark === 20 ? 10 : 5)) continue;
       const momentMs = Math.max(...group.map(match => getMatchEventMomentMs(match.fixture, { minute: mark }, match.matchState || {})));
       if (momentMs > nowMs) continue;
       const snapshots = snapshotAt(momentMs);
@@ -7444,20 +7454,30 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // App state
   const [predictions, setPredictions] = useState({});
   const [results, setResults] = useState({});
-  const [matchStatesByFixtureId, setMatchStatesByFixtureId] = useState({});
-  const [studioSnapshotMode, setStudioSnapshotMode] = useState(null);
+  const [matchStatesByFixtureId, setMatchStatesByFixtureId] = useState(() => readLiveStudioMatchStates(readSavedGameMode()));
+  const [studioSnapshotMode, setStudioSnapshotMode] = useState(() => Object.keys(readLiveStudioMatchStates(readSavedGameMode())).length ? readSavedGameMode() : null);
   const [odds, setOdds] = useState({});
-  const [fixtureOverridesByMode, setFixtureOverridesByMode] = useState(() => ({
-    [PREMIER_MODE]: {},
-    [WORLD_CUP_MODE]: {},
-  }));
-  const [gameMode, setGameMode] = useState(() => {
-    try {
-      return localStorage.getItem(GAME_MODE_STORAGE_KEY) || PREMIER_MODE;
-    } catch {
-      return PREMIER_MODE;
-    }
+  const [fixtureOverridesByMode, setFixtureOverridesByMode] = useState(() => {
+    const mode = readSavedGameMode();
+    return {
+      [PREMIER_MODE]: {}, [WORLD_CUP_MODE]: {},
+      [mode]: buildFixtureOverridesFromMatchStates(readLiveStudioMatchStates(mode), getFixturesForMode(mode)),
+    };
   });
+  const [gameMode, setGameMode] = useState(readSavedGameMode);
+  useEffect(() => {
+    const cached = readLiveStudioMatchStates(gameMode);
+    if (!Object.keys(cached).length) return;
+    setMatchStatesByFixtureId(previous => ({ ...previous, ...Object.fromEntries(Object.entries(cached)
+      .map(([id, state]) => [id, mergeRecordedMatchState(state, previous[id] || {})])) }));
+    setFixtureOverridesByMode(previous => ({ ...previous,
+      [gameMode]: mergeFixtureOverrides(previous[gameMode], buildFixtureOverridesFromMatchStates(cached, getFixturesForMode(gameMode))) }));
+    setStudioSnapshotMode(gameMode);
+  }, [gameMode]);
+  useEffect(() => {
+    if (studioSnapshotMode !== gameMode) return;
+    writeLiveStudioMatchStates(gameMode, matchStatesByFixtureId, getFixturesForMode(gameMode));
+  }, [gameMode, matchStatesByFixtureId, studioSnapshotMode]);
   const [selectedGameweek, setSelectedGameweek] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -21205,20 +21225,20 @@ if (!isLoggedIn) {
                         padding: isMobile ? 10 : 12,
                         borderRadius: 8,
                         border: `1px solid ${
-                          isFocusedLiveStudioEntry
-                            ? theme.accent
-                            : isKickoffCard
+                          isKickoffCard
                             ? "rgba(239,68,68,0.65)"
+                            : isFocusedLiveStudioEntry
+                            ? theme.accent
                             : isStudioRoundup
                             ? "rgba(245,158,11,0.45)"
                             : entry.tone === "live"
                             ? "rgba(34,197,94,0.45)"
                             : theme.line
                         }`,
-                        background: isFocusedLiveStudioEntry
-                          ? "rgba(245,158,11,0.12)"
-                          : isKickoffCard
+                        background: isKickoffCard
                           ? "rgba(239,68,68,0.12)"
+                          : isFocusedLiveStudioEntry
+                          ? "rgba(245,158,11,0.12)"
                           : isStudioRoundup
                           ? "rgba(245,158,11,0.08)"
                           : entry.tone === "live"

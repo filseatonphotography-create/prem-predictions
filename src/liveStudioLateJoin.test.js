@@ -29,7 +29,7 @@ const options = (game = match()) => ({ matches: [game], nowMs: Date.parse("2026-
 test("opening Spurs–Coventry at 88 minutes recovers earlier studio visits and the recorded half-time card", () => {
   const entries = buildLiveStudioDeskEntries(options());
   const checkpoints = entries.filter(entry => entry.id.startsWith("studio:checkpoint:"));
-  expect(checkpoints.map(entry => entry.id.split(":").at(-1))).toEqual(["15", "25", "60", "75", "85"]);
+  expect(checkpoints.map(entry => entry.id.split(":").at(-1))).toEqual(["15", "20", "60", "75", "85"]);
   const half = entries.find(entry => entry.id.startsWith("studio:half-time:"));
   expect(half.lines).toContain("Tottenham Hotspur 1–0 Coventry City (HT)");
   expect(half.tableSnapshot).toBeDefined();

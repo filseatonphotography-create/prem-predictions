@@ -86,7 +86,7 @@ test("updates arriving after the next game's lineups go above them and never mov
   const initial = [lineup, earlier];
   const { result, rerender, unmount } = renderHook(({ feed }) => useLiveStudioFeedOrder(feed, "arrival", true), { initialProps: { feed: initial } });
   expect(result.current.map(entry => entry.id)).toEqual([lineup.id, earlier.id]);
-  const kinds = ["goal", "yellow-card", "substitution", "studio:checkpoint:25", "second-half", "full-time"];
+  const kinds = ["goal", "yellow-card", "substitution", "studio:checkpoint:20", "second-half", "full-time"];
   const received = [];
   for (const kind of kinds) {
     const entry = { id: kind, updateKey: `live:${kind}`, momentMs: at("17:05"), title: kind };
@@ -177,7 +177,7 @@ test("loading a league does not reset the shared arrival order", () => {
 test("a corrupt studio-only ledger is rebuilt after hydration, with match updates between every check-in", () => {
   const scope = "repair-matchday";
   const post = (id, time) => ({ id, momentMs: at(time), lines: [id] });
-  const posts = [post("studio:checkpoint:25", "14:25"), post("goal-30", "14:30"),
+  const posts = [post("studio:checkpoint:20", "14:25"), post("goal-30", "14:30"),
     post("studio:half-time:2026-10-17T14:00:00Z", "14:47"), post("booking-50", "15:05"),
     post("studio:checkpoint:60", "15:15"), post("goal-65", "15:20"),
     post("studio:checkpoint:75", "15:30"), post("sub-80", "15:35"),

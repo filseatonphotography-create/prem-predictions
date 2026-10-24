@@ -221,8 +221,10 @@ describe("Live Studio pacing and quiet periods", () => {
     expect(getLiveStudioClockMinute(matchFixture, { status: "IN_PLAY", minute: 87 }, nowMs)).toBe(87);
   });
 
-  test("suppresses studio filler straight after news breaks", () => {
-    expect(buildLiveStudioDeskEntries({ matches: [{ ...match, lastNewsAt: nowMs - 60000 }], nowMs })).toEqual([]);
+  test("scheduled watching-the-clock visit remains after recent news", () => {
+    const entries = buildLiveStudioDeskEntries({ matches: [{ ...match, lastNewsAt: nowMs - 60000 }], nowMs });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].title).toBe("Watching the clock");
   });
 
   test("produces one stable late-match studio card and does not show an unchanged table", () => {

@@ -129,3 +129,11 @@ the matching line-up post, then scrolls to and highlights that post.
 Goal-disallowed alerts require an explicit provider event. A score decrease or
 missing score never creates a cancellation or a VAR claim. Legacy inferred
 cancellations are filtered from match events and unverified saved Studio posts.
+
+Studio visits use match-clock marks at 15, 20, 60, 75 and 85 minutes. The
+85-minute “Watching the clock” visit is scheduled even after recent action.
+Cancelled stats checks (including saved copies) and the superseded 25-minute
+visit are removed. Kick-off cards retain their red styling when highlighted.
+Recent public match events and their confirmed kick-off overrides are cached
+for up to six hours, so reopening retains goals and bookings while fresh data
+loads; private commentary remains scoped to its account, league and gameweek.

@@ -25,7 +25,7 @@ test("every player gets their projected total, including boosts, Bingpots and ze
   expect(zero).toMatch(/0 prediction points/);
 });
 
-test.each(["15-minute", "25-minute", "60-minute", "75-minute", "late", "half-time", "final"])("the %s studio visit includes the prediction desk", phase => {
+test.each(["15-minute", "20-minute", "60-minute", "75-minute", "late", "half-time", "final"])("the %s studio visit includes the prediction desk", phase => {
   const game = match(1, phase === "late" ? { minute: 85, lastNewsAt: nowMs - 5 * 60000 } : phase.endsWith("-minute") ? { minute: Number(phase.split("-")[0]) } : phase === "half-time" ? { paused: true } : phase === "quiet" ? { minute: 40 } : phase === "final" ? { finished: true, live: false } : {});
   const [entry] = buildLiveStudioDeskEntries({ matches: phase === "quiet" ? [game, match(2, { minute: 40 })] : [game], nowMs });
   expect(entry.verdictLabel).toBe("Back in the studio");
@@ -149,7 +149,7 @@ test("finished bets and invalid selections are not presented as bets still in pl
 });
 
 
-test.each([15, 25, 45, 60, 75, 85])("the %s-minute visit includes live bets without a balance or coins ranking", minute => {
+test.each([15, 20, 45, 60, 75, 85])("the %s-minute visit includes live bets without a balance or coins ranking", minute => {
   const [entry] = buildLiveStudioDeskEntries({ matches: [match(1, { minute, paused: minute === 45, picks: [
     { ...pick("Phil", 2, 1), bet: { side: "H", stake: 4 } },
   ] }), match(2, { minute, paused: minute === 45, fixture: { ...match(2).fixture, homeTeam: "Liverpool", awayTeam: "Everton" }, picks: [

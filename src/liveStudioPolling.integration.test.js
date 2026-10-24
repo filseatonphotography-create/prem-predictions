@@ -268,6 +268,49 @@ test("a late startup snapshot cannot replace the newer state already shown by a 
     expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
     cleanup(); render(<App />);
     await act(async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); });
-    expect([...document.querySelectorAll("article")].map(card => card.id)).toEqual(before);
+    // Restoring the public event timeline can additionally recover older studio
+    // visits. Every existing match post must still occur once and in order.
+    const restoredIds = [...document.querySelectorAll("article")].map(card => card.id).filter(Boolean);
+    expect(restoredIds).toEqual(before.filter(Boolean));
+    expect(screen.getAllByText("75-minute studio check-in")).toHaveLength(1);
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});
+
+test("AVL's goal and Guéhi booking survive reopening before any network response with the corrected kickoff", async () => {
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-24T12:08:00Z"));
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
+  localStorage.setItem("activeView", "liveStudio");
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 8 }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 8, predictions: {} }));
+  const goal = { type: "GOAL", minute: 6, homeGoals: 1, awayGoals: 0, scorerName: "Nicolas Jackson", teamName: "Aston Villa FC" };
+  const booking = { type: "YELLOW_CARD", minute: 32, playerName: "Marc Guéhi", teamName: "Manchester City FC", card: "YELLOW" };
+  const state = { status: "IN_PLAY", minute: 36, utcDate: "2026-10-24T11:30:00Z", homeGoals: 1, awayGoals: 0, observedAt: "2026-10-24T12:08:00Z", goalEvents: [goal], matchEvents: [goal, booking] };
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async url => {
+    let data = {};
+    if (String(url).includes("/api/match-states/snapshot")) data = { 560614: state };
+    if (String(url).includes("/api/results?")) data = [{ id: 560614, ...state, goalEvents: [], matchEvents: [], homeTeam: { name: "Aston Villa FC" }, awayTeam: { name: "Manchester City FC" }, score: { fullTime: { home: 1, away: 0 } } }];
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
+  });
+  const verify = () => {
+    const cards = [...document.querySelectorAll("article")];
+    expect(cards.filter(card => card.textContent.includes("Goal for AVL!"))).toHaveLength(1);
+    expect(cards.filter(card => card.textContent.includes("Guéhi"))).toHaveLength(1);
+    expect(screen.getAllByText("20-minute studio check-in")).toHaveLength(1);
+    const kickoffCard = cards.find(card => /Kick[ -]off!/.test(card.textContent));
+    expect(kickoffCard).toBeDefined();
+    expect(kickoffCard.style.border.replace(/\s/g, "")).toContain("239,68,68");
+    expect(cards.some(card => /Stats check/i.test(card.textContent))).toBe(false);
+  };
+  try {
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); });
+    verify();
+    cleanup();
+    global.fetch = jest.fn(() => new Promise(() => {}));
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 60; i++) await Promise.resolve(); });
+    verify();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
