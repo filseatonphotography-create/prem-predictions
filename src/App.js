@@ -5285,7 +5285,7 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
     const key = keyFor(entry);
     const previous = entries.get(key);
     if (entry.id === "studio:closing") entries.set(key, mergeLiveStudioFinalRoundup(previous, entry));
-    else if (!entry.id.startsWith("studio:")) entries.set(key, { ...entry, momentMs: previous?.momentMs ?? entry.momentMs });
+    else if (!entry.id.startsWith("studio:")) entries.set(key, refreshLiveStudioGoalCommentary({ ...entry, momentMs: previous?.momentMs ?? entry.momentMs }, previous));
     else if (!previous) entries.set(key, entry);
     else entries.set(key, enrichLiveStudioPlayerRoundup(previous, entry));
   });
@@ -5775,6 +5775,18 @@ export function buildLiveStudioStakesLine({ fixture, event, score, previousScore
         ]) });
       }
     }
+    if (changed && previousScore && hasValidResultScore(prediction)) {
+      const beforePoints = getTotalPoints(prediction, previousScore);
+      const afterPoints = getTotalPoints(prediction, score);
+      const swing = afterPoints - beforePoints;
+      if (swing) stories.push({ priority: 2.5, line: pickLiveStudioPhrase(`${seed}:${username}:points-swing`, swing > 0 ? [
+        `That goal puts ${username} up from ${beforePoints} to ${afterPoints} prediction points. Their ${getLiveStudioSideLabel(fixture, getLiveStudioPredictionSide(prediction))} call is paying off now.`,
+        `${username} has picked up ${swing} prediction points with that goal: ${afterPoints} on the board if it stays like this.`,
+      ] : [
+        `That goal takes ${username} from ${beforePoints} to ${afterPoints} prediction points. They'll need the match to turn back towards their ${getLiveStudioSideLabel(fixture, getLiveStudioPredictionSide(prediction))} call.`,
+        `${username} has just lost ${-swing} prediction points. From ${beforePoints} to ${afterPoints}, in the time it took the net to move.`,
+      ]) });
+    }
     const need = getOneGoalBingpotNeed(prediction, score, fixture);
     if (need) stories.push({ priority: 4, line: pickLiveStudioPhrase(`${seed}:${username}:nearly`, [
       `${username} needs one ${need} for Bingpot. They've never supported a team so enthusiastically.`,
@@ -5789,7 +5801,9 @@ export function buildLiveStudioStakesLine({ fixture, event, score, previousScore
   });
   stories.sort((a, b) => a.priority - b.priority);
   const best = stories.filter((story) => story.priority === stories[0]?.priority);
-  return best.length ? pickLiveStudioPhrase(seed, best.map((story) => story.line)) : "";
+  if (best.length) return pickLiveStudioPhrase(seed, best.map(story => story.line));
+  const unchanged = changed && pickLiveStudioPhrase(`${seed}:unchanged`, picks.filter(pick => hasValidResultScore(pick.prediction)));
+  return unchanged ? `That leaves ${unchanged.username} on ${getTotalPoints(unchanged.prediction, score)} prediction points. ${buildLiveStudioPredictionOutlook({ ...unchanged, fixture, score, seed })}` : "";
 }
 
 function hasLiveStudioBingpotComeback(prediction, event, history) {
@@ -5994,6 +6008,88 @@ export function getVisibleLiveStudioEntries(entries = []) {
     .map(normalizeLiveStudioDeskEntry);
 }
 
+export function buildLiveStudioPredictionOutlook({ fixture, prediction, score, username, seed }) {
+  if (!hasValidResultScore(prediction) || !hasValidResultScore(score)) return "";
+  const match = `${getLiveStudioTeamName(fixture.homeTeam)} v ${getLiveStudioTeamName(fixture.awayTeam)}`;
+  const status = getPredictionPointsLabel(prediction, score);
+  const need = getOneGoalBingpotNeed(prediction, score, fixture);
+  const phraseSeed = `${seed}:${username}:${fixture.id}:outlook`;
+  if (status?.label === "Bingpot") return pickLiveStudioPhrase(phraseSeed, [
+    `${match}: ${username} has the exact score. Every attack from here is a threat to that Bingpot.`,
+    `${username} wants the whistle in ${match}. Bingpot is theirs if nobody touches the scoreline.`,
+    `No more goals in ${match}, please. ${username}'s perfect score is already on the board.`,
+  ]);
+  if (need) return pickLiveStudioPhrase(phraseSeed, [
+    `${match}: one ${need} puts ${username} on Bingpot. That's the next goal they're shouting for.`,
+    `${username} is one ${need} away from the exact score in ${match}. Every chance has their full attention.`,
+    `One ${need}, then shut up shop: that is ${username}'s route to Bingpot in ${match}.`,
+  ]);
+  const homeNeeded = Number(prediction.homeGoals) - Number(score.homeGoals);
+  const awayNeeded = Number(prediction.awayGoals) - Number(score.awayGoals);
+  if (homeNeeded >= 0 && awayNeeded >= 0) {
+    const needs = [[homeNeeded, fixture.homeTeam], [awayNeeded, fixture.awayTeam]]
+      .filter(([count]) => count > 0).map(([count, team]) => `${count} more ${getLiveStudioTeamName(team)} goal${count === 1 ? "" : "s"}`).join(" and ");
+    return pickLiveStudioPhrase(phraseSeed, [
+      `${username} needs ${needs} for their ${prediction.homeGoals}–${prediction.awayGoals} Bingpot in ${match}. A bit of work left on that slip.`,
+      `${match}: ${username}'s exact score is still possible, but it needs ${needs}. They won't be asking for the whistle yet.`,
+    ]);
+  }
+  const side = getLiveStudioSideLabel(fixture, getLiveStudioPredictionSide(prediction));
+  return pickLiveStudioPhrase(phraseSeed, status?.points > 0 ? [
+    `${match}: the exact score has gone for ${username}, but a ${side} still brings points. Protect that result now.`,
+    `${username} can still collect for a ${side} in ${match}. The Bingpot has gone; the result points are worth hanging on to.`,
+  ] : [
+    `${username}'s exact score is out of reach in ${match}. A ${side} is the route back to result points.`,
+    `${match} needs to turn towards a ${side} for ${username}. The exact score has gone, but there are result points to rescue.`,
+  ]);
+}
+
+function refreshLiveStudioGoalCommentary(entry, previous) {
+  if (!entry.goalCommentary) return entry;
+  const previousContext = previous?.goalCommentary;
+  const partial = (entry.goalCommentary.picks || []).filter(pick => hasValidResultScore(pick.prediction)).length
+    < (previousContext?.picks || []).filter(pick => hasValidResultScore(pick.prediction)).length;
+  const sameScore = previousContext?.score?.homeGoals === entry.goalCommentary.score?.homeGoals
+    && previousContext?.score?.awayGoals === entry.goalCommentary.score?.awayGoals;
+  const context = { ...entry.goalCommentary,
+    tableImpactLine: partial && sameScore ? previousContext.tableImpactLine : entry.goalCommentary.tableImpactLine,
+    picks: mergeLiveStudioRoundupPicks(previousContext?.picks, entry.goalCommentary.picks) };
+  return { ...entry, goalCommentary: context,
+    ...(partial && sameScore && previous.tableSnapshot ? { tableSnapshot: previous.tableSnapshot } : {}),
+    lines: buildLiveStudioEntryLines({ ...context,
+    stakesLine: buildLiveStudioStakesLine(context),
+  }) };
+}
+
+function completeLiveStudioTableRows(previous = [], incoming = []) {
+  const rows = new Map(previous.map(row => [row.username.toLowerCase(), row]));
+  incoming.forEach(row => rows.set(row.username.toLowerCase(), row));
+  return [...rows.values()].sort((a, b) => b.points - a.points || a.username.localeCompare(b.username))
+    .map((row, index) => ({ ...row, position: index + 1 }));
+}
+
+export function refreshLiveStudioSavedSnapshot(entry, { getTableRows, getPicks }) {
+  const matches = entry.roundupMatches?.map(match => ({ ...match,
+    picks: mergeLiveStudioRoundupPicks(match.picks, getPicks(match.fixture)),
+  }));
+  let tableSnapshot = entry.tableSnapshot;
+  if (tableSnapshot && Number.isFinite(entry.momentMs)) {
+    const goal = entry.goalCommentary;
+    const kickoff = entry.kickoffMs || Math.min(...(matches || []).map(match => Date.parse(match.fixture.kickoff)));
+    const previousMoment = goal ? entry.momentMs - 1 : Number.isFinite(kickoff) ? kickoff - 1 : entry.momentMs - 1;
+    const currentOverride = goal ? { fixtureId: goal.fixture.id, score: goal.score }
+      : matches?.length ? { scoresByFixtureId: Object.fromEntries(matches.map(match => [String(match.fixture.id), match.score])) } : null;
+    tableSnapshot = {
+      previousRows: completeLiveStudioTableRows(tableSnapshot.previousRows,
+        getTableRows(previousMoment, goal ? { fixtureId: goal.fixture.id, score: goal.previousScore } : null)),
+      currentRows: completeLiveStudioTableRows(tableSnapshot.currentRows, getTableRows(entry.momentMs, currentOverride)),
+    };
+  }
+  return { ...entry, historyEnriched: true, tableSnapshot,
+    ...(matches ? buildLiveStudioPlayerRoundupDetails(matches, entry.id, entry.id === "studio:closing") : {}),
+  };
+}
+
 function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finished = false }) {
   const players = new Map();
   const uniqueMatches = [...new Map(matches.map(match => [String(match.fixture.id), match])).values()];
@@ -6006,7 +6102,7 @@ function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finis
         ? buildLiveStudioRoundupBetLine({ fixture: match.fixture, bet, score: match.score, username, seed }) : "";
       if (!key || seen.has(key) || (!hasPrediction && !betLine)) return;
       seen.add(key);
-      const row = players.get(key) || { userId: userId || "", username, points: 0, predictionCount: 0, bingpots: 0, boosts: new Set(), bets: [] };
+      const row = players.get(key) || { userId: userId || "", username, points: 0, predictionCount: 0, bingpots: 0, boosts: new Set(), bets: [], outlooks: [] };
       if (hasPrediction) {
         row.predictionCount += 1;
         const points = getTotalPoints(prediction, match.score);
@@ -6014,6 +6110,9 @@ function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finis
         if (getPredictionPointsLabel(prediction, match.score)?.label === "Bingpot") row.bingpots += 1;
         if (points && prediction.isDouble) row.boosts.add("double");
         if (points && prediction.isTriple) row.boosts.add("triple");
+        if (!finished && !match.finished && match.scoreLabel !== "FT") row.outlooks.push(buildLiveStudioPredictionOutlook({
+          fixture: match.fixture, prediction, score: match.score, username, seed,
+        }));
       }
       if (betLine) row.bets.push(betLine);
       players.set(key, row);
@@ -6028,11 +6127,11 @@ function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finis
       `${points} from these games for ${row.username}. That's their final return.`,
     ] : [
       `${row.username} is in line for ${points} from these games, as things stand.`,
-      `${row.username} is on for ${points} from these games. Still a bit of football between them and payday.`,
+      `${row.username} is on for ${points} from these games. That is the return on their slip right now.`,
       `${row.username} has ${points} coming from these games if the scores stay put.`,
     ]);
     return { userId: row.userId, username: row.username,
-      line: [row.predictionCount ? `${line}${extra ? ` ${extra}.` : ""}` : "", ...row.bets].filter(Boolean).join(" ") };
+      line: [row.predictionCount ? `${line}${extra ? ` ${extra}.` : ""}` : "", ...row.outlooks, ...row.bets].filter(Boolean).join(" ") };
   });
 }
 
@@ -6063,6 +6162,7 @@ function buildLiveStudioPlayerRoundupDetails(matches, seed, finished = false) {
     // Keep the score snapshot so late prediction loading can fill in players
     // without changing the result or publication time of an earlier roundup.
     roundupMatches: matches.map(({ fixture, score, picks = [], minute, paused, scoreLabel, finished: matchFinished }) => ({ fixture, score, picks,
+      finished: Boolean(finished || matchFinished || scoreLabel === "FT"),
       scoreLabel: finished || matchFinished ? "FT" : scoreLabel || (paused ? "HT" : numeric(minute) != null ? `${minute}′` : "Live") })),
   };
 }
@@ -6076,7 +6176,9 @@ function enrichLiveStudioPlayerRoundup(previous, incoming) {
     const current = incoming.roundupMatches.find(candidate => String(candidate.fixture.id) === String(match.fixture.id));
     return { ...match, picks: mergeLiveStudioRoundupPicks(match.picks, current?.picks) };
   });
-  return { ...previous, ...buildLiveStudioPlayerRoundupDetails(matches, previous.id, previous.id === "studio:closing") };
+  return { ...previous,
+    ...(incoming.historyEnriched && incoming.tableSnapshot ? { tableSnapshot: incoming.tableSnapshot } : {}),
+    ...buildLiveStudioPlayerRoundupDetails(matches, previous.id, previous.id === "studio:closing") };
 }
 
 export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableRows }) {
@@ -12094,6 +12196,12 @@ const liveStudioCurrentFeed = useMemo(() => {
             previewLines: predictionPreviewLines.slice(1),
           }),
           tableSnapshot: entryTableSnapshot,
+          goalCommentary: entryIsGoal || entryIsGoalDisallowed ? {
+            fixture, event, score: entryScore, previousScore, picks: fixturePicks, history: repairedTimelineEvents,
+            seed: `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:stakes`,
+            entryKind, statusLabel, revealLine: entryRevealLine, aside,
+            isMilestone: /hat-trick|Leave some for everyone else/.test(aside), tableImpactLine: entryTableImpactLine,
+          } : undefined,
         };
       });
     })
@@ -12144,8 +12252,17 @@ const liveStudioCurrentFeed = useMemo(() => {
         && !isLiveStudioFinalStatus(state.status);
     }),
   });
-  return [...deskEntries, ...sortedEntries];
+  const savedEntries = readLiveStudioCache(`live-studio-commentary:v1:${liveStudioCommentaryScope}`, []);
+  const enrichedHistory = (Array.isArray(savedEntries) ? savedEntries : [])
+    .filter(entry => entry.tableSnapshot || entry.roundupMatches?.length)
+    .map(entry => refreshLiveStudioSavedSnapshot(entry, {
+      getTableRows: buildTableSnapshotAtMoment,
+      getPicks: fixture => liveStudioUsers.map(user => ({ userId: user.userId, username: user.username,
+        prediction: getUserPredictionForFixture(user, fixture) })),
+    }));
+  return [...enrichedHistory, ...deskEntries, ...sortedEntries];
 }, [
+  liveStudioCommentaryScope,
   coinsState.bets,
   currentPlayer,
   currentUserId,

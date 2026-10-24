@@ -137,3 +137,11 @@ visit are removed. Kick-off cards retain their red styling when highlighted.
 Recent public match events and their confirmed kick-off overrides are cached
 for up to six hours, so reopening retains goals and bookings while fresh data
 loads; private commentary remains scoped to its account, league and gameweek.
+
+Studio player rundowns explain each prediction against that post's recorded
+score: protecting an exact score, goals needed for Bingpot, or the result needed
+to retain or rescue points. Finished fixtures use settled language. Goal
+reactions include ordinary points swings and retain loaded prediction context
+through partial responses. Historical league tables are rebuilt at their
+original match moment when the complete roster arrives, keeping every member
+and the original score/time instead of freezing the initial founder-only rows.

@@ -105,7 +105,9 @@ describe("Live Studio commentary", () => {
       previousScore: { homeGoals: 1, awayGoals: 0 }, score: { homeGoals: 2, awayGoals: 0 },
       picks: [{ username: "Phil", prediction: { homeGoals: 3, awayGoals: 1, isTriple: true } }], seed: "boost",
     });
-    expect(line).toBe("");
+    expect(line).toContain("12");
+    expect(line).toContain("Phil");
+    expect(line).not.toMatch(/on (?:for )?Bingpot|puts .*on Bingpot/);
   });
 
   test("reports real coin pressure when a goal turns a winning bet against its owner", () => {
