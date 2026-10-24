@@ -1,5 +1,6 @@
 const fs = require("fs");
 const vm = require("vm");
+const { deliverWebPush, pushFailureDetails } = require("../pushTransport");
 const { mergeMatchPhaseState } = require("./liveMatchEvents");
 const { hasStartedMatchStatus, getMatchScoreForPrediction } = require("./matchScoreUtils");
 
@@ -42,13 +43,13 @@ test("device delivery has a timeout so an unresponsive push service cannot block
   const record = { user: { subscriptions: [device] } };
   const send = jest.fn(async () => {});
   const context = {
-    loadJson: () => record, saveJson: jest.fn(), PUSH_SUBSCRIPTIONS_FILE: "unused", getDeviceSubscriptions: sub => sub?.subscriptions || [],
+    deliverWebPush, pushFailureDetails, loadJson: () => record, saveJson: jest.fn(), PUSH_SUBSCRIPTIONS_FILE: "unused", getDeviceSubscriptions: sub => sub?.subscriptions || [],
     isPushTypeEnabled: () => true, webpush: { sendNotification: send }, console: { error: jest.fn() },
   };
   vm.runInNewContext(`${source.slice(start, end)}; this.send = sendPushNotification;`, context);
   expect(await context.send("user", "liveUpdates", { title: "Half-time" })).toBe(true);
   expect(send).toHaveBeenCalledWith(device, JSON.stringify({ title: "Half-time" }), {
-    timeout: 10000, urgency: "high", TTL: 300,
+    timeout: 10000, urgency: "high", TTL: 300, agent: expect.anything(),
   });
 });
 

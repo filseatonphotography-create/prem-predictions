@@ -25678,7 +25678,7 @@ if (!isLoggedIn) {
                               alert("The server needs updating before it can schedule a background test.");
                               return;
                             }
-                            alert("Test scheduled for 15 seconds from now. Close the app and lock your phone to check background delivery.");
+                            alert("Test scheduled for 15 seconds from now. Close the app and keep your phone locked for one minute while delivery completes.");
                           } catch (err) {
                             alert(`Background test failed: ${err.message}`);
                           }

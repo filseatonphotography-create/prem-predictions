@@ -22,6 +22,25 @@ test("a live delivery is never reported as a successful test", () => {
   expect(report).toContain("Latest delivery accepted: 1");
 });
 
+test("a scheduled or in-flight test is shown as pending rather than failed", () => {
+  const report = formatPushDiagnostics({
+    lastTestDelivery: { state: "scheduled", sendAt: "2026-10-24T04:30:00Z" },
+  });
+  expect(report).toContain("Test state: scheduled");
+  expect(report).toContain("Test accepted by push provider: pending");
+  expect(report).not.toContain("Last test: undefined");
+});
+
+test("reports the exact test failure even after another live push succeeds", () => {
+  const report = formatPushDiagnostics({
+    lastTestDelivery: { state: "failed", acceptedCount: 0, failedCount: 1, failureCodes: ["ENETUNREACH"],
+      failureDetails: [{ code: "ENETUNREACH", message: "Cannot connect", attempts: 2 }] },
+    lastDelivery: { type: "liveUpdates", acceptedCount: 1 },
+  });
+  expect(report).toContain("Test failure: ENETUNREACH: Cannot connect (2 attempts)");
+  expect(report).toContain("Test accepted by push provider: 0");
+});
+
 test("the report can be copied on a phone without opening a native popup", async () => {
   const writeText = jest.fn(async () => {});
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });

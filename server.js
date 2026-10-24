@@ -8,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const webpush = require("web-push");
+const { deliverWebPush, pushFailureDetails } = require("./pushTransport");
 const {
   getMatchScoreForPrediction,
   hasStartedMatchStatus,
@@ -35,7 +36,7 @@ const {
 
 const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-10-24-push-delivery";
+const BUILD_ID = "2026-10-24-push-transport";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -3705,6 +3706,7 @@ app.get("/api/push/live-status", authMiddleware, (req, res) => {
     deviceCount: getDeviceSubscriptions(record).length,
     liveUpdatesEnabled: isPushTypeEnabled("liveUpdates", record.notifPrefs),
     lastDelivery: record.lastDelivery || null,
+    lastTestDelivery: record.lastTestDelivery || null,
   });
 });
 
@@ -3941,14 +3943,32 @@ async function sendPushNotification(userId, type, payload) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const sub = subscriptions[userId];
   const devices = getDeviceSubscriptions(sub);
-  if (!devices.length) return false;
+  if (!devices.length) {
+    if (type === "test" && sub) {
+      sub.lastTestDelivery = {
+        ...(sub.lastTestDelivery || {}), state: "failed",
+        attemptedAt: new Date().toISOString(), acceptedCount: 0, failedCount: 1,
+        failureCodes: ["NO_SUBSCRIPTION"],
+      };
+      saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+    }
+    return false;
+  }
   const prefs = sub.notifPrefs || null;
-  if (!isPushTypeEnabled(type, prefs)) return false;
+  if (type !== "test" && !isPushTypeEnabled(type, prefs)) return false;
+  const testId = type === "test" ? payload.tag || crypto.randomUUID() : null;
+  if (type === "test") {
+    sub.lastTestDelivery = {
+      ...(sub.lastTestDelivery?.id === testId ? sub.lastTestDelivery : {}),
+      id: testId, state: "sending", attemptedAt: new Date().toISOString(),
+    };
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+  }
 
   const deliveryResults = await Promise.all(
     devices.map(async (device) => {
       try {
-        await webpush.sendNotification(device, JSON.stringify(payload), {
+        await deliverWebPush(webpush, device, JSON.stringify(payload), {
           timeout: 10000,
           urgency: "high",
           TTL: type === "deadline1h" || type === "deadline24h" ? 900 : 300,
@@ -3961,6 +3981,7 @@ async function sendPushNotification(userId, type, payload) {
           accepted: false,
           expired: err?.statusCode === 404 || err?.statusCode === 410,
           statusCode: err?.statusCode || null,
+          failure: pushFailureDetails(err),
         };
       }
     })
@@ -3983,11 +4004,19 @@ async function sendPushNotification(userId, type, payload) {
       type,
       eventKey: payload.tag || null,
       attemptedAt: new Date().toISOString(),
-      failureCodes: deliveryResults.filter(result => !result.accepted).map(result => result.statusCode || "network"),
+      failureCodes: deliveryResults.filter(result => !result.accepted).map(result => result.failure.code),
+      failureDetails: deliveryResults.filter(result => !result.accepted).map(result => result.failure),
       acceptedCount,
       failedCount: deliveryResults.length - acceptedCount,
     },
   };
+  if (type === "test" && latestRecord.lastTestDelivery?.id === testId) {
+    latestSubscriptions[userId].lastTestDelivery = {
+      ...(latestRecord.lastTestDelivery || {}),
+      ...latestSubscriptions[userId].lastDelivery,
+      state: acceptedCount > 0 ? "accepted" : "failed",
+    };
+  }
   saveJson(PUSH_SUBSCRIPTIONS_FILE, latestSubscriptions);
   return acceptedCount > 0;
 }
@@ -4640,16 +4669,29 @@ app.post("/api/push/test", authMiddleware, async (req, res) => {
   }
   if (delaySeconds === 15) {
     const userId = req.user.id;
-    const record = loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[userId];
+    const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const record = subscriptions[userId];
     const deviceCount = getDeviceSubscriptions(record).length;
     if (!deviceCount) {
       return res.status(410).json({ error: "No registered push subscription. Enable notifications first." });
+    }
+    const testId = `test:${crypto.randomUUID()}`;
+    record.lastTestDelivery = {
+      id: testId,
+      state: "scheduled",
+      scheduledAt: new Date().toISOString(),
+      sendAt: new Date(Date.now() + 15000).toISOString(),
+    };
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+    if (loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[userId]?.lastTestDelivery?.id !== testId) {
+      return res.status(500).json({ error: "Unable to save the scheduled test. Check backend storage." });
     }
     setTimeout(() => {
       sendPushNotification(userId, "test", {
         title: "Background notification test",
         body: "This test was sent after 15 seconds. If you received it with the app closed, background delivery worked.",
         url: "/",
+        tag: testId,
       }).catch(err => console.error("Background push test failed:", err));
     }, 15000);
     return res.json({ ok: true, scheduled: true, delaySeconds, deviceCount });

@@ -111,3 +111,9 @@ Use “Test with app closed (15 seconds)” to schedule a server-side test, then
 close the app and lock the phone before it sends. Check delivery status after
 reopening. This short test is held in server memory and requires the server to
 remain running for those 15 seconds.
+
+Each push connection has a 12-second overall deadline. Transient connection
+failures get one retry over IPv4. The diagnostic report retains the test's
+scheduled/sending/final state separately from live delivery and includes error
+codes and messages. Keep the phone locked for one minute when testing, allowing
+time for the initial delay and both connection attempts.

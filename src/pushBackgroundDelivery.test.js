@@ -1,6 +1,8 @@
 const fs = require("fs");
 const vm = require("vm");
 const utils = require("../notificationUtils");
+const { deliverWebPush, pushFailureDetails } = require("../pushTransport");
+const crypto = require("crypto");
 const events = require("./liveMatchEvents");
 const { getMatchScoreForPrediction, hasStartedMatchStatus } = require("./matchScoreUtils");
 
@@ -47,13 +49,13 @@ test.each(["liveUpdates", "deadline1h", "deadline24h"])("%s requests immediate d
   const device = { endpoint: "https://push.example/device" };
   let data = { user: { subscriptions: [device] } };
   const context = {
-    ...utils, loadJson: () => copy(data), saveJson: (_file, value) => { data = value; },
+    ...utils, deliverWebPush, pushFailureDetails, crypto, loadJson: () => copy(data), saveJson: (_file, value) => { data = value; },
     PUSH_SUBSCRIPTIONS_FILE: "unused", webpush: { sendNotification: jest.fn(async () => {}) }, console,
   };
   const send = evaluate(context, "async function sendPushNotification(", "\n// ---------------------------------------------------------------------------", "sendPushNotification");
   expect(await send("user", type, { title: "Update", body: "Test" })).toBe(true);
   expect(context.webpush.sendNotification).toHaveBeenCalledWith(device, expect.any(String), {
-    timeout: 10000, urgency: "high", TTL: type === "liveUpdates" ? 300 : 900,
+    timeout: 10000, urgency: "high", TTL: type === "liveUpdates" ? 300 : 900, agent: expect.anything(),
   });
 });
 
@@ -102,27 +104,29 @@ test("background polls send goal, half-time and full-time without any browser re
 
 function testRoute(devices = [{ endpoint: "https://push.example/device" }]) {
   let handler;
+  let data = { user: { subscriptions: devices } };
   const schedule = jest.fn();
   const send = jest.fn(async () => true);
   const context = {
     app: { post: (_path, _auth, callback) => { handler = callback; } },
     authMiddleware: () => {}, setTimeout: schedule, sendPushNotification: send,
-    loadJson: () => ({ user: { subscriptions: devices } }),
+    loadJson: () => copy(data), saveJson: (_file, next) => { data = copy(next); }, crypto,
     getDeviceSubscriptions: utils.getDeviceSubscriptions, PUSH_SUBSCRIPTIONS_FILE: "unused", console,
   };
   const start = source.indexOf('app.post("/api/push/test",');
   const end = source.indexOf('\napp.post("/api/push/fixture-test",', start);
   vm.runInNewContext(source.slice(start, end), context);
   const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-  return { handler, schedule, send, res };
+  return { handler, schedule, send, res, data: () => data };
 }
 
 test("background test is scheduled on the server and sends only after the delay", async () => {
-  const { handler, schedule, send, res } = testRoute();
+  const { handler, schedule, send, res, data } = testRoute();
   await handler({ user: { id: "user" }, body: { delaySeconds: 15 } }, res);
   expect(res.json).toHaveBeenCalledWith({ ok: true, scheduled: true, delaySeconds: 15, deviceCount: 1 });
   expect(send).not.toHaveBeenCalled();
   expect(schedule).toHaveBeenCalledWith(expect.any(Function), 15000);
+  expect(data().user.lastTestDelivery).toMatchObject({ state: "scheduled", sendAt: expect.any(String) });
   schedule.mock.calls[0][0]();
   expect(send).toHaveBeenCalledWith("user", "test", expect.objectContaining({ title: "Background notification test" }));
 });
@@ -147,4 +151,37 @@ test("the immediate test remains compatible with clients that send no body", asy
   expect(send).toHaveBeenCalledTimes(1);
   expect(schedule).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledWith({ ok: true, deviceCount: 1 });
+});
+
+test("a test records its in-flight state before the provider responds", async () => {
+  let data = { user: { subscriptions: [{ endpoint: "https://push.example/device" }] } };
+  let complete;
+  const context = {
+    ...utils, deliverWebPush, pushFailureDetails, crypto,
+    loadJson: () => copy(data), saveJson: (_file, value) => { data = copy(value); },
+    PUSH_SUBSCRIPTIONS_FILE: "unused", webpush: { sendNotification: () => new Promise(resolve => { complete = resolve; }) }, console,
+  };
+  const send = evaluate(context, "async function sendPushNotification(", "\n// ---------------------------------------------------------------------------", "sendPushNotification");
+  const pending = send("user", "test", { title: "Test" });
+  expect(data.user.lastTestDelivery.state).toBe("sending");
+  for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+  complete({ statusCode: 201 });
+  expect(await pending).toBe(true);
+  expect(data.user.lastTestDelivery).toMatchObject({ state: "accepted", acceptedCount: 1, failedCount: 0 });
+});
+
+test("a later live delivery preserves the test failure and its exact connection error", async () => {
+  let data = { user: { subscriptions: [{ endpoint: "https://push.example/device" }] } };
+  const deliver = jest.fn().mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED", attempts: 2 })).mockResolvedValueOnce({ statusCode: 201 });
+  const context = {
+    ...utils, deliverWebPush: deliver, pushFailureDetails, crypto,
+    loadJson: () => copy(data), saveJson: (_file, value) => { data = copy(value); },
+    PUSH_SUBSCRIPTIONS_FILE: "unused", webpush: {}, console: { error: jest.fn() },
+  };
+  const send = evaluate(context, "async function sendPushNotification(", "\n// ---------------------------------------------------------------------------", "sendPushNotification");
+  expect(await send("user", "test", { title: "Test" })).toBe(false);
+  expect(await send("user", "liveUpdates", { title: "Goal" })).toBe(true);
+  expect(data.user.lastTestDelivery).toMatchObject({ state: "failed", failedCount: 1, failureCodes: ["ECONNREFUSED"],
+    failureDetails: [expect.objectContaining({ code: "ECONNREFUSED", attempts: 2 })] });
+  expect(data.user.lastDelivery.acceptedCount).toBe(1);
 });

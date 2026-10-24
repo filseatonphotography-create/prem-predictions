@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 
 export function formatPushDiagnostics(status) {
-  const test = status.lastDelivery?.type === "test" ? status.lastDelivery : null;
+  const test = status.lastTestDelivery || (status.lastDelivery?.type === "test" ? status.lastDelivery : null);
   const lines = [
     `Browser permission: ${status.browserPermission || "unknown"}`,
     `Service worker: ${status.serviceWorkerState || "unknown"}`,
@@ -10,12 +10,15 @@ export function formatPushDiagnostics(status) {
     `Live alerts: ${status.liveUpdatesEnabled ? "enabled" : "disabled"}`,
   ];
   if (test) {
+    if (test.state) lines.push(`Test state: ${test.state}`);
+    if (test.sendAt) lines.push(`Test scheduled for: ${test.sendAt}`);
     lines.push(
-      `Last test: ${test.attemptedAt}`,
-      `Test accepted by push provider: ${test.acceptedCount || 0}`,
-      `Test failed: ${test.failedCount || 0}`,
+      `Last test: ${test.attemptedAt || "not started"}`,
+      `Test accepted by push provider: ${test.acceptedCount ?? "pending"}`,
+      `Test failed: ${test.failedCount ?? "pending"}`,
       `Test errors: ${(test.failureCodes || []).join(", ") || "none"}`,
     );
+    (test.failureDetails || []).forEach(detail => lines.push(`Test failure: ${detail.code}: ${detail.message} (${detail.attempts} attempts)`));
   } else {
     lines.push("Last test: no saved test delivery record");
   }
@@ -24,6 +27,7 @@ export function formatPushDiagnostics(status) {
     lines.push(`Latest delivery: ${last.type} at ${last.attemptedAt}`,
       `Latest delivery accepted: ${last.acceptedCount || 0}; failed: ${last.failedCount || 0}`,
       `Latest delivery errors: ${(last.failureCodes || []).join(", ") || "none"}`);
+    (last.failureDetails || []).forEach(detail => lines.push(`Delivery failure: ${detail.code}: ${detail.message} (${detail.attempts} attempts)`));
   }
   lines.push("", "Live-match poll (separate from the test):",
     `Worker: ${status.running ? "running" : "idle"}`,
