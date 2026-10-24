@@ -159,3 +159,9 @@ them again if their confirmed start time changes, preserving other arrival
 positions. Detailed Studio rundowns are grouped under a heading for each game,
 with brief player lines showing that game's points and immediate prediction
 outlook instead of one cumulative paragraph spanning every fixture.
+
+Premier League kick-off cards include both teams' latest-five form with a
+varied introduction. They share the league table's form calculation and visual
+strip (W/D/L colours, opponent codes, and home/away markers). The kickoff guide
+uses only results from fixtures before that match's start, keeping its own
+result and subsequent fixtures out of the pre-match form after reopening.

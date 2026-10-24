@@ -5,6 +5,7 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
+import TeamFormStrip from "./TeamFormStrip";
 import PushDiagnostics from "./PushDiagnostics";
 import { readLiveStudioCache, writeLiveStudioCache } from "./liveStudioStorage";
 import { readLiveStudioMatchStates, writeLiveStudioMatchStates } from "./liveStudioMatchStateCache";
@@ -7260,18 +7261,14 @@ export function buildGeneratedModelOdds(fixtures = [], context = {}) {
   return out;
 }
 
-function buildPremierTeamInsights(teamName, results, context = {}) {
+export function buildPremierTeamForm(teamName, results, beforeMs = Infinity) {
   const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
   const normalizedTeam = normalizeTeamName(canonicalTeamName);
-  const teamCode = getTeamCode(canonicalTeamName);
-  const officialUpcoming = context.officialFplFixtureOutlooks?.[teamCode]?.fixtures || [];
-  const performanceByTeam = context.performanceByTeam || {};
-
-  const form = FIXTURES.filter((fixture) => {
+  return FIXTURES.filter((fixture) => {
     const isTeamFixture =
       normalizeTeamName(fixture.homeTeam) === normalizedTeam ||
       normalizeTeamName(fixture.awayTeam) === normalizedTeam;
-    return isTeamFixture && isFixtureCompleted(fixture, results);
+    return isTeamFixture && Date.parse(fixture.kickoff) < beforeMs && isFixtureCompleted(fixture, results);
   })
     .sort((a, b) => Date.parse(b.kickoff) - Date.parse(a.kickoff))
     .slice(0, 5)
@@ -7291,6 +7288,16 @@ function buildPremierTeamInsights(teamName, results, context = {}) {
         scoreText: `${goalsFor}-${goalsAgainst}`,
       };
     });
+}
+
+function buildPremierTeamInsights(teamName, results, context = {}) {
+  const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
+  const normalizedTeam = normalizeTeamName(canonicalTeamName);
+  const teamCode = getTeamCode(canonicalTeamName);
+  const officialUpcoming = context.officialFplFixtureOutlooks?.[teamCode]?.fixtures || [];
+  const performanceByTeam = context.performanceByTeam || {};
+
+  const form = buildPremierTeamForm(teamName, results);
 
   const upcoming = FIXTURES.filter((fixture) => {
     const isTeamFixture =
@@ -21551,6 +21558,24 @@ if (!isLoggedIn) {
                             </div>
                           ))}
                         </div>
+                        {isKickoffCard && !isWorldCupMode && entryFixture && (
+                          <section aria-label="Team form at kick-off" style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                            <div style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35 }}>
+                              {pickLiveStudioPhrase(`${entryFixture.id}:kickoff-form`, [
+                                "Let's look at the teams' current form.",
+                                "A quick look at recent form for both sides.",
+                                "How are they coming into this one? Here's the form.",
+                                "Before we get going, here's how these two have been shaping up.",
+                              ])}
+                            </div>
+                            {[entryFixture.homeTeam, entryFixture.awayTeam].map(team => (
+                              <div key={team} role="group" aria-label={`${getLiveStudioTeamName(team)} form`} style={{ display: "grid", gap: 5 }}>
+                                <strong style={{ color: theme.text, fontSize: isMobile ? 12 : 13 }}>{getLiveStudioTeamName(team)}</strong>
+                                <TeamFormStrip form={buildPremierTeamForm(team, results, Date.parse(entryFixture.kickoff))} isMobile={isMobile} theme={theme} />
+                              </div>
+                            ))}
+                          </section>
+                        )}
                         {isStudioRoundup && !entry.compactCheckIn && entry.roundupMatches?.length > 0 && (
                           <LiveStudioScores theme={theme} isMobile={isMobile} matches={entry.roundupMatches.map(match => ({
                             id: match.fixture.id, score: match.score, status: match.scoreLabel || (entry.minute === "FT" ? "FT" : entry.minute === "HT" ? "HT" : ""),
@@ -23715,58 +23740,7 @@ if (!isLoggedIn) {
                             >
                               Form
                             </div>
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
-                                gap: isMobile ? 4 : 6,
-                                minWidth: 0,
-                              }}
-                            >
-                              {insights.form.length > 0 ? (
-                                insights.form.map((item) => {
-                                  const outcomeColor =
-                                    item.outcome === "W"
-                                      ? "#22c55e"
-                                      : item.outcome === "D"
-                                      ? "#eab308"
-                                      : "#ef4444";
-                                  return (
-                                    <div
-                                      key={`form-${item.fixtureId}`}
-                                      style={{
-                                        minWidth: 0,
-                                        width: "100%",
-                                        padding: isMobile ? "5px 3px" : "6px 8px",
-                                        borderRadius: 10,
-                                        background: outcomeColor,
-                                        color: outcomeColor === "#eab308" ? "#111827" : "#ffffff",
-                                        display: "flex",
-                                        flexDirection: "column",
-                                        gap: 1,
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        minHeight: isMobile ? 36 : 48,
-                                        boxSizing: "border-box",
-                                      }}
-                                    >
-                                      <div style={{ fontWeight: 800, fontSize: isMobile ? 11 : 12, lineHeight: 1, textAlign: "center" }}>
-                                        {item.outcome}
-                                      </div>
-                                      <div style={{ fontSize: isMobile ? 9 : 11, fontWeight: 700, lineHeight: 1.05, textAlign: "center" }}>
-                                        {item.opponentCode}
-                                        <br />
-                                        {item.venue}
-                                      </div>
-                                    </div>
-                                  );
-                                })
-                              ) : (
-                                <div style={{ fontSize: 12, color: theme.muted }}>
-                                  No completed fixtures yet.
-                                </div>
-                              )}
-                            </div>
+                            <TeamFormStrip form={insights.form} isMobile={isMobile} theme={theme} />
                           </div>
 
                           <div
