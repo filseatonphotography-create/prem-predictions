@@ -5,6 +5,7 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
+import PushDiagnostics from "./PushDiagnostics";
 import { readLiveStudioCache, writeLiveStudioCache } from "./liveStudioStorage";
 import useLiveResultsPolling from "./useLiveResultsPolling";
 import useLiveStudioFeedOrder, { orderLiveStudioUpdates } from "./liveStudioFeedOrder";
@@ -7589,6 +7590,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushSupported, setPushSupported] = useState(false);
+  const [pushDiagnostics, setPushDiagnostics] = useState(null);
   const [fixturePushPrefs, setFixturePushPrefs] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(FIXTURE_PUSH_STORAGE_KEY) || "{}");
@@ -25733,41 +25735,30 @@ if (!isLoggedIn) {
                         type="button"
                         onClick={async () => {
                           try {
-                            const status = await apiGetLivePushStatus(authToken);
-                            alert(
-                              [
-                                `Live worker: ${status.running ? "running" : "idle"}`,
-                                ...(status.uptimeSeconds != null ? [`Server uptime: ${status.uptimeSeconds}s`] : []),
-                                ...(status.deviceCount != null ? [`Registered devices: ${status.deviceCount}`] : []),
-                                ...(status.liveUpdatesEnabled != null ? [`Live alerts: ${status.liveUpdatesEnabled ? "enabled" : "disabled"}`] : []),
-                                `Last completed run: ${status.lastFinishedAt || "none yet"}`,
-                                ...(status.running ? [`Current run started: ${status.lastStartedAt || "unknown"}`] : []),
-                                `Reason: ${status.lastReason || "n/a"}`,
-                                `Mode: ${status.mode || "all"}`,
-                                `Fetched matches: ${status.fetchedMatches || 0}`,
-                                `Goal events: ${status.goalEventsSeen || 0}`,
-                                `Goal scorers: ${status.goalEventsWithScorers || 0}`,
-                                `Matched fixtures: ${status.matchedFixtures || 0}`,
-                                `Subscribed fixtures: ${status.subscribedFixtures || 0}`,
-                                `Attempted sends: ${status.attemptedNotifications || 0}`,
-                                `Accepted sends: ${status.acceptedNotifications || 0}`,
-                                ...(status.lastDelivery ? [
-                                  `Last delivery: ${status.lastDelivery.type} at ${status.lastDelivery.attemptedAt}`,
-                                  `Devices accepted: ${status.lastDelivery.acceptedCount || 0}, failed: ${status.lastDelivery.failedCount || 0}`,
-                                  `Delivery errors: ${(status.lastDelivery.failureCodes || []).join(", ") || "none"}`,
-                                ] : []),
-                                ...Object.entries(status.byMode || {}).map(
-                                  ([mode, modeStatus]) =>
-                                    `${mode}: fetched ${modeStatus.fetchedMatches || 0}, matched ${modeStatus.matchedFixtures || 0}, subscribed ${modeStatus.subscribedFixtures || 0}`
-                                ),
-                                ...Object.entries(status.competitionErrors || {}).map(
-                                  ([mode, error]) => `${mode} error: ${error}`
-                                ),
-                                status.lastError ? `Error: ${status.lastError}` : "",
-                              ]
-                                .filter(Boolean)
-                                .join("\n")
-                            );
+                            const [status, registration] = await Promise.all([
+                              apiGetLivePushStatus(authToken),
+                              navigator.serviceWorker.getRegistration(),
+                            ]);
+                            const subscription = await registration?.pushManager.getSubscription();
+                            let deviceStatus = {};
+                            try {
+                              const response = await fetch(`${BACKEND_BASE}/api/push/status`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+                                body: JSON.stringify({ endpoint: subscription?.endpoint || "" }),
+                              });
+                              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                              deviceStatus = await response.json();
+                            } catch (error) {
+                              deviceStatus.deviceStatusError = error.message;
+                            }
+                            setPushDiagnostics({
+                              ...status,
+                              ...deviceStatus,
+                              currentDeviceRegistered: subscription ? deviceStatus.currentDeviceRegistered : false,
+                              browserPermission: Notification.permission,
+                              serviceWorkerState: registration?.active?.state || "no active worker",
+                            });
                           } catch (err) {
                             alert(`Live notification status failed: ${err.message}`);
                           }
@@ -25787,6 +25778,7 @@ if (!isLoggedIn) {
                       >
                         Check live notification status
                       </button>
+                      {pushDiagnostics && <PushDiagnostics status={pushDiagnostics} />}
                     </>
                   )}
                 </>
