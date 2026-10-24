@@ -123,3 +123,5 @@ provider supplies both starting XIs within 90 minutes before kick-off. These
 use the existing Live Studio preference or fixture bell, link to that fixture
 in Live Studio, and retry failed sends on subsequent pre-match polls. Repeated
 polls and later lineup amendments do not resend an accepted announcement.
+Tapping a line-up notification selects its competition and gameweek, waits for
+the matching line-up post, then scrolls to and highlights that post.

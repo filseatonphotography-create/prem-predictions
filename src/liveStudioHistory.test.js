@@ -4,6 +4,13 @@ import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudio
 const roundup = { id: "studio:checkpoint:test:25", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
 const goal = { id: "goal:1", momentMs: 200, lines: ["Goal for Arsenal!"] };
 
+test("cached lineup posts adopt the notification link without duplicating the refreshed post", () => {
+  const lineups = { home: { lineup: [{ name: "Starter" }] } };
+  const cached = { id: "57:LINEUPS:na:0", fixtureId: 57, lineups, updateKey: "57:lineup:lineup:na::::::::", arrivalKey: "57:lineup:lineup:na::::::::", momentMs: 100 };
+  const fresh = { ...cached, id: "57:LINEUPS:na:3", updateKey: "57:lineup:confirmed", arrivalKey: "57:lineup:confirmed" };
+  expect(mergeLiveStudioDeskHistory([cached], [fresh])).toEqual([fresh]);
+});
+
 beforeEach(() => { sessionStorage.clear(); localStorage.clear(); });
 
 test("round-ups remain after a goal, half-time and full-time, without duplicates", () => {

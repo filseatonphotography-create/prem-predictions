@@ -43,7 +43,7 @@ function notifier({ fixtureBell = false } = {}) {
     awayTeam: { name: fx.awayTeam, lineup: starters("Away") }, score: {} };
   const send = jest.fn(async () => true);
   const context = {
-    ...utils, ...events, console, Date, liveNotifierStatus: {},
+    ...utils, ...events, console, Date, URLSearchParams, liveNotifierStatus: {},
     normalizeLeagueMode: mode => mode, loadFixturesFromSrc: () => [fx], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "premier" }),
     resultsCacheByKey: {}, resultsCacheAtByKey: {},
@@ -56,10 +56,11 @@ function notifier({ fixtureBell = false } = {}) {
     getLiveStudioNotificationUserIds: () => ["user"], getPushNotificationPrefs: () => subscriptions.user.notifPrefs,
     hasFixtureNotificationEnabled: () => fixtureBell,
     maybeApplyNoSpoilerFixturePayload: (_user, _fixture, _kind, _key, payload) => payload,
-    buildLiveStudioUrl: id => `/?view=liveStudio&fixture=${id}`, sendPushNotification: send,
+    sendPushNotification: send,
   };
   vm.createContext(context);
   for (const [start, end] of [
+    ["function buildLiveStudioUrl(", "\nfunction formatLivePushScore("],
     ["function reserveFixtureNotificationEvent(", "\nfunction getPushNotificationPrefs("],
     ["async function sendFixtureUpdateNotification(", "\nfunction findFixtureById("],
     ["async function runLiveFixtureNotifier(", "\nsetInterval(runDeadlineNotifier"],
@@ -76,7 +77,7 @@ test("the background worker sends once across repeated polls and lineup amendmen
   await run();
   expect(send).toHaveBeenCalledTimes(1);
   expect(send).toHaveBeenCalledWith("user", "liveUpdates", expect.objectContaining({
-    title: "Line-ups confirmed", tag: "57:lineup:confirmed", url: "/?view=liveStudio&fixture=57",
+    title: "Line-ups confirmed", tag: "57:lineup:confirmed", url: "/?view=liveStudio&fixtureId=57&update=57%3Alineup%3Aconfirmed",
   }));
 });
 

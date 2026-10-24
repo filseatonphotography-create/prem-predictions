@@ -5005,6 +5005,7 @@ function getLiveStudioPushEventKind(event = {}, statusLabel = "") {
 function getLiveStudioUpdateKey({ fixtureId, event, statusLabel = "", score = null }) {
   if (!fixtureId) return "";
   const kind = getLiveStudioPushEventKind(event, statusLabel);
+  if (kind === "lineup") return `${fixtureId}:lineup:confirmed`;
   if (kind === "kick-off") return `${fixtureId}:${kind}:0-0`;
   if (kind === "second-half") return `${fixtureId}:${kind}:45`;
   if (["goal", "goal-disallowed", "half-time", "full-time"].includes(kind) && score) {
@@ -6030,6 +6031,11 @@ function isLegacyLiveStudioClockCard(entry) {
 }
 
 function normalizeLiveStudioDeskEntry(entry) {
+  if (entry.lineups && entry.fixtureId != null) {
+    const key = `${entry.fixtureId}:lineup:confirmed`;
+    return entry.updateKey === key && entry.arrivalKey === key
+      ? entry : { ...entry, updateKey: key, arrivalKey: key };
+  }
   const lateId = entry.id?.startsWith("studio:checkpoint:") && entry.id.endsWith(":85");
   return lateId ? { ...entry, title: "Watching the clock", minute: "Studio" } : entry;
 }
@@ -7640,6 +7646,18 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     }
   }, []);
   const liveStudioFocusConsumedRef = useRef(false);
+  useEffect(() => {
+    if (!liveStudioFocusFixtureId || liveStudioFocusConsumedRef.current) return;
+    const premierFixture = FIXTURES.find(fixture => String(fixture.id) === liveStudioFocusFixtureId);
+    const fixture = premierFixture || WORLD_CUP_FIXTURES.find(fixture => String(fixture.id) === liveStudioFocusFixtureId);
+    if (!fixture) return;
+    const mode = premierFixture ? PREMIER_MODE : WORLD_CUP_MODE;
+    if (gameMode !== mode) setGameMode(mode);
+    if (selectedGameweek !== Number(fixture.gameweek)) setSelectedGameweek(Number(fixture.gameweek));
+    setSelectedGameweekByMode(previous => previous[mode] === Number(fixture.gameweek)
+      ? previous : { ...previous, [mode]: Number(fixture.gameweek) });
+    if (isLoggedIn && activeView !== "liveStudio") setActiveView("liveStudio");
+  }, [liveStudioFocusFixtureId, gameMode, selectedGameweek, isLoggedIn, activeView]);
   const shouldShowFixtureAdvanceWarning = useMemo(() => {
     if (!fixtureAdvanceWarningKey || activeView !== "predictions") return false;
     const liveIndex = activeGameweeks.indexOf(livePredictionGameweek);
@@ -11794,7 +11812,8 @@ const liveStudioCurrentFeed = useMemo(() => {
       const refreshSavedFinal = savedFullTimeFixtures.has(String(fixture.id)) && isLiveStudioFinalStatus(status);
       const sameMatchday = String(fixture.kickoff || "").slice(0, 10) === new Date(liveStudioNow).toISOString().slice(0, 10);
       const completedInSession = isLiveStudioFinalStatus(status) && (sameMatchday || refreshSavedFinal || inCoverage);
-      if (!inCoverage && !refreshSavedFinal && !completedInSession) return [];
+      const focusedLineup = liveStudioFocusUpdateKey === `${fixture.id}:lineup:confirmed` && hasLiveStudioLineups(matchState);
+      if (!inCoverage && !refreshSavedFinal && !completedInSession && !focusedLineup) return [];
       const result = demoState ? null : results[fixture.id];
       const score = demoState
         ? getFixtureScoreFromStateOrResult(fixture, demoState, null)
@@ -11941,7 +11960,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         });
       }
 
-      return feedEvents.filter((event) => event.statusLabel !== "HT" && (inCoverage || completedInSession || event.statusLabel === "FT")).map((event, eventIndex) => {
+      return feedEvents.filter((event) => event.statusLabel !== "HT" && (inCoverage || completedInSession || event.statusLabel === "FT" || focusedLineup && getLiveStudioEventKind(event) === "lineup")).map((event, eventIndex) => {
         const entryKind = getLiveStudioEventKind(event);
         const statusLabel = String(event.statusLabel || "");
         const isKickoff = statusLabel === "KO";
@@ -12186,6 +12205,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   loginName,
   liveStudioDemoGameweek,
   liveStudioCommentaryScope,
+  liveStudioFocusUpdateKey,
   liveStudioNow,
   liveStudioCoinsByUserId,
   matchStatesByFixtureId,
@@ -12209,14 +12229,15 @@ useEffect(() => {
     activeView !== "liveStudio" ||
     (!liveStudioFocusFixtureId && !liveStudioFocusUpdateKey)
   ) return;
-  window.requestAnimationFrame(() => {
+  const frame = window.requestAnimationFrame(() => {
+    if (liveStudioFocusConsumedRef.current) return;
     const updateTarget = liveStudioFocusUpdateKey
       ? document.getElementById(getLiveStudioUpdateDomId(liveStudioFocusUpdateKey))
       : null;
     const fixtureTarget = liveStudioFocusFixtureId
       ? document.querySelector(`[data-live-studio-fixture-id="${liveStudioFocusFixtureId}"]`)
       : null;
-    const target = updateTarget || fixtureTarget;
+    const target = updateTarget || (liveStudioFocusUpdateKey.includes(":lineup:") ? null : fixtureTarget);
     if (!target) return;
     liveStudioFocusConsumedRef.current = true;
     target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -12227,6 +12248,7 @@ useEffect(() => {
       window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
     } catch {}
   });
+  return () => window.cancelAnimationFrame(frame);
 }, [activeView, liveStudioFocusFixtureId, liveStudioFocusUpdateKey, liveStudioFeed]);
 
 const globalWeeklyScores = useMemo(() => {
@@ -21223,7 +21245,7 @@ if (!isLoggedIn) {
                     entry.updateKey === liveStudioFocusUpdateKey;
                   const isFocusedLiveStudioEntry =
                     isFocusedLiveStudioUpdate ||
-                    (liveStudioFocusFixtureId &&
+                    (!liveStudioFocusUpdateKey && liveStudioFocusFixtureId &&
                       String(entry.fixtureId || "") === String(liveStudioFocusFixtureId));
                   const entryFixture = entry.fixture || liveStudioFixtures.find((fixture) => String(fixture.id) === String(entry.fixtureId || ""));
                   const isStudioRoundup = entry.verdictLabel === "Back in the studio";
