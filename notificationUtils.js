@@ -374,6 +374,19 @@ function isPushTypeEnabled(type, prefs) {
   return prefs[type] !== false;
 }
 
+function buildLineupAlert(fixture, state = {}, nowMs = Date.now()) {
+  if (!["TIMED", "SCHEDULED"].includes(String(state.status || "").toUpperCase())) return null;
+  const kickoff = Date.parse(state.utcDate || fixture?.kickoff || "");
+  if (!Number.isFinite(kickoff) || kickoff <= nowMs || kickoff - nowMs > 90 * 60000) return null;
+  const hasStartingXI = team => Array.isArray(team?.lineup)
+    && team.lineup.filter(player => String(player?.name || "").trim()).length >= 11;
+  if (!hasStartingXI(state.lineups?.home) || !hasStartingXI(state.lineups?.away)) return null;
+  return {
+    title: "Line-ups confirmed",
+    body: `${fixture.homeTeam} vs ${fixture.awayTeam}. Tap to view both starting XIs in Live Studio.`,
+  };
+}
+
 module.exports = {
   didGoalCountIncrease,
   buildGoalAlertBody,
@@ -388,4 +401,5 @@ module.exports = {
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
+  buildLineupAlert,
 };

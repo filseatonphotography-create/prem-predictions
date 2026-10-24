@@ -115,7 +115,7 @@ function normalizeGoalEvents(source) {
   return normalizeMatchEvents(source).filter(event => event.type === "GOAL");
 }
 function shouldPushMatchEvent(kind) {
-  return ["goal", "goal-disallowed", "kick-off", "second-half", "half-time", "full-time"].includes(String(kind).toLowerCase().replace(/_/g, "-"));
+  return ["lineup", "goal", "goal-disallowed", "kick-off", "second-half", "half-time", "full-time"].includes(String(kind).toLowerCase().replace(/_/g, "-"));
 }
 
 function isMeaningfulFixturePush(kind, payload = {}) {

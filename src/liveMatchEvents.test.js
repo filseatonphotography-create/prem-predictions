@@ -65,11 +65,11 @@ test("does not fabricate 0-0 or a zero-minute goal from null values", () => {
   expect(formatGoalMinute({ minute: 90, injuryTime: 4 })).toBe("90+4'");
 });
 
-test.each(["substitution", "yellow-card", "red-card", "SUBSTITUTION", "YELLOW_CARD", "RED_CARD", "lineup", "update"])("%s stays out of push notifications", kind => {
+test.each(["substitution", "yellow-card", "red-card", "SUBSTITUTION", "YELLOW_CARD", "RED_CARD", "update"])("%s stays out of push notifications", kind => {
   expect(shouldPushMatchEvent(kind)).toBe(false);
 });
 
-test.each(["goal", "goal-disallowed", "kick-off", "half-time", "second-half", "full-time"])("keeps %s pushes enabled", kind => {
+test.each(["lineup", "goal", "goal-disallowed", "kick-off", "half-time", "second-half", "full-time"])("keeps %s pushes enabled", kind => {
   expect(shouldPushMatchEvent(kind)).toBe(true);
 });
 

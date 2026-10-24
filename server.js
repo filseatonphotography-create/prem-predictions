@@ -32,11 +32,12 @@ const {
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
+  buildLineupAlert,
 } = require("./notificationUtils");
 
 const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-10-24-push-transport";
+const BUILD_ID = "2026-10-24-lineup-push";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -3427,6 +3428,13 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           const subscribedUserIds = getLiveStudioNotificationUserIds(fixtureId);
           if (!subscribedUserIds.length) return;
 
+          const lineupAlert = buildLineupAlert(fixture, update.nextState);
+          if (lineupAlert) {
+            subscribedUserIds.forEach(userId => {
+              sendFixtureUpdateNotification(userId, fixtureId, "lineup", "confirmed", lineupAlert);
+            });
+          }
+
           const hasScoreNow =
             Number.isFinite(update.nextHome) && Number.isFinite(update.nextAway);
           const hadScoreBefore =
@@ -5019,7 +5027,8 @@ async function fetchLiveMatches(mode) {
             Math.abs(now - kickoffTime) <= 36 * 60 * 60 * 1000);
         const hasEvents =
           [match.goals, match.bookings, match.substitutions].every(Array.isArray);
-        const hasLineups = Boolean(normalizeLineups(match));
+        const lineups = normalizeLineups(match);
+        const hasLineups = Boolean(lineups?.home?.lineup?.length >= 11 && lineups?.away?.lineup?.length >= 11);
         if (!match?.id || (hasEvents && hasLineups) || !recentlyActive) return match;
         const detail = await fetchJson(`${FOOTBALL_DATA_API_BASE}/matches/${match.id}`, headers);
         if (!detail.ok || !detail.data || typeof detail.data !== "object") return match;
@@ -5271,6 +5280,14 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       if (!subscribedUserIds.length) return;
       summary.subscribedFixtures += 1;
       summary.byMode[mode].subscribedFixtures += 1;
+
+      const lineupAlert = buildLineupAlert(fixture, nextState);
+      if (lineupAlert) {
+        subscribedUserIds.forEach(userId => {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "lineup", "confirmed", lineupAlert));
+        });
+      }
 
       const prevStatus = String(prevState.status || "");
       const previousEventKeys = new Set(

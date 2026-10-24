@@ -1,5 +1,6 @@
 const fs = require("fs");
 const vm = require("vm");
+const { buildLineupAlert } = require("../notificationUtils");
 const { deliverWebPush, pushFailureDetails } = require("../pushTransport");
 const { mergeMatchPhaseState } = require("./liveMatchEvents");
 const { hasStartedMatchStatus, getMatchScoreForPrediction } = require("./matchScoreUtils");
@@ -13,7 +14,7 @@ test("the actual notifier publishes confirmed half-time before waiting for push 
   let deliver;
   const saveStates = jest.fn(), saveResults = jest.fn();
   const context = {
-    liveNotifierStatus: {}, normalizeLeagueMode: m => m, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
+    liveNotifierStatus: {}, buildLineupAlert, normalizeLeagueMode: m => m, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "test" }), resultsCacheByKey: {}, resultsCacheAtByKey: {},
     normalizeGoalEvents: () => [], normalizeMatchEvents: () => [], normalizeLineups: () => null,
     loadResults: () => ({ 1: { homeGoals: 0, awayGoals: 0 } }), loadMatchStates: () => ({ 1: { status: "IN_PLAY" } }), loadPredictions: () => ({}),
@@ -61,7 +62,7 @@ test("the notifier clears a retained clock when the provider stops supplying a m
   const match = { id: fixture.id, homeTeam: { name: fixture.homeTeam }, awayTeam: { name: fixture.awayTeam }, status: "IN_PLAY", minute: null, utcDate: fixture.kickoff, score: { fullTime: { home: 1, away: 0 } } };
   const saveStates = jest.fn();
   const context = {
-    liveNotifierStatus: {}, normalizeLeagueMode: m => m, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
+    liveNotifierStatus: {}, buildLineupAlert, normalizeLeagueMode: m => m, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "test" }), resultsCacheByKey: {}, resultsCacheAtByKey: {},
     normalizeGoalEvents: () => [], normalizeMatchEvents: () => [], normalizeLineups: () => null,
     loadResults: () => ({ [fixture.id]: { homeGoals: 1, awayGoals: 0 } }), loadMatchStates: () => ({ [fixture.id]: { status: "IN_PLAY", minute: 0 } }), loadPredictions: () => ({}),

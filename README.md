@@ -117,3 +117,9 @@ failures get one retry over IPv4. The diagnostic report retains the test's
 scheduled/sending/final state separately from live delivery and includes error
 codes and messages. Keep the phone locked for one minute when testing, allowing
 time for the initial delay and both connection attempts.
+
+Live Studio alerts also include a one-time line-up announcement once the
+provider supplies both starting XIs within 90 minutes before kick-off. These
+use the existing Live Studio preference or fixture bell, link to that fixture
+in Live Studio, and retry failed sends on subsequent pre-match polls. Repeated
+polls and later lineup amendments do not resend an accepted announcement.
