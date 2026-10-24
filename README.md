@@ -125,3 +125,7 @@ in Live Studio, and retry failed sends on subsequent pre-match polls. Repeated
 polls and later lineup amendments do not resend an accepted announcement.
 Tapping a line-up notification selects its competition and gameweek, waits for
 the matching line-up post, then scrolls to and highlights that post.
+
+Goal-disallowed alerts require an explicit provider event. A score decrease or
+missing score never creates a cancellation or a VAR claim. Legacy inferred
+cancellations are filtered from match events and unverified saved Studio posts.

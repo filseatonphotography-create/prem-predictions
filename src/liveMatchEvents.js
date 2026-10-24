@@ -75,7 +75,10 @@ function sameEvent(a, b, allEvents = []) {
 }
 function mergeMatchEvents(...lists) {
   const result = [];
-  const events = lists.flat().filter(event => event && typeof event === "object").map(raw => normalizeEvent(raw));
+  const events = lists.flat().filter(event => event && typeof event === "object").map(raw => normalizeEvent(raw))
+    // A score decrease is not evidence that a referee disallowed a goal.
+    // Drop legacy inferred cancellations as well as new unverified ones.
+    .filter(event => !(event.synthetic && event.type === "GOAL_DISALLOWED"));
   events.forEach(event => {
     const index = result.findIndex(previous => sameEvent(previous, event, events));
     if (index < 0) { result.push(event); return; }

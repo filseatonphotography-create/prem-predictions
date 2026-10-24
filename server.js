@@ -37,7 +37,7 @@ const {
 
 const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-10-24-lineup-push";
+const BUILD_ID = "2026-10-24-confirmed-goal-events";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -4422,67 +4422,6 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   }));
 }
 
-function buildSyntheticGoalDisallowedEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
-  const homeGoals = Number(nextHome);
-  const awayGoals = Number(nextAway);
-  const previousHome = Number(prevHome);
-  const previousAway = Number(prevAway);
-  if (![homeGoals, awayGoals, previousHome, previousAway].every(Number.isFinite)) return [];
-  if (homeGoals + awayGoals >= previousHome + previousAway) return [];
-
-  const events = [];
-  const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
-  const observedMinute = getObservedSyntheticGoalMinute(fixture, matchState);
-  const detectedAt =
-    matchState?.goalDetectedAt ||
-    matchState?.observedAt ||
-    matchState?.lastUpdated ||
-    matchState?.updatedAt ||
-    "";
-
-  for (let home = previousHome; home > homeGoals; home -= 1) {
-    events.push({
-      type: "GOAL_DISALLOWED",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.homeTeam || "",
-      reason: "VAR goal ruled out",
-      minute: null,
-      injuryTime: null,
-      previousHomeGoals: home,
-      previousAwayGoals: previousAway,
-      homeGoals,
-      awayGoals,
-    });
-  }
-  for (let away = previousAway; away > awayGoals; away -= 1) {
-    events.push({
-      type: "GOAL_DISALLOWED",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.awayTeam || "",
-      reason: "VAR goal ruled out",
-      minute: null,
-      injuryTime: null,
-      previousHomeGoals: homeGoals,
-      previousAwayGoals: away,
-      homeGoals,
-      awayGoals,
-    });
-  }
-
-  return events.map((event, index) => ({
-    ...event,
-    minute: estimateSyntheticGoalMinuteWithObservation(index, events.length, range, observedMinute),
-    estimatedMinute: true,
-    detectedAt,
-    syntheticIndex: index + 1,
-    sortOffset: 0.02 + index / 1000,
-  }));
-}
-
 function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prevAway }) {
   if (!matchState || typeof matchState !== "object") return matchState;
   const homeGoals = Number(matchState.homeGoals);
@@ -4490,15 +4429,7 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
   const currentGoalTotal = Number.isFinite(homeGoals) && Number.isFinite(awayGoals) ? homeGoals + awayGoals : 0;
   const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
   const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
-  const disallowedGoals = buildSyntheticGoalDisallowedEvents({
-    fixture,
-    prevHome: previousHome,
-    prevAway: previousAway,
-    nextHome: matchState.homeGoals,
-    nextAway: matchState.awayGoals,
-    matchState,
-  });
-  if (!disallowedGoals.length && currentGoalTotal > 0 && getMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
+  if (currentGoalTotal > 0 && getMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
     return matchState;
   }
   const syntheticGoals = buildSyntheticGoalEvents({
@@ -4509,7 +4440,7 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
     nextAway: matchState.awayGoals,
     matchState,
   });
-  const syntheticEvents = [...syntheticGoals, ...disallowedGoals];
+  const syntheticEvents = syntheticGoals;
   if (!syntheticEvents.length) return matchState;
   const existingGoalEvents = Array.isArray(matchState.goalEvents) ? matchState.goalEvents : [];
   const existingMatchEvents = Array.isArray(matchState.matchEvents) ? matchState.matchEvents : [];
@@ -4557,6 +4488,7 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
   const teamSuffix = team ? ` for ${team}` : "";
 
   if (kind === "goal-disallowed") {
+    if (event.synthetic) return null;
     return {
       title: buildLivePushHeader({
         fixture,
@@ -4566,7 +4498,7 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
         awayGoals: event.awayGoals,
         event,
       }),
-      body: `VAR has ruled out the goal${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
+      body: `A goal has been disallowed${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
     };
   }
   if (kind === "red-card") {

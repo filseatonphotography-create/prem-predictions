@@ -2884,69 +2884,6 @@ function buildSyntheticLiveGoalEvents({ fixture, prevHome, prevAway, nextHome, n
   }));
 }
 
-function buildSyntheticLiveGoalDisallowedEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
-  const homeGoals = Number(nextHome);
-  const awayGoals = Number(nextAway);
-  const previousHome = Number(prevHome);
-  const previousAway = Number(prevAway);
-  if (![homeGoals, awayGoals, previousHome, previousAway].every(Number.isFinite)) return [];
-  if (homeGoals + awayGoals >= previousHome + previousAway) return [];
-
-  const events = [];
-  let runningHome = previousHome;
-  let runningAway = previousAway;
-  for (let home = previousHome; home > homeGoals; home -= 1) {
-    runningHome = Math.max(homeGoals, home - 1);
-    events.push({
-      type: "GOAL_DISALLOWED",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.homeTeam || "",
-      reason: "VAR goal ruled out",
-      minute: null,
-      injuryTime: null,
-      previousHomeGoals: home,
-      previousAwayGoals: runningAway,
-      homeGoals: runningHome,
-      awayGoals: runningAway,
-    });
-  }
-  for (let away = previousAway; away > awayGoals; away -= 1) {
-    runningAway = Math.max(awayGoals, away - 1);
-    events.push({
-      type: "GOAL_DISALLOWED",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.awayTeam || "",
-      reason: "VAR goal ruled out",
-      minute: null,
-      injuryTime: null,
-      previousHomeGoals: runningHome,
-      previousAwayGoals: away,
-      homeGoals: runningHome,
-      awayGoals: runningAway,
-    });
-  }
-  const range = getSyntheticLiveGoalMinuteRange(matchState, previousHome, previousAway);
-  const observedMinute = getObservedLiveStudioMinute(fixture, matchState);
-  const detectedAt =
-    matchState?.goalDetectedAt ||
-    matchState?.observedAt ||
-    matchState?.lastUpdated ||
-    matchState?.updatedAt ||
-    "";
-  return events.map((event, index) => ({
-    ...event,
-    minute: estimateSyntheticLiveGoalMinute(index, events.length, range, observedMinute),
-    estimatedMinute: true,
-    detectedAt,
-    syntheticIndex: index + 1,
-    sortOffset: 0.02 + index / 1000,
-  }));
-}
-
 function repairEstimatedSyntheticLiveGoals(events = [], fixture, matchState = {}) {
   return (events || [])
     .map((event) => {
@@ -3028,15 +2965,7 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         observedAt: mergedBaseMatchState.observedAt || observedAt,
         goalDetectedAt: mergedBaseMatchState.goalDetectedAt || observedAt,
       };
-      const syntheticDisallowedGoals = buildSyntheticLiveGoalDisallowedEvents({
-        fixture: fixtureById.get(String(fixtureId)),
-        prevHome,
-        prevAway,
-        nextHome: mergedBaseMatchState?.homeGoals,
-        nextAway: mergedBaseMatchState?.awayGoals,
-        matchState: matchStateForSynthetic,
-      });
-      if (!syntheticDisallowedGoals.length && currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(mergedBaseMatchState) >= currentGoalTotal) {
+      if (currentGoalTotal > 0 && getLiveMatchStateGoalEventCount(mergedBaseMatchState) >= currentGoalTotal) {
         return [fixtureId, mergedBaseMatchState];
       }
       const syntheticGoals = buildSyntheticLiveGoalEvents({
@@ -3047,7 +2976,7 @@ function enrichMatchStateUpdatesWithSyntheticGoals(matchStateUpdates, previousSt
         nextAway: mergedBaseMatchState?.awayGoals,
         matchState: matchStateForSynthetic,
       });
-      const syntheticEvents = [...syntheticGoals, ...syntheticDisallowedGoals];
+      const syntheticEvents = syntheticGoals;
       return syntheticEvents.length
         ? [
             fixtureId,
@@ -5142,7 +5071,7 @@ export function buildLiveStudioEventLine({ fixture, event, score, seed }) {
           `${team} have the breakthrough${at}, and the live table needs another look.`,
         ],
     "goal-disallowed": [
-      `VAR has ruled out the goal for ${team}${at}. The score is corrected, and the prediction picture changes again.`,
+      `A goal has been disallowed for ${team}${at}. The score is corrected, and the prediction picture changes again.`,
       `No goal for ${team}${at}. That one is coming back, and so is the live table.`,
       `The goal for ${team} has been chalked off${at}. A few prediction slips just got a second life.`,
     ],
@@ -5264,7 +5193,7 @@ function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, ta
   if (statusLabel === "HT") return "Half-time check";
   if (statusLabel === "FT") return "Result confirmed";
   if (entryKind === "goal") return tableImpactLine ? "Prediction swing" : "Goal flash";
-  if (entryKind === "goal-disallowed") return tableImpactLine ? "VAR table swing" : "VAR check";
+  if (entryKind === "goal-disallowed") return tableImpactLine ? "Table after disallowed goal" : "Goal disallowed";
   if (entryKind === "red-card") return "Match turning point";
   if (entryKind === "yellow-card") return "Discipline watch";
   if (entryKind === "substitution") return "Tactical shift";
@@ -5302,6 +5231,11 @@ export function buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed }
   };
 }
 
+function isUnverifiedDisallowedPost(entry) {
+  const disallowed = entry.updateKey?.includes(":goal-disallowed:") || entry.id?.includes(":GOAL_DISALLOWED:");
+  return disallowed && entry.providerConfirmed !== true;
+}
+
 function isRetainedLiveStudioEntry(entry) {
   return Boolean(entry?.id && !["waiting", "countdown"].includes(entry.id));
 }
@@ -5335,7 +5269,7 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // Late check-ins share one stable identity.
   const entries = new Map();
   const keyFor = entry => entry.id === "studio:closing" ? entry.id : entry.arrivalKey || entry.updateKey || entry.id;
-  history.filter(entry => !isLegacyLiveStudioClockCard(entry))
+  history.filter(entry => !isLegacyLiveStudioClockCard(entry) && !isUnverifiedDisallowedPost(entry))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const key = keyFor(entry);
@@ -6043,7 +5977,7 @@ function normalizeLiveStudioDeskEntry(entry) {
 export function getVisibleLiveStudioEntries(entries = []) {
   // Individual results remain internal history for the final roundup. Only the
   // studio FT post is shown, and old timer/filler cards never return on reload.
-  return entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isLegacyLiveStudioClockCard(entry))
+  return entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isLegacyLiveStudioClockCard(entry) && !isUnverifiedDisallowedPost(entry))
     .map(normalizeLiveStudioDeskEntry);
 }
 
@@ -11987,7 +11921,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           isEstimatedSyntheticLiveStudioEvent(event) && entryIsGoal
             ? "Goal"
             : isEstimatedSyntheticLiveStudioEvent(event) && entryIsGoalDisallowed
-            ? "VAR"
+            ? "Disallowed"
             : isLineup
             ? "XI"
             : statusLabel || (live ? "Live" : paused ? "HT" : finished ? "FT" : "");
@@ -12070,7 +12004,7 @@ const liveStudioCurrentFeed = useMemo(() => {
             ? buildTableSnapshotAtMoment(entryMomentMs - 1, { fixtureId: fixture.id, score: previousScore })
             : currentRows;
           entryTableSnapshot = getLiveStudioChangedTableSnapshot(previousRows, currentRows);
-          entryTableLabel = entryIsGoalDisallowed ? "Mini-league after VAR" : "Mini-league after the goal";
+          entryTableLabel = entryIsGoalDisallowed ? "Mini-league after disallowed goal" : "Mini-league after the goal";
           entryTableImpactLine = entryTableSnapshot ? buildLiveStudioTableImpactLine({
             fixture,
             previousRows,
@@ -12119,6 +12053,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           sortMinute,
           momentMs: entryMomentMs,
           fullTime: isFullTime,
+          providerConfirmed: entryIsGoalDisallowed ? !event.synthetic : undefined,
           backfilled: !inCoverage || isSecondHalf && (finished || getLiveStudioClockMinute(fixture, matchState, liveStudioNow) > 50
             || liveStudioNow - entryMomentMs > 5 * 60000),
           kickoff: isKickoff,
