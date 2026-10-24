@@ -68,8 +68,8 @@ test("two signed-in viewers see the same league and Studio totals despite differ
       expect(within(philUpdate).getByText("Phil", { selector: "strong" })).toBeInTheDocument();
       expect(within(philUpdate).getByAltText("Phil's profile avatar").getAttribute("src")).toContain("bottts/svg?seed=phil-profile");
       expect(within(tinUpdate).getByAltText("Tin Tin's profile avatar").getAttribute("src")).toContain("lorelei/svg?seed=tin-profile");
-      expect(philUpdate.querySelector("p")).toHaveTextContent("21 prediction points");
-      expect(tinUpdate.querySelector("p")).toHaveTextContent("16 prediction points");
+      expect(philUpdate.querySelector("p")).toHaveTextContent("14 prediction points");
+      expect(tinUpdate.querySelector("p")).toHaveTextContent("12 prediction points");
       expect(tinUpdate.style.borderTop).toContain("1px solid");
       expect(philUpdate.textContent).not.toContain("At the prediction desk:");
       expect(tinUpdate.textContent).not.toContain("At the prediction desk:");

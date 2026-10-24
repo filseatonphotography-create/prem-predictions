@@ -210,3 +210,42 @@ test("a page restart preserves arrival order even when its tab session is recrea
   const restarted = renderHook(() => useLiveStudioFeedOrder([lineup, goal], "restart"));
   expect(restarted.result.current).toEqual([goal, lineup]);
 });
+
+test("late Arsenal and Coventry kick-offs are inserted below subsequent action and repair saved arrival positions", () => {
+  const arsenal = { id: "arsenal:KICK_OFF:0:0", updateKey: "arsenal:kick-off:0-0", kickoff: true, momentMs: at("14:00") };
+  const coventry = { id: "coventry:KICK_OFF:0:0", updateKey: "coventry:kick-off:0-0", kickoff: true, momentMs: at("14:00") };
+  const goal = { id: "arsenal:goal", momentMs: at("14:07") };
+  const earlier = { id: "earlier-result", momentMs: at("13:25") };
+  const first = orderLiveStudioUpdates([earlier, goal]);
+  const late = orderLiveStudioUpdates([arsenal, coventry, earlier, goal], first.state);
+  expect(late.entries[0]).toBe(goal);
+  expect(late.entries.at(-1)).toBe(earlier);
+  const corrupted = { counter: 9, updates: { 'arsenal:kick-off:0-0': 8, 'coventry:kick-off:0-0': 9, [goal.id]: 2, [earlier.id]: 1 },
+    meta: { 'arsenal:kick-off:0-0': { backfilled: false }, 'coventry:kick-off:0-0': { backfilled: false } } };
+  const repaired = orderLiveStudioUpdates([arsenal, coventry, earlier, goal], corrupted);
+  expect(repaired.entries[0]).toBe(goal);
+  expect(repaired.entries.at(-1)).toBe(earlier);
+  expect(orderLiveStudioUpdates([goal, earlier, coventry, arsenal], repaired.state).entries).toEqual(repaired.entries);
+});
+
+test("a genuine new kick-off starts at the top and subsequent live updates arrive above it", () => {
+  const oldGoal = { id: "old-goal", momentMs: at("13:00") };
+  const kickoff = { id: "kickoff", kickoff: true, momentMs: at("14:00") };
+  const first = orderLiveStudioUpdates([oldGoal]);
+  const started = orderLiveStudioUpdates([oldGoal, kickoff], first.state);
+  expect(started.entries).toEqual([kickoff, oldGoal]);
+  const goal = { id: "new-goal", momentMs: at("14:07") };
+  const scored = orderLiveStudioUpdates([oldGoal, kickoff, goal], started.state);
+  expect(scored.entries).toEqual([goal, kickoff, oldGoal]);
+  expect(orderLiveStudioUpdates([oldGoal, kickoff, goal], scored.state).entries).toEqual(scored.entries);
+});
+
+test("a corrected kickoff timestamp is repaired without resetting other cards' arrival order", () => {
+  const kickoff = { id: "kickoff", kickoff: true, momentMs: at("16:30") };
+  const goal = { id: "goal", momentMs: at("14:07") };
+  const first = orderLiveStudioUpdates([kickoff, goal]);
+  expect(first.entries[0]).toBe(kickoff);
+  const corrected = { ...kickoff, momentMs: at("14:00") };
+  const repaired = orderLiveStudioUpdates([goal, corrected], first.state);
+  expect(repaired.entries).toEqual([goal, corrected]);
+});

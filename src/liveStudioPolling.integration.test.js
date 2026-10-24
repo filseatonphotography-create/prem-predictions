@@ -65,13 +65,14 @@ test("the full app puts new updates first and combines half-time into one studio
     expect(screen.queryByText(/^Half time!/)).not.toBeInTheDocument();
     const halfCard = screen.getByText("Half-time around the grounds").closest("article");
     expect(within(halfCard).getAllByText("Back in the studio")).toHaveLength(1);
-    expect(within(halfCard).getByText(/Dave.*14 prediction points/)).toBeInTheDocument();
-    expect(within(halfCard).getByText(/Emma.*0 prediction points/)).toBeInTheDocument();
+    expect(within(halfCard).getByRole("heading", { name: /Newcastle United v Aston Villa/ })).toBeInTheDocument();
+    expect(within(halfCard).getByText(/14 prediction points/)).toBeInTheDocument();
+    expect(within(halfCard).getByRole("region", { name: "Emma's studio update" })).toBeInTheDocument();
     const halfScores = within(halfCard).getByRole("list", { name: "Scores around the grounds" });
     expect(within(halfScores).getByRole("listitem", { name: "Newcastle United 0, Aston Villa 1, HT" })).toBeInTheDocument();
     expect(within(halfScores).getByTitle("Newcastle United")).toHaveTextContent("NEW");
     expect(within(halfScores).getByTitle("Aston Villa")).toHaveTextContent("AVL");
-    expect(within(halfCard).getAllByText(/Dave.*14 prediction points/)).toHaveLength(1);
+    expect(within(halfCard).getAllByText(/14 prediction points/)).toHaveLength(1);
     expect(within(halfCard).queryByText("Newcastle United 0–1 Aston Villa (HT)")).not.toBeInTheDocument();
     expect(screen.getByText("Half-time around the grounds").parentElement).toHaveStyle({ color: "#f59e0b" });
     paused = false;
@@ -94,8 +95,9 @@ test("the full app puts new updates first and combines half-time into one studio
     const finalCard = screen.getByText("Full-time around the grounds").closest("article");
     const finalScores = within(finalCard).getByRole("list", { name: "Scores around the grounds" });
     expect(within(finalScores).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(finalCard).getAllByRole("heading", { level: 4 })).toHaveLength(2);
     expect(within(finalScores).getByRole("listitem", { name: "Newcastle United 0, Aston Villa 1, FT" })).toBeInTheDocument();
-    expect(within(finalCard).getAllByText(/Dave.*14 prediction points/)).toHaveLength(1);
+    expect(within(finalCard).getAllByText(/14 prediction points/)).toHaveLength(1);
     expect(within(finalCard).queryByText(/^Best return/)).not.toBeInTheDocument();
     expect(within(finalCard).getByText("Mini-league: first kick-off to full time")).toBeInTheDocument();
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }

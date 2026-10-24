@@ -152,3 +152,10 @@ brief collective prediction summary instead of repeating every player's rundown
 or the score panel. A changed score restores detailed player updates. Half-time
 and full-time retain their fuller reports; saved prediction context remains
 available and the concise presentation is restored after reopening.
+
+Late-loaded kick-off posts are anchored to the match start, beneath subsequent
+play. The order ledger repairs previously misplaced kick-offs once and repairs
+them again if their confirmed start time changes, preserving other arrival
+positions. Detailed Studio rundowns are grouped under a heading for each game,
+with brief player lines showing that game's points and immediate prediction
+outlook instead of one cumulative paragraph spanning every fixture.

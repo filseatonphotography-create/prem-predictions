@@ -111,3 +111,11 @@ test("legacy kick-off posts recover the flag used by the red card styling", () =
   const old = { id: "560614:KICK_OFF:0:1", fixtureId: 560614, title: "Kick-off!", momentMs: 100 };
   expect(mergeLiveStudioDeskHistory([old], [])[0]).toMatchObject({ kickoff: true, updateKey: "560614:kick-off:0-0" });
 });
+
+test("a corrected fixture kickoff replaces a cached wrong start time instead of freezing it", () => {
+  const cached = { id: "560616:KICK_OFF:0:0", fixtureId: 560616, kickoff: true, momentMs: Date.parse("2026-10-24T16:30:00Z"),
+    fixture: { id: 560616, kickoff: "2026-10-24T16:30:00Z" } };
+  const corrected = { ...cached, fixture: { ...cached.fixture, kickoff: "2026-10-24T14:00:00Z" } };
+  const [entry] = mergeLiveStudioDeskHistory([cached], [corrected]);
+  expect(entry.momentMs).toBe(Date.parse("2026-10-24T14:00:00Z"));
+});

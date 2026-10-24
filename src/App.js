@@ -5246,6 +5246,10 @@ function isRetainedLiveStudioEntry(entry) {
 }
 
 function repairLiveStudioHistoryMoment(entry) {
+  if (entry.kickoff && entry.fixture?.kickoff) {
+    const momentMs = Date.parse(entry.fixture.kickoff);
+    if (Number.isFinite(momentMs) && momentMs !== entry.momentMs) return { ...entry, momentMs };
+  }
   if (entry.fullTime && entry.fixture?.kickoff) {
     const momentMs = getMatchEventMomentMs(entry.fixture, { statusLabel: "FT", minute: Math.max(90, Math.floor(entry.sortMinute || 90)) },
       { finishedAt: Number.isFinite(entry.momentMs) ? new Date(entry.momentMs).toISOString() : "" });
@@ -5285,7 +5289,7 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
     const key = keyFor(entry);
     const previous = entries.get(key);
     if (entry.id === "studio:closing") entries.set(key, mergeLiveStudioFinalRoundup(previous, entry));
-    else if (!entry.id.startsWith("studio:")) entries.set(key, refreshLiveStudioGoalCommentary({ ...entry, momentMs: previous?.momentMs ?? entry.momentMs }, previous));
+    else if (!entry.id.startsWith("studio:")) entries.set(key, refreshLiveStudioGoalCommentary({ ...entry, momentMs: entry.kickoff ? entry.momentMs : previous?.momentMs ?? entry.momentMs }, previous));
     else if (!previous) entries.set(key, entry);
     else entries.set(key, enrichLiveStudioPlayerRoundup(previous, entry));
   });
@@ -6179,6 +6183,47 @@ function buildLiveStudioPlayerRoundupRows({ matches = [], seed = "studio", finis
 
 export function buildLiveStudioPlayerRoundup(options) {
   return buildLiveStudioPlayerRoundupRows(options).map(row => row.line);
+}
+
+export function getLiveStudioGameUpdates(entry, users = []) {
+  if (entry.compactCheckIn) return [];
+  if (!entry.roundupMatches?.length) return [{ players: getLiveStudioPlayerUpdates(entry, users) }];
+  return entry.roundupMatches.filter(match => hasValidResultScore(match.score)).map(match => {
+    const finished = entry.id === "studio:closing" || match.finished || match.scoreLabel === "FT";
+    const seen = new Set();
+    const players = (match.picks || []).flatMap(pick => {
+      const key = String(pick.username || pick.userId || "").toLowerCase();
+      const predicted = hasValidResultScore(pick.prediction);
+      const hasBet = hasLiveStudioCoinsBet(pick.bet);
+      if (!key || seen.has(key) || (!predicted && !hasBet)) return [];
+      seen.add(key);
+      const points = predicted ? getTotalPoints(pick.prediction, match.score) : 0;
+      let outlook = "";
+      if (predicted) {
+        const exact = getPredictionPointsLabel(pick.prediction, match.score)?.label === "Bingpot";
+        const need = getOneGoalBingpotNeed(pick.prediction, match.score, match.fixture);
+        const side = getLiveStudioPredictionSide(pick.prediction);
+        const result = side === "D" ? "a draw" : getLiveStudioSideLabel(match.fixture, side).replace(/ win$/, " to win");
+        if (finished) outlook = exact ? "Bingpot banked." : points ? "Points banked." : "No points from this game.";
+        else if (exact) outlook = "Bingpot in play. No more goals, please.";
+        else if (need) outlook = `One ${need} for Bingpot.`;
+        else {
+          const goalsNeeded = [[Number(pick.prediction.homeGoals) - Number(match.score.homeGoals), match.fixture.homeTeam],
+            [Number(pick.prediction.awayGoals) - Number(match.score.awayGoals), match.fixture.awayTeam]];
+          if (goalsNeeded.every(([count]) => count >= 0)) {
+            outlook = `Bingpot needs ${goalsNeeded.filter(([count]) => count > 0)
+              .map(([count, team]) => `${count} ${getLiveStudioTeamName(team)} goal${count === 1 ? "" : "s"}`).join(" and ")}.`;
+          } else outlook = points ? `Protect the ${getLiveStudioSideLabel(match.fixture, side)}; exact score gone.` : `Needs ${result} for result points.`;
+        }
+      }
+      const boost = pick.prediction?.isTriple ? " (triple)" : pick.prediction?.isDouble ? " (double)" : "";
+      const betLine = hasBet ? `${formatLiveStudioCoins(pick.bet.stake)} coins on ${pick.bet.side === "D" ? "a draw" : getLiveStudioSideLabel(match.fixture, pick.bet.side).replace(/ win$/, " to win")}; ${getLiveStudioLeadingSide(match.score) === pick.bet.side ? finished ? "won" : "winning" : finished ? "lost" : "at risk"}.` : "";
+      const account = users.find(user => user.username === pick.username);
+      return [{ username: pick.username, userId: account?.userId || pick.userId || "", points,
+        line: [predicted ? `${points} prediction ${points === 1 ? "point" : "points"}${boost}. ${outlook}` : "", betLine].filter(Boolean).join(" ") }];
+    }).sort((a, b) => b.points - a.points || a.username.localeCompare(b.username));
+    return { fixture: match.fixture, score: match.score, status: match.scoreLabel, players };
+  });
 }
 
 export function getLiveStudioPlayerUpdates(entry, users = []) {
@@ -21518,16 +21563,21 @@ if (!isLoggedIn) {
                             <div style={{ color: toneColor, fontSize: 10, fontWeight: 950, textTransform: "uppercase", letterSpacing: 0.8 }}>
                               Mini-league prediction desk
                             </div>
-                            {getLiveStudioPlayerUpdates(entry, liveStudioUsers).map((player, index) => {
+                            {getLiveStudioGameUpdates(entry, liveStudioUsers).map((game, gameIndex) => (
+                              <div key={`${entry.id}:game:${game.fixture?.id || gameIndex}`} style={{ display: "grid", gap: 4, marginTop: gameIndex ? 12 : 4 }}>
+                                {game.fixture && <h4 style={{ margin: "0 0 4px", color: toneColor, fontSize: isMobile ? 13 : 14 }}>
+                                  {getLiveStudioTeamName(game.fixture.homeTeam)} v {getLiveStudioTeamName(game.fixture.awayTeam)} · {game.score.homeGoals}–{game.score.awayGoals}{game.status ? ` (${game.status})` : ""}
+                                </h4>}
+                                {game.players.map((player, index) => {
                               const row = { player: player.username, userId: player.userId };
                               const avatar = getAvatarForRow(row);
                               return (
-                                <section key={`${entry.id}:player:${player.userId || player.username}`}
+                                <section key={`${entry.id}:${game.fixture?.id || "legacy"}:player:${player.userId || player.username}`}
                                   aria-label={`${player.username}'s studio update`}
-                                  style={{ minWidth: 0, padding: "10px 0", borderTop: index > 0 ? `1px solid ${theme.line}` : undefined }}>
+                                  style={{ minWidth: 0, padding: "5px 0", borderTop: index > 0 ? `1px solid ${theme.line}` : undefined }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
                                     <div style={{ flex: "0 0 auto" }}>
-                                      <PlayerAvatar size={32} seed={avatar.seed} avatarStyle={avatar.style}
+                                      <PlayerAvatar size={24} seed={avatar.seed} avatarStyle={avatar.style}
                                         title={`${player.username}'s profile avatar`} favoriteMode={gameMode}
                                         favoriteTeam={activeFavoriteByUserId[String(player.userId || "")] || activeFavoriteByUsername[player.username] || ""} />
                                     </div>
@@ -21535,12 +21585,14 @@ if (!isLoggedIn) {
                                       {player.username}
                                     </strong>
                                   </div>
-                                  <p style={{ margin: "7px 0 0", color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.5, overflowWrap: "anywhere" }}>
+                                  <p style={{ margin: "3px 0 0", color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.4, overflowWrap: "anywhere" }}>
                                     {player.line}
                                   </p>
                                 </section>
                               );
-                            })}
+                                })}
+                              </div>
+                            ))}
                           </div>
                         )}
                         {entry.lineups && entryFixture && <LiveStudioLineups

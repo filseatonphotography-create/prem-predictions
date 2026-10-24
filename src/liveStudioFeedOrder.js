@@ -25,9 +25,18 @@ export function orderLiveStudioUpdates(entries = [], previous = {}, { historical
     ...Object.values(updates).filter(Number.isFinite), 0));
   const eligible = entry => entry.id !== "waiting" && entry.id !== "countdown";
   const historical = [];
+  const kickoffs = [];
   chronological(entries).reverse().filter(eligible).forEach(entry => {
     const key = identity(entry);
     const known = Number.isFinite(updates[key]);
+    const kickoff = entry.kickoff || entry.updateKey?.includes(":kick-off:") || /:KICK_OFF:/i.test(entry.id || "");
+    // A late-loaded or corrected kick-off belongs at the match start, even if
+    // an older ledger mistakenly gave it a fresh arrival above subsequent play.
+    if (kickoff && Number.isFinite(entry.momentMs) && meta[key]?.kickoffMoment !== entry.momentMs) {
+      delete updates[key];
+      kickoffs.push(entry);
+      return;
+    }
     const recoveringPhase = (entry.backfilled || historicalIds.includes(entry.id)) && (!meta[key] || meta[key].backfilled);
     // Repair legacy lineups once: their old bootstrap position used tomorrow's
     // kickoff instead of an announcement time. Other existing cards stay fixed.
@@ -55,6 +64,17 @@ export function orderLiveStudioUpdates(entries = [], previous = {}, { historical
     const upper = positions.find(position => position > lower) ?? lower + 2;
     updates[key] = (lower + upper) / 2;
     meta[key] = { backfilled: true, position: updates[key] };
+  });
+  kickoffs.forEach(entry => {
+    const key = identity(entry);
+    const newer = entries.filter(candidate => candidate.momentMs > entry.momentMs && Number.isFinite(updates[identity(candidate)]));
+    if (newer.length) {
+      const upper = Math.min(...newer.map(candidate => updates[identity(candidate)]));
+      const olderPositions = Object.values(updates).filter(position => Number.isFinite(position) && position < upper);
+      const lower = olderPositions.length ? Math.max(...olderPositions) : upper - 2;
+      updates[key] = (lower + upper) / 2;
+    } else updates[key] = ++counter;
+    meta[key] = { backfilled: true, position: updates[key], kickoffMoment: entry.momentMs };
   });
   return {
     entries: chronological(entries).sort((a, b) => (updates[identity(b)] || 0) - (updates[identity(a)] || 0)),
