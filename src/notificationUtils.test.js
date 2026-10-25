@@ -3,12 +3,13 @@ const {
   buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
+  normalizeLineups,
 } = require("../notificationUtils");
 
 describe("goal alert details", () => {
   const fixture = { homeTeam: "Arsenal", awayTeam: "Chelsea" };
 
-  test("formats scorer without an unreliable minute when a goal event is available", () => {
+  test("formats the scorer, team and verified added-time minute", () => {
     const match = {
       homeTeam: { id: 57, name: "Arsenal FC" },
       awayTeam: { id: 61, name: "Chelsea FC" },
@@ -38,7 +39,7 @@ describe("goal alert details", () => {
       nextAway: 1,
     });
 
-    expect(buildGoalAlertBody(fixture, 1, 1, goal)).toBe("Cole Palmer");
+    expect(buildGoalAlertBody(fixture, 1, 1, goal)).toBe("Cole Palmer for Chelsea FC · 67+2'");
   });
 
   test("omits fallback scoreline body text when scorer data is unavailable", () => {
@@ -69,17 +70,56 @@ describe("goal alert details", () => {
         goalEvents: [{ playerName: "Marta", time: 44, teamName: "Brazil" }],
       })
     ).toEqual([
-      {
+      expect.objectContaining({
         scorerName: "Marta",
+        assistName: "",
         teamName: "Brazil",
         teamId: "",
         minute: 44,
         injuryTime: null,
         homeGoals: null,
         awayGoals: null,
-        type: "",
-      },
+        type: "GOAL",
+      }),
     ]);
+  });
+
+  test("normalizes starting lineups and benches from football-data", () => {
+    expect(
+      normalizeLineups({
+        homeTeam: {
+          id: 57,
+          name: "Arsenal FC",
+          formation: "4-3-3",
+          coach: { name: "Renee Slegers" },
+          lineup: [{ id: 1, name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+          bench: [{ id: 2, name: "Home Sub", position: "Midfield", shirtNumber: 14 }],
+        },
+        awayTeam: {
+          id: 61,
+          name: "Chelsea FC",
+          formation: "4-2-3-1",
+          lineup: [{ id: 3, name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+        },
+      })
+    ).toEqual({
+      home: {
+        teamId: "57",
+        teamName: "Arsenal FC",
+        formation: "4-3-3",
+        coachName: "Renee Slegers",
+        lineup: [{ id: "1", name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+        bench: [{ id: "2", name: "Home Sub", position: "Midfield", shirtNumber: 14 }],
+      },
+      away: {
+        teamId: "61",
+        teamName: "Chelsea FC",
+        formation: "4-2-3-1",
+        coachName: "",
+        lineup: [{ id: "3", name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+        bench: [],
+      },
+    });
   });
 
   test("describes when a goal moves the user onto prediction points", () => {

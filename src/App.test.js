@@ -24,7 +24,6 @@ import {
   buildFantasyIqClubOutlooks,
   buildPremierHistoryEntries,
   sortLiveStudioEntries,
-  getLiveStudioHalfTimeSnapshotScore,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -62,7 +61,7 @@ describe("push notification subscriptions", () => {
 });
 
 describe("Live Studio timeline ordering", () => {
-  test("keeps newest updates first while placing half-time between the 42' and 66' events", () => {
+  test("keeps half-time between first-half and second-half scoring events", () => {
     const entries = sortLiveStudioEntries([
       { fixtureId: 560597, tone: "live", title: "Goal COV 4-1 NEW", sortMinute: 83.004 },
       { fixtureId: 560597, tone: "live", title: "Goal COV 3-1 NEW", sortMinute: 66.003 },
@@ -82,24 +81,6 @@ describe("Live Studio timeline ordering", () => {
       "Goal COV 1-0 NEW",
       "Kick off!",
     ]);
-  });
-
-  test("uses the 45-minute timeline snapshot for half-time instead of a polluted full-time score", () => {
-    const events = [
-      { type: "GOAL", minute: 12, homeGoals: 1, awayGoals: 0 },
-      { type: "GOAL", minute: 31, homeGoals: 2, awayGoals: 0 },
-      { type: "GOAL", minute: 42, homeGoals: 2, awayGoals: 1 },
-      { type: "GOAL", minute: 66, homeGoals: 3, awayGoals: 1 },
-      { type: "GOAL", minute: 83, homeGoals: 4, awayGoals: 1 },
-    ];
-
-    expect(
-      getLiveStudioHalfTimeSnapshotScore(
-        { halfTimeHomeGoals: 4, halfTimeAwayGoals: 1 },
-        events,
-        { homeGoals: 4, awayGoals: 1 }
-      )
-    ).toEqual({ homeGoals: 2, awayGoals: 1 });
   });
 });
 
@@ -797,6 +778,7 @@ describe("World Cup sync helpers", () => {
     expect(payload.matchStateUpdates).toEqual({
       102: {
         status: "FINISHED",
+        minute: null,
         homeGoals: 2,
         awayGoals: 1,
         goalEvents: [],
@@ -1057,7 +1039,8 @@ describe("World Cup sync helpers", () => {
     const merged = mergeCloudPredictionsPreservingLocalBoosts(
       cloudPreds,
       localPreds,
-      [fixture]
+      [fixture],
+      Date.parse("2026-06-18T00:00:00Z")
     );
 
     expect(merged[920028].isDouble).toBe(true);

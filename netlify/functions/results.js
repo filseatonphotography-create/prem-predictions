@@ -14,7 +14,13 @@ export async function handler() {
     const res = await fetch(
       "https://api.football-data.org/v4/competitions/PL/matches",
       {
-        headers: { "X-Auth-Token": token },
+        headers: {
+          "X-Auth-Token": token,
+          "X-Unfold-Goals": "true",
+          "X-Unfold-Lineups": "true",
+          "X-Unfold-Bookings": "true",
+          "X-Unfold-Subs": "true",
+        },
         signal: controller.signal,
       }
     );

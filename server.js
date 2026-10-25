@@ -1,3 +1,6 @@
+const { shouldSendRecentFullTimeUpdate } = require("./src/liveMatchEvents");
+const { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave } = require("./src/predictionRules");
+const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
 const express = require("express");
 const cors = require("cors");
@@ -5,6 +8,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const webpush = require("web-push");
+const { deliverWebPush, pushFailureDetails } = require("./pushTransport");
 const {
   getMatchScoreForPrediction,
   hasStartedMatchStatus,
@@ -22,20 +26,28 @@ const {
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeMatchEvents,
+  normalizeLineups,
   normalizeFootballTeamName,
   parseFixtureArraySource,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
+  buildLineupAlert,
 } = require("./notificationUtils");
 
-const BUILD_ID = "2025-11-22-a";
+const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
+
+const BUILD_ID = "2026-10-24-confirmed-goal-events";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
 const MAX_USERNAME_LENGTH = 11;
 
 const app = express();
+app.get("/api/health", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ status: "ok", buildId: BUILD_ID });
+});
 
 // GET /api/coins/user/:userId?gameweek=GW
 // Returns coins state for any user (read-only, no auth restrictions)
@@ -154,7 +166,11 @@ app.get("/api/avatar/all", authMiddleware, (req, res) => {
   res.json(avatars);
 });
 // ---------------------------------------------------------------------------
-const DATA_DIR = path.join(__dirname, "data");
+// Point DATA_DIR at a persistent disk in production so subscriptions survive
+// restarts and deploys along with the rest of the app's saved data.
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, "data");
 const AVATARS_FILE = path.join(DATA_DIR, "avatars.json");
 const FIXTURES_SRC_FILE = path.join(__dirname, "src", "fixtures.js");
 const WORLD_CUP_FIXTURES_SRC_FILE = path.join(__dirname, "src", "worldCupFixtures.js");
@@ -417,8 +433,18 @@ const savePasswordResetTokens = (tokens) =>
   saveJson(PASSWORD_RESET_TOKENS_FILE, Array.isArray(tokens) ? tokens : []);
 
 // Predictions (userId -> { fixtureId -> prediction })
-const loadPredictions = () => loadJson(PREDICTIONS_FILE, {});
-const savePredictions = (preds) => saveJson(PREDICTIONS_FILE, preds);
+const loadPredictions = () => {
+  const raw = loadJson(PREDICTIONS_FILE, {});
+  const groups = [loadFixturesFromSrc(), loadWorldCupFixturesFromSrc()];
+  return Object.fromEntries(Object.entries(raw).map(([id, picks]) => [id, normalizePredictionBoosts(picks, groups)]));
+};
+const savePredictions = (preds) => {
+  // Write completely before replacing the authoritative file. A failed disk
+  // write must reach the caller rather than return a false success response.
+  const temporary = `${PREDICTIONS_FILE}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  try { fs.writeFileSync(temporary, JSON.stringify(preds, null, 2), "utf8"); fs.renameSync(temporary, PREDICTIONS_FILE); }
+  finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+};
 
 // Totals/history (leagueId -> { weeklyTotals, leagueTotals, updatedAt })
 const loadTotals = () => loadJson(TOTALS_FILE, {});
@@ -557,7 +583,6 @@ const saveResults = (results) => saveJson(RESULTS_FILE, results || {});
 
 let resultsCacheByKey = {};
 let resultsCacheAtByKey = {};
-const RESULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 let standingsCache = null;
 let standingsCacheAt = 0;
 const STANDINGS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -586,6 +611,7 @@ function getFootballDataHeaders({ unfold = false } = {}) {
     ...(unfold
       ? {
           "X-Unfold-Goals": "true",
+          "X-Unfold-Lineups": "true",
           "X-Unfold-Bookings": "true",
           "X-Unfold-Subs": "true",
         }
@@ -806,31 +832,6 @@ function getResult(home, away) {
   return "D";
 }
 
-function getPredictionPoints(prediction, result) {
-  if (!prediction || !result) return 0;
-
-  const ph = Number(prediction.homeGoals);
-  const pa = Number(prediction.awayGoals);
-  const rh = Number(result.homeGoals);
-  const ra = Number(result.awayGoals);
-
-  if ([ph, pa, rh, ra].some((n) => !Number.isFinite(n))) return 0;
-
-  let points = 0;
-  if (ph === rh && pa === ra) {
-    points = 7;
-  } else {
-    const predRes = getResult(ph, pa);
-    const realRes = getResult(rh, ra);
-    if (predRes === realRes && ph - pa === rh - ra) points = 4;
-    else if (predRes === realRes) points = 2;
-  }
-
-  if (prediction.isTriple) points *= 3;
-  else if (prediction.isDouble) points *= 2;
-
-  return points;
-}
 
 function hasSettledCoinsResult(result) {
   if (!result) return false;
@@ -2652,38 +2653,22 @@ app.post("/api/predictions/save", authMiddleware, (req, res) => {
       return res.status(400).json({ error: "prediction object is required." });
     }
 
-        const allPreds = loadPredictions();
-    if (!allPreds[userId]) allPreds[userId] = {};
-
-    const now = Date.now();
-
-    const clean = {
-      homeGoals:
-        prediction.homeGoals === "" || prediction.homeGoals === null
-          ? ""
-          : String(prediction.homeGoals),
-      awayGoals:
-        prediction.awayGoals === "" || prediction.awayGoals === null
-          ? ""
-          : String(prediction.awayGoals),
-      isDouble: !!prediction.isDouble,
-      isTriple: !!prediction.isTriple,
-      updatedAt: now,
-    };
-
-    console.log("SAVE incoming:", {
-  userId,
-  fixtureId,
-  clean
-});
-
-    allPreds[userId][fixtureId] = clean;
-    savePredictions(allPreds);
-
-    return res.json({ ok: true });
+    const allPreds = loadPredictions();
+    const states = loadMatchStates();
+    const groups = [loadFixturesFromSrc(), loadWorldCupFixturesFromSrc()].map(fixtures =>
+      applyMatchStateKickoffOverrides(fixtures, states).map(fixture => Object.assign({}, fixture, {
+        predictionLocked: hasStartedMatchStatus(states[String(fixture.id)] || {}),
+      })));
+    const saved = applyPredictionSave(allPreds[userId] || {}, fixtureId, prediction, groups);
+    if (saved.changed) {
+      allPreds[userId] = saved.predictions;
+      savePredictions(allPreds);
+    }
+    return res.json({ ok: true, predictions: saved.predictions });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error("predictions/save error", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Could not save your prediction. Please retry." });
   }
 });
 
@@ -3443,6 +3428,13 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
           const subscribedUserIds = getLiveStudioNotificationUserIds(fixtureId);
           if (!subscribedUserIds.length) return;
 
+          const lineupAlert = buildLineupAlert(fixture, update.nextState);
+          if (lineupAlert) {
+            subscribedUserIds.forEach(userId => {
+              sendFixtureUpdateNotification(userId, fixtureId, "lineup", "confirmed", lineupAlert);
+            });
+          }
+
           const hasScoreNow =
             Number.isFinite(update.nextHome) && Number.isFinite(update.nextAway);
           const hadScoreBefore =
@@ -3468,7 +3460,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
 
           nextEvents.forEach((event, index) => {
             const eventKind = getLivePushEventKind(event);
-            if (eventKind === "goal") return;
+            if (eventKind === "goal" || !shouldPushMatchEvent(eventKind)) return;
             const eventKeyPart = getLivePushEventKeyPart(event, index);
             if (previousEventKeys.has(eventKeyPart)) return;
             const eventPayload = buildLiveMatchEventPayload(fixture, event);
@@ -3553,7 +3545,7 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
             });
           }
 
-          if (statusNow === "FINISHED" && statusBefore !== "FINISHED" && hasScoreNow) {
+          if (isFinalMatchStatus(statusNow) && hasScoreNow && shouldSendRecentFullTimeUpdate(fixture, Object.assign({}, mergedMatchStates[fixtureId], { status: statusNow, homeGoals: update.nextHome, awayGoals: update.nextAway }))) {
             subscribedUserIds.forEach((userId) => {
               sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${update.nextHome}-${update.nextAway}`, {
                 title: buildLivePushHeader({
@@ -3666,6 +3658,7 @@ app.get("/api/results/snapshot", (req, res) => {
 });
 
 app.get("/api/match-states/snapshot", (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const current = loadMatchStates() || {};
     return res.json(current);
@@ -3679,34 +3672,18 @@ app.get("/api/match-states/snapshot", (req, res) => {
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
 app.get("/api/results", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   try {
     const mode = normalizeLeagueMode(req.query && req.query.mode);
     maybeRunLiveFixtureNotifier(`api-results:${mode}`, 30 * 1000, mode);
-    const { cacheKey, url, headers } = getResultsFetchConfig(mode);
+    const { cacheKey } = getResultsFetchConfig(mode);
     const now = Date.now();
-    if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < RESULTS_CACHE_TTL_MS) {
+    if (resultsCacheByKey[cacheKey] && now - (resultsCacheAtByKey[cacheKey] || 0) < getResultsCacheTtl(resultsCacheByKey[cacheKey], now)) {
       res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
       res.setHeader("X-Results-Mode", mode);
       return res.json(resultsCacheByKey[cacheKey]);
     }
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000);
-    const apiRes = await fetch(url, {
-      headers,
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!apiRes.ok) {
-      const errorText = await apiRes.text().catch(() => "");
-      console.error("Football-Data API error:", apiRes.status, errorText);
-      return res
-        .status(apiRes.status)
-        .json({ error: "Football-Data API error", status: apiRes.status });
-    }
-
-    const data = await apiRes.json();
-    const matches = Array.isArray(data.matches) ? data.matches : [];
+    const matches = await fetchLiveMatches(mode);
     resultsCacheByKey[cacheKey] = matches;
     resultsCacheAtByKey[cacheKey] = Date.now();
     res.setHeader("X-Results-Updated", String(resultsCacheAtByKey[cacheKey]));
@@ -3728,9 +3705,16 @@ app.get("/api/results", async (req, res) => {
 });
 
 app.get("/api/push/live-status", authMiddleware, (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const record = loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[req.user.id] || {};
   return res.json({
     running: liveNotifierRunning,
     ...liveNotifierStatus,
+    uptimeSeconds: Math.floor(process.uptime()),
+    deviceCount: getDeviceSubscriptions(record).length,
+    liveUpdatesEnabled: isPushTypeEnabled("liveUpdates", record.notifPrefs),
+    lastDelivery: record.lastDelivery || null,
+    lastTestDelivery: record.lastTestDelivery || null,
   });
 });
 
@@ -3967,14 +3951,36 @@ async function sendPushNotification(userId, type, payload) {
   const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   const sub = subscriptions[userId];
   const devices = getDeviceSubscriptions(sub);
-  if (!devices.length) return false;
+  if (!devices.length) {
+    if (type === "test" && sub) {
+      sub.lastTestDelivery = {
+        ...(sub.lastTestDelivery || {}), state: "failed",
+        attemptedAt: new Date().toISOString(), acceptedCount: 0, failedCount: 1,
+        failureCodes: ["NO_SUBSCRIPTION"],
+      };
+      saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+    }
+    return false;
+  }
   const prefs = sub.notifPrefs || null;
-  if (!isPushTypeEnabled(type, prefs)) return false;
+  if (type !== "test" && !isPushTypeEnabled(type, prefs)) return false;
+  const testId = type === "test" ? payload.tag || crypto.randomUUID() : null;
+  if (type === "test") {
+    sub.lastTestDelivery = {
+      ...(sub.lastTestDelivery?.id === testId ? sub.lastTestDelivery : {}),
+      id: testId, state: "sending", attemptedAt: new Date().toISOString(),
+    };
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+  }
 
   const deliveryResults = await Promise.all(
     devices.map(async (device) => {
       try {
-        await webpush.sendNotification(device, JSON.stringify(payload));
+        await deliverWebPush(webpush, device, JSON.stringify(payload), {
+          timeout: 10000,
+          urgency: "high",
+          TTL: type === "deadline1h" || type === "deadline24h" ? 900 : 300,
+        });
         return { endpoint: device.endpoint, accepted: true, expired: false };
       } catch (err) {
         console.error(`Push notification error for user ${userId}:`, err);
@@ -3983,6 +3989,7 @@ async function sendPushNotification(userId, type, payload) {
           accepted: false,
           expired: err?.statusCode === 404 || err?.statusCode === 410,
           statusCode: err?.statusCode || null,
+          failure: pushFailureDetails(err),
         };
       }
     })
@@ -4003,11 +4010,21 @@ async function sendPushNotification(userId, type, payload) {
     subscriptions: activeDevices,
     lastDelivery: {
       type,
+      eventKey: payload.tag || null,
       attemptedAt: new Date().toISOString(),
+      failureCodes: deliveryResults.filter(result => !result.accepted).map(result => result.failure.code),
+      failureDetails: deliveryResults.filter(result => !result.accepted).map(result => result.failure),
       acceptedCount,
       failedCount: deliveryResults.length - acceptedCount,
     },
   };
+  if (type === "test" && latestRecord.lastTestDelivery?.id === testId) {
+    latestSubscriptions[userId].lastTestDelivery = {
+      ...(latestRecord.lastTestDelivery || {}),
+      ...latestSubscriptions[userId].lastDelivery,
+      state: acceptedCount > 0 ? "accepted" : "failed",
+    };
+  }
   saveJson(PUSH_SUBSCRIPTIONS_FILE, latestSubscriptions);
   return acceptedCount > 0;
 }
@@ -4046,9 +4063,12 @@ function reserveFixtureNotificationEvent(userId, eventKey) {
   const existing = subscriptions[userId] || {};
   const notifLog = existing.notifLog || {};
   const fixtureUpdates = notifLog.fixtureUpdates || {};
-  if (fixtureUpdates[eventKey]) return false;
+  const previous = fixtureUpdates[eventKey];
+  if (typeof previous === "number" || previous?.state === "accepted") return false;
+  if (previous?.state === "pending" && Date.now() - previous.reservedAt < 60000) return false;
 
-  fixtureUpdates[eventKey] = Date.now();
+  const reservedAt = Date.now();
+  fixtureUpdates[eventKey] = { state: "pending", reservedAt };
   subscriptions[userId] = {
     ...existing,
     notifLog: {
@@ -4057,7 +4077,16 @@ function reserveFixtureNotificationEvent(userId, eventKey) {
     },
   };
   saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
-  return true;
+  return reservedAt;
+}
+
+function finishFixtureNotificationEvent(userId, eventKey, reservedAt, accepted) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const event = subscriptions[userId]?.notifLog?.fixtureUpdates?.[eventKey];
+  if (event?.state !== "pending" || event.reservedAt !== reservedAt) return;
+  if (accepted) subscriptions[userId].notifLog.fixtureUpdates[eventKey] = { state: "accepted", acceptedAt: Date.now() };
+  else delete subscriptions[userId].notifLog.fixtureUpdates[eventKey];
+  saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 }
 
 function getPushNotificationPrefs(userId) {
@@ -4075,7 +4104,7 @@ function buildLiveStudioUrl(fixtureId, eventKey = "") {
 }
 
 function formatLivePushScore(fixture, homeGoals, awayGoals) {
-  if (!Number.isFinite(Number(homeGoals)) || !Number.isFinite(Number(awayGoals))) {
+  if (numeric(homeGoals) == null || numeric(awayGoals) == null) {
     return `${fixture.homeTeam} v ${fixture.awayTeam}`;
   }
   return `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`;
@@ -4128,19 +4157,8 @@ function getLivePushScoringTeamCode(fixture, homeGoals, awayGoals, event = {}) {
     return getLivePushTeamCode(eventTeam);
   }
 
-  const eventHomeGoals = Number(event?.homeGoals);
-  const eventAwayGoals = Number(event?.awayGoals);
-  if (Number.isFinite(eventHomeGoals) && Number.isFinite(eventAwayGoals)) {
-    if (eventHomeGoals > eventAwayGoals) return getLivePushTeamCode(fixture.homeTeam);
-    if (eventAwayGoals > eventHomeGoals) return getLivePushTeamCode(fixture.awayTeam);
-  }
-
-  const home = Number(homeGoals);
-  const away = Number(awayGoals);
-  if (Number.isFinite(home) && Number.isFinite(away)) {
-    if (home > away) return getLivePushTeamCode(fixture.homeTeam);
-    if (away > home) return getLivePushTeamCode(fixture.awayTeam);
-  }
+  if (event?.scoringSide === "home") return getLivePushTeamCode(fixture.homeTeam);
+  if (event?.scoringSide === "away") return getLivePushTeamCode(fixture.awayTeam);
   return "";
 }
 
@@ -4190,8 +4208,8 @@ function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKe
 
   return {
     ...payload,
-    title: "Live Studio update",
-    body: `Something has happened in ${fixtureLabel}. Tap to join Live Studio.`,
+    title: eventKind === "goal-disallowed" ? "Goal ruled out" : "Goal alert",
+    body: `${eventKind === "goal-disallowed" ? "A goal has been ruled out" : "There's been a goal"} in ${fixtureLabel}. Tap to join Live Studio.`,
     url: buildLiveStudioUrl(fixtureId, eventKey),
   };
 }
@@ -4217,11 +4235,7 @@ function getLivePushEventKind(event = {}) {
 }
 
 function formatLivePushMinute(event = {}) {
-  if (event?.synthetic && event?.estimatedMinute) return "";
-  const minute = Number(event.minute);
-  if (!Number.isFinite(minute)) return "";
-  const injuryTime = Number(event.injuryTime);
-  return Number.isFinite(injuryTime) && injuryTime > 0 ? `${minute}+${injuryTime}'` : `${minute}'`;
+  return formatGoalMinute(event);
 }
 
 function getLivePushEventKeyPart(event = {}) {
@@ -4408,67 +4422,6 @@ function buildSyntheticGoalEvents({ fixture, prevHome, prevAway, nextHome, nextA
   }));
 }
 
-function buildSyntheticGoalDisallowedEvents({ fixture, prevHome, prevAway, nextHome, nextAway, matchState = {} }) {
-  const homeGoals = Number(nextHome);
-  const awayGoals = Number(nextAway);
-  const previousHome = Number(prevHome);
-  const previousAway = Number(prevAway);
-  if (![homeGoals, awayGoals, previousHome, previousAway].every(Number.isFinite)) return [];
-  if (homeGoals + awayGoals >= previousHome + previousAway) return [];
-
-  const events = [];
-  const range = getSyntheticGoalMinuteRange(matchState, previousHome, previousAway);
-  const observedMinute = getObservedSyntheticGoalMinute(fixture, matchState);
-  const detectedAt =
-    matchState?.goalDetectedAt ||
-    matchState?.observedAt ||
-    matchState?.lastUpdated ||
-    matchState?.updatedAt ||
-    "";
-
-  for (let home = previousHome; home > homeGoals; home -= 1) {
-    events.push({
-      type: "GOAL_DISALLOWED",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.homeTeam || "",
-      reason: "VAR goal ruled out",
-      minute: null,
-      injuryTime: null,
-      previousHomeGoals: home,
-      previousAwayGoals: previousAway,
-      homeGoals,
-      awayGoals,
-    });
-  }
-  for (let away = previousAway; away > awayGoals; away -= 1) {
-    events.push({
-      type: "GOAL_DISALLOWED",
-      synthetic: true,
-      scorerName: "",
-      playerName: "",
-      teamName: fixture?.awayTeam || "",
-      reason: "VAR goal ruled out",
-      minute: null,
-      injuryTime: null,
-      previousHomeGoals: homeGoals,
-      previousAwayGoals: away,
-      homeGoals,
-      awayGoals,
-    });
-  }
-
-  return events.map((event, index) => ({
-    ...event,
-    minute: estimateSyntheticGoalMinuteWithObservation(index, events.length, range, observedMinute),
-    estimatedMinute: true,
-    detectedAt,
-    syntheticIndex: index + 1,
-    sortOffset: 0.02 + index / 1000,
-  }));
-}
-
 function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prevAway }) {
   if (!matchState || typeof matchState !== "object") return matchState;
   const homeGoals = Number(matchState.homeGoals);
@@ -4476,15 +4429,7 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
   const currentGoalTotal = Number.isFinite(homeGoals) && Number.isFinite(awayGoals) ? homeGoals + awayGoals : 0;
   const previousHome = Number.isFinite(Number(prevHome)) ? Number(prevHome) : 0;
   const previousAway = Number.isFinite(Number(prevAway)) ? Number(prevAway) : 0;
-  const disallowedGoals = buildSyntheticGoalDisallowedEvents({
-    fixture,
-    prevHome: previousHome,
-    prevAway: previousAway,
-    nextHome: matchState.homeGoals,
-    nextAway: matchState.awayGoals,
-    matchState,
-  });
-  if (!disallowedGoals.length && currentGoalTotal > 0 && getMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
+  if (currentGoalTotal > 0 && getMatchStateGoalEventCount(matchState) >= currentGoalTotal) {
     return matchState;
   }
   const syntheticGoals = buildSyntheticGoalEvents({
@@ -4495,7 +4440,7 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
     nextAway: matchState.awayGoals,
     matchState,
   });
-  const syntheticEvents = [...syntheticGoals, ...disallowedGoals];
+  const syntheticEvents = syntheticGoals;
   if (!syntheticEvents.length) return matchState;
   const existingGoalEvents = Array.isArray(matchState.goalEvents) ? matchState.goalEvents : [];
   const existingMatchEvents = Array.isArray(matchState.matchEvents) ? matchState.matchEvents : [];
@@ -4515,33 +4460,18 @@ function enrichMatchStateWithSyntheticGoal({ matchState, fixture, prevHome, prev
   };
 }
 
-function getMatchStateEventKey(event = {}, index = 0) {
-  return [
-    getLivePushEventKeyPart(event, index),
-    event.homeGoals ?? "",
-    event.awayGoals ?? "",
-    event.previousHomeGoals ?? "",
-    event.previousAwayGoals ?? "",
-    event.syntheticIndex ?? "",
-  ].map((part) => String(part).replace(/[^a-z0-9_-]+/gi, "-")).join(":");
-}
-
 function mergeMatchStateEventLists(existingEvents, incomingEvents) {
-  const merged = [];
-  const seen = new Set();
-  [...(Array.isArray(existingEvents) ? existingEvents : []), ...(Array.isArray(incomingEvents) ? incomingEvents : [])]
-    .filter((event) => event && typeof event === "object")
-    .forEach((event, index) => {
-      const key = getMatchStateEventKey(event, index);
-      if (seen.has(key)) return;
-      seen.add(key);
-      merged.push(event);
-    });
-  return merged;
+  return mergeMatchEvents(existingEvents || [], incomingEvents || []);
 }
 
 function mergeMatchStatePreservingEvents(existing = {}, incoming = {}) {
-  const merged = { ...(existing || {}), ...(incoming || {}) };
+  const merged = mergeMatchPhaseState(existing, incoming);
+  // Preserve the first confirmed pre-match announcement across notifier polls
+  // and browser syncs. Existing legacy lineups have no recoverable first time.
+  const hasLineups = value => Boolean(value?.home?.lineup?.length || value?.away?.lineup?.length);
+  if (hasLineups(incoming.lineups) && !hasLineups(existing.lineups) && ["TIMED", "SCHEDULED"].includes(String(incoming.status).toUpperCase())) {
+    merged.lineupsAnnouncedAt = incoming.lineupsAnnouncedAt || incoming.observedAt || new Date().toISOString();
+  }
   const goalEvents = mergeMatchStateEventLists(existing.goalEvents, incoming.goalEvents);
   const matchEvents = mergeMatchStateEventLists(existing.matchEvents, incoming.matchEvents);
   if (goalEvents.length) merged.goalEvents = goalEvents;
@@ -4558,6 +4488,7 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
   const teamSuffix = team ? ` for ${team}` : "";
 
   if (kind === "goal-disallowed") {
+    if (event.synthetic) return null;
     return {
       title: buildLivePushHeader({
         fixture,
@@ -4567,7 +4498,7 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
         awayGoals: event.awayGoals,
         event,
       }),
-      body: `VAR has ruled out the goal${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
+      body: `A goal has been disallowed${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
     };
   }
   if (kind === "red-card") {
@@ -4597,18 +4528,17 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
       body: `There is an injury concern${teamSuffix}${player ? ` for ${player}` : ""}${at}.`,
     };
   }
-  return {
-    title: buildLivePushHeader({ fixture, eventKind: kind, minute, event }),
-    body: `${fixture.homeTeam} vs ${fixture.awayTeam} has a new update${at}.`,
-  };
+  return null;
 }
 
 async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, scoreLabel, payload) {
+  if (!isMeaningfulFixturePush(eventKind, payload)) return false;
   const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
   const liveUpdatesEnabled = isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId));
   const fixtureBellEnabled = hasFixtureNotificationEnabled(userId, fixtureId);
   if (!liveUpdatesEnabled && !fixtureBellEnabled) return false;
-  if (!reserveFixtureNotificationEvent(userId, eventKey)) return false;
+  const reservation = reserveFixtureNotificationEvent(userId, eventKey);
+  if (!reservation) return false;
   const nextPayload = maybeApplyNoSpoilerFixturePayload(
     userId,
     fixtureId,
@@ -4616,11 +4546,18 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
     eventKey,
     payload
   );
-  return sendPushNotification(userId, liveUpdatesEnabled ? "liveUpdates" : "fixtureBell", {
-    ...nextPayload,
-    url: buildLiveStudioUrl(fixtureId, eventKey),
-    tag: eventKey,
-  });
+  try {
+    const accepted = await sendPushNotification(userId, liveUpdatesEnabled ? "liveUpdates" : "fixtureBell", {
+      ...nextPayload,
+      url: buildLiveStudioUrl(fixtureId, eventKey),
+      tag: eventKey,
+    });
+    finishFixtureNotificationEvent(userId, eventKey, reservation, accepted);
+    return accepted;
+  } catch {
+    finishFixtureNotificationEvent(userId, eventKey, reservation, false);
+    return false;
+  }
 }
 
 function findFixtureById(fixtureId) {
@@ -4666,6 +4603,39 @@ app.post("/api/push/subscribe", authMiddleware, (req, res) => {
 });
 
 app.post("/api/push/test", authMiddleware, async (req, res) => {
+  const delaySeconds = req.body?.delaySeconds ?? 0;
+  if (delaySeconds !== 0 && delaySeconds !== 15) {
+    return res.status(400).json({ error: "delaySeconds must be 0 or 15" });
+  }
+  if (delaySeconds === 15) {
+    const userId = req.user.id;
+    const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+    const record = subscriptions[userId];
+    const deviceCount = getDeviceSubscriptions(record).length;
+    if (!deviceCount) {
+      return res.status(410).json({ error: "No registered push subscription. Enable notifications first." });
+    }
+    const testId = `test:${crypto.randomUUID()}`;
+    record.lastTestDelivery = {
+      id: testId,
+      state: "scheduled",
+      scheduledAt: new Date().toISOString(),
+      sendAt: new Date(Date.now() + 15000).toISOString(),
+    };
+    saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+    if (loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[userId]?.lastTestDelivery?.id !== testId) {
+      return res.status(500).json({ error: "Unable to save the scheduled test. Check backend storage." });
+    }
+    setTimeout(() => {
+      sendPushNotification(userId, "test", {
+        title: "Background notification test",
+        body: "This test was sent after 15 seconds. If you received it with the app closed, background delivery worked.",
+        url: "/",
+        tag: testId,
+      }).catch(err => console.error("Background push test failed:", err));
+    }, 15000);
+    return res.json({ ok: true, scheduled: true, delaySeconds, deviceCount });
+  }
   const sent = await sendPushNotification(req.user.id, "test", {
     title: "Test notification",
     body: "Prediction Addiction push notifications are working.",
@@ -4905,11 +4875,19 @@ function runDeadlineNotifier() {
           url: "/",
         }).then((sent) => {
           if (!sent) return;
-          typeLog[logKey] = Date.now();
-          log[type] = typeLog;
-          sub.notifLog = log;
-          subscriptions[userId] = sub;
-          saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
+          // Delivery is asynchronous: other sends, device removals and prefs
+          // may have changed the file since this deadline scan began.
+          const latest = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+          const latestRecord = latest[userId];
+          if (!latestRecord) return;
+          latestRecord.notifLog = {
+            ...(latestRecord.notifLog || {}),
+            [type]: {
+              ...(latestRecord.notifLog?.[type] || {}),
+              [logKey]: Date.now(),
+            },
+          };
+          saveJson(PUSH_SUBSCRIPTIONS_FILE, latest);
         });
       });
     });
@@ -4973,15 +4951,17 @@ async function fetchLiveMatches(mode) {
         const status = String(match?.status || "").toUpperCase();
         const kickoffTime = Date.parse(match?.utcDate);
         const recentlyActive =
+          (["SCHEDULED", "TIMED"].includes(status) && Number.isFinite(kickoffTime) && kickoffTime - now <= 90 * 60000 && kickoffTime >= now) ||
           status === "IN_PLAY" ||
           status === "PAUSED" ||
           (["FINISHED", "AWARDED"].includes(status) &&
             Number.isFinite(kickoffTime) &&
             Math.abs(now - kickoffTime) <= 36 * 60 * 60 * 1000);
         const hasEvents =
-          normalizeGoalEvents(match).length > 0 ||
-          normalizeMatchEvents(match).some((event) => getLivePushEventKind(event) !== "update");
-        if (!match?.id || hasEvents || !recentlyActive) return match;
+          [match.goals, match.bookings, match.substitutions].every(Array.isArray);
+        const lineups = normalizeLineups(match);
+        const hasLineups = Boolean(lineups?.home?.lineup?.length >= 11 && lineups?.away?.lineup?.length >= 11);
+        if (!match?.id || (hasEvents && hasLineups) || !recentlyActive) return match;
         const detail = await fetchJson(`${FOOTBALL_DATA_API_BASE}/matches/${match.id}`, headers);
         if (!detail.ok || !detail.data || typeof detail.data !== "object") return match;
         return { ...match, ...detail.data };
@@ -5064,7 +5044,14 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
     byMode: {},
     competitionErrors: {},
   };
-  liveNotifierStatus = { ...liveNotifierStatus, ...summary };
+  // Keep the last completed poll's counters and errors visible while fetching.
+  // Clearing them here made every in-progress poll look like an empty success.
+  liveNotifierStatus = {
+    ...liveNotifierStatus,
+    lastStartedAt: summary.lastStartedAt,
+    lastReason: reason,
+    mode: normalizedModeFilter,
+  };
 
   try {
     const competitionInputs = [
@@ -5102,6 +5089,10 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       }
 
       const matches = Array.isArray(result.value) ? result.value : [];
+      // Keep browser results as fresh as the notifier's copy of the provider feed.
+      const { cacheKey } = getResultsFetchConfig(competition.mode);
+      resultsCacheByKey[cacheKey] = matches;
+      resultsCacheAtByKey[cacheKey] = Date.now();
       summary.byMode[competition.mode].fetchedMatches = matches.length;
       matches.forEach((match) => {
         liveMatches.push({ match, fixtures: competition.fixtures, mode: competition.mode });
@@ -5155,10 +5146,13 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       const homeStatistics = match.homeTeam?.statistics || match.homeTeam?.stats || null;
       const awayStatistics = match.awayTeam?.statistics || match.awayTeam?.stats || null;
       const matchStatistics = match.statistics || null;
+      const lineups = normalizeLineups(match);
       const baseNextState = {
         status,
         homeGoals,
         awayGoals,
+        // Clear an unavailable clock so a retained 0/45 cannot freeze Studio check-ins.
+        minute: numeric(match.minute),
         goalEvents: normalizeGoalEvents(match),
         matchEvents: normalizeMatchEvents(match),
         homeTeam: match.homeTeam?.name || "",
@@ -5169,6 +5163,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         ...(homeStatistics && Object.keys(homeStatistics).length ? { homeStatistics } : {}),
         ...(awayStatistics && Object.keys(awayStatistics).length ? { awayStatistics } : {}),
         ...(matchStatistics && Object.keys(matchStatistics).length ? { matchStatistics } : {}),
+        ...(lineups ? { lineups } : {}),
         lastUpdated: match.lastUpdated || match.updatedAt || observedAt,
         observedAt,
         finishedAt: matchFinished
@@ -5218,6 +5213,14 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       summary.subscribedFixtures += 1;
       summary.byMode[mode].subscribedFixtures += 1;
 
+      const lineupAlert = buildLineupAlert(fixture, nextState);
+      if (lineupAlert) {
+        subscribedUserIds.forEach(userId => {
+          summary.attemptedNotifications += 1;
+          notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "lineup", "confirmed", lineupAlert));
+        });
+      }
+
       const prevStatus = String(prevState.status || "");
       const previousEventKeys = new Set(
         (Array.isArray(prevState.matchEvents) ? prevState.matchEvents : [])
@@ -5227,7 +5230,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
 
       nextEvents.forEach((event, index) => {
         const eventKind = getLivePushEventKind(event);
-        if (eventKind === "goal") return;
+        if (eventKind === "goal" || !shouldPushMatchEvent(eventKind)) return;
         const eventKeyPart = getLivePushEventKeyPart(event, index);
         if (previousEventKeys.has(eventKeyPart)) return;
         const eventPayload = buildLiveMatchEventPayload(fixture, event);
@@ -5312,7 +5315,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         });
       }
 
-      if (status === "FINISHED" && prevStatus !== "FINISHED" && hasScoreNow) {
+      if (isFinalMatchStatus(status) && hasScoreNow && shouldSendRecentFullTimeUpdate(fixture, nextState)) {
         subscribedUserIds.forEach((userId) => {
           summary.attemptedNotifications += 1;
           notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "full-time", `${homeGoals}-${awayGoals}`, {
@@ -5330,15 +5333,17 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       }
     });
 
+    // Publish confirmed match phases and scores before waiting for devices.
+    // A slow push delivery must never hold the Studio snapshot behind it.
+    if (statesChanged) saveMatchStates(nextMatchStates);
+    if (resultsChanged) saveResults(nextResults);
+    summary.lastPublishedAt = new Date().toISOString();
+    liveNotifierStatus = { ...liveNotifierStatus, ...summary };
     if (notificationTasks.length) {
       const deliveryResults = await Promise.allSettled(notificationTasks);
       summary.acceptedNotifications = deliveryResults.filter(
         (result) => result.status === "fulfilled" && result.value
       ).length;
-    }
-    if (statesChanged) saveMatchStates(nextMatchStates);
-    if (resultsChanged) {
-      saveResults(nextResults);
     }
     summary.lastFinishedAt = new Date().toISOString();
     liveNotifierStatus = summary;
@@ -5354,7 +5359,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
 
 setInterval(runDeadlineNotifier, 60 * 1000);
 setTimeout(runDeadlineNotifier, 5 * 1000);
-setInterval(() => maybeRunLiveFixtureNotifier("timer", 55 * 1000, "all"), 60 * 1000);
+setInterval(() => maybeRunLiveFixtureNotifier("timer", 25 * 1000, "all"), 30 * 1000);
 setTimeout(() => maybeRunLiveFixtureNotifier("startup", 0, "all"), 10 * 1000);
 
 // Get VAPID public key

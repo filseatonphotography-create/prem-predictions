@@ -1,3 +1,4 @@
+const { normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, formatGoalMinute } = require("./src/liveMatchEvents");
 function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
   if (!Number.isFinite(nextHome) || !Number.isFinite(nextAway)) return false;
 
@@ -6,136 +7,52 @@ function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
   return nextHome + nextAway > previousTotal;
 }
 
-function getGoalEventArrays(source) {
-  if (!source || typeof source !== "object") return [];
-  return [
-    source.goalEvents,
-    source.goals,
-    source.scorers,
-    source.events,
-    source.incidents,
-    source.bookings,
-    source.substitutions,
-    source.score?.goals,
-  ].filter(Array.isArray);
-}
-
-function getGoalPersonName(goal) {
-  return String(
-    goal?.scorer?.name ||
-      goal?.player?.name ||
-      goal?.footballer?.name ||
-      goal?.athlete?.name ||
-      goal?.scorerName ||
-      goal?.playerName ||
-      goal?.name ||
-      ""
-  ).trim();
-}
-
-function getGoalTeamName(goal) {
-  return String(
-    goal?.team?.name ||
-      goal?.teamName ||
-      goal?.club?.name ||
-      goal?.side ||
-      ""
-  ).trim();
-}
-
-function getGoalTeamId(goal) {
-  const id = goal?.team?.id ?? goal?.teamId ?? goal?.club?.id;
+function getPersonId(person) {
+  const id = person?.id ?? person?.playerId ?? person?.personId;
   return id == null ? "" : String(id);
 }
 
-function getGoalMinute(goal) {
-  const minute = Number(goal?.minute ?? goal?.time ?? goal?.matchMinute);
-  const injuryTime = Number(goal?.injuryTime ?? goal?.addedTime ?? goal?.stoppageTime);
-  if (!Number.isFinite(minute)) return null;
+function getPersonName(person) {
+  return String(person?.name || person?.playerName || person?.displayName || "").trim();
+}
+
+function normalizeLineupPlayer(player = {}) {
+  if (!player || typeof player !== "object") return null;
+  const name = getPersonName(player);
+  if (!name) return null;
+  const shirtNumber = Number(player.shirtNumber ?? player.number ?? player.jerseyNumber);
   return {
-    minute,
-    injuryTime: Number.isFinite(injuryTime) && injuryTime > 0 ? injuryTime : null,
+    id: getPersonId(player),
+    name,
+    position: String(player.position || player.role || "").trim(),
+    shirtNumber: Number.isFinite(shirtNumber) ? shirtNumber : null,
   };
 }
 
-function getGoalScore(goal) {
-  const score = goal?.score || goal?.result || {};
-  const home = Number(score.home ?? score.homeGoals);
-  const away = Number(score.away ?? score.awayGoals);
+function normalizeTeamLineup(team = {}) {
+  const lineup = Array.isArray(team?.lineup)
+    ? team.lineup.map(normalizeLineupPlayer).filter(Boolean)
+    : [];
+  const bench = Array.isArray(team?.bench)
+    ? team.bench.map(normalizeLineupPlayer).filter(Boolean)
+    : [];
   return {
-    home: Number.isFinite(home) ? home : null,
-    away: Number.isFinite(away) ? away : null,
+    teamId: team?.id == null ? "" : String(team.id),
+    teamName: String(team?.name || team?.shortName || "").trim(),
+    formation: String(team?.formation || "").trim(),
+    coachName: getPersonName(team?.coach),
+    lineup,
+    bench,
   };
 }
 
-function isGoalLikeEvent(goal) {
-  const type = String(goal?.type || goal?.eventType || goal?.kind || "").toUpperCase();
-  if (!type) return true;
-  return type.includes("GOAL");
-}
-
-function normalizeGoalEvents(source) {
-  return getGoalEventArrays(source)
-    .flat()
-    .filter((goal) => goal && typeof goal === "object" && isGoalLikeEvent(goal))
-    .map((goal) => {
-      const time = getGoalMinute(goal);
-      const score = getGoalScore(goal);
-      return {
-        scorerName: getGoalPersonName(goal),
-        teamName: getGoalTeamName(goal),
-        teamId: getGoalTeamId(goal),
-        minute: time?.minute ?? null,
-        injuryTime: time?.injuryTime ?? null,
-        homeGoals: score.home,
-        awayGoals: score.away,
-        type: String(goal.type || goal.eventType || goal.kind || "").trim(),
-      };
-    })
-    .filter(
-      (goal) =>
-        goal.scorerName ||
-        goal.teamName ||
-        goal.teamId ||
-        Number.isFinite(goal.minute) ||
-        (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals))
-    );
-}
-
-function normalizeMatchEvents(source) {
-  return getGoalEventArrays(source)
-    .flat()
-    .filter((event) => event && typeof event === "object")
-    .map((event) => {
-      const type = String(event.type || event.eventType || event.kind || event.detail || "").trim();
-      const playerName = String(
-        getGoalPersonName(event) || event.playerOut?.name || event.playerOut || ""
-      ).trim();
-      const teamName = getGoalTeamName(event);
-      const time = getGoalMinute(event);
-      const card = String(event.card || event.cardType || event.booking || "").trim();
-      const reason = String(event.reason || event.injury || event.description || "").trim();
-      const substituteName = String(
-        event.substitute?.name ||
-          event.substitution?.name ||
-          event.substituteName ||
-          event.playerIn?.name ||
-          event.playerIn ||
-          ""
-      ).trim();
-      return {
-        type,
-        playerName,
-        teamName,
-        minute: time?.minute ?? null,
-        injuryTime: time?.injuryTime ?? null,
-        card,
-        reason,
-        substituteName,
-        playerOutName: String(event.playerOut?.name || event.playerOut || event.assist?.name || "").trim(),
-      };
-    })
-    .filter((event) => event.type || event.playerName || event.teamName || Number.isFinite(event.minute));
+function normalizeLineups(source = {}) {
+  const home = normalizeTeamLineup(source?.homeTeam || {});
+  const away = normalizeTeamLineup(source?.awayTeam || {});
+  if (!home.lineup.length && !away.lineup.length && !home.bench.length && !away.bench.length) {
+    return null;
+  }
+  return { home, away };
 }
 
 function namesMatch(a, b) {
@@ -161,18 +78,12 @@ function getGoalSide(goal, match, fixture) {
     }
   }
 
-  if (Number.isFinite(goal.homeGoals) && Number.isFinite(goal.awayGoals)) {
-    return Number(goal.homeGoals) > Number(goal.awayGoals) ? "home" : "away";
-  }
 
   return "";
 }
 
 function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, nextHome, nextAway }) {
-  const events = [
-    ...normalizeGoalEvents(match),
-    ...normalizeGoalEvents(matchState),
-  ];
+  const events = mergeMatchEvents(normalizeGoalEvents(match), normalizeGoalEvents(matchState));
   if (!events.length) return null;
 
   const previousTotal =
@@ -198,8 +109,8 @@ function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, ne
     return !scoringSide || !side || side === scoringSide;
   });
 
-  const ranked = candidates.length ? candidates : events;
-  return ranked.sort((a, b) => {
+  const ranked = candidates;
+  const selected = ranked.sort((a, b) => {
     const scoreTotalA =
       Number.isFinite(a.homeGoals) && Number.isFinite(a.awayGoals)
         ? a.homeGoals + a.awayGoals
@@ -211,21 +122,17 @@ function getLatestGoalEvent({ match, matchState, fixture, prevHome, prevAway, ne
     if (scoreTotalB !== scoreTotalA) return scoreTotalB - scoreTotalA;
     return Number(b.minute || -1) - Number(a.minute || -1);
   })[0] || null;
-}
-
-function formatGoalMinute(goal) {
-  if (!goal || !Number.isFinite(Number(goal.minute))) return "";
-  const minute = Number(goal.minute);
-  const injuryTime = Number(goal.injuryTime);
-  return Number.isFinite(injuryTime) && injuryTime > 0
-    ? `${minute}+${injuryTime}'`
-    : `${minute}'`;
+  if (!selected) return null;
+  const side = scoringSide || getGoalSide(selected, match, fixture);
+  return { ...selected, scoringSide: side,
+    teamName: selected.teamName || (side === "home" ? fixture?.homeTeam : side === "away" ? fixture?.awayTeam : "") || "" };
 }
 
 function buildGoalAlertBody(fixture, homeGoals, awayGoals, goal) {
-  const scorer = String(goal?.scorerName || "").trim();
-  if (scorer) return scorer;
-  return "";
+  const scorer = String(goal?.scorerName || goal?.playerName || "").trim();
+  const team = String(goal?.teamName || "").trim();
+  const minute = formatGoalMinute(goal);
+  return [scorer ? `${scorer}${team ? ` for ${team}` : ""}` : team ? `Goal for ${team}` : "", minute].filter(Boolean).join(" · ");
 }
 
 function getPredictionScoreValues(prediction, result) {
@@ -467,6 +374,19 @@ function isPushTypeEnabled(type, prefs) {
   return prefs[type] !== false;
 }
 
+function buildLineupAlert(fixture, state = {}, nowMs = Date.now()) {
+  if (!["TIMED", "SCHEDULED"].includes(String(state.status || "").toUpperCase())) return null;
+  const kickoff = Date.parse(state.utcDate || fixture?.kickoff || "");
+  if (!Number.isFinite(kickoff) || kickoff <= nowMs || kickoff - nowMs > 90 * 60000) return null;
+  const hasStartingXI = team => Array.isArray(team?.lineup)
+    && team.lineup.filter(player => String(player?.name || "").trim()).length >= 11;
+  if (!hasStartingXI(state.lineups?.home) || !hasStartingXI(state.lineups?.away)) return null;
+  return {
+    title: "Line-ups confirmed",
+    body: `${fixture.homeTeam} vs ${fixture.awayTeam}. Tap to view both starting XIs in Live Studio.`,
+  };
+}
+
 module.exports = {
   didGoalCountIncrease,
   buildGoalAlertBody,
@@ -474,10 +394,12 @@ module.exports = {
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeMatchEvents,
+  normalizeLineups,
   normalizeInternationalTeamName,
   normalizeFootballTeamName,
   parseFixtureArraySource,
   getDeviceSubscriptions,
   getPreviousLiveScore,
   isPushTypeEnabled,
+  buildLineupAlert,
 };
