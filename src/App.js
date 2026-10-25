@@ -16691,7 +16691,6 @@ useEffect(() => {
       const fixturePreview = Array.isArray(player?.suggestedFixtures) ? player.suggestedFixtures : [];
       const nextFixture = player?.suggestedNextFixture || fixturePreview[0] || null;
       const fixtureChips = nextFixture && fixturePreview.length > 1 ? fixturePreview.slice(1, 5) : fixturePreview.slice(0, 4);
-      const nextFixtureMeta = nextFixture ? getFplDifficultyMeta(nextFixture) : null;
       const formatFixtureLabel = (fixture) =>
         fixture?.opponentCode
           ? `${fixture.opponentCode} (${fixture.venue || "-"})`
@@ -16859,13 +16858,13 @@ useEffect(() => {
           </div>
           {nextFixture && (
             <div
-              title={`${formatFixtureLabel(nextFixture)} · ${nextFixtureMeta?.source || "Fixture difficulty"}${nextFixtureMeta?.difficulty == null ? "" : ` ${nextFixtureMeta.difficulty}`}`}
+              title={formatFixtureLabel(nextFixture)}
               style={{
                 width: boxedFixtureCard ? "100%" : "auto",
                 maxWidth: boxedFixtureCard ? "100%" : compactTile ? 82 : 104,
                 boxSizing: "border-box",
-                color: nextFixtureMeta?.color || "#0B1220",
-                background: nextFixtureMeta?.background || "rgba(255,255,255,0.9)",
+                color: "#0B1220",
+                background: "rgba(255,255,255,0.9)",
                 borderRadius: boxedFixtureCard ? 0 : 5,
                 padding: boxedFixtureCard ? "0 4px" : "2px 5px",
                 fontSize: compactTile ? 9 : 12,

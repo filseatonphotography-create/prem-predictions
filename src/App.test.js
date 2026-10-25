@@ -24,6 +24,8 @@ import {
   buildFantasyIqClubOutlooks,
   buildPremierHistoryEntries,
   sortLiveStudioEntries,
+  getLiveStudioHalfTimeSnapshotScore,
+  normalizeApiLineups,
 } from "./App";
 import FIXTURES from "./fixtures";
 import WORLD_CUP_FIXTURES from "./worldCupFixtures";
@@ -61,7 +63,7 @@ describe("push notification subscriptions", () => {
 });
 
 describe("Live Studio timeline ordering", () => {
-  test("keeps half-time between first-half and second-half scoring events", () => {
+  test("keeps newest updates first while placing half-time between the 42' and 66' events", () => {
     const entries = sortLiveStudioEntries([
       { fixtureId: 560597, tone: "live", title: "Goal COV 4-1 NEW", sortMinute: 83.004 },
       { fixtureId: 560597, tone: "live", title: "Goal COV 3-1 NEW", sortMinute: 66.003 },
@@ -81,6 +83,24 @@ describe("Live Studio timeline ordering", () => {
       "Goal COV 1-0 NEW",
       "Kick off!",
     ]);
+  });
+
+  test("uses the 45-minute timeline snapshot for half-time instead of a polluted full-time score", () => {
+    const events = [
+      { type: "GOAL", minute: 12, homeGoals: 1, awayGoals: 0 },
+      { type: "GOAL", minute: 31, homeGoals: 2, awayGoals: 0 },
+      { type: "GOAL", minute: 42, homeGoals: 2, awayGoals: 1 },
+      { type: "GOAL", minute: 66, homeGoals: 3, awayGoals: 1 },
+      { type: "GOAL", minute: 83, homeGoals: 4, awayGoals: 1 },
+    ];
+
+    expect(
+      getLiveStudioHalfTimeSnapshotScore(
+        { halfTimeHomeGoals: 4, halfTimeAwayGoals: 1 },
+        events,
+        { homeGoals: 4, awayGoals: 1 }
+      )
+    ).toEqual({ homeGoals: 2, awayGoals: 1 });
   });
 });
 
@@ -790,6 +810,57 @@ describe("World Cup sync helpers", () => {
         utcDate: "2026-06-13T17:00:00Z",
       },
     });
+  });
+
+  test("stores football-data lineups in match state updates", () => {
+    const payload = buildFixtureSyncPayload(
+      [
+        {
+          homeTeam: {
+            name: "USA",
+            formation: "4-3-3",
+            lineup: [{ id: 10, name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+            bench: [{ id: 11, name: "Home Bench", position: "Midfield", shirtNumber: 14 }],
+          },
+          awayTeam: {
+            name: "Turkey",
+            formation: "4-2-3-1",
+            lineup: [{ id: 20, name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+          },
+          matchday: 1,
+          utcDate: "2026-06-13T17:00:00Z",
+          status: "IN_PLAY",
+          score: {
+            fullTime: { home: 0, away: 0 },
+            halfTime: { home: null, away: null },
+          },
+        },
+      ],
+      fixtures
+    );
+
+    expect(payload.matchStateUpdates[102].lineups).toEqual({
+      home: {
+        teamId: "",
+        teamName: "USA",
+        formation: "4-3-3",
+        coachName: "",
+        lineup: [{ id: "10", name: "Home Starter", position: "Forward", shirtNumber: 9 }],
+        bench: [{ id: "11", name: "Home Bench", position: "Midfield", shirtNumber: 14 }],
+      },
+      away: {
+        teamId: "",
+        teamName: "Turkey",
+        formation: "4-2-3-1",
+        coachName: "",
+        lineup: [{ id: "20", name: "Away Starter", position: "Goalkeeper", shirtNumber: 1 }],
+        bench: [],
+      },
+    });
+  });
+
+  test("normalizes missing football-data lineups as unavailable", () => {
+    expect(normalizeApiLineups({ homeTeam: { name: "USA" }, awayTeam: { name: "Turkey" } })).toBeNull();
   });
 
   test("does not create results for fixtures that have not started", () => {
