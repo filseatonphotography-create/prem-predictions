@@ -35,15 +35,19 @@ test("the actual push payload builder blocks inferred cancellations and does not
   const start = source.indexOf("function buildLiveMatchEventPayload(");
   const context = {
     isObservedScoreCorrection: events.isObservedScoreCorrection,
+    isConfirmedVarDecision: events.isConfirmedVarDecision,
     getLivePushEventKind: () => "goal-disallowed", formatLivePushMinute: () => "17'",
     buildLivePushHeader: () => "Goal ruled out", formatLivePushScore: () => "AVL 0-0 MCI",
   };
   vm.createContext(context);
   vm.runInContext(source.slice(start, source.indexOf("async function sendFixtureUpdateNotification(", start)), context);
   expect(context.buildLiveMatchEventPayload(fixture, alleged)).toBeNull();
-  const payload = context.buildLiveMatchEventPayload(fixture, { ...alleged, synthetic: false });
-  expect(payload.body).toContain("A goal has been disallowed");
+  const payload = context.buildLiveMatchEventPayload(fixture, { ...alleged, synthetic: false, reason: "Offside" });
+  expect(payload.body).toContain("A goal has been ruled out");
   expect(payload.body).not.toContain("VAR");
+  const varPayload = context.buildLiveMatchEventPayload(fixture, { ...alleged, synthetic: false, reason: "VAR: offside" });
+  expect(varPayload.varConfirmed).toBe(true);
+  expect(varPayload.body).toContain("VAR has disallowed a goal");
 });
 
 test("old unverified VAR posts cannot survive in the saved Studio feed", () => {

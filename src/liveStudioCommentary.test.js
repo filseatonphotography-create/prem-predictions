@@ -84,6 +84,8 @@ describe("Live Studio commentary", () => {
       const event = goal(index + 1);
       const line = buildLiveStudioAside({ fixture, event });
       expect(buildLiveStudioAside({ fixture, event })).toBe(line);
+      if (line) expect(buildLiveStudioEntryLines({ entryKind: "goal", revealLine: "Goal!", aside: line,
+        stakesLine: "Phil has 7 points", tableImpactLine: "Phil moves up" })).toContain(line);
       return line;
     }).filter(Boolean);
     expect(lines.length).toBeGreaterThan(0);
@@ -245,11 +247,11 @@ describe("Live Studio pacing and quiet periods", () => {
     expect(buildLiveStudioDeskEntries({ matches: [{ ...match, live: false }], nowMs })).toEqual([]);
   });
 
-  test("routine events get one line; big personal moments suppress extra jokes", () => {
+  test("routine events get one line and selected goal asides survive personal reactions", () => {
     const options = { revealLine: "The event", stakesLine: "Phil loses Bingpot", aside: "A silly joke", tableImpactLine: "Phil drops to second" };
     expect(buildLiveStudioEntryLines({ ...options, entryKind: "yellow-card" })).toEqual(["The event"]);
     expect(buildLiveStudioEntryLines({ ...options, entryKind: "substitution" })).toEqual(["The event"]);
-    expect(buildLiveStudioEntryLines({ ...options, entryKind: "goal" })).toEqual(["The event", "Phil loses Bingpot", "Phil drops to second"]);
+    expect(buildLiveStudioEntryLines({ ...options, entryKind: "goal" })).toEqual(["The event", "Phil loses Bingpot", "A silly joke", "Phil drops to second"]);
     expect(buildLiveStudioEntryLines({ ...options, entryKind: "goal", aside: "Hat-trick for Saka", isMilestone: true })).toContain("Hat-trick for Saka");
   });
 });

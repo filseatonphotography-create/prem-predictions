@@ -26,8 +26,8 @@ test("a removed provider goal retains the original report and adds one honest sc
   expect(correction).toMatchObject({ scoreCorrection: true, homeGoals: 0, awayGoals: 0, previousAwayGoals: 1 });
   expect(events.formatGoalMinute(correction)).toBe("");
   expect(events.getMatchEventMomentMs(fixture, correction, state)).toBeLessThan(Date.parse(corrected.halfTimeAt));
-  expect(buildLiveStudioEventHeader({ fixture, event: correction, score: corrected })).toMatch(/Goal removed from score for MUN/);
-  expect(buildLiveStudioRevealLine(fixture, corrected, correction)).toMatch(/Matheus Cunha.*no longer included/);
+  expect(buildLiveStudioEventHeader({ fixture, event: correction, score: corrected })).toMatch(/Goal ruled out for MUN/);
+  expect(buildLiveStudioRevealLine(fixture, corrected, correction)).toMatch(/Matheus Cunha.*will not count/);
   expect(buildLiveStudioRevealLine(fixture, corrected, correction)).not.toMatch(/VAR|offside/);
   expect(getVisibleLiveStudioEntries([{ id: "goal:GOAL_DISALLOWED", updateKey: "560626:goal-disallowed:0-0", scoreCorrection: true }])).toHaveLength(1);
   expect(events.reconcileReportedGoals(state, corrected).matchEvents).toHaveLength(2);
@@ -52,6 +52,32 @@ test("an explicit provider decision replaces the fallback without losing the rep
   expect(cancellation.scoreCorrection).toBeUndefined();
   expect(cancellation.synthetic).toBeUndefined();
   expect(cancellation.reason).toBe("VAR offside");
+});
+
+test("a confirmed VAR decision gets a clear VAR card and push, including spoiler-free notifications", () => {
+  const [decision] = events.normalizeMatchEvents({ incidents: [{ type: "VAR_GOAL_DISALLOWED", minute: 36,
+    reason: "Offside", teamName: fixture.awayTeam, scorerName: "Matheus Cunha", homeGoals: 0, awayGoals: 0 }] });
+  expect(decision.varConfirmed).toBe(true);
+  expect(buildLiveStudioEventHeader({ fixture, event: decision, score: corrected })).toMatch(/^VAR: goal disallowed for MUN/);
+  expect(buildLiveStudioRevealLine(fixture, corrected, decision)).toContain("VAR has disallowed Matheus Cunha's goal");
+  const context = Object.assign({}, events, {
+    getLivePushScoringTeamCode: () => "MUN", formatLivePushScore: () => "CHE 0-0 MUN",
+    getPushNotificationPrefs: () => ({ noSpoilerFixtureUpdates: true }), findFixtureById: () => fixture,
+    buildLiveStudioUrl: () => "/?view=liveStudio",
+  });
+  evaluate(context, "function buildLivePushHeader(", "\nfunction getLivePushEventKind(");
+  evaluate(context, "function getLivePushEventKind(", "\nfunction getMatchStateGoalEventCount(");
+  evaluate(context, "function buildLiveMatchEventPayload(", "\nasync function sendFixtureUpdateNotification(");
+  const push = context.buildLiveMatchEventPayload(fixture, decision);
+  expect(push.title).toMatch(/^VAR: goal disallowed for MUN/);
+  expect(push.body).toContain("VAR has disallowed a goal for Manchester United FC");
+  expect(push.body).toContain("CHE 0-0 MUN");
+  expect(push.body).toContain("Offside");
+  const spoilerFree = context.maybeApplyNoSpoilerFixturePayload("user", fixture.id, "goal-disallowed", "event", push);
+  expect(spoilerFree.title).toBe("VAR: goal disallowed");
+  expect(spoilerFree.body).not.toMatch(/Cunha|0-0/);
+  expect(spoilerFree.body).toContain("VAR has disallowed a goal");
+  expect(events.isConfirmedVarDecision({ ...decision, synthetic: true })).toBe(false);
 });
 
 test("a later genuine goal restoring 0-1 remains separate from the removed Cunha goal", () => {
@@ -79,7 +105,7 @@ test("the background notifier saves both reports and sends the missing correctio
     isFinalMatchStatus: () => false, getLiveStudioNotificationUserIds: () => ["user"],
     enrichMatchStateWithSyntheticGoal: ({ matchState }) => matchState,
     formatLivePushScore: (_fixture, home, away) => `CHE ${home}-${away} MUN`,
-    buildLivePushHeader: () => "Goal removed from score for MUN", sendFixtureUpdateNotification: jest.fn(async () => true),
+    buildLivePushHeader: () => "Goal ruled out for MUN", sendFixtureUpdateNotification: jest.fn(async () => true),
   });
   evaluate(context, "function getLivePushEventKind(", "\nfunction getMatchStateGoalEventCount(");
   evaluate(context, "function mergeMatchStateEventLists(", "\nasync function sendFixtureUpdateNotification(");
@@ -87,7 +113,7 @@ test("the background notifier saves both reports and sends the missing correctio
   expect((await context.runLiveFixtureNotifier("test", "premier")).lastError).toBeNull();
   const cancellation = context.sendFixtureUpdateNotification.mock.calls.filter(call => call[2] === "goal-disallowed");
   expect(cancellation).toHaveLength(1);
-  expect(cancellation[0][4]).toMatchObject({ scoreCorrection: true, body: expect.stringContaining("no longer included") });
+  expect(cancellation[0][4]).toMatchObject({ scoreCorrection: true, body: expect.stringContaining("has been ruled out") });
   expect(cancellation[0][4].body).not.toContain("VAR");
   expect(states[560626].matchEvents.map(event => event.type)).toEqual(["GOAL", "GOAL_DISALLOWED"]);
   await context.runLiveFixtureNotifier("test", "premier");

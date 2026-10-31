@@ -98,7 +98,7 @@ const {
 
 const { buildFinalBadgeAwards, isFinalBadgeFixture, countFinalPredictionBadges } = require("./badgeRules");
 const { isPenaltyGoal, penaltyLabel, penaltyDetails } = require("./penaltyUtils");
-const { mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
+const { isConfirmedVarDecision, mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
 
 const { getResultsRefreshInterval } = require("./liveResultsRefresh");
 
@@ -4988,7 +4988,7 @@ export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel 
   if (kind === "goal-disallowed") {
     const team = getLiveStudioEventTeamLabel(event);
     const teamCode = team ? getTeamCode(team) : "";
-    return [`${event.scoreCorrection ? "Goal removed from score" : "Goal ruled out"}${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
+    return [`${isConfirmedVarDecision(event) ? "VAR: goal disallowed" : "Goal ruled out"}${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
   }
   const player = getLiveStudioEventPlayerName(event);
   const team = getLiveStudioEventTeamLabel(event);
@@ -5026,7 +5026,7 @@ function getLiveStudioEventIcon(event = {}) {
   const kind = getLiveStudioEventKind(event);
   if (kind === "goal") return "⚽";
   if (kind === "penalty") return "🥅";
-  if (kind === "goal-disallowed") return "❌";
+  if (kind === "goal-disallowed") return isConfirmedVarDecision(event) ? "📺" : "❌";
   if (kind === "stats") return "📊";
   if (kind === "lineup") return "📋";
   if (kind === "red-card") return "🟥";
@@ -5196,12 +5196,12 @@ function buildLiveStudioKickoffStakesLine({ fixture, picks, seed }) {
   return "";
 }
 
-function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, tableImpactLine, isFocused }) {
+function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, tableImpactLine, isFocused, event }) {
   if (statusLabel === "KO") return "Prediction desk";
   if (statusLabel === "HT") return "Half-time check";
   if (statusLabel === "FT") return "Result confirmed";
   if (entryKind === "goal") return tableImpactLine ? "Prediction swing" : "Goal flash";
-  if (entryKind === "goal-disallowed") return tableImpactLine ? "Table after disallowed goal" : "Goal disallowed";
+  if (entryKind === "goal-disallowed") return isConfirmedVarDecision(event) ? "VAR decision" : tableImpactLine ? "Table after disallowed goal" : "Goal disallowed";
   if (entryKind === "red-card") return "Match turning point";
   if (entryKind === "yellow-card") return "Discipline watch";
   if (entryKind === "substitution") return "Tactical shift";
@@ -5653,7 +5653,8 @@ export function buildLiveStudioRevealLine(fixture, score, event) {
   }
   if (getLiveStudioEventKind(event) === "goal-disallowed") {
     const subject = player ? `${player}'s goal${team ? ` for ${team}` : ""}` : `the goal${team ? ` for ${team}` : ""}`;
-    if (event.scoreCorrection) return `The previously reported ${subject} is no longer included in the score. ${getLiveStudioScoreSummary(fixture, score)}. The provider has not supplied the decision details.`;
+    if (isConfirmedVarDecision(event)) return `VAR has disallowed ${subject}. ${getLiveStudioScoreSummary(fixture, score)}.${event.reason ? ` ${event.reason}` : ""}`;
+    if (event.scoreCorrection) return `Goal ruled out! ${subject} will not count. ${getLiveStudioScoreSummary(fixture, score)}.`;
     return pickLiveStudioPhrase(seed, [
       `Hold the celebrations at ${venue}! ${subject} has been ruled out.`,
       `Back to ${venue}, and it's not going to count! ${subject} is chalked off.`,
@@ -5719,16 +5720,12 @@ export function buildLiveStudioAside({ fixture, event, events = [] }) {
     if (goals > 3) return `${goals} for ${player} now. Leave some for everyone else!`;
   }
   const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:aside`;
-  if (getLiveStudioPhraseIndex(seed, 12) !== 0) return "";
+  if (getLiveStudioPhraseIndex(seed, 6) !== 0) return "";
   return pickLiveStudioPhrase(`${seed}:joke`, [
     "Goooooooal! That. Was. A. Goal!",
     "He must have a foot like a traction engine!",
-    "Liquid football! Someone fetch a mop.",
+    "Liquid football!",
     "The studio biscuit has been dropped. Repeat: biscuit down.",
-    "Twat! Sorry, caught the desk with my knee. Carry on.",
-    "I've spilt my tea. That's how big a moment this is.",
-    "Textbook. If the textbook had gravy on it and a betting slip inside.",
-    "The beautiful game. Terrible for the blood pressure.",
   ]);
 }
 
@@ -6574,8 +6571,8 @@ export function buildLiveStudioEntryLines({ entryKind, statusLabel, revealLine, 
   if (statusLabel === "KO") return [revealLine, ...previewLines, betLine].filter(Boolean);
   if (statusLabel === "FT") return [revealLine, ...pointsLines, betLine].filter(Boolean);
   if (["yellow-card", "substitution", "injury"].includes(entryKind)) return [revealLine].filter(Boolean);
-  // Keep scorer milestones; use jokes when there is room between the bigger stories.
-  return [revealLine, isMilestone ? aside : "", stakesLine || (!isMilestone ? aside : ""), tableImpactLine].filter(Boolean);
+  // The occasional selected aside must survive a prediction-points reaction.
+  return [revealLine, isMilestone ? aside : "", stakesLine, !isMilestone ? aside : "", tableImpactLine].filter(Boolean);
 }
 
 function getLiveStudioPhraseIndex(seed, count) {
@@ -12286,6 +12283,7 @@ const liveStudioCurrentFeed = useMemo(() => {
         }) : "";
         const aside = entryIsGoal ? buildLiveStudioAside({ fixture, event, events: repairedTimelineEvents }) : "";
         const verdictLabel = buildLiveStudioVerdictLabel({
+          event,
           entryKind,
           statusLabel,
           tableSnapshot: entryTableSnapshot,

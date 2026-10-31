@@ -8,6 +8,11 @@ function numeric(value) {
 function personName(value) {
   return typeof value === "string" ? value : String(value?.name || value?.playerName || value?.displayName || "").trim();
 }
+function isConfirmedVarDecision(event = {}) {
+  if (event.synthetic || event.scoreCorrection) return false;
+  return event.varConfirmed === true || /(?:^|[^a-z])VAR(?:[^a-z]|$)|video (?:assistant|review)/i.test(
+    `${event.type || ""} ${event.reason || ""} ${event.description || ""} ${event.detail || ""} ${event.decision || ""}`);
+}
 function eventKind(event = {}, source = "") {
   const text = `${event.type || event.eventType || event.kind || ""} ${event.card || event.cardType || ""} ${event.reason || ""}`.toUpperCase();
   const penaltyType = penaltyEventType(event, source);
@@ -38,6 +43,7 @@ function normalizeEvent(event, source = "", match = {}) {
   const scorerName = personName(event.scorer || event.scorerName || (type === "GOAL" ? event.player || event.playerName : ""));
   return Object.assign({}, event, {
     type,
+    varConfirmed: isConfirmedVarDecision(event) || undefined,
     shootout: shootout || undefined,
     goalType: event.goalType || (type === "GOAL" ? penaltyEventType(event, source) === "GOAL" ? "PENALTY" : event.type === "OWN" ? "OWN_GOAL" : event.type || "" : ""),
     scorerName,
@@ -296,4 +302,4 @@ function mergeRecordedMatchState(incoming = {}, recorded = {}) {
     goalEvents: incoming.goalEvents || [], matchEvents: incoming.matchEvents || [],
   }));
 }
-module.exports = { reconcileReportedGoals, isObservedScoreCorrection, shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };
+module.exports = { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };

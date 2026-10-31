@@ -31,7 +31,7 @@ test("a delayed Cunha goal and its score withdrawal appear before Chelsea–Unit
     const cards = [...document.querySelectorAll("article")];
     const half = screen.getByText("Half-time around the grounds").closest("article");
     const scored = screen.getByText(/^Goal for MUN!/).closest("article");
-    const withdrawn = screen.getByText(/^Goal removed from score for MUN/).closest("article");
+    const withdrawn = screen.getByText(/^Goal ruled out for MUN/).closest("article");
     expect(scored.firstElementChild).toHaveTextContent("34'");
     expect(cards.indexOf(half)).toBeLessThan(cards.indexOf(withdrawn));
     expect(cards.indexOf(withdrawn)).toBeLessThan(cards.indexOf(scored));

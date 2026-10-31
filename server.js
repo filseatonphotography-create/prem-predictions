@@ -37,9 +37,9 @@ const {
   buildLineupAlert,
 } = require("./notificationUtils");
 
-const { reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
+const { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-10-31-final-badges-and-points";
+const BUILD_ID = "2026-10-31-clear-goal-decisions";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -4201,7 +4201,7 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
   if (eventKind === "goal-disallowed") {
     const teamCode = getLivePushScoringTeamCode(fixture, event?.previousHomeGoals, event?.previousAwayGoals, event);
     const teamText = teamCode ? ` for ${teamCode}` : "";
-    return `${event?.scoreCorrection ? "Goal removed from score" : label}${teamText}. ${scoreText}`.trim();
+    return `${isConfirmedVarDecision(event) ? "VAR: goal disallowed" : "Goal ruled out"}${teamText}. ${scoreText}`.trim();
   }
   const playerText = player && !["goal", "goal-disallowed", "kick-off", "half-time", "full-time"].includes(eventKind)
     ? ` ${player}`
@@ -4220,8 +4220,8 @@ function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKe
 
   return {
     ...payload,
-    title: payload.scoreCorrection ? "Score corrected" : eventKind === "goal-disallowed" ? "Goal ruled out" : "Goal alert",
-    body: `${payload.scoreCorrection ? "A previously reported goal has been removed from the score" : eventKind === "goal-disallowed" ? "A goal has been ruled out" : "There's been a goal"} in ${fixtureLabel}. Tap to join Live Studio.`,
+    title: eventKind === "goal-disallowed" ? payload.varConfirmed ? "VAR: goal disallowed" : "Goal ruled out" : "Goal alert",
+    body: `${eventKind === "goal-disallowed" ? payload.varConfirmed ? "VAR has disallowed a goal" : "A goal has been ruled out" : "There's been a goal"} in ${fixtureLabel}. Tap to join Live Studio.`,
     url: buildLiveStudioUrl(fixtureId, eventKey),
   };
 }
@@ -4513,9 +4513,8 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
         event,
       }),
       scoreCorrection: isObservedScoreCorrection(event),
-      body: event.scoreCorrection
-        ? `The previously reported goal${teamSuffix} is no longer included in the score. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`
-        : `A goal has been disallowed${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
+      varConfirmed: isConfirmedVarDecision(event),
+      body: `${isConfirmedVarDecision(event) ? "VAR has disallowed a goal" : "A goal has been ruled out"}${teamSuffix}${player ? ` (${player})` : ""}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.${isConfirmedVarDecision(event) && event.reason ? ` ${event.reason}` : ""}`,
     };
   }
   if (kind === "red-card") {
