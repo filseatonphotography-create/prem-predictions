@@ -1,6 +1,7 @@
 import { getPredictionPoints as scoreSavedPrediction, normalizePredictionBoosts } from "./predictionRules";
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
+import { buildGoalMatchContext, buildRedCardMatchContext } from "./liveStudioMatchContext";
 import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
@@ -5040,7 +5041,7 @@ function getLiveStudioEventIcon(event = {}) {
   return "•";
 }
 
-export function buildLiveStudioEventLine({ fixture, event, score, seed }) {
+export function buildLiveStudioEventLine({ fixture, event, score, seed, matchContext = {} }) {
   if (!event) return "";
   const kind = getLiveStudioEventKind(event);
   if (kind === "penalty") return `${penaltyLabel(event.type)}${getLiveStudioEventTeamLabel(event) ? ` for ${getLiveStudioEventTeamLabel(event)}` : ""}. ${penaltyDetails(event)}`.trim();
@@ -5056,13 +5057,18 @@ export function buildLiveStudioEventLine({ fixture, event, score, seed }) {
     ? getLiveStudioTeamName(fixture.homeTeam) : "";
   if (kind === "red-card") {
     const reveal = eventTeam ? `Red card for ${team}${player ? `! ${player} is off` : ""}!` : player ? `${player} has been sent off!` : "There's been a sending-off; we're checking who it is.";
-    return pickLiveStudioPhrase(`${seed}:${getLiveStudioUpdateKeyPart(event)}`, [
+    const side = normalizeTeamName(eventTeam) === normalizeTeamName(fixture.homeTeam) ? "home"
+      : normalizeTeamName(eventTeam) === normalizeTeamName(fixture.awayTeam) ? "away" : null;
+    const situation = buildRedCardMatchContext({ ...matchContext, event, score, team: eventTeam ? team : "", opponent, side, seed,
+      form: side === "home" ? matchContext.homeForm : side === "away" ? matchContext.awayForm : [] });
+    const announcement = pickLiveStudioPhrase(`${seed}:${getLiveStudioUpdateKeyPart(event)}`, [
       `We're off to ${venue}, where there's been a red card... but for who, Chris Kamara? ${reveal}`,
       `Hold on! Big news from ${venue}. ${reveal}${opponent ? ` That hands ${opponent} an advantage.` : ""}`,
       `Over to ${venue}. ${reveal} That could change a few predictions.`,
       `There's trouble at ${venue}! ${reveal}${opponent ? ` A chance for ${opponent} to make this count.` : ""}`,
       `A red card at ${venue}! ${reveal} Anyone still expecting a quiet afternoon?`,
     ]);
+    return [announcement, situation].filter(Boolean).join(" ");
   }
   const minute = formatLiveStudioMinute(event);
   const at = minute ? ` (${minute})` : "";
@@ -5642,14 +5648,23 @@ function getLiveStudioScoreSummary(fixture, score) {
   return `${homeTeam} ${score.homeGoals}-${score.awayGoals} ${awayTeam}`;
 }
 
-export function buildLiveStudioRevealLine(fixture, score, event) {
+export function buildLiveStudioRevealLine(fixture, score, event, matchContext = {}) {
   const venue = getLiveStudioVenue(fixture);
   if (!event) return `We're keeping an eye on ${venue}.`;
   const team = getLiveStudioScoringTeam(fixture, score, event);
   const player = getLiveStudioEventPlayerName(event);
   const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}`;
+  const side = normalizeTeamName(team) === normalizeTeamName(fixture.homeTeam) ? "home"
+    : normalizeTeamName(team) === normalizeTeamName(fixture.awayTeam) ? "away" : null;
+  const ownGoalEvent = /own[ _-]?goal/i.test(`${event.type || ""} ${event.detail || ""} ${event.goalType || ""}`);
+  const situation = getLiveStudioEventKind(event) === "goal" ? buildGoalMatchContext({ ...matchContext, event, score, team,
+    side: ownGoalEvent ? null : side,
+    opponent: side === "home" ? getLiveStudioTeamName(fixture.awayTeam) : side === "away" ? getLiveStudioTeamName(fixture.homeTeam) : "",
+    previousScore: matchContext.previousScore || getLiveStudioPreviousScore(fixture, event, score), seed,
+    form: side === "home" ? matchContext.homeForm : side === "away" ? matchContext.awayForm : [],
+  }) : "";
   if (getLiveStudioEventKind(event) === "goal" && isPenaltyGoal(event)) {
-    return `${player || team || "A player"} scores from the penalty spot${player && team ? ` for ${team}` : ""}${formatGoalMinute(event) ? ` (${formatGoalMinute(event)})` : ""}. ${penaltyDetails(event)}`.trim();
+    return [`${player || team || "A player"} scores from the penalty spot${player && team ? ` for ${team}` : ""}${formatGoalMinute(event) ? ` (${formatGoalMinute(event)})` : ""}. ${penaltyDetails(event)}`.trim(), situation].filter(Boolean).join(" ");
   }
   if (getLiveStudioEventKind(event) === "goal-disallowed") {
     const subject = player ? `${player}'s goal${team ? ` for ${team}` : ""}` : `the goal${team ? ` for ${team}` : ""}`;
@@ -5668,7 +5683,7 @@ export function buildLiveStudioRevealLine(fixture, score, event) {
   const reveal = ownGoal
     ? player ? `An own goal from ${player}${team ? `, giving ${team} the goal` : ""}${at}!` : `An own goal${team ? ` in ${team}'s favour` : ""}${at}!`
     : player ? `${player} has scored${team ? ` for ${team}` : ""}${at}!` : team ? `It's a goal for ${team}${at}!` : "We've got a goal; we're waiting on the scorer.";
-  return pickLiveStudioPhrase(seed, [
+  const announcement = pickLiveStudioPhrase(seed, [
     `There's been a goal at ${venue}... but who's it for? ${reveal}`,
     `We have another goal to bring you. Let's head over to ${venue}! ${reveal}`,
     `Hold on, there's a roar at ${venue}. ${reveal}`,
@@ -5682,6 +5697,7 @@ export function buildLiveStudioRevealLine(fixture, score, event) {
     `Straight back to ${venue}, and there's a goal to tell you about. ${reveal}`,
     `A goal at ${venue}! ${reveal} Now, who had that on their slip?`,
   ]);
+  return [announcement, situation].filter(Boolean).join(" ");
 }
 
 // Stable per event: polling must not keep changing the commentator's lines.
@@ -6126,6 +6142,14 @@ function refreshLiveStudioGoalCommentary(entry, previous) {
   const context = { ...entry.goalCommentary,
     tableImpactLine: partial && sameScore ? previousContext.tableImpactLine : entry.goalCommentary.tableImpactLine,
     picks: mergeLiveStudioRoundupPicks(previousContext?.picks, entry.goalCommentary.picks) };
+  const formRows = facts => [...(facts?.homeForm || []), ...(facts?.awayForm || [])];
+  const knownForm = facts => formRows(facts).filter(row => ["W", "D", "L"].includes(row.outcome)).length;
+  if (sameScore && formRows(context.matchContext).some(row => row.outcome === "?")
+    && knownForm(previousContext.matchContext) > knownForm(context.matchContext)) {
+    context.matchContext = previousContext.matchContext;
+    context.revealLine = buildLiveStudioRevealLine(context.fixture, context.score, context.event,
+      { ...context.matchContext, events: context.history || [] });
+  }
   return { ...entry, goalCommentary: context,
     ...(partial && sameScore && previous.tableSnapshot ? { tableSnapshot: previous.tableSnapshot } : {}),
     lines: buildLiveStudioEntryLines({ ...context,
@@ -7324,6 +7348,36 @@ export function buildPremierTeamForm(teamName, results, beforeMs = Infinity) {
         scoreText: `${goalsFor}-${goalsAgainst}`,
       };
     });
+}
+
+export function buildLiveStudioPreMatchContext(fixture, results = {}, states = {}) {
+  const kickoff = Date.parse(fixture.kickoff);
+  const historical = {};
+  FIXTURES.forEach(past => {
+    if (String(past.id) === String(fixture.id) || !isFinalBadgeFixture(past, results, states)) return;
+    const state = states[past.id] || {};
+    const ended = Date.parse(state.finishedAt || "");
+    const start = Date.parse(state.utcDate || past.kickoff);
+    const finalBy = Number.isFinite(ended) ? ended : start + 120 * 60000;
+    if (Number.isFinite(kickoff) && finalBy < kickoff) historical[past.id] = results[past.id];
+  });
+  const preMatchOdds = buildGeneratedModelOdds([fixture], { performanceByTeam: buildLeaguePerformanceContext(historical) });
+  const historyFor = team => FIXTURES.filter(past => String(past.id) !== String(fixture.id)
+    && [past.homeTeam, past.awayTeam].some(name => normalizeTeamName(name) === normalizeTeamName(team))
+    && Date.parse(states[past.id]?.utcDate || past.kickoff) < kickoff
+    && !["POSTPONED", "CANCELLED"].includes(String(states[past.id]?.status).toUpperCase()))
+    .sort((a, b) => Date.parse(states[b.id]?.utcDate || b.kickoff) - Date.parse(states[a.id]?.utcDate || a.kickoff))
+    .map(past => {
+      const result = historical[past.id];
+      const margin = result ? (Number(result.homeGoals) - Number(result.awayGoals))
+        * (normalizeTeamName(past.homeTeam) === normalizeTeamName(team) ? 1 : -1) : null;
+      return { fixtureId: past.id, outcome: margin == null ? "?" : margin > 0 ? "W" : margin < 0 ? "L" : "D" };
+    });
+  return {
+    probabilities: computeProbabilities(preMatchOdds[fixture.id]),
+    homeForm: historyFor(fixture.homeTeam),
+    awayForm: historyFor(fixture.awayTeam),
+  };
 }
 
 function buildPremierTeamInsights(teamName, results, context = {}) {
@@ -9510,7 +9564,7 @@ useEffect(() => {
 // (Place this after visibleFixtures is defined)
 
 // ---------- DERIVED ----------
-const visibleFixtures = activeFixtures.filter((f) => f.gameweek === selectedGameweek);
+const visibleFixtures = useMemo(() => activeFixtures.filter((f) => f.gameweek === selectedGameweek), [activeFixtures, selectedGameweek]);
 const selectedWorldCupStage = isWorldCupMode
   ? getWorldCupStageForGameweek(activeFixtures, selectedGameweek)
   : "";
@@ -11868,6 +11922,9 @@ const liveStudioRows = useMemo(() => {
 ]);
 
 const liveStudioCommentaryScope = `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${selectedMiniLeague?.id || "global"}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`;
+const liveStudioPreMatchContexts = useMemo(() => isWorldCupMode ? {} : Object.fromEntries(liveStudioFixtures.map(fixture =>
+  [fixture.id, buildLiveStudioPreMatchContext(fixture, results, matchStatesByFixtureId)])),
+  [isWorldCupMode, liveStudioFixtures, results, matchStatesByFixtureId]);
 const liveStudioCurrentFeed = useMemo(() => {
   const currentUserName = currentPlayer || loginName || "You";
   const studioGameweekLabel = getModeGameweekLabel(
@@ -12024,6 +12081,7 @@ const liveStudioCurrentFeed = useMemo(() => {
       const latestEvent = getLatestLiveStudioEvent(matchState);
       const fixtureOdds = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
       const probabilities = computeProbabilities(fixtureOdds);
+      const preMatchContext = isWorldCupMode ? { probabilities } : liveStudioPreMatchContexts[fixture.id] || {};
       const currentCoinsBet =
         (coinsState?.bets && (
           coinsState.bets[String(fixture.id)] !== undefined
@@ -12211,7 +12269,7 @@ const liveStudioCurrentFeed = useMemo(() => {
             })
           : "";
         const entryRevealLine = entryIsGoal || entryIsGoalDisallowed
-          ? buildLiveStudioRevealLine(fixture, entryScore, event)
+          ? buildLiveStudioRevealLine(fixture, entryScore, event, { ...preMatchContext, events: repairedTimelineEvents })
           : isKickoff
           ? predictionPreviewLines[0]
           : isSecondHalf
@@ -12243,7 +12301,7 @@ const liveStudioCurrentFeed = useMemo(() => {
               venue,
               seed: `${fixture.id}:full-time:${entryScore?.homeGoals}-${entryScore?.awayGoals}`,
             })
-          : buildLiveStudioEventLine({ fixture, event, score: entryScore, seed: `${fixture.id}:${entryMinute}` });
+          : buildLiveStudioEventLine({ fixture, event, score: entryScore, seed: `${fixture.id}:${entryMinute}`, matchContext: preMatchContext });
         const fullTimeBetLine = isFullTime
           ? buildLiveStudioFullTimeBetLine({
               fixture,
@@ -12344,6 +12402,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           }),
           tableSnapshot: entryTableSnapshot,
           goalCommentary: entryIsGoal || entryIsGoalDisallowed ? {
+            matchContext: preMatchContext,
             fixture, event, score: entryScore, previousScore, picks: fixturePicks, history: repairedTimelineEvents,
             seed: `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:stakes`,
             entryKind, statusLabel, revealLine: entryRevealLine, aside,
@@ -12420,6 +12479,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   activeFixtures,
   isWorldCupMode,
   generatedModelOddsByFixture,
+  liveStudioPreMatchContexts,
   getLiveStudioLeagueBasePoints,
   liveStudioDemoStateByFixtureId,
   liveStudioFixtures,
