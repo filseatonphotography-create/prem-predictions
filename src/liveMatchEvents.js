@@ -1,6 +1,7 @@
 // Shared provider conversion: the studio and notifier must see the same events.
 // Keep this CommonJS module free of object spread: CRA injects ESM helpers for
 // spread, which makes Webpack reject module.exports at browser startup.
+const { penaltyEventType } = require("./penaltyUtils");
 function numeric(value) {
   return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
 }
@@ -9,6 +10,8 @@ function personName(value) {
 }
 function eventKind(event = {}, source = "") {
   const text = `${event.type || event.eventType || event.kind || ""} ${event.card || event.cardType || ""} ${event.reason || ""}`.toUpperCase();
+  const penaltyType = penaltyEventType(event, source);
+  if (penaltyType) return penaltyType;
   if (/DISALLOW|RULED.OUT|CHALKED.OFF|CANCELLED|CANCELED/.test(text)) return "GOAL_DISALLOWED";
   if (source === "bookings" || /YELLOW|RED|BOOKING|CARD/.test(text)) {
     return /RED|DISMISS/.test(text) ? "RED_CARD" : "YELLOW_CARD";
@@ -20,7 +23,10 @@ function eventKind(event = {}, source = "") {
   return String(event.type || event.eventType || event.kind || "UPDATE").toUpperCase();
 }
 function normalizeEvent(event, source = "", match = {}) {
-  const type = eventKind(event, source);
+  const shootout = event.shootout === true || /SHOOTOUT/.test(String(event.type || ""))
+    || source === "penalties" && (match.status === "PENALTY_SHOOTOUT" || match.score?.duration === "PENALTY_SHOOTOUT");
+  const penalty = penaltyEventType(event, source);
+  const type = shootout ? `PENALTY_SHOOTOUT_${penalty === "GOAL" ? "SCORED" : penalty.replace(/^PENALTY_/, "") || "UPDATE"}` : eventKind(event, source);
   let minute = numeric(event.minute ?? event.matchMinute ?? event.time?.elapsed ?? event.time);
   let injuryTime = numeric(event.injuryTime ?? event.addedTime ?? event.stoppageTime ?? event.time?.extra);
   const added = String(event.minute ?? event.time ?? "").match(/^(\d+)\s*\+\s*(\d+)'?$/);
@@ -32,9 +38,12 @@ function normalizeEvent(event, source = "", match = {}) {
   const scorerName = personName(event.scorer || event.scorerName || (type === "GOAL" ? event.player || event.playerName : ""));
   return Object.assign({}, event, {
     type,
-    goalType: event.goalType || (type === "GOAL" ? event.type === "OWN" ? "OWN_GOAL" : event.type || "" : ""),
+    shootout: shootout || undefined,
+    goalType: event.goalType || (type === "GOAL" ? penaltyEventType(event, source) === "GOAL" ? "PENALTY" : event.type === "OWN" ? "OWN_GOAL" : event.type || "" : ""),
     scorerName,
-    playerName: personName(event.player || event.playerName || event.footballer || event.athlete || event.name) || scorerName || playerOutName,
+    playerName: personName(event.player || event.playerName || event.taker || event.takerName || event.footballer || event.athlete || event.name) || scorerName || playerOutName,
+    takerName: personName(event.taker || event.takerName),
+    goalkeeperName: personName(event.goalkeeper || event.goalkeeperName || event.keeper || event.savedBy),
     teamName: personName(event.team) || personName(event.teamName) || personName(event.club) || personName(team),
     teamId: teamId == null ? "" : String(teamId),
     minute,
@@ -110,7 +119,8 @@ function mergeMatchEvents(...lists) {
 function normalizeMatchEvents(source = {}) {
   if (!source || typeof source !== "object") return [];
   const events = [];
-  for (const key of ["goalEvents", "goals", "scorers", "events", "matchEvents", "incidents", "bookings", "substitutions"]) {
+  for (const key of ["goalEvents", "goals", "scorers", "events", "matchEvents", "incidents", "bookings", "substitutions",
+    "penalties", "penaltyEvents", "penaltiesAwarded", "penaltiesMissed", "penaltiesSaved", "missedPenalties"]) {
     if (Array.isArray(source[key])) source[key].forEach(event => { if (event && typeof event === "object") events.push(normalizeEvent(event, key, source)); });
   }
   if (Array.isArray(source.score?.goals)) source.score.goals.forEach(event => events.push(normalizeEvent(event, "goals", source)));

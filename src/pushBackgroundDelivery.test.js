@@ -102,6 +102,43 @@ test("background polls send goal, half-time and full-time without any browser re
   expect(context.sendFixtureUpdateNotification.mock.calls.map(call => call[2])).toEqual(["goal", "half-time", "full-time"]);
 });
 
+test("both full-time sender paths personalize each subscriber's earned points", async () => {
+  const fixture = { id: 1, homeTeam: "Chelsea", awayTeam: "Manchester United", kickoff: new Date(Date.now() - 115 * 60000).toISOString() };
+  const predictions = { exact: { 1: { homeGoals: 2, awayGoals: 0 } }, captain: { 1: { homeGoals: 2, awayGoals: 0, isDouble: true } },
+    miss: { 1: { homeGoals: 0, awayGoals: 1 } }, empty: {} };
+  const users = Object.keys(predictions);
+  const match = { status: "FINISHED", minute: 90, utcDate: fixture.kickoff, lastUpdated: new Date().toISOString(),
+    homeTeam: { name: fixture.homeTeam }, awayTeam: { name: fixture.awayTeam }, score: { fullTime: { home: 2, away: 0 } } };
+  const state = { status: "IN_PLAY", homeGoals: 2, awayGoals: 0 };
+  const send = jest.fn(async () => true);
+  const context = {
+    ...utils, ...events, console, Date, fixture, predictions, subscribedUserIds: users,
+    liveNotifierStatus: {}, normalizeLeagueMode: mode => mode, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
+    fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "test" }), resultsCacheByKey: {}, resultsCacheAtByKey: {},
+    loadResults: () => ({ 1: state }), loadMatchStates: () => ({ 1: state }), loadPredictions: () => predictions,
+    saveResults: jest.fn(), saveMatchStates: jest.fn(), findLocalFixtureForApiMatch: () => fixture,
+    getMatchScoreForPrediction, hasStartedMatchStatus, isFinalMatchStatus: status => status === "FINISHED",
+    mergeMatchStatePreservingEvents: events.mergeMatchPhaseState, enrichMatchStateWithSyntheticGoal: ({ matchState }) => matchState,
+    getLiveStudioNotificationUserIds: () => users, getLivePushEventKind: event => String(event.type).toLowerCase(),
+    getLivePushEventKeyPart: event => String(event.minute), buildLivePushHeader: () => "Full-time!", sendFixtureUpdateNotification: send,
+  };
+  const check = () => {
+    const bodies = Object.fromEntries(send.mock.calls.map(call => [call[0], call[4].body]));
+    expect(bodies.exact).toContain("You earned 7 prediction points");
+    expect(bodies.captain).toContain("You earned 14 prediction points");
+    expect(bodies.miss).toContain("You earned 0 prediction points");
+    expect(bodies.empty).toContain("No prediction submitted");
+  };
+  const run = evaluate(context, "async function runLiveFixtureNotifier(", "\nsetInterval(runDeadlineNotifier", "runLiveFixtureNotifier");
+  expect((await run("test", "premier")).lastError).toBeNull(); check();
+  send.mockClear();
+  Object.assign(context, { fixtureId: "1", statusNow: "FINISHED", hasScoreNow: true,
+    mergedMatchStates: { 1: { ...state, status: "FINISHED" } }, update: { nextHome: 2, nextAway: 0 } });
+  const start = source.indexOf("          if (isFinalMatchStatus(statusNow) && hasScoreNow");
+  const end = source.indexOf("\n        });", start);
+  vm.runInNewContext(source.slice(start, end), context); check();
+});
+
 function testRoute(devices = [{ endpoint: "https://push.example/device" }]) {
   let handler;
   let data = { user: { subscriptions: devices } };

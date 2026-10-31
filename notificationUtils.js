@@ -1,4 +1,5 @@
 const { normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, formatGoalMinute } = require("./src/liveMatchEvents");
+const { getPredictionPoints } = require("./src/predictionRules");
 function didGoalCountIncrease(prevHome, prevAway, nextHome, nextAway) {
   if (!Number.isFinite(nextHome) || !Number.isFinite(nextAway)) return false;
 
@@ -133,6 +134,16 @@ function buildGoalAlertBody(fixture, homeGoals, awayGoals, goal) {
   const team = String(goal?.teamName || "").trim();
   const minute = formatGoalMinute(goal);
   return [scorer ? `${scorer}${team ? ` for ${team}` : ""}` : team ? `Goal for ${team}` : "", minute].filter(Boolean).join(" · ");
+}
+
+function buildFullTimeAlertBody(fixture, homeGoals, awayGoals, prediction) {
+  const score = `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`;
+  const valid = prediction && [prediction.homeGoals, prediction.awayGoals].every(value => value !== null
+    && value !== undefined && value !== "" && Number.isSafeInteger(Number(value)) && Number(value) >= 0);
+  if (!valid) return `${score}\nNo prediction submitted for this match.`;
+  const points = getPredictionPoints(prediction, { homeGoals, awayGoals });
+  const boost = prediction.isTriple ? " (triple points included)" : prediction.isDouble ? " (captain points included)" : "";
+  return `${score}\nYou earned ${points} prediction ${points === 1 ? "point" : "points"}${boost}. Your prediction: ${prediction.homeGoals}-${prediction.awayGoals}.`;
 }
 
 function getPredictionScoreValues(prediction, result) {
@@ -388,6 +399,7 @@ function buildLineupAlert(fixture, state = {}, nowMs = Date.now()) {
 }
 
 module.exports = {
+  buildFullTimeAlertBody,
   didGoalCountIncrease,
   buildGoalAlertBody,
   buildPredictionImpactLine,

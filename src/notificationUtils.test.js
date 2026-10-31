@@ -1,10 +1,25 @@
 const {
   buildGoalAlertBody,
+  buildFullTimeAlertBody,
   buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
   normalizeLineups,
 } = require("../notificationUtils");
+
+describe("full-time earned points", () => {
+  const fixture = { homeTeam: "Chelsea", awayTeam: "Manchester United" };
+  test.each([[{}, 7], [{ isDouble: true }, 14], [{ isTriple: true }, 21]])("includes finalized prediction points and boosts %p", (boost, points) => {
+    const body = buildFullTimeAlertBody(fixture, 2, 0, { homeGoals: 2, awayGoals: 0, ...boost });
+    expect(body).toContain(`You earned ${points} prediction points`);
+    expect(body).toContain("Chelsea 2-0 Manchester United");
+    expect(body).toContain("Your prediction: 2-0");
+  });
+  test("reports zero points and distinguishes a missing prediction", () => {
+    expect(buildFullTimeAlertBody(fixture, 2, 0, { homeGoals: 0, awayGoals: 1 })).toContain("You earned 0 prediction points");
+    expect(buildFullTimeAlertBody(fixture, 2, 0, null)).toContain("No prediction submitted");
+  });
+});
 
 describe("goal alert details", () => {
   const fixture = { homeTeam: "Arsenal", awayTeam: "Chelsea" };

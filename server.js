@@ -1,5 +1,6 @@
 const { shouldSendRecentFullTimeUpdate } = require("./src/liveMatchEvents");
 const { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave } = require("./src/predictionRules");
+const { validatePredictionBadgeRecord, isFinalBadgeFixture } = require("./src/badgeRules");
 const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
 const express = require("express");
@@ -22,6 +23,7 @@ const {
 const {
   didGoalCountIncrease,
   buildGoalAlertBody,
+  buildFullTimeAlertBody,
   buildPredictionImpactLine,
   getLatestGoalEvent,
   normalizeGoalEvents,
@@ -37,7 +39,7 @@ const {
 
 const { reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-10-24-confirmed-goal-events";
+const BUILD_ID = "2026-10-31-final-badges-and-points";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -492,7 +494,8 @@ function shouldStripUnstartedPerformanceBadges(record = {}) {
   const currentSeasonLabel = getSeasonLabelFromFixtures(fixtures);
   if (!currentSeasonLabel || String(record.seasonLabel || "") !== currentSeasonLabel) return false;
   const results = loadResults();
-  return !fixtures.some((fixture) => hasValidResultScore(results[fixture.id]));
+  const states = loadMatchStates();
+  return !fixtures.some((fixture) => isFinalBadgeFixture(fixture, results, states));
 }
 
 function sanitizeBadgeHistoryRecord(record) {
@@ -567,6 +570,14 @@ function sanitizeBadgeHistoryRecord(record) {
     );
   }
 
+  if (normalizeLeagueMode(safeRecord.mode) === "premier") {
+    const fixtures = getFixturesForMode(safeRecord.mode);
+    if (safeRecord.seasonLabel === getSeasonLabelFromFixtures(fixtures)) {
+      const predictions = loadPredictions() || {};
+      return validatePredictionBadgeRecord(safeRecord, fixtures,
+        predictions[safeRecord.userId] || predictions[safeRecord.player] || {}, loadResults(), loadMatchStates());
+    }
+  }
   return safeRecord;
 }
 
@@ -3555,7 +3566,8 @@ app.post("/api/results/snapshot", authOptional, (req, res) => {
                   homeGoals: update.nextHome,
                   awayGoals: update.nextAway,
                 }),
-                body: `${fixture.homeTeam} ${update.nextHome}-${update.nextAway} ${fixture.awayTeam}`,
+                body: buildFullTimeAlertBody(fixture, update.nextHome, update.nextAway,
+                  predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)]),
                 url: "/",
               });
             });
@@ -5331,7 +5343,8 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
               homeGoals,
               awayGoals,
             }),
-            body: `${fixture.homeTeam} ${homeGoals}-${awayGoals} ${fixture.awayTeam}`,
+            body: buildFullTimeAlertBody(fixture, homeGoals, awayGoals,
+              predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)]),
             url: "/",
           }));
         });

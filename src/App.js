@@ -96,6 +96,8 @@ const {
   hasNumericScoreValue,
 } = require("./matchScoreUtils");
 
+const { buildFinalBadgeAwards, isFinalBadgeFixture, countFinalPredictionBadges } = require("./badgeRules");
+const { isPenaltyGoal, penaltyLabel, penaltyDetails } = require("./penaltyUtils");
 const { mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
 
 const { getResultsRefreshInterval } = require("./liveResultsRefresh");
@@ -4689,6 +4691,7 @@ function getLatestLiveStudioEvent(matchState = {}) {
 
 function getLiveStudioEventKind(event = {}) {
   event = event || {};
+  if (String(event.type || "").startsWith("PENALTY_")) return "penalty";
   const text = `${event.type || ""} ${event.card || ""} ${event.reason || ""}`.toLowerCase();
   if (
     text.includes("disallow") ||
@@ -4793,7 +4796,7 @@ function isEstimatedSyntheticLiveStudioEvent(event = {}) {
 
 function getLiveStudioUpdateKeyPart(event = {}) {
   return [
-    getLiveStudioEventKind(event),
+    getLiveStudioEventKind(event) === "penalty" ? event.type : getLiveStudioEventKind(event),
     event.minute ?? "na",
     event.injuryTime ?? "",
     event.playerName || event.scorerName || event.playerOutName || "",
@@ -4970,6 +4973,7 @@ export function sortLiveStudioEntries(entries = []) {
 export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel = "" }) {
   const kind = getLiveStudioEventKind(event);
   if (kind === "lineup") return `Line-ups confirmed: ${getLiveStudioTeamName(fixture.homeTeam)} v ${getLiveStudioTeamName(fixture.awayTeam)}`;
+  if (kind === "penalty") return [penaltyLabel(event.type), getLiveStudioEventTeamLabel(event)].filter(Boolean).join(" · ");
   const scoreText = score ? getLiveStudioScoreSummary(fixture, score) : "";
   if (statusLabel === "KO") return "Kick off!";
   if (["SH", "HT", "FT"].includes(statusLabel)) {
@@ -4978,7 +4982,7 @@ export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel 
   }
   if (kind === "goal") {
     const scoringTeamCode = getLiveStudioScoringTeamCode(fixture, score, event);
-    const label = scoringTeamCode ? `Goal for ${scoringTeamCode}!` : "Goal!";
+    const label = `${scoringTeamCode ? `Goal for ${scoringTeamCode}!` : "Goal!"}${isPenaltyGoal(event) ? " (penalty)" : ""}`;
     return [label, scoreText].filter(Boolean).join(" ");
   }
   if (kind === "goal-disallowed") {
@@ -5021,6 +5025,7 @@ function getLiveStudioEventIcon(event = {}) {
   const statusLabel = String(event?.statusLabel || "").toUpperCase();
   const kind = getLiveStudioEventKind(event);
   if (kind === "goal") return "⚽";
+  if (kind === "penalty") return "🥅";
   if (kind === "goal-disallowed") return "❌";
   if (kind === "stats") return "📊";
   if (kind === "lineup") return "📋";
@@ -5038,6 +5043,7 @@ function getLiveStudioEventIcon(event = {}) {
 export function buildLiveStudioEventLine({ fixture, event, score, seed }) {
   if (!event) return "";
   const kind = getLiveStudioEventKind(event);
+  if (kind === "penalty") return `${penaltyLabel(event.type)}${getLiveStudioEventTeamLabel(event) ? ` for ${getLiveStudioEventTeamLabel(event)}` : ""}. ${penaltyDetails(event)}`.trim();
   const team = getLiveStudioEventTeamLabel(event)
     ? getLiveStudioTeamName(getLiveStudioEventTeamLabel(event))
     : "the match";
@@ -5642,6 +5648,9 @@ export function buildLiveStudioRevealLine(fixture, score, event) {
   const team = getLiveStudioScoringTeam(fixture, score, event);
   const player = getLiveStudioEventPlayerName(event);
   const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}`;
+  if (getLiveStudioEventKind(event) === "goal" && isPenaltyGoal(event)) {
+    return `${player || team || "A player"} scores from the penalty spot${player && team ? ` for ${team}` : ""}${formatGoalMinute(event) ? ` (${formatGoalMinute(event)})` : ""}. ${penaltyDetails(event)}`.trim();
+  }
   if (getLiveStudioEventKind(event) === "goal-disallowed") {
     const subject = player ? `${player}'s goal${team ? ` for ${team}` : ""}` : `the goal${team ? ` for ${team}` : ""}`;
     if (event.scoreCorrection) return `The previously reported ${subject} is no longer included in the score. ${getLiveStudioScoreSummary(fixture, score)}. The provider has not supplied the decision details.`;
@@ -6320,7 +6329,7 @@ export function buildLiveStudioHalfTimeRoundups({ matches = [], nowMs, getTableR
   });
 }
 
-export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = "the league", tableSwings = [], getTableRows }) {
+export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = "the league", tableSwings = [], getTableRows, getBadgeAwards }) {
   if (!matches.length || matches.some((match) => !match.finished || !hasValidResultScore(match.score))) return null;
   const kickoffs = matches.map((match) => Date.parse(match.fixture.kickoff)).filter(Number.isFinite);
   const finishTimes = matches.map((match) => match.lastNewsAt || Date.parse(match.fixture.kickoff)).filter(Number.isFinite);
@@ -6337,6 +6346,7 @@ export function buildLiveStudioFinalRoundup({ matches = [], nowMs, leagueName = 
   return {
     id: "studio:closing", minute: "FT", tone: "finished", icon: "🎙️", momentMs,
     title: "Full-time around the grounds", verdictLabel: "Back in the studio",
+    badgeAwards: getBadgeAwards ? getBadgeAwards(matches) : [],
     ...buildLiveStudioPlayerRoundupDetails(matches, "studio:closing", true),
     roundupLeagueName: leagueName,
     lines: ["Back in the studio. The whistles have gone — let's run through the results.",
@@ -6395,7 +6405,7 @@ export function buildLiveStudioCheckpointEntries({ matches = [], nowMs }) {
   });
 }
 
-function buildLiveStudioCurrentDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, hasUnfinishedFixtures = false, completedMatches = [] }) {
+function buildLiveStudioCurrentDeskEntries({ matches = [], nowMs, nextKickoffMs = null, leagueName = "the league", tableSwings = [], getTableRows, getBadgeAwards, hasUnfinishedFixtures = false, completedMatches = [] }) {
   if (!matches.length && !completedMatches.length) return [];
   const active = matches.filter((match) => match.live && !match.paused && match.score);
   const unfinished = hasUnfinishedFixtures || matches.some(match => !match.finished && (match.live || match.paused || (Date.parse(match.fixture.kickoff) <= nowMs && hasStartedMatchStatus(match.matchState || {}))));
@@ -6403,7 +6413,7 @@ function buildLiveStudioCurrentDeskEntries({ matches = [], nowMs, nextKickoffMs 
     const finalMatches = [...new Map([...completedMatches, ...matches].filter((match) => match.finished)
       .map((match) => [String(match.fixture.id), match])).values()]
       .sort((a, b) => Date.parse(a.fixture.kickoff) - Date.parse(b.fixture.kickoff));
-    const roundup = buildLiveStudioFinalRoundup({ matches: finalMatches, nowMs, leagueName, tableSwings, getTableRows });
+    const roundup = buildLiveStudioFinalRoundup({ matches: finalMatches, nowMs, leagueName, tableSwings, getTableRows, getBadgeAwards });
     return roundup ? [roundup] : [];
   }
   const halfTimeRoundups = buildLiveStudioHalfTimeRoundups({ matches, nowMs, getTableRows });
@@ -12369,6 +12379,9 @@ const liveStudioCurrentFeed = useMemo(() => {
     leagueName: selectedMiniLeague?.name || "the league",
     getTableRows: buildTableSnapshotAtMoment,
     getScoreAtMoment: getFixtureScoreAtMoment,
+    getBadgeAwards: matches => isWorldCupMode ? [] : buildFinalBadgeAwards({ matches, fixtures: activeFixtures, results,
+      states: matchStatesByFixtureId, players: liveStudioUsers.map(user => ({ userId: user.userId, username: user.username,
+        predictions: Object.fromEntries(activeFixtures.map(fixture => [fixture.id, getUserPredictionForFixture(user, fixture)])) })) }),
     hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {
       const state = getFixtureMatchState(fixture);
       return Date.parse(fixture.kickoff) <= liveStudioNow
@@ -12391,6 +12404,8 @@ const liveStudioCurrentFeed = useMemo(() => {
   currentPlayer,
   currentUserId,
   gameMode,
+  activeFixtures,
+  isWorldCupMode,
   generatedModelOddsByFixture,
   getLiveStudioLeagueBasePoints,
   liveStudioDemoStateByFixtureId,
@@ -12586,7 +12601,7 @@ const predictionIqReport = useMemo(() => {
 
   const currentPredictions = predictions[currentPredictionKey] || {};
   const completedFixtures = activeFixtures.filter(
-    (fixture) => fixture.gameweek === selectedGameweek && hasValidResultScore(results[fixture.id])
+    (fixture) => fixture.gameweek === selectedGameweek && isFinalBadgeFixture(fixture, results, matchStatesByFixtureId)
   );
   if (!completedFixtures.length) return emptyReport;
 
@@ -12699,7 +12714,7 @@ const predictionIqReport = useMemo(() => {
     .filter((gw) => gw <= selectedGameweek)
     .filter((gw) => {
       const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
-      return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+      return fixtures.length > 0 && fixtures.every((fixture) => isFinalBadgeFixture(fixture, results, matchStatesByFixtureId));
     });
   const rankOf = (entries, key, fallbackScore = 0) => {
     const sorted = [...entries];
@@ -12925,6 +12940,7 @@ const predictionIqReport = useMemo(() => {
   isWorldCupMode,
   predictions,
   results,
+  matchStatesByFixtureId,
   selectedGameweek,
 ]);
 
@@ -13711,36 +13727,8 @@ const fantasyIqHistoryDiagnostics = useMemo(() => {
 
 const currentSeasonPredictionStats = useMemo(() => {
   if (isWorldCupMode) return { exactScores: 0, correctCaptains: 0 };
-  const currentPredictions = predictions[currentPredictionKey] || {};
-  let exactScores = 0;
-  let correctCaptains = 0;
-  const captainGameweeks = new Set();
-
-  activeFixtures.forEach((fixture) => {
-    const result = results[fixture.id];
-    if (!hasValidResultScore(result)) return;
-    const pred =
-      currentPredictions[String(fixture.id)] !== undefined
-        ? currentPredictions[String(fixture.id)]
-        : currentPredictions[fixture.id];
-    if (!pred) return;
-    const predHome = Number(pred.homeGoals);
-    const predAway = Number(pred.awayGoals);
-    const realHome = Number(result.homeGoals);
-    const realAway = Number(result.awayGoals);
-    if (![predHome, predAway, realHome, realAway].every(Number.isFinite)) return;
-    if (predHome === realHome && predAway === realAway) exactScores += 1;
-
-    if (pred.isDouble && !captainGameweeks.has(fixture.gameweek)) {
-      captainGameweeks.add(fixture.gameweek);
-      if (getResult(predHome, predAway) === getResult(realHome, realAway)) {
-        correctCaptains += 1;
-      }
-    }
-  });
-
-  return { exactScores, correctCaptains };
-}, [activeFixtures, currentPredictionKey, isWorldCupMode, predictions, results]);
+  return countFinalPredictionBadges(activeFixtures, predictions[currentPredictionKey] || {}, results, matchStatesByFixtureId);
+}, [activeFixtures, currentPredictionKey, isWorldCupMode, predictions, results, matchStatesByFixtureId]);
 
 // Winner popup for league tables (once per user per gameweek/matchday)
 useEffect(() => {
@@ -14458,7 +14446,7 @@ const badgeStatsByKey = useMemo(() => {
       ? []
       : activeGameweeks.filter((gw) => {
           const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
-          return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+          return fixtures.length > 0 && fixtures.every((fixture) => isFinalBadgeFixture(fixture, results, matchStatesByFixtureId));
         })
   );
   const currentSeasonHasCompletedPremierGameweek = completedPremierBadgeGameweeks.size > 0;
@@ -14555,7 +14543,7 @@ const badgeStatsByKey = useMemo(() => {
   const badgeSeasonComplete =
     !isWorldCupMode &&
     activeFixtures.length > 0 &&
-    activeFixtures.every((fixture) => isFixtureCompleted(fixture, results));
+    activeFixtures.every((fixture) => isFinalBadgeFixture(fixture, results, matchStatesByFixtureId));
 
   if (badgeSeasonComplete && globalLeaderboard.length >= 3) {
     globalLeaderboard.slice(0, 3).forEach((row, index) => {
@@ -14676,41 +14664,13 @@ const badgeStatsByKey = useMemo(() => {
     row.longestWeeklyWinStreak = streak.longest;
   });
 
-  const hasPredictionScore = (pred) => {
-    if (!pred) return false;
-    const home = Number(pred.homeGoals);
-    const away = Number(pred.awayGoals);
-    return Number.isFinite(home) && Number.isFinite(away);
-  };
   const addCurrentSeasonPredictionStats = (player = "", userId = "", userPredictions = {}) => {
     const keys = [userId, player].map((key) => String(key || "").trim()).filter(Boolean);
     if (!keys.length || !userPredictions || typeof userPredictions !== "object") return;
 
-    let exactScores = 0;
-    let correctCaptains = 0;
-    const captainGameweeks = new Set();
-    activeFixtures.forEach((fixture) => {
-      const result = results[fixture.id];
-      if (!hasValidResultScore(result)) return;
-      const pred =
-        userPredictions[String(fixture.id)] !== undefined
-          ? userPredictions[String(fixture.id)]
-          : userPredictions[fixture.id];
-      if (!hasPredictionScore(pred)) return;
-
-      const predHome = Number(pred.homeGoals);
-      const predAway = Number(pred.awayGoals);
-      const realHome = Number(result.homeGoals);
-      const realAway = Number(result.awayGoals);
-      if (predHome === realHome && predAway === realAway) exactScores += 1;
-
-      if (pred.isDouble && !captainGameweeks.has(fixture.gameweek)) {
-        captainGameweeks.add(fixture.gameweek);
-        if (getResult(predHome, predAway) === getResult(realHome, realAway)) {
-          correctCaptains += 1;
-        }
-      }
-    });
+    const { exactScores, correctCaptains } = countFinalPredictionBadges(
+      activeFixtures, userPredictions, results, matchStatesByFixtureId
+    );
 
     keys.forEach((key) => {
       const row = ensureStats(key, player, userId);
@@ -14810,6 +14770,7 @@ const badgeStatsByKey = useMemo(() => {
   leaguePredictionsByUserId,
   globalPredictionsByUserId,
   results,
+  matchStatesByFixtureId,
 ]);
 
 const getPlayerBadgeStats = (row = {}) => {
@@ -14865,13 +14826,19 @@ const currentEarnedBadges = useMemo(
 
 useEffect(() => {
   if (activeView !== "badges" || !currentUserId || !currentEarnedBadges.length) return;
+  if (studioSnapshotMode !== gameMode) return;
 
   const storageKey = String(currentUserId || currentPlayer || "").trim();
   if (!storageKey) return;
 
   try {
     const saved = JSON.parse(localStorage.getItem(BADGE_SEEN_STORAGE_KEY) || "{}");
-    const seenIds = new Set(Array.isArray(saved[storageKey]) ? saved[storageKey] : []);
+    const earnedIds = new Set(currentEarnedBadges.map(badge => badge.id));
+    const storedIds = Array.isArray(saved[storageKey]) ? saved[storageKey] : [];
+    const seenIds = new Set(storedIds.filter(id => !PERFORMANCE_BADGE_IDS.has(id) || earnedIds.has(id)));
+    if (seenIds.size !== storedIds.length) {
+      localStorage.setItem(BADGE_SEEN_STORAGE_KEY, JSON.stringify({ ...saved, [storageKey]: [...seenIds] }));
+    }
     const newlyEarned = currentEarnedBadges.filter((badge) => !seenIds.has(badge.id));
     if (!newlyEarned.length) return;
 
@@ -14892,7 +14859,7 @@ useEffect(() => {
       JSON.stringify({ [storageKey]: currentEarnedBadges.map((badge) => badge.id) })
     );
   }
-}, [activeView, currentUserId, currentPlayer, currentEarnedBadges]);
+}, [activeView, currentUserId, currentPlayer, currentEarnedBadges, studioSnapshotMode, gameMode]);
 
 useEffect(() => {
   if (!badgeAwardBadges.length) return;
@@ -14912,7 +14879,7 @@ useEffect(() => {
   const earnedBadgeIds = getEarnedBadges(liveStats).map((badge) => badge.id);
   const hasCompletedPremierGameweek = activeGameweeks.some((gw) => {
     const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
-    return fixtures.length > 0 && fixtures.every((fixture) => isFixtureCompleted(fixture, results));
+    return fixtures.length > 0 && fixtures.every((fixture) => isFinalBadgeFixture(fixture, results, matchStatesByFixtureId));
   });
   const playedSeason =
     hasCompletedPremierGameweek &&
@@ -15011,6 +14978,7 @@ useEffect(() => {
   activeFixtures,
   activeGameweeks,
   results,
+  matchStatesByFixtureId,
   badgeStatsByKey,
   predictionIqReport,
   currentGwPoints,
@@ -21662,6 +21630,18 @@ if (!isLoggedIn) {
                               flag: isWorldCupMode ? getWorldCupFlag(name) : null };
                           })}
                         />}
+                        {entry.badgeAwards?.length > 0 && (
+                            <section aria-label="Badges earned at full-time" style={{ marginTop: 10, display: "grid", gap: 5 }}>
+                              <strong style={{ color: toneColor, fontSize: 12 }}>Badges earned at full-time</strong>
+                              {entry.badgeAwards.map(award => {
+                                const badge = BADGE_DEFINITIONS.find(candidate => candidate.id === award.badgeId);
+                                if (!badge) return null;
+                                return <div key={`${award.userId || award.username}:${award.badgeId}`} style={{ color: theme.text, fontSize: 12 }}>
+                                  <span aria-hidden="true">{badge.icon}</span> <strong>{award.username}</strong> · {badge.label} · {award.milestone}
+                                </div>;
+                              })}
+                            </section>
+                          )}
                         {entry.tableSnapshot && (
                           <div
                             style={{
