@@ -34,6 +34,7 @@ test("the actual push payload builder blocks inferred cancellations and does not
   const source = fs.readFileSync("server.js", "utf8");
   const start = source.indexOf("function buildLiveMatchEventPayload(");
   const context = {
+    isObservedScoreCorrection: events.isObservedScoreCorrection,
     getLivePushEventKind: () => "goal-disallowed", formatLivePushMinute: () => "17'",
     buildLivePushHeader: () => "Goal ruled out", formatLivePushScore: () => "AVL 0-0 MCI",
   };

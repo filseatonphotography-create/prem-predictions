@@ -35,7 +35,7 @@ const {
   buildLineupAlert,
 } = require("./notificationUtils");
 
-const { mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
+const { reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
 const BUILD_ID = "2026-10-24-confirmed-goal-events";
 console.log("SERVER BUILD:", BUILD_ID);
@@ -4189,7 +4189,7 @@ function buildLivePushHeader({ fixture, eventKind, minute = "", homeGoals = null
   if (eventKind === "goal-disallowed") {
     const teamCode = getLivePushScoringTeamCode(fixture, event?.previousHomeGoals, event?.previousAwayGoals, event);
     const teamText = teamCode ? ` for ${teamCode}` : "";
-    return `${label}${teamText}. ${scoreText}`.trim();
+    return `${event?.scoreCorrection ? "Goal removed from score" : label}${teamText}. ${scoreText}`.trim();
   }
   const playerText = player && !["goal", "goal-disallowed", "kick-off", "half-time", "full-time"].includes(eventKind)
     ? ` ${player}`
@@ -4208,8 +4208,8 @@ function maybeApplyNoSpoilerFixturePayload(userId, fixtureId, eventKind, eventKe
 
   return {
     ...payload,
-    title: eventKind === "goal-disallowed" ? "Goal ruled out" : "Goal alert",
-    body: `${eventKind === "goal-disallowed" ? "A goal has been ruled out" : "There's been a goal"} in ${fixtureLabel}. Tap to join Live Studio.`,
+    title: payload.scoreCorrection ? "Score corrected" : eventKind === "goal-disallowed" ? "Goal ruled out" : "Goal alert",
+    body: `${payload.scoreCorrection ? "A previously reported goal has been removed from the score" : eventKind === "goal-disallowed" ? "A goal has been ruled out" : "There's been a goal"} in ${fixtureLabel}. Tap to join Live Studio.`,
     url: buildLiveStudioUrl(fixtureId, eventKey),
   };
 }
@@ -4476,7 +4476,9 @@ function mergeMatchStatePreservingEvents(existing = {}, incoming = {}) {
   const matchEvents = mergeMatchStateEventLists(existing.matchEvents, incoming.matchEvents);
   if (goalEvents.length) merged.goalEvents = goalEvents;
   if (matchEvents.length) merged.matchEvents = matchEvents;
-  return merged;
+  return reconcileReportedGoals(existing, Object.assign({}, merged, {
+    goalEvents: incoming.goalEvents || [], matchEvents: incoming.matchEvents || [],
+  }));
 }
 
 function buildLiveMatchEventPayload(fixture, event = {}) {
@@ -4488,7 +4490,7 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
   const teamSuffix = team ? ` for ${team}` : "";
 
   if (kind === "goal-disallowed") {
-    if (event.synthetic) return null;
+    if (event.synthetic && !isObservedScoreCorrection(event)) return null;
     return {
       title: buildLivePushHeader({
         fixture,
@@ -4498,7 +4500,10 @@ function buildLiveMatchEventPayload(fixture, event = {}) {
         awayGoals: event.awayGoals,
         event,
       }),
-      body: `A goal has been disallowed${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
+      scoreCorrection: isObservedScoreCorrection(event),
+      body: event.scoreCorrection
+        ? `The previously reported goal${teamSuffix} is no longer included in the score. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`
+        : `A goal has been disallowed${teamSuffix}${at}. Corrected score: ${formatLivePushScore(fixture, event.homeGoals, event.awayGoals)}.`,
     };
   }
   if (kind === "red-card") {

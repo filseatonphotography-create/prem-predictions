@@ -58,7 +58,7 @@ test("unchanged positions suppress mid-match tables but always produce a full-ti
   expect(buildLiveStudioFullTimeTableLine({ fixture, previousRows, currentRows, score: { homeGoals: 1, awayGoals: 0 }, seed: "final" })).toMatch(/table/);
 });
 
-test("keeps City's confirmed goal but drops a legacy inferred VAR correction", () => {
+test("keeps City's reported goal and replaces a legacy VAR guess with an honest score correction", () => {
   const { mergeRecordedMatchState } = require("./liveMatchEvents");
   const city = { id: 560610, homeTeam: "Manchester City FC", awayTeam: "Ipswich Town FC", kickoff: "2026-10-17T14:00:00Z" };
   const goal = { type: "GOAL", minute: 85, scorerName: "Erling Haaland", teamName: city.homeTeam, homeGoals: 4, awayGoals: 1 };
@@ -70,6 +70,8 @@ test("keeps City's confirmed goal but drops a legacy inferred VAR correction", (
   const fresh = { status: "IN_PLAY", minute: 90, homeGoals: 3, awayGoals: 1,
     lastUpdated: "2026-10-17T15:50:00Z", goalEvents: [], matchEvents: [] };
   const events = getLiveStudioEvents(mergeRecordedMatchState(fresh, recorded));
-  expect(events.map(event => event.type)).toEqual(["GOAL"]);
-  expect(events[0].scorerName).toBe("Erling Haaland");
+  expect(events.map(event => event.type)).toEqual(["GOAL_DISALLOWED", "GOAL"]);
+  expect(events[0]).toMatchObject({ scoreCorrection: true, source: "observed-score-correction", minute: 90 });
+  expect(events[0].reason).not.toContain("VAR");
+  expect(events[1].scorerName).toBe("Erling Haaland");
 });

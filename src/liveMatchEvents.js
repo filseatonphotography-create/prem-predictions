@@ -61,10 +61,9 @@ function sameEvent(a, b, allEvents = []) {
     const reversalBetween = allEvents.some(item => item.type === "GOAL_DISALLOWED"
       && time(item) >= Math.min(time(a), time(b)) && time(item) < Math.max(time(a), time(b)));
     if (reversalBetween) return false;
-    if (a.synthetic || b.synthetic || Math.abs(time(a) - time(b)) <= 1) return true;
-    // Without a recorded reversal, widely separated real goals are still
-    // distinct. Do not guess that one is a correction to the other.
-    return false;
+    // Provider corrections can move a goal by several minutes. A second
+    // record of the same score is an update unless a reversal explains it.
+    return true;
   }
   if (scoring && sameScore && (a.synthetic || b.synthetic)) return true;
   if (a.minute !== b.minute || a.injuryTime !== b.injuryTime) return false;
@@ -78,7 +77,7 @@ function mergeMatchEvents(...lists) {
   const events = lists.flat().filter(event => event && typeof event === "object").map(raw => normalizeEvent(raw))
     // A score decrease is not evidence that a referee disallowed a goal.
     // Drop legacy inferred cancellations as well as new unverified ones.
-    .filter(event => !(event.synthetic && event.type === "GOAL_DISALLOWED"));
+    .filter(event => !(event.synthetic && event.type === "GOAL_DISALLOWED" && !isObservedScoreCorrection(event)));
   events.forEach(event => {
     const index = result.findIndex(previous => sameEvent(previous, event, events));
     if (index < 0) { result.push(event); return; }
@@ -87,7 +86,10 @@ function mergeMatchEvents(...lists) {
     const fallback = preferred === event ? previous : event;
     const merged = Object.assign({}, fallback, preferred);
     Object.keys(merged).forEach(key => { if (merged[key] == null || merged[key] === "") merged[key] = fallback[key]; });
-    if (!preferred.synthetic) { delete merged.synthetic; delete merged.estimatedMinute; }
+    if (!preferred.synthetic) {
+      delete merged.synthetic; delete merged.estimatedMinute;
+      if (!preferred.scoreCorrection) { delete merged.scoreCorrection; if (merged.source === "observed-score-correction") delete merged.source; }
+    }
     result[index] = merged;
   });
   return result.map(event => {
@@ -116,6 +118,55 @@ function normalizeMatchEvents(source = {}) {
 }
 function normalizeGoalEvents(source) {
   return normalizeMatchEvents(source).filter(event => event.type === "GOAL");
+}
+function isObservedScoreCorrection(event = {}) {
+  if (event.scoreCorrection !== true || event.source !== "observed-score-correction") return false;
+  const scores = [event.previousHomeGoals, event.previousAwayGoals, event.homeGoals, event.awayGoals].map(numeric);
+  if (scores.some(value => value == null || value < 0)) return false;
+  const home = scores[0] - scores[2], away = scores[1] - scores[3];
+  return home === 1 && away === 0 || home === 0 && away === 1;
+}
+function reconcileReportedGoals(previous = {}, incoming = {}) {
+  const reported = normalizeGoalEvents(incoming);
+  let events = mergeMatchEvents(normalizeMatchEvents(previous), normalizeMatchEvents(incoming));
+  const goals = events.filter(event => event.type === "GOAL");
+  const home = numeric(incoming.homeGoals), away = numeric(incoming.awayGoals);
+  const status = String(incoming.status || "").toUpperCase();
+  const previousTime = Date.parse(previous.lastUpdated || ""), incomingTime = Date.parse(incoming.lastUpdated || "");
+  if (["IN_PLAY", "PAUSED"].includes(status) && home != null && away != null
+    && !(Number.isFinite(previousTime) && Number.isFinite(incomingTime) && incomingTime < previousTime)) {
+    const removed = goals.filter(goal => {
+      if (goal.id != null && reported.some(current => current.id === goal.id)) return false;
+      const candidate = { scoreCorrection: true, source: "observed-score-correction",
+        previousHomeGoals: goal.homeGoals, previousAwayGoals: goal.awayGoals, homeGoals: home, awayGoals: away };
+      return isObservedScoreCorrection(candidate)
+        && !reported.some(current => current.homeGoals === goal.homeGoals && current.awayGoals === goal.awayGoals)
+        && !events.some(event => event.type === "GOAL_DISALLOWED" && event.homeGoals === home && event.awayGoals === away
+          && (numeric(event.sortMinute) ?? numeric(event.minute) ?? 0) >= (numeric(goal.sortMinute) ?? numeric(goal.minute) ?? 0));
+    }).sort((a, b) => (numeric(b.minute) || 0) - (numeric(a.minute) || 0))[0];
+    if (removed) {
+      const correction = Object.assign({}, removed, {
+        type: "GOAL_DISALLOWED", synthetic: true, estimatedMinute: true,
+        scoreCorrection: true, source: "observed-score-correction", reason: "Reported goal removed from the score",
+        previousHomeGoals: removed.homeGoals, previousAwayGoals: removed.awayGoals, homeGoals: home, awayGoals: away,
+        minute: numeric(incoming.minute), injuryTime: null,
+        sortMinute: Math.max(numeric(incoming.minute) || 0, (numeric(removed.sortMinute) ?? numeric(removed.minute) ?? 0) + 0.001),
+        detectedAt: incoming.observedAt || incoming.lastUpdated || new Date().toISOString(),
+      });
+      delete correction.id;
+      delete correction.score;
+      // A withdrawal already reflected in the half-time score belongs before
+      // that whistle. Its exact decision minute remains unknown.
+      const halfTime = Date.parse(incoming.halfTimeAt || previous.halfTimeAt || "");
+      const kickoff = Date.parse(incoming.utcDate || previous.utcDate || "");
+      if (status === "PAUSED" && Number.isFinite(halfTime) && Number.isFinite(kickoff)
+        && halfTime > kickoff + (numeric(removed.minute) || 0) * 60000) {
+        correction.occurredAt = new Date(halfTime - 1).toISOString();
+      }
+      events = mergeMatchEvents(events, [correction]);
+    }
+  }
+  return Object.assign({}, incoming, { goalEvents: goals, matchEvents: events });
 }
 function shouldPushMatchEvent(kind) {
   return ["lineup", "goal", "goal-disallowed", "kick-off", "second-half", "half-time", "full-time"].includes(String(kind).toLowerCase().replace(/_/g, "-"));
@@ -231,8 +282,8 @@ function mergeRecordedMatchState(incoming = {}, recorded = {}) {
     || sameProviderVersion && (recordedClockAhead || recordedFinal || recordedAtHalfTime);
   const current = recordedIsNewer ? Object.assign({}, incoming, recorded) : Object.assign({}, recorded, incoming);
   const merged = mergeMatchPhaseState(recorded, current);
-  merged.goalEvents = mergeMatchEvents(recorded.goalEvents, incoming.goalEvents);
-  merged.matchEvents = mergeMatchEvents(recorded.matchEvents, incoming.matchEvents);
-  return merged;
+  return reconcileReportedGoals(recorded, Object.assign({}, merged, {
+    goalEvents: incoming.goalEvents || [], matchEvents: incoming.matchEvents || [],
+  }));
 }
-module.exports = { shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };
+module.exports = { reconcileReportedGoals, isObservedScoreCorrection, shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };

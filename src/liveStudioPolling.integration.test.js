@@ -3,6 +3,49 @@ import { act, render, screen, cleanup, within, fireEvent } from "@testing-librar
 import App from "./App";
 
 jest.setTimeout(30000);
+
+test("a delayed Cunha goal and its score withdrawal appear before Chelsea–United's existing half-time card", async () => {
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-31T13:27:00Z"));
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
+  localStorage.setItem("activeView", "liveStudio");
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 9 }));
+  localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 9, predictions: {} }));
+  const originalFetch = global.fetch;
+  const goal = { type: "GOAL", minute: 34, scorerName: "Matheus Cunha", teamName: "Manchester United FC", homeGoals: 0, awayGoals: 1 };
+  let loadedGoal = false;
+  const state = () => ({ status: "PAUSED", minute: 45, utcDate: "2026-10-31T12:30:00Z", homeGoals: 0, awayGoals: 0,
+    halfTimeHomeGoals: 0, halfTimeAwayGoals: 0, halfTimeAt: "2026-10-31T13:19:00Z",
+    lastUpdated: "2026-10-31T13:26:00Z", observedAt: "2026-10-31T13:26:00Z",
+    goalEvents: loadedGoal ? [goal] : [], matchEvents: loadedGoal ? [goal] : [] });
+  global.fetch = jest.fn(async url => {
+    let data = {};
+    if (String(url).includes("/api/match-states/snapshot")) data = { 560626: state() };
+    if (String(url).includes("/api/results?")) data = [{ id: 560626, status: "PAUSED", minute: 45, utcDate: state().utcDate,
+      homeTeam: { name: "Chelsea FC" }, awayTeam: { name: "Manchester United FC" },
+      lastUpdated: "2026-10-31T13:27:00Z", goals: [], score: { fullTime: { home: 0, away: 0 }, halfTime: { home: 0, away: 0 } } }];
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
+  });
+  const flush = async () => { for (let i = 0; i < 50; i++) await Promise.resolve(); };
+  const check = () => {
+    const cards = [...document.querySelectorAll("article")];
+    const half = screen.getByText("Half-time around the grounds").closest("article");
+    const scored = screen.getByText(/^Goal for MUN!/).closest("article");
+    const withdrawn = screen.getByText(/^Goal removed from score for MUN/).closest("article");
+    expect(scored.firstElementChild).toHaveTextContent("34'");
+    expect(cards.indexOf(half)).toBeLessThan(cards.indexOf(withdrawn));
+    expect(cards.indexOf(withdrawn)).toBeLessThan(cards.indexOf(scored));
+  };
+  try {
+    render(<App />); await act(flush);
+    expect(screen.getByText("Half-time around the grounds")).toBeInTheDocument();
+    loadedGoal = true;
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Refresh studio" })); await flush(); });
+    check();
+    cleanup(); render(<App />); await act(flush); check();
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});
+
 test("the full app puts new updates first and combines half-time into one studio post", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:12:00Z"));
   window.scrollTo = jest.fn();

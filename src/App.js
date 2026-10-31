@@ -4955,11 +4955,7 @@ export function getLiveStudioGoalArrivalKey(fixture, event, events, updateKey, s
     const cancelled = getLiveStudioPreviousScore(fixture, past, getLiveStudioEventScore(past));
     return score && cancelled?.homeGoals === score.homeGoals && cancelled?.awayGoals === score.awayGoals;
   }).length;
-  const earlierGoals = events.filter(past => getLiveStudioEventKind(past) === "goal"
-    && getLiveStudioEventSortMinute(past) < getLiveStudioEventSortMinute(event)
-    && getLiveStudioEventScore(past)?.homeGoals === score?.homeGoals
-    && getLiveStudioEventScore(past)?.awayGoals === score?.awayGoals).length;
-  const occurrence = Math.max(reversals, earlierGoals);
+  const occurrence = reversals;
   return occurrence ? `${updateKey}:repeat:${occurrence}` : updateKey;
 }
 
@@ -4988,7 +4984,7 @@ export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel 
   if (kind === "goal-disallowed") {
     const team = getLiveStudioEventTeamLabel(event);
     const teamCode = team ? getTeamCode(team) : "";
-    return [`Goal ruled out${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
+    return [`${event.scoreCorrection ? "Goal removed from score" : "Goal ruled out"}${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
   }
   const player = getLiveStudioEventPlayerName(event);
   const team = getLiveStudioEventTeamLabel(event);
@@ -5239,7 +5235,7 @@ export function buildLiveStudioHalfTimeTable({ previousRows, currentRows, seed }
 
 function isUnverifiedDisallowedPost(entry) {
   const disallowed = entry.updateKey?.includes(":goal-disallowed:") || entry.id?.includes(":GOAL_DISALLOWED:");
-  return disallowed && entry.providerConfirmed !== true;
+  return disallowed && entry.providerConfirmed !== true && entry.scoreCorrection !== true;
 }
 
 function isRetainedLiveStudioEntry(entry) {
@@ -5278,7 +5274,25 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // Keep published final roundups as history when the next game starts.
   // Late check-ins share one stable identity.
   const entries = new Map();
-  const keyFor = entry => entry.id === "studio:closing" ? entry.id : entry.arrivalKey || entry.updateKey || entry.id;
+  const allPosts = [...history, ...currentFeed];
+  const keyFor = entry => {
+    if (entry.id === "studio:closing") return entry.id;
+    const key = entry.arrivalKey || entry.updateKey || entry.id;
+    if (!key?.includes(":goal:") || !key.includes(":repeat:")) return key;
+    // Repair duplicate flashes already saved by the old minute-based logic.
+    // A repeat is valid only when a confirmed reversal lowered this score.
+    const score = entry.updateKey?.match(/:goal:(\d+)-(\d+)$/);
+    const reversed = score && allPosts.some(past => {
+      if (past.providerConfirmed !== true && past.scoreCorrection !== true || String(past.fixtureId) !== String(entry.fixtureId)
+        || !(past.sortMinute < entry.sortMinute)) return false;
+      const after = past.updateKey?.match(/:goal-disallowed:(\d+)-(\d+)$/);
+      if (!after) return false;
+      const home = Number(score[1]) - Number(after[1]);
+      const away = Number(score[2]) - Number(after[2]);
+      return home === 1 && away === 0 || home === 0 && away === 1;
+    });
+    return reversed ? key : entry.updateKey || key.split(":repeat:")[0];
+  };
   history.filter(entry => !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
@@ -5630,6 +5644,7 @@ export function buildLiveStudioRevealLine(fixture, score, event) {
   const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}`;
   if (getLiveStudioEventKind(event) === "goal-disallowed") {
     const subject = player ? `${player}'s goal${team ? ` for ${team}` : ""}` : `the goal${team ? ` for ${team}` : ""}`;
+    if (event.scoreCorrection) return `The previously reported ${subject} is no longer included in the score. ${getLiveStudioScoreSummary(fixture, score)}. The provider has not supplied the decision details.`;
     return pickLiveStudioPhrase(seed, [
       `Hold the celebrations at ${venue}! ${subject} has been ruled out.`,
       `Back to ${venue}, and it's not going to count! ${subject} is chalked off.`,
@@ -12278,7 +12293,14 @@ const liveStudioCurrentFeed = useMemo(() => {
           momentMs: entryMomentMs,
           fullTime: isFullTime,
           providerConfirmed: entryIsGoalDisallowed ? !event.synthetic : undefined,
-          backfilled: !inCoverage || isSecondHalf && (finished || getLiveStudioClockMinute(fixture, matchState, liveStudioNow) > 50
+          scoreCorrection: entryIsGoalDisallowed && event.scoreCorrection === true,
+          beforeHalfTime: (entryIsGoal || entryIsGoalDisallowed) && getConfirmedPhaseFlags(matchState).halfTime
+            && entryMomentMs < getMatchEventMomentMs(fixture, { statusLabel: "HT", minute: 45 }, matchState),
+          backfilled: !inCoverage || paused && (entryIsGoal || entryIsGoalDisallowed)
+            || (entryIsGoal || entryIsGoalDisallowed)
+            && (paused || finished || getConfirmedPhaseFlags(matchState).secondHalf)
+            && liveStudioNow - entryMomentMs > 5 * 60000
+            || isSecondHalf && (finished || getLiveStudioClockMinute(fixture, matchState, liveStudioNow) > 50
             || liveStudioNow - entryMomentMs > 5 * 60000),
           kickoff: isKickoff,
           lineups: isLineup ? matchState.lineups : null,

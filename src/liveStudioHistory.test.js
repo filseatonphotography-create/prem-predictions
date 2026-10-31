@@ -4,6 +4,19 @@ import { buildLiveStudioHalfTimeTable, mergeLiveStudioDeskHistory, useLiveStudio
 const roundup = { id: "studio:checkpoint:test:20", momentMs: 100, lines: ["Phil would quite like the whistle now."] };
 const goal = { id: "goal:1", momentMs: 200, lines: ["Goal for Arsenal!"] };
 
+test("removes a cached duplicate Newcastle flash while preserving its original arrival", () => {
+  const original = { id: "new:52", fixtureId: 1, sortMinute: 52, momentMs: 52000,
+    updateKey: "1:goal:1-0", arrivalKey: "1:goal:1-0", lines: [] };
+  const duplicate = { ...original, id: "new:58", sortMinute: 58, momentMs: 58000, arrivalKey: "1:goal:1-0:repeat:1" };
+  const merged = mergeLiveStudioDeskHistory([original, duplicate], [{ ...duplicate, arrivalKey: original.arrivalKey }]);
+  expect(merged).toHaveLength(1);
+  expect(merged[0].id).toBe("new:58");
+  expect(merged[0].momentMs).toBe(52000);
+  const reversed = { id: "var", fixtureId: 1, sortMinute: 54, momentMs: 54000,
+    providerConfirmed: true, updateKey: "1:goal-disallowed:0-0", lines: [] };
+  expect(mergeLiveStudioDeskHistory([original, reversed, duplicate], [])).toHaveLength(3);
+});
+
 test("cached lineup posts adopt the notification link without duplicating the refreshed post", () => {
   const lineups = { home: { lineup: [{ name: "Starter" }] } };
   const cached = { id: "57:LINEUPS:na:0", fixtureId: 57, lineups, updateKey: "57:lineup:lineup:na::::::::", arrivalKey: "57:lineup:lineup:na::::::::", momentMs: 100 };

@@ -141,6 +141,32 @@ test("a new goal restoring the same score after VAR gets its own arrival above i
   expect(orderLiveStudioUpdates([old, { id: "booking" }, next], seeded.state).entries[0]).toBe(next);
 });
 
+test("the Newcastle 52-to-58 minute correction keeps the original goal arrival", () => {
+  const fixture = { id: 1, homeTeam: "Newcastle", awayTeam: "Chelsea" };
+  const first = { type: "GOAL", minute: 52, homeGoals: 1, awayGoals: 0 };
+  const corrected = { ...first, minute: 58 };
+  const events = [first, corrected];
+  const key = event => getLiveStudioGoalArrivalKey(fixture, event, events, "1:goal:1-0", { homeGoals: 1, awayGoals: 0 });
+  expect(key(corrected)).toBe(key(first));
+  const original = { id: "52", arrivalKey: key(first), momentMs: 52 };
+  const seeded = orderLiveStudioUpdates([original, { id: "booking", momentMs: 55 }]);
+  const refreshed = orderLiveStudioUpdates([{ ...original, id: "58", momentMs: 58 }, { id: "booking", momentMs: 55 }], seeded.state);
+  expect(refreshed.state.counter).toBe(seeded.state.counter);
+  expect(refreshed.entries[0].id).toBe("booking");
+});
+
+test("a first-half goal already placed above half-time is repaired when its phase becomes known", () => {
+  const half = { id: "studio:half-time:2026-10-31T12:30:00Z", momentMs: 100,
+    roundupMatches: [{ fixture: { id: 560626 } }] };
+  const goal = { id: "cunha", fixtureId: 560626, updateKey: "560626:goal:0-1", momentMs: 50 };
+  const initial = orderLiveStudioUpdates([half]);
+  const misplaced = orderLiveStudioUpdates([half, goal], initial.state);
+  expect(misplaced.entries[0].id).toBe("cunha");
+  const repaired = orderLiveStudioUpdates([half, { ...goal, beforeHalfTime: true, backfilled: true }], misplaced.state);
+  expect(repaired.entries.map(entry => entry.id)).toEqual([half.id, "cunha"]);
+  expect(orderLiveStudioUpdates(repaired.entries, repaired.state).entries.map(entry => entry.id)).toEqual([half.id, "cunha"]);
+});
+
 
 test("legacy future-dated lineups and late reconstructed second-half posts are repaired once without moving other updates", () => {
   const goal = { id: "goal", momentMs: at("16:50") };

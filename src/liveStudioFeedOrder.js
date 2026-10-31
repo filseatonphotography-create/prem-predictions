@@ -41,7 +41,10 @@ export function orderLiveStudioUpdates(entries = [], previous = {}, { historical
     // Repair legacy lineups once: their old bootstrap position used tomorrow's
     // kickoff instead of an announcement time. Other existing cards stay fixed.
     const repairingLineup = Boolean(entry.lineups && known && !meta[key]);
-    if (recoveringPhase || repairingLineup) {
+    const repairingFirstHalf = entry.beforeHalfTime && known && entries.some(half => half.id?.startsWith("studio:half-time:")
+      && half.roundupMatches?.some(match => String(match.fixture.id) === String(entry.fixtureId))
+      && entry.momentMs < half.momentMs && updates[key] > updates[identity(half)]);
+    if (recoveringPhase || repairingLineup || repairingFirstHalf) {
       delete updates[key];
       historical.push(entry);
       return;

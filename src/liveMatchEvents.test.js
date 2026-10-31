@@ -50,10 +50,29 @@ test("replaces a score-only synthetic goal when the real scorer arrives", () => 
   expect(mergeMatchEvents(result, [synthetic])).toEqual(result);
 });
 
-test("retains two distinct real goals when VAR allowed the same scoreline twice", () => {
+test("a corrected goal minute updates the same score instead of repeating the goal", () => {
   const one = { ...normalizeGoalEvents(raw)[0] };
-  const two = { ...one, minute: 20 };
-  expect(mergeMatchEvents([one], [two])).toHaveLength(2);
+  const two = { ...one, minute: 58 };
+  const merged = mergeMatchEvents([{ ...one, minute: 52 }], [two]);
+  expect(merged).toHaveLength(1);
+  expect(merged[0].minute).toBe(58);
+});
+
+test("Newcastle's 52-minute Willock and 58-minute Barnes records produce one 0-2 goal", () => {
+  const goals = [
+    { type: "GOAL", minute: 47, scorerName: "William Osula", homeGoals: 0, awayGoals: 1 },
+    { type: "GOAL", minute: 52, scorerName: "Joe Willock", homeGoals: 0, awayGoals: 2 },
+    { type: "GOAL", minute: 58, scorerName: "Harvey Barnes", homeGoals: 0, awayGoals: 2 },
+  ];
+  const merged = normalizeGoalEvents({ goalEvents: goals, matchEvents: goals });
+  expect(merged).toHaveLength(2);
+  expect(merged[1]).toMatchObject({ minute: 58, scorerName: "Harvey Barnes", homeGoals: 0, awayGoals: 2 });
+});
+
+test("retains goals restoring the same score when a confirmed reversal separates them", () => {
+  const first = { type: "GOAL", minute: 52, homeGoals: 1, awayGoals: 0 };
+  const reversal = { type: "GOAL_DISALLOWED", minute: 54, homeGoals: 0, awayGoals: 0 };
+  expect(mergeMatchEvents([first, reversal], [{ ...first, minute: 58 }])).toHaveLength(3);
 });
 
 test("does not fabricate 0-0 or a zero-minute goal from null values", () => {
@@ -152,7 +171,8 @@ test("the server records a fresh lineup announcement once and does not invent a 
   const source = fs.readFileSync("server.js", "utf8");
   const start = source.indexOf("function mergeMatchStatePreservingEvents(");
   const end = source.indexOf("\nfunction buildLiveMatchEventPayload(", start);
-  const context = { mergeMatchPhaseState, mergeMatchStateEventLists: mergeMatchEvents };
+  const context = { mergeMatchPhaseState, mergeMatchStateEventLists: mergeMatchEvents,
+    reconcileReportedGoals: require("./liveMatchEvents").reconcileReportedGoals };
   vm.runInNewContext(`${source.slice(start, end)}; this.merge = mergeMatchStatePreservingEvents;`, context);
   const lineups = { home: { lineup: [{ name: "Keeper" }] } };
   const first = context.merge({}, { status: "TIMED", lineups, observedAt: "2026-10-18T14:20:00Z" });
