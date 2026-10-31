@@ -5994,6 +5994,8 @@ function mergeLiveStudioRoundupPicks(previous = [], incoming = []) {
 
 function mergeLiveStudioFinalRoundup(previous, incoming) {
   if (!previous?.roundupMatches?.length || !incoming.roundupMatches?.length) return incoming;
+  const partialRoster = sameLiveStudioScores(previous.roundupMatches, incoming.roundupMatches)
+    && (incoming.tableSnapshot?.currentRows?.length || 0) < (previous.tableSnapshot?.currentRows?.length || 0);
   const matches = incoming.roundupMatches.map(match => ({ ...match,
     picks: mergeLiveStudioRoundupPicks(previous.roundupMatches.find(old => String(old.fixture.id) === String(match.fixture.id))?.picks, match.picks),
   }));
@@ -6001,7 +6003,9 @@ function mergeLiveStudioFinalRoundup(previous, incoming) {
   lines[1 + matches.length] = buildLiveStudioClosingVerdict({
     matches: matches.map(match => ({ ...match, finished: true })), leagueName: incoming.roundupLeagueName || "the league",
   })[0];
-  return { ...incoming, lines, ...buildLiveStudioPlayerRoundupDetails(matches, incoming.id, true) };
+  return { ...incoming, lines,
+    ...(partialRoster ? { tableSnapshot: previous.tableSnapshot, badgeAwards: previous.badgeAwards || incoming.badgeAwards } : {}),
+    ...buildLiveStudioPlayerRoundupDetails(matches, incoming.id, true) };
 }
 
 function isRetiredLiveStudioEntry(entry) {
@@ -6133,6 +6137,9 @@ function refreshLiveStudioGoalCommentary(entry, previous) {
 }
 
 function completeLiveStudioTableRows(previous = [], incoming = []) {
+  // A founder-only bootstrap has incomplete predictions as well as names.
+  // Keep the complete standings until a complete roster can recalculate them.
+  if (incoming.length < previous.length) return previous;
   const rows = new Map(previous.map(row => [row.username.toLowerCase(), row]));
   incoming.forEach(row => rows.set(row.username.toLowerCase(), row));
   return [...rows.values()].sort((a, b) => b.points - a.points || a.username.localeCompare(b.username))
@@ -10324,6 +10331,11 @@ useEffect(() => {
   }, [isLoggedIn, authToken, currentUserId, currentPlayer, predictions]);
   // Auto-load my leagues after login/restore
 useEffect(() => {
+  let cancelled = false;
+  const cacheKey = `live-studio-leagues:v1:${currentUserId}:${getModeKey(gameMode)}`;
+  const cached = isLoggedIn && currentUserId ? readLiveStudioCache(cacheKey, []) : [];
+  const cachedLeagues = Array.isArray(cached) ? cached : [];
+  if (isLoggedIn && authToken) setMyLeagues(cachedLeagues);
   async function loadLeaguesAuto() {
     if (DEV_USE_LOCAL) return;
     if (!isLoggedIn || !authToken) {
@@ -10333,15 +10345,18 @@ useEffect(() => {
 
     try {
       const leagues = await apiFetchMyLeagues(authToken, gameMode);
+      if (cancelled) return;
       setMyLeagues(leagues);
+      if (currentUserId) writeLiveStudioCache(cacheKey, leagues);
     } catch (err) {
       console.error("Auto load leagues failed:", err);
-      setMyLeagues([]);
+      if (!cancelled && !cachedLeagues.length) setMyLeagues([]);
     }
   }
 
   loadLeaguesAuto();
-}, [isLoggedIn, authToken, gameMode]);
+  return () => { cancelled = true; };
+}, [isLoggedIn, authToken, gameMode, currentUserId]);
 
 useEffect(() => {
   if (!isLoggedIn || !currentUserId) {

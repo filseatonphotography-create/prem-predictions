@@ -25,6 +25,18 @@ test("one final studio post lists every result and carries the only end-of-sessi
   expect(individual).toEqual(["Full time!", "Bingpot for Phil! 7 points.", "Coins won."]);
 });
 
+test("a partial founder-only refresh cannot replace the complete saved full-time table", () => {
+  const rows = Array.from({ length: 10 }, (_, index) => ({ username: `Member${index}`, position: index + 1, points: 100 - index }));
+  const [complete] = buildLiveStudioDeskEntries({ matches, nowMs, getTableRows: () => rows });
+  complete.badgeAwards = [{ username: "Member9", badgeId: "sniper" }];
+  const [partial] = buildLiveStudioDeskEntries({ matches, nowMs, getTableRows: () => rows.slice(0, 7).map(row => ({ ...row, points: 0 })) });
+  const [restored] = mergeLiveStudioDeskHistory([complete], [partial]);
+  expect(restored.tableSnapshot).toEqual(complete.tableSnapshot);
+  expect(restored.badgeAwards).toEqual(complete.badgeAwards);
+  const [refreshed] = buildLiveStudioDeskEntries({ matches, nowMs, getTableRows: () => rows.map(row => ({ ...row, points: row.points + 1 })) });
+  expect(mergeLiveStudioDeskHistory([restored], [refreshed])[0].tableSnapshot.currentRows[0].points).toBe(101);
+});
+
 test("the final roundup includes earlier completed games even when their live coverage expired", () => {
   const earlier = match(3, "Fulham", "Everton", 1, 1, kickoff - 150 * 60000);
   const getTableRows = jest.fn(() => final);
