@@ -804,6 +804,7 @@ describe("World Cup sync helpers", () => {
         goalEvents: [],
         matchEvents: [],
         homeTeam: "United States",
+        bookingsComplete: false,
         awayTeam: "Türkiye",
         halfTimeHomeGoals: 1,
         halfTimeAwayGoals: 1,

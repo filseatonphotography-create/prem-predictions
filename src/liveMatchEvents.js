@@ -2,6 +2,7 @@
 // Keep this CommonJS module free of object spread: CRA injects ESM helpers for
 // spread, which makes Webpack reject module.exports at browser startup.
 const { penaltyEventType } = require("./penaltyUtils");
+const { normalizeCardDecision, resolveCardDecisions, reconcileCardDecisions } = require("./cardDecisionUtils");
 function numeric(value) {
   return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
 }
@@ -41,7 +42,7 @@ function normalizeEvent(event, source = "", match = {}) {
   const playerOutName = personName(event.playerOut || event.playerOutName);
   const playerInName = personName(event.playerIn || event.playerInName || event.substitute || event.substituteName || event.substitution);
   const scorerName = personName(event.scorer || event.scorerName || (type === "GOAL" ? event.player || event.playerName : ""));
-  return Object.assign({}, event, {
+  return normalizeCardDecision(Object.assign({}, event, {
     type,
     varConfirmed: isConfirmedVarDecision(event) || undefined,
     shootout: shootout || undefined,
@@ -62,7 +63,7 @@ function normalizeEvent(event, source = "", match = {}) {
     playerOutName,
     playerInName,
     assistName: personName(event.assist || event.assistName),
-  });
+  }), event);
 }
 function sameEvent(a, b, allEvents = []) {
   if (a.type !== b.type) return false;
@@ -107,7 +108,7 @@ function mergeMatchEvents(...lists) {
     }
     result[index] = merged;
   });
-  return result.map(event => {
+  return resolveCardDecisions(result.map(event => {
     if (event.type !== "GOAL_DISALLOWED" || !event.estimatedMinute) return event;
     const removedGoal = result.filter(goal => goal.type === "GOAL"
       && numeric(event.previousHomeGoals) != null && numeric(event.previousAwayGoals) != null
@@ -120,7 +121,7 @@ function mergeMatchEvents(...lists) {
       sortMinute: Math.max(numeric(event.sortMinute) || numeric(event.minute) || 0,
         (numeric(removedGoal.minute) || 0) + (numeric(removedGoal.injuryTime) || 0) / 100 + 0.001),
     });
-  });
+  }));
 }
 function normalizeMatchEvents(source = {}) {
   if (!source || typeof source !== "object") return [];
@@ -142,8 +143,9 @@ function isObservedScoreCorrection(event = {}) {
   const home = scores[0] - scores[2], away = scores[1] - scores[3];
   return home === 1 && away === 0 || home === 0 && away === 1;
 }
-function reconcileReportedGoals(previous = {}, incoming = {}) {
-  const reported = normalizeGoalEvents(incoming);
+function reconcileReportedGoals(previous = {}, incoming = {}, options = {}) {
+  const reportedEvents = normalizeMatchEvents(incoming);
+  const reported = reportedEvents.filter(event => event.type === "GOAL");
   let events = mergeMatchEvents(normalizeMatchEvents(previous), normalizeMatchEvents(incoming));
   const goals = events.filter(event => event.type === "GOAL");
   const home = numeric(incoming.homeGoals), away = numeric(incoming.awayGoals);
@@ -182,7 +184,9 @@ function reconcileReportedGoals(previous = {}, incoming = {}) {
       events = mergeMatchEvents(events, [correction]);
     }
   }
-  return Object.assign({}, incoming, { goalEvents: goals, matchEvents: events });
+  const merged = Object.assign({}, incoming, { goalEvents: goals, matchEvents: events });
+  if (options.allowCardRevisions === false || Number.isFinite(previousTime) && Number.isFinite(incomingTime) && incomingTime < previousTime) return merged;
+  return reconcileCardDecisions(previous, merged, reportedEvents, options.completeBookings ?? incoming.bookingsComplete === true);
 }
 function shouldPushMatchEvent(kind) {
   return ["lineup", "goal", "goal-disallowed", "kick-off", "second-half", "half-time", "full-time"].includes(String(kind).toLowerCase().replace(/_/g, "-"));
@@ -300,6 +304,6 @@ function mergeRecordedMatchState(incoming = {}, recorded = {}) {
   const merged = mergeMatchPhaseState(recorded, current);
   return reconcileReportedGoals(recorded, Object.assign({}, merged, {
     goalEvents: incoming.goalEvents || [], matchEvents: incoming.matchEvents || [],
-  }));
+  }), { completeBookings: incoming.bookingsComplete === true, allowCardRevisions: !recordedIsNewer });
 }
 module.exports = { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };

@@ -99,6 +99,7 @@ const {
 
 const { buildFinalBadgeAwards, isFinalBadgeFixture, countFinalPredictionBadges } = require("./badgeRules");
 const { isPenaltyGoal, penaltyLabel, penaltyDetails } = require("./penaltyUtils");
+const { isSupersededYellowPost } = require("./cardDecisionUtils");
 const { isConfirmedVarDecision, mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
 
 const { getResultsRefreshInterval } = require("./liveResultsRefresh");
@@ -2703,6 +2704,7 @@ export function buildFixtureSyncPayload(matches, fixtures) {
       minute: numeric(match.minute),
       goalEvents: normalizeGoalEvents(match),
       matchEvents: normalizeMatchEvents(match),
+      bookingsComplete: Array.isArray(match.bookings),
       halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
       halfTimeAwayGoals: Number.isFinite(ht.away) ? ht.away : null,
       utcDate: match.utcDate || "",
@@ -4991,6 +4993,10 @@ export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel 
     const teamCode = team ? getTeamCode(team) : "";
     return [`${isConfirmedVarDecision(event) ? "VAR: goal disallowed" : "Goal ruled out"}${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
   }
+  if (kind === "red-card" && (event.cardUpgrade || isConfirmedVarDecision(event))) {
+    const label = event.cardUpgrade ? "yellow upgraded to red" : "red card";
+    return `${isConfirmedVarDecision(event) ? "VAR decision" : "Card decision"}: ${label} · ${getLiveStudioEventPlayerName(event) || getLiveStudioEventTeamLabel(event)}`;
+  }
   const player = getLiveStudioEventPlayerName(event);
   const team = getLiveStudioEventTeamLabel(event);
   const teamCode = team ? getTeamCode(team) : "";
@@ -5030,7 +5036,7 @@ function getLiveStudioEventIcon(event = {}) {
   if (kind === "goal-disallowed") return isConfirmedVarDecision(event) ? "📺" : "❌";
   if (kind === "stats") return "📊";
   if (kind === "lineup") return "📋";
-  if (kind === "red-card") return "🟥";
+  if (kind === "red-card") return isConfirmedVarDecision(event) ? "📺" : "🟥";
   if (kind === "yellow-card") return "🟨";
   if (kind === "substitution") return "🔁";
   if (kind === "injury") return "🤕";
@@ -5061,6 +5067,13 @@ export function buildLiveStudioEventLine({ fixture, event, score, seed, matchCon
       : normalizeTeamName(eventTeam) === normalizeTeamName(fixture.awayTeam) ? "away" : null;
     const situation = buildRedCardMatchContext({ ...matchContext, event, score, team: eventTeam ? team : "", opponent, side, seed,
       form: side === "home" ? matchContext.homeForm : side === "away" ? matchContext.awayForm : [] });
+    if (event.cardUpgrade) {
+      const original = numeric(event.cardUpgrade.originalMinute);
+      const at = original != null ? ` (${original}${numeric(event.cardUpgrade.originalInjuryTime) > 0 ? `+${event.cardUpgrade.originalInjuryTime}` : ""}′)` : "";
+      const decision = `${isConfirmedVarDecision(event) ? "VAR decision: " : ""}the original yellow${at} for ${player || team}${player && eventTeam ? ` of ${team}` : ""} has been upgraded to a straight red. ${player || team || "The player"} is sent off.`;
+      return [decision.charAt(0).toUpperCase() + decision.slice(1), event.reason, situation].filter(Boolean).join(" ");
+    }
+    if (isConfirmedVarDecision(event)) return [`VAR decision: ${player || team} has been sent off${eventTeam && player ? ` for ${team}` : ""}.`, event.reason, situation].filter(Boolean).join(" ");
     const announcement = pickLiveStudioPhrase(`${seed}:${getLiveStudioUpdateKeyPart(event)}`, [
       `We're off to ${venue}, where there's been a red card... but for who, Chris Kamara? ${reveal}`,
       `Hold on! Big news from ${venue}. ${reveal}${opponent ? ` That hands ${opponent} an advantage.` : ""}`,
@@ -5208,7 +5221,7 @@ function buildLiveStudioVerdictLabel({ entryKind, statusLabel, tableSnapshot, ta
   if (statusLabel === "FT") return "Result confirmed";
   if (entryKind === "goal") return tableImpactLine ? "Prediction swing" : "Goal flash";
   if (entryKind === "goal-disallowed") return isConfirmedVarDecision(event) ? "VAR decision" : tableImpactLine ? "Table after disallowed goal" : "Goal disallowed";
-  if (entryKind === "red-card") return "Match turning point";
+  if (entryKind === "red-card") return isConfirmedVarDecision(event) ? "VAR decision" : event?.cardUpgrade ? "Card upgraded" : "Match turning point";
   if (entryKind === "yellow-card") return "Discipline watch";
   if (entryKind === "substitution") return "Tactical shift";
   if (entryKind === "injury") return "Injury watch";
@@ -5305,14 +5318,15 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
     });
     return reversed ? key : entry.updateKey || key.split(":repeat:")[0];
   };
-  history.filter(entry => !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
+  const cardDecisions = allPosts.filter(entry => entry.cardEvent?.cardUpgrade);
+  history.filter(entry => !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry) && !isSupersededYellowPost(entry, cardDecisions))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const key = keyFor(entry);
       const previous = entries.get(key);
       entries.set(key, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
     });
-  currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isRetiredLiveStudioEntry(entry)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
+  currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isRetiredLiveStudioEntry(entry) && !isSupersededYellowPost(entry, cardDecisions)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
     const key = keyFor(entry);
     const previous = entries.get(key);
     if (entry.id === "studio:closing") entries.set(key, mergeLiveStudioFinalRoundup(previous, entry));
@@ -6050,7 +6064,8 @@ function normalizeLiveStudioDeskEntry(entry) {
 export function getVisibleLiveStudioEntries(entries = []) {
   // Individual results remain internal history for the final roundup. Only the
   // studio FT post is shown, and old timer/filler cards never return on reload.
-  const visible = entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry))
+  const decisions = entries.filter(entry => entry.cardEvent?.cardUpgrade);
+  const visible = entries.filter(entry => !entry.fullTime && entry.verdictLabel !== "Result confirmed" && !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry) && !isSupersededYellowPost(entry, decisions))
     .map(normalizeLiveStudioDeskEntry);
   return visible.map(entry => {
     if (!entry.id?.startsWith("studio:checkpoint:") || !entry.roundupMatches?.length) return entry;
@@ -12369,6 +12384,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           orderKey: `${updateKey}:${event.minute ?? "unknown"}:${event.injuryTime ?? ""}`,
           fixtureId: fixture.id,
           fixture,
+          cardEvent: ["red-card", "yellow-card"].includes(entryKind) ? event : undefined,
           minute: entryMinute,
           sortMinute,
           momentMs: entryMomentMs,
@@ -12378,6 +12394,8 @@ const liveStudioCurrentFeed = useMemo(() => {
           beforeHalfTime: (entryIsGoal || entryIsGoalDisallowed) && getConfirmedPhaseFlags(matchState).halfTime
             && entryMomentMs < getMatchEventMomentMs(fixture, { statusLabel: "HT", minute: 45 }, matchState),
           backfilled: !inCoverage || paused && (entryIsGoal || entryIsGoalDisallowed)
+            || ["red-card", "yellow-card"].includes(entryKind) && (paused || finished)
+              && liveStudioNow - entryMomentMs > 5 * 60000
             || (entryIsGoal || entryIsGoalDisallowed)
             && (paused || finished || getConfirmedPhaseFlags(matchState).secondHalf)
             && liveStudioNow - entryMomentMs > 5 * 60000

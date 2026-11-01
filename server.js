@@ -39,7 +39,7 @@ const {
 
 const { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-10-31-clear-goal-decisions";
+const BUILD_ID = "2026-11-01-card-upgrade-decisions";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -4490,7 +4490,7 @@ function mergeMatchStatePreservingEvents(existing = {}, incoming = {}) {
   if (matchEvents.length) merged.matchEvents = matchEvents;
   return reconcileReportedGoals(existing, Object.assign({}, merged, {
     goalEvents: incoming.goalEvents || [], matchEvents: incoming.matchEvents || [],
-  }));
+  }), { completeBookings: incoming.bookingsComplete === true });
 }
 
 function buildLiveMatchEventPayload(fixture, event = {}) {
@@ -5171,6 +5171,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         minute: numeric(match.minute),
         goalEvents: normalizeGoalEvents(match),
         matchEvents: normalizeMatchEvents(match),
+        bookingsComplete: Array.isArray(match.bookings),
         homeTeam: match.homeTeam?.name || "",
         awayTeam: match.awayTeam?.name || "",
         halfTimeHomeGoals: Number.isFinite(ht.home) ? ht.home : null,
