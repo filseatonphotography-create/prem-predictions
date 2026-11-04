@@ -82,3 +82,32 @@ test('Champions League kickoff cards render both teams’ competition-only form'
     expect(within(section).getByRole('group', { name: 'Liverpool form' })).toHaveTextContent('L');
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
+
+test.each(['premier', 'champions'])('the %s feed shows scheduled form and build-up cards before kickoff with confirmed lineups', async competition => {
+  const kickoff = Date.parse(fixture.kickoff);
+  jest.useFakeTimers(); jest.setSystemTime(kickoff - 14 * 60000);
+  localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
+  window.history.replaceState({}, '', `/?view=liveStudio&studio=coverage&competition=${competition}`);
+  localStorage.setItem('pl_prediction_auth_v1', JSON.stringify({ token: 'test-only', userId: 'diagnostic', username: 'Diagnostic' }));
+  localStorage.setItem('activeView', 'liveStudio');
+  localStorage.setItem('prediction_gameweeks_by_mode_v1', JSON.stringify({ premierLeague: fixture.gameweek }));
+  localStorage.setItem('live-studio-selection:v1:diagnostic', JSON.stringify({ 'cl:77': true }));
+  const lineup = Array.from({ length: 11 }, (_, id) => ({ id, name: `Player ${id}` }));
+  const state = { status: 'TIMED', utcDate: fixture.kickoff, lineupsAnnouncedAt: new Date(kickoff - 75 * 60000).toISOString(), lineups: { home: { lineup }, away: { lineup } } };
+  const raw = { id: 77, ...state, homeTeam: { id: 1, name: 'Fenerbahçe SK' }, awayTeam: { id: 2, name: 'Liverpool FC' }, score: {}, form: { home: [], away: [] } };
+  const original = global.fetch;
+  global.fetch = jest.fn(async url => {
+    let data = {};
+    if (String(url).includes('/api/live-studio/matches?')) data = { matches: [raw] };
+    if (String(url).includes('/api/match-states/snapshot')) data = { [fixture.id]: state };
+    if (String(url).includes('/api/results?')) data = [{ id: fixture.id, ...state, homeTeam: { name: fixture.homeTeam, lineup }, awayTeam: { name: fixture.awayTeam, lineup }, score: {} }];
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
+  });
+  try {
+    render(<App />); await act(async () => { for (let i = 0; i < 70; i++) await Promise.resolve(); });
+    expect(screen.getByText('The pre-match form guide')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Team form before kick-off' })).toBeInTheDocument();
+    expect(screen.getByText('The countdown is on')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Live Studio' })).toHaveClass('live-studio-live-button');
+  } finally { cleanup(); global.fetch = original; jest.useRealTimers(); window.history.replaceState({}, '', '/'); }
+});

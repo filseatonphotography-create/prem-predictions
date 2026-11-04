@@ -5,6 +5,7 @@ import { studioCountdown } from './studioNavigation';
 const buttonStyle = theme => ({ background: theme.panelHi, color: theme.text, border: `1px solid ${theme.line}`, borderRadius: 8, padding: '8px 12px', cursor: 'pointer', fontWeight: 800 });
 const score = fixture => fixture.homeGoals != null && fixture.awayGoals != null ? `${fixture.homeGoals}–${fixture.awayGoals}` : 'v';
 function matchStatus(fixture) {
+  if (['TIMED', 'SCHEDULED'].includes(fixture.status)) return 'Pre-match';
   if (fixture.status === 'PAUSED') return 'HT';
   if (fixture.status === 'EXTRA_TIME') return 'Extra time';
   if (fixture.status === 'PENALTY_SHOOTOUT') return 'Penalties';
@@ -26,9 +27,13 @@ export function LiveStudioCompetitions({ studio, theme, nowMs, isMobile }) {
           <button type="button" onClick={() => studio.openCompetition(group.id)} className={live ? 'live-studio-live-button' : undefined} aria-label={group.label}
             style={{ ...buttonStyle(theme), padding: '12px 20px', minHeight: 54, borderRadius: 999, fontSize: isMobile ? 16 : 18, border: `1px solid ${live ? 'rgba(34,197,94,0.75)' : theme.line}`, background: live ? 'linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))' : theme.panelHi, color: live ? '#052e16' : theme.text }}>
             <span style={{ display: 'block' }}>{group.label}</span>
-            {live && <span style={{ display: 'block', fontSize: 12, marginTop: 6 }}>{group.liveFixtures.length} {group.liveFixtures.length === 1 ? 'game live' : 'games live'}</span>}
+            {live && <span style={{ display: 'block', fontSize: 12, marginTop: 6 }}>{group.liveFixtures.length} {group.liveFixtures.length === 1 ? 'game in coverage' : 'games in coverage'}</span>}
           </button>
-          {!live && (group.id === 'champions' && studio.loading ? <span role="status" style={{ color: theme.muted }}>Checking fixtures…</span> : group.id === 'champions' && studio.error ? <span role="status" style={{ color: '#fbbf24', fontSize: 12 }}>Live updates unavailable. <button type="button" style={buttonStyle(theme)} onClick={studio.refresh}>Retry</button></span> : <NextKickoff group={group} nowMs={nowMs} theme={theme} />)}
+          {!live && (group.nextFixture ? <div style={{ display: 'grid', gap: 6 }}>
+            <NextKickoff group={group} nowMs={nowMs} theme={theme} />
+            {group.id === 'champions' && studio.error && <span style={{ color: theme.muted, fontSize: 11 }}>Showing the last confirmed kick-off. <button type="button" style={buttonStyle(theme)} onClick={studio.refresh}>Retry</button></span>}
+          </div> : group.id === 'champions' && studio.loading ? <span role="status" style={{ color: theme.muted }}>Checking fixtures…</span> : group.id === 'champions' && studio.error ? <span role="status" style={{ color: '#fbbf24', fontSize: 12 }}>Fixtures are taking longer to load. <button type="button" style={buttonStyle(theme)} onClick={studio.refresh}>Retry</button></span> : <NextKickoff group={group} nowMs={nowMs} theme={theme} />)}
+          {live && group.nextFixture && group.liveFixtures.some(fixture => Date.parse(fixture.kickoff) === Date.parse(group.nextFixture.kickoff)) && group.liveFixtures.every(fixture => ['TIMED', 'SCHEDULED'].includes(fixture.status)) && <NextKickoff group={group} nowMs={nowMs} theme={theme} />}
         </div>;
       })}
     </div>
@@ -39,7 +44,7 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
   const selectedCount = group.liveFixtures.filter(studio.isSelected).length;
   return <div style={{ display: 'grid', gap: 14 }}>
     <div><button type="button" style={button} onClick={studio.showCompetitions}>← Competitions</button></div>
-    <h2 style={{ margin: 0, fontSize: 22 }}>{group.label} · Live games</h2>
+    <h2 style={{ margin: 0, fontSize: 22 }}>{group.label} · Live coverage</h2>
     {group.id === 'champions' && studio.loading && <p role="status" style={{ color: theme.muted }}>Loading live games…</p>}
     {group.id === 'champions' && studio.error && <p role="status" style={{ color: '#fbbf24' }}>{studio.error} <button type="button" style={button} onClick={studio.refresh}>Retry</button></p>}
     {!group.liveFixtures.length && !(group.id === 'champions' && (studio.loading || studio.error)) && <div role="status" style={{ textAlign: 'center', padding: '24px 8px', display: 'grid', gap: 12 }}>
@@ -66,7 +71,7 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
                   <span style={{ overflowWrap: 'anywhere', lineHeight: 1.35 }}>{team}</span>
                 </span>)}
               </label>
-              <div style={{ textAlign: 'center', minWidth: 42 }}><strong style={{ fontSize: 20, whiteSpace: 'nowrap' }}>{score(fixture)}</strong><div style={{ color: '#22c55e', fontSize: 12, marginTop: 4 }}>{matchStatus(fixture)}</div></div>
+              <div style={{ textAlign: 'center', minWidth: 42, maxWidth: 90 }}><strong style={{ fontSize: 20, whiteSpace: 'nowrap' }}>{score(fixture)}</strong><div style={{ color: '#22c55e', fontSize: 12, marginTop: 4 }}>{matchStatus(fixture)}</div></div>
             </div>
             <div style={{ borderTop: `1px solid ${theme.line}`, paddingTop: 12, display: 'grid', gap: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>

@@ -191,3 +191,26 @@ test('saving one game’s bell does not block another game’s notification cont
   expect(first).toHaveAttribute('aria-pressed', 'true'); expect(second).toHaveAttribute('aria-pressed', 'true');
   expect(first).not.toBeDisabled(); expect(second).not.toBeDisabled();
 });
+
+test('a confirmed pre-match lineup starts coverage and keeps its kickoff countdown visible', async () => {
+  const lineup = Array.from({ length: 11 }, (_, id) => ({ id, name: `Player ${id}` }));
+  nextMatches = [{ ...champion, status: 'TIMED', utcDate: '2026-11-04T18:30:00Z', lineups: { home: { lineup }, away: { lineup } }, lineupsAnnouncedAt: '2026-11-04T17:30:00Z' }];
+  render(<Harness />); await act(flush);
+  expect(screen.getByRole('button', { name: 'Champions League' })).toHaveClass('live-studio-live-button');
+  expect(screen.getByText(/Next kick-off in/)).toBeInTheDocument();
+  await open('Champions League');
+  expect(screen.getByRole('checkbox', { name: 'Follow Fenerbahçe v Liverpool' })).toBeVisible();
+  expect(screen.getByText('Pre-match')).toBeInTheDocument();
+});
+test('a known countdown survives an overdue overview refresh and its timeout', async () => {
+  localStorage.setItem('studio-overview:v1:', JSON.stringify({ receivedAt: Date.now() - 10 * 60000, matches: [], nextFixture: { id: 'cl:99', kickoff: '2026-11-04T18:30:00Z' } }));
+  const original = global.fetch;
+  global.fetch = jest.fn((url, options) => String(url).includes('/matches?') ? new Promise(() => {}) : original(url, options));
+  render(<Harness />);
+  expect(screen.getByText(/Next kick-off in/)).toBeInTheDocument();
+  expect(screen.queryByText('Checking fixtures…')).not.toBeInTheDocument();
+  await act(async () => { jest.advanceTimersByTime(10000); await flush(); });
+  expect(screen.getByText(/Next kick-off in/)).toBeInTheDocument();
+  expect(screen.queryByText('Checking fixtures…')).not.toBeInTheDocument();
+  expect(screen.getByText(/last confirmed kick-off/)).toBeInTheDocument();
+});

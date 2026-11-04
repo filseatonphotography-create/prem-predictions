@@ -6,6 +6,8 @@ const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 const { championsFixture, studioAlertAllowed, buildChampionsForm } = require("./src/studioCompetitions");
 
 const { createStudioOverviewCache } = require("./src/studioOverviewCache");
+const { hasStudioLineups } = require("./src/studioPrematch");
+const studioLineupTimes = new Map();
 
 const express = require("express");
 const cors = require("cors");
@@ -43,7 +45,7 @@ const {
 
 const { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-11-05-studio-fast-controls";
+const BUILD_ID = "2026-11-05-studio-prematch-coverage";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -675,11 +677,15 @@ const championsOverview = createStudioOverviewCache({
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
-      const response = await fetch(`${FOOTBALL_DATA_API_BASE}/competitions/CL/matches`, { headers: getFootballDataHeaders(), signal: controller.signal });
+      const response = await fetch(`${FOOTBALL_DATA_API_BASE}/competitions/CL/matches`, { headers: { ...getFootballDataHeaders(), "X-Unfold-Lineups": "true" }, signal: controller.signal });
       if (!response.ok) throw new Error(`Competition overview HTTP ${response.status}`);
       const data = await response.json();
       if (!Array.isArray(data.matches)) throw new Error("Invalid competition overview");
-      return data.matches;
+      return data.matches.map(match => {
+        const key = `${match.id}|${match.utcDate}`;
+        if (["TIMED", "SCHEDULED"].includes(match.status) && hasStudioLineups(match) && !studioLineupTimes.has(key)) studioLineupTimes.set(key, new Date().toISOString());
+        return { ...match, lineupsAnnouncedAt: studioLineupTimes.get(key) || "" };
+      });
     } finally { clearTimeout(timeout); }
   },
 });
@@ -3716,6 +3722,7 @@ app.get("/api/live-studio/matches", async (req, res) => {
         .sort((a, b) => Date.parse(a.utcDate) - Date.parse(b.utcDate))[0];
       const matches = overview.matches.filter(match => Math.abs(Date.parse(match.utcDate) - now) <= 24 * 3600000).map(match => ({
         id: match.id, utcDate: match.utcDate, status: match.status, minute: match.minute, lastUpdated: match.lastUpdated,
+        lineups: normalizeLineups(match), lineupsAvailable: hasStudioLineups(match), lineupsAnnouncedAt: match.lineupsAnnouncedAt || "", form: buildChampionsForm(match, overview.matches),
         homeTeam: { id: match.homeTeam?.id, name: match.homeTeam?.name, crest: match.homeTeam?.crest },
         awayTeam: { id: match.awayTeam?.id, name: match.awayTeam?.name, crest: match.awayTeam?.crest }, score: match.score,
       }));

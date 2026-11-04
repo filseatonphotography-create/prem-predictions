@@ -12116,7 +12116,8 @@ const liveStudioCurrentFeed = useMemo(() => {
     .filter(studioCoverage.isCovered)
     .flatMap((fixture) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
-      const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
+      const baseMatchState = demoState || matchStatesByFixtureId[fixture.id] || {};
+      const matchState = { ...baseMatchState, lineupsAnnouncedAt: studioCoverage.lineupTime(fixture, baseMatchState) || baseMatchState.lineupsAnnouncedAt };
       const inCoverage = isLiveStudioFixtureInCoverageWindow(fixture, matchState, liveStudioNow);
       const status = String(matchState.status || "").toUpperCase();
       // Rebuild an already-read result so late prediction/league data can enrich
@@ -12544,6 +12545,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   generatedModelOddsByFixture,
   liveStudioPreMatchContexts,
   studioCoverage.isCovered,
+  studioCoverage.lineupTime,
   getLiveStudioLeagueBasePoints,
   liveStudioDemoStateByFixtureId,
   liveStudioFixtures,
@@ -12582,7 +12584,14 @@ const combinedStudioFeed = useMemo(() => {
   });
   return merged;
 }, [liveStudioFeed, studioCoverage.foreignFeed, gameMode]);
-const visibleStudioFeed = studioCoverage.filterFeed(combinedStudioFeed);
+const visibleStudioFeed = (() => {
+  const entries = [...combinedStudioFeed];
+  [...studioCoverage.preMatchFeed].sort((a, b) => b.momentMs - a.momentMs).forEach(entry => {
+    const index = entries.findIndex(existing => (existing.momentMs || 0) < entry.momentMs);
+    entries.splice(index < 0 ? entries.length : index, 0, entry);
+  });
+  return studioCoverage.filterFeed(entries);
+})();
 
 useEffect(() => {
   if (
@@ -21718,8 +21727,8 @@ if (!isLoggedIn) {
                             </div>
                           ))}
                         </div>
-                        {isKickoffCard && entryFixture && (entryFixture.competition === "champions" || !isWorldCupMode) && (
-                          <section aria-label="Team form at kick-off" style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                        {(entry.formCard || isKickoffCard && !studioCoverage.preMatchFeed.some(card => card.formCard && String(card.fixtureId) === String(entry.fixtureId))) && entryFixture && (entryFixture.competition === "champions" || !isWorldCupMode) && (
+                          <section aria-label={entry.formCard ? "Team form before kick-off" : "Team form at kick-off"} style={{ marginTop: 12, display: "grid", gap: 10 }}>
                             <div style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35 }}>
                               {entryFixture.competition === "champions" ? "Champions League form this season · before kick-off · latest first" : pickLiveStudioPhrase(`${entryFixture.id}:kickoff-form`, [
                                 "Let's look at the teams' current form.",

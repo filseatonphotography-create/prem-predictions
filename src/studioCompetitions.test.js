@@ -163,6 +163,7 @@ test('the quick overview route returns live games without waiting for detailed r
   const details = jest.fn(() => new Promise(() => {})), readStates = jest.fn();
   const context = { app: { get: (_path, callback) => { handler = callback; } }, Date, console, championsFixture,
     championsOverview: { get: async () => ({ matches: [live], updatedAt: Date.now(), stale: false }) },
+    normalizeLineups: utils.normalizeLineups, hasStudioLineups: require('./studioPrematch').hasStudioLineups, buildChampionsForm: require('./studioCompetitions').buildChampionsForm,
     fetchLiveMatches: details, loadMatchStates: readStates };
   const start = source.indexOf('app.get("/api/live-studio/matches"'), end = source.indexOf('app.get("/api/results"', start);
   vm.runInNewContext(source.slice(start, end), context);

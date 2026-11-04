@@ -1,7 +1,10 @@
+const { hasStudioLineups } = require('./studioPrematch');
 export const LIVE_STUDIO_STATUSES = ['LIVE', 'IN_PLAY', 'PAUSED', 'EXTRA_TIME', 'PENALTY_SHOOTOUT'];
 export function isStudioMatchLive(fixture, nowMs = Date.now()) {
   const kickoff = Date.parse(fixture?.kickoff || fixture?.utcDate || '');
-  return LIVE_STUDIO_STATUSES.includes(String(fixture?.status || '').toUpperCase())
+  const status = String(fixture?.status || '').toUpperCase();
+  if (['TIMED', 'SCHEDULED'].includes(status)) return Number.isFinite(kickoff) && nowMs - kickoff <= 30 * 60000 && kickoff - nowMs <= 90 * 60000 && hasStudioLineups(fixture);
+  return LIVE_STUDIO_STATUSES.includes(status)
     && (!Number.isFinite(kickoff) || (kickoff <= nowMs && nowMs - kickoff <= 8 * 3600000));
 }
 export function nextStudioKickoff(fixtures, nowMs) {

@@ -173,9 +173,9 @@ Live Studio opens with two competition buttons: **Premier League** and
 otherwise it shows a countdown to the next scheduled kick-off. The main Live
 Studio button pulses when either competition is live.
 
-Choosing a competition opens its own live-match page. Only games in progress
-(including half-time, extra time and penalties) can be selected. Completed,
-scheduled, postponed and cancelled games are excluded, and stale unfinished
+Choosing a competition opens its own live-match page. Games in progress (including half-time, extra time and penalties) and
+pre-match games with both confirmed starting XIs can be selected. Completed,
+unconfirmed scheduled, postponed and cancelled games are excluded, and stale unfinished
 snapshots cannot keep a competition live indefinitely. Follow selected games
 opens their coverage on a separate page. Back controls and browser history let
 users return to the list or competition picker. Match selections are remembered
@@ -238,3 +238,26 @@ Each bell and alert level updates immediately while its save is pending, shows
 saving status, and restores its previous setting if the save fails. Saves for
 other fixtures remain usable. The background notifier processes only active,
 imminent and recently finished fixtures and reads subscriptions once per poll.
+
+
+Coverage starts when both full line-ups are confirmed within 90 minutes of
+kick-off, for Premier League and Champions League. The competition and global
+Studio buttons pulse during this pre-match coverage, with the kick-off countdown
+still visible. A short delay in the provider marking kick-off does not interrupt
+coverage. No kick-off event is invented before provider confirmation.
+
+Pre-match cards use the saved first-confirmed line-up time: a form guide after
+30 minutes, followed by a build-up card 15 minutes before scheduled kick-off.
+Both have stable identities and appear only once their publication time is due.
+They remain historical entries after kick-off. Champions League content uses
+Champions League form only. If a form card has already appeared, kick-off does
+not repeat it. Late line-ups never produce a form card dated after kick-off.
+
+The public Champions League overview is also served by the same-site Netlify
+function `/.netlify/functions/studio-overview`, using the existing server-side
+`FOOTBALL_DATA_TOKEN`. Production prefers this feed and falls back to Render;
+local development uses Render. Requests have a timeout instead of leaving
+“Checking fixtures” indefinitely. A recently saved upcoming kick-off can still
+supply the countdown during a failed refresh, labelled as last confirmed when
+updates are delayed. Player line-ups and announcement timing are included in
+the overview, so pre-match coverage can begin without the detailed Render feed.

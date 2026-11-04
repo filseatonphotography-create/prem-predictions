@@ -16,3 +16,13 @@ test('countdown uses the next scheduled kickoff, excluding cancelled matches', (
   expect(nextStudioKickoff([{ status: 'CANCELLED', kickoff: '2026-11-05T18:00:00Z' }, fixture('FINISHED'), next], now)).toEqual(next);
   expect(studioCountdown(next.kickoff, now)).toBe('7d 1h 46m 0s');
 });
+
+test('coverage begins with confirmed lineups before kickoff, without treating future unconfirmed games as live', () => {
+  const lineup = Array.from({ length: 11 }, (_, id) => ({ id, name: `Player ${id}` }));
+  const next = { status: 'TIMED', kickoff: '2026-11-04T18:45:00Z', lineups: { home: { lineup }, away: { lineup } } };
+  expect(isStudioMatchLive(next, now)).toBe(true);
+  expect(isStudioMatchLive(next, Date.parse(next.kickoff) + 60000)).toBe(true);
+  expect(isStudioMatchLive({ ...next, lineups: null }, now)).toBe(false);
+  expect(isStudioMatchLive({ ...next, status: 'FINISHED' }, now)).toBe(false);
+  expect(isStudioMatchLive({ ...next, kickoff: '2026-11-05T18:45:00Z' }, now)).toBe(false);
+});
