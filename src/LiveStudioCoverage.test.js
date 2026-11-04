@@ -214,3 +214,11 @@ test('a known countdown survives an overdue overview refresh and its timeout', a
   expect(screen.queryByText('Checking fixtures…')).not.toBeInTheDocument();
   expect(screen.getByText(/last confirmed kick-off/)).toBeInTheDocument();
 });
+
+test('a known announcement time is retained when joining after kickoff', async () => {
+  const lineup = Array.from({ length: 11 }, (_, id) => ({ id, name: `Player ${id}` }));
+  nextMatches = [{ ...champion, lineups: { home: { lineup }, away: { lineup } }, lineupsAnnouncedAt: '2026-11-04T16:45:00Z' }];
+  render(<Harness />); await act(flush);
+  const times = JSON.parse(localStorage.getItem('studio-lineup-times:v1'));
+  expect(times['cl:77|2026-11-04T17:45:00Z']).toBe('2026-11-04T16:45:00.000Z');
+});

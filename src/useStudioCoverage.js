@@ -154,8 +154,13 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     let changed = false;
     const remember = (fixture, state) => {
       const kickoff = Date.parse(fixture.kickoff);
-      if (!hasStudioLineups(state) || !['TIMED', 'SCHEDULED'].includes(String(state.status).toUpperCase()) || kickoff <= Date.now() || kickoff - Date.now() > 90 * 60000) return;
-      const key = lineupTimeKey(fixture), announcedAt = getStudioLineupTime(fixture, state, next[key]) || new Date().toISOString();
+      if (!hasStudioLineups(state) || !Number.isFinite(kickoff) || Date.now() - kickoff > 8 * 3600000 || kickoff - Date.now() > 90 * 60000) return;
+      const key = lineupTimeKey(fixture);
+      let announcedAt = getStudioLineupTime(fixture, state, next[key]);
+      if (!announcedAt) {
+        if (!['TIMED', 'SCHEDULED'].includes(String(state.status).toUpperCase()) || kickoff <= Date.now()) return;
+        announcedAt = new Date().toISOString();
+      }
       if (next[key] !== announcedAt) { next[key] = announcedAt; changed = true; }
     };
     fixtures.forEach(fixture => remember(fixture, states[fixture.id] || {}));
