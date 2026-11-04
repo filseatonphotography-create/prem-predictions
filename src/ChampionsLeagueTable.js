@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import LeagueTableRow from './LeagueTableRow';
 import TeamFormStrip from './TeamFormStrip';
+import { readChampionsStandings, fetchChampionsStandings } from './championsStandingsClient';
 
 export default function ChampionsLeagueTable({ base, theme, isMobile = false, resolveBadge }) {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(() => readChampionsStandings(base));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedTeam, setExpandedTeam] = useState('');
@@ -15,10 +16,7 @@ export default function ChampionsLeagueTable({ base, theme, isMobile = false, re
       if (pending) return;
       pending = true; setLoading(true);
       try {
-        const response = await fetch(`${base}/api/champions-league/standings`, { signal: controller.signal });
-        const next = await response.json();
-        if (!response.ok || !Array.isArray(next.standings)) throw new Error('Champions League standings are temporarily unavailable.');
-        if (next.competition?.code && next.competition.code !== 'CL') throw new Error('Champions League standings are temporarily unavailable.');
+        const next = await fetchChampionsStandings(base);
         if (!controller.signal.aborted) { setData(next); setError(next.stale ? 'Updates are delayed. Showing the last received standings.' : ''); }
       } catch (err) { if (!controller.signal.aborted) setError(err.message); }
       finally { pending = false; if (!controller.signal.aborted) setLoading(false); }

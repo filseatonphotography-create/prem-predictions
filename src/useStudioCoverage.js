@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { fetchChampionsStandings } from './championsStandingsClient';
 import { isStudioMatchLive, nextStudioKickoff, readStudioRoute } from './studioNavigation';
 const { championsFixture, footballFeed, currentChampionsMatch } = require('./studioCompetitions');
 
@@ -13,8 +14,13 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
   const selection = savedSelection.key === storageKey ? savedSelection.values : read(storageKey);
   const [prefsState, setPrefs] = useState({ token, values: {} });
   const prefs = prefsState.token === token ? prefsState.values : {};
-  const [matches, setMatches] = useState([]);
-  const [upcomingChampion, setUpcomingChampion] = useState(null);
+  const overviewKey = `studio-overview:v1:${base}`;
+  const cachedOverview = useMemo(() => {
+    const saved = read(overviewKey);
+    return saved.receivedAt && Date.now() - (saved.updatedAt || saved.receivedAt) <= 120000 && Array.isArray(saved.matches) ? saved : null;
+  }, [overviewKey]);
+  const [matches, setMatches] = useState(() => cachedOverview?.matches || []);
+  const [upcomingChampion, setUpcomingChampion] = useState(() => cachedOverview?.nextFixture || null);
   const [route, setRoute] = useState(readStudioRoute);
   const navigate = useCallback(next => {
     setRoute(next); setFocused('');
@@ -37,14 +43,17 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     return () => window.removeEventListener('popstate', restore);
   }, []);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(!cachedOverview);
+  const [detailsError, setDetailsError] = useState('');
+  const [savingIds, setSavingIds] = useState([]);
+  const alertSaves = useRef(new Set());
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [prefsReady, setPrefsReady] = useState(false);
   const [alertError, setAlertError] = useState('');
   const [focused, setFocused] = useState('');
   const generation = useRef(0);
   const refreshRef = useRef(null);
+  const overviewVersion = useRef(0);
   const isSelected = useCallback(fixture => selection[String(fixture.id)] ?? !String(fixture.id).startsWith('cl:'), [selection]);
   const select = useCallback((ids, enabled) => {
     setSelection(previous => {
@@ -61,7 +70,7 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
   useEffect(() => {
     const controller = new AbortController();
     const current = ++generation.current;
-    setPrefsLoading(true); setPrefsReady(false); setPrefs({ token, values: {} });
+    alertSaves.current.clear(); setSavingIds([]); setPrefsLoading(true); setPrefsReady(false); setPrefs({ token, values: {} });
     if (!token) { setPrefsLoading(false); return () => controller.abort(); }
     (async () => {
       try {
@@ -82,11 +91,19 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
       if (pending) return;
       pending = true;
       try {
-        const response = await fetch(`${base}/api/live-studio/matches?competition=champions`, { signal: controller.signal });
+        const response = await fetch(`${base}/api/live-studio/matches?competition=champions&summary=1`, { signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Champions League updates are unavailable.');
         if (!Array.isArray(data.matches)) throw new Error('Champions League updates are unavailable.');
-        if (!controller.signal.aborted) { setMatches(data.matches.map(currentChampionsMatch)); setUpcomingChampion(data.nextFixture || null); setError(''); }
+        if (!controller.signal.aborted) {
+          overviewVersion.current += 1;
+          setMatches(previous => data.matches.map(raw => {
+            const detail = previous.find(match => match.id === raw.id);
+            return currentChampionsMatch({ ...detail, ...raw, homeTeam: { ...detail?.homeTeam, ...raw.homeTeam }, awayTeam: { ...detail?.awayTeam, ...raw.awayTeam } });
+          }));
+          setUpcomingChampion(data.nextFixture || null); setError('');
+          write(overviewKey, { matches: data.matches, nextFixture: data.nextFixture || null, updatedAt: data.updatedAt, receivedAt: Date.now() });
+        }
       } catch (err) { if (!controller.signal.aborted) setError(err.message); }
       finally { pending = false; if (!controller.signal.aborted) setLoading(false); }
     };
@@ -94,7 +111,38 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     refreshRef.current = refresh;
     tick();
     return () => { controller.abort(); clearTimeout(timer); refreshRef.current = null; };
+  }, [poll, base, overviewKey]);
+
+  useEffect(() => {
+    if (poll) fetchChampionsStandings(base).catch(() => {});
   }, [poll, base]);
+  useEffect(() => {
+    if (!active || route.page !== 'coverage' || route.competition !== 'champions') return;
+    const controller = new AbortController();
+    let timer;
+    const refresh = async () => {
+      const startedVersion = overviewVersion.current;
+      try {
+        const response = await fetch(`${base}/api/live-studio/matches?competition=champions`, { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.matches)) throw new Error('Detailed match updates are delayed. Live scores are still updating.');
+        if (!controller.signal.aborted) {
+          setMatches(previous => data.matches.map(raw => {
+            const detail = currentChampionsMatch(raw), current = previous.find(match => match.id === raw.id);
+            const detailNewer = Date.parse(detail.lastUpdated || '') > Date.parse(current?.lastUpdated || '');
+            if (current && overviewVersion.current !== startedVersion && !detailNewer) {
+              return { ...detail, score: current.score, homeGoals: current.homeGoals, awayGoals: current.awayGoals, status: current.status, minute: current.minute, lastUpdated: current.lastUpdated };
+            }
+            return detail;
+          }));
+          setDetailsError('');
+        }
+      } catch (err) { if (!controller.signal.aborted) setDetailsError('Detailed match updates are delayed. Live scores are still updating.'); }
+      finally { if (!controller.signal.aborted) timer = setTimeout(refresh, 30000); }
+    };
+    refresh();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [active, route.page, route.competition, base]);
 
   const primary = fixtures.map(fixture => {
     const state = states[fixture.id] || {};
@@ -115,12 +163,16 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     && (route.gameIds ? route.gameIds.includes(String(fixture.id)) : isSelected(fixture)), [route.competition, route.gameIds, isSelected]);
   const alertPref = fixture => ({ enabled: prefs[fixture.id]?.enabled ?? (fixturePrefs[fixture.id] === true || (!String(fixture.id).startsWith('cl:') && globalAlerts)), level: prefs[fixture.id]?.level || 'all' });
   const saveAlert = async (fixture, changes) => {
-    if (saving || prefsLoading) return;
-    setSaving(true); setAlertError('');
+    const fixtureKey = String(fixture.id);
+    if (prefsLoading || !prefsReady || alertSaves.current.has(fixtureKey)) return;
+    alertSaves.current.add(fixtureKey); setSavingIds([...alertSaves.current]); setAlertError('');
     const currentGeneration = generation.current;
+    const previous = alertPref(fixture);
+    const previousExplicit = prefs[fixture.id];
+    const next = { ...previous, ...changes };
+    setPrefs(current => ({ token, values: { ...current.values, [fixture.id]: next } }));
     try {
       if (!token) throw new Error('Please sign in to manage match alerts.');
-      const next = { ...alertPref(fixture), ...changes };
       if (next.enabled && !pushSupported) throw new Error('Push notifications are not supported in this browser.');
       if (next.enabled && !pushEnabled) {
         const subscription = await enablePush({ refreshExisting: false });
@@ -133,11 +185,16 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Could not save match alerts.');
       if (currentGeneration === generation.current) {
-        setPrefs({ token, values: data.prefs || {} });
-        if (data.fixturePrefs) onFixturePrefs?.(data.fixturePrefs);
+        setPrefs(current => ({ token, values: { ...current.values, [fixtureKey]: data.prefs?.[fixtureKey] || next } }));
+        if (data.fixturePrefs) onFixturePrefs?.(data.fixturePrefs, fixtureKey);
       }
-    } catch (err) { if (currentGeneration === generation.current) setAlertError(err.message); }
-    finally { setSaving(false); }
+    } catch (err) {
+      if (currentGeneration === generation.current) {
+        setPrefs(current => { const values = { ...current.values }; if (previousExplicit) values[fixture.id] = previousExplicit; else delete values[fixture.id]; return { token, values }; });
+        setAlertError(err.message);
+      }
+    }
+    finally { if (currentGeneration === generation.current) { alertSaves.current.delete(fixtureKey); setSavingIds([...alertSaves.current]); } }
   };
   const foreignFeed = useMemo(() => matches.flatMap(footballFeed), [matches]);
   const filterFeed = entries => {
@@ -160,6 +217,6 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     showCompetitions: () => navigate({ page: 'competitions', competition: 'primary', gameIds: null }),
     showMatches: () => navigate({ page: 'matches', competition: route.competition, gameIds: null }),
     openCoverage: () => navigate({ page: 'coverage', competition: route.competition, gameIds: group.liveFixtures.filter(isSelected).map(fixture => String(fixture.id)) }),
-    selected, isSelected, isCovered, select, alertPref, saveAlert, saving: saving || prefsLoading || !prefsReady, alertError, error, loading, foreignFeed, filterFeed,
+    selected, isSelected, isCovered, select, alertPref, saveAlert, saving: prefsLoading || !prefsReady, isAlertSaving: id => savingIds.includes(String(id)), alertError, error, detailsError, loading, foreignFeed, filterFeed,
     focused: effectiveFocused, setFocused, refresh: () => refreshRef.current?.(), selectionScope: route.gameIds ? `:coverage:${route.competition}:${route.gameIds.join(',')}` : deselectedPrimary.length ? `:following:${deselectedPrimary.join(',')}` : '' };
 }

@@ -66,7 +66,7 @@ test("background polls send goal, half-time and full-time without any browser re
   let match;
   const context = {
     ...utils, ...events, console, Date,
-    liveNotifierStatus: { fetchedMatches: 380, lastFinishedAt: "previous poll", competitionErrors: { worldcup: "previous provider error" } },
+    loadJson: () => ({}), PUSH_SUBSCRIPTIONS_FILE: "unused", liveNotifierStatus: { fetchedMatches: 380, lastFinishedAt: "previous poll", competitionErrors: { worldcup: "previous provider error" } },
     normalizeLeagueMode: mode => mode, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "premier" }),
     resultsCacheByKey: {}, resultsCacheAtByKey: {},
@@ -113,7 +113,7 @@ test("both full-time sender paths personalize each subscriber's earned points", 
   const send = jest.fn(async () => true);
   const context = {
     ...utils, ...events, console, Date, fixture, predictions, subscribedUserIds: users,
-    liveNotifierStatus: {}, normalizeLeagueMode: mode => mode, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
+    loadJson: () => ({}), PUSH_SUBSCRIPTIONS_FILE: "unused", liveNotifierStatus: {}, normalizeLeagueMode: mode => mode, loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "test" }), resultsCacheByKey: {}, resultsCacheAtByKey: {},
     loadResults: () => ({ 1: state }), loadMatchStates: () => ({ 1: state }), loadPredictions: () => predictions,
     saveResults: jest.fn(), saveMatchStates: jest.fn(), findLocalFixtureForApiMatch: () => fixture,

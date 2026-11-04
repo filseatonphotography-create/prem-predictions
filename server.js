@@ -5,6 +5,8 @@ const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
 const { championsFixture, studioAlertAllowed, buildChampionsForm } = require("./src/studioCompetitions");
 
+const { createStudioOverviewCache } = require("./src/studioOverviewCache");
+
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -41,7 +43,7 @@ const {
 
 const { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-11-05-studio-competition-pages";
+const BUILD_ID = "2026-11-05-studio-fast-controls";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -667,6 +669,20 @@ function getResultsFetchConfig(mode) {
     headers: useDirectApi ? getFootballDataHeaders({ unfold: true }) : {},
   };
 }
+
+const championsOverview = createStudioOverviewCache({
+  fetchMatches: async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(`${FOOTBALL_DATA_API_BASE}/competitions/CL/matches`, { headers: getFootballDataHeaders(), signal: controller.signal });
+      if (!response.ok) throw new Error(`Competition overview HTTP ${response.status}`);
+      const data = await response.json();
+      if (!Array.isArray(data.matches)) throw new Error("Invalid competition overview");
+      return data.matches;
+    } finally { clearTimeout(timeout); }
+  },
+});
 
 // Leagues (backwards compatible)
 function createDefaultLeagues() {
@@ -3693,8 +3709,19 @@ app.get("/api/live-studio/matches", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   if (req.query.competition !== "champions") return res.status(400).json({ error: "Unsupported studio competition." });
   try {
-    const { cacheKey } = getResultsFetchConfig("champions");
     const now = Date.now();
+    if (req.query.summary === "1") {
+      const overview = await championsOverview.get();
+      const next = overview.matches.filter(match => ["TIMED", "SCHEDULED"].includes(match.status) && Date.parse(match.utcDate) > now)
+        .sort((a, b) => Date.parse(a.utcDate) - Date.parse(b.utcDate))[0];
+      const matches = overview.matches.filter(match => Math.abs(Date.parse(match.utcDate) - now) <= 24 * 3600000).map(match => ({
+        id: match.id, utcDate: match.utcDate, status: match.status, minute: match.minute, lastUpdated: match.lastUpdated,
+        homeTeam: { id: match.homeTeam?.id, name: match.homeTeam?.name, crest: match.homeTeam?.crest },
+        awayTeam: { id: match.awayTeam?.id, name: match.awayTeam?.name, crest: match.awayTeam?.crest }, score: match.score,
+      }));
+      return res.json({ matches, nextFixture: next ? championsFixture(next) : null, updatedAt: overview.updatedAt, stale: overview.stale });
+    }
+    const { cacheKey } = getResultsFetchConfig("champions");
     if (!resultsCacheByKey[cacheKey] || now - (resultsCacheAtByKey[cacheKey] || 0) >= getResultsCacheTtl(resultsCacheByKey[cacheKey], now)) {
       resultsCacheByKey[cacheKey] = await fetchLiveMatches("champions");
       resultsCacheAtByKey[cacheKey] = Date.now();
@@ -3783,6 +3810,10 @@ app.get("/api/champions-league/standings", async (req, res) => {
             championsStandingsCacheAt = Date.now();
           } finally { clearTimeout(timeout); }
         })().finally(() => { championsStandingsPending = null; });
+      }
+      if (championsStandingsCache) {
+        championsStandingsPending.catch(error => console.error("Champions League standings refresh:", error.message));
+        return res.json({ ...championsStandingsCache, updatedAt: championsStandingsCacheAt, stale: true });
       }
       await championsStandingsPending;
     }
@@ -4118,13 +4149,14 @@ function getLiveUpdateNotificationUserIds() {
     .map(([userId]) => userId);
 }
 
-function getLiveStudioNotificationUserIds(fixtureId) {
-  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
-  return Array.from(new Set([
-    ...(String(fixtureId).startsWith("cl:") ? [] : getLiveUpdateNotificationUserIds()),
-    ...getFixtureNotificationUserIds(fixtureId),
-    ...Object.entries(subscriptions).filter(([, record]) => hasDeviceSubscription(record) && record.studioPrefs?.[String(fixtureId)]?.enabled === true).map(([id]) => id),
-  ]));
+function getLiveStudioNotificationUserIds(fixtureId, records = null) {
+  const subscriptions = records || loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const id = String(fixtureId);
+  return Object.entries(subscriptions).filter(([, record]) => {
+    if (!hasDeviceSubscription(record) || record.studioPrefs?.[id]?.enabled === false) return false;
+    return record.studioPrefs?.[id]?.enabled === true || record.fixturePrefs?.[id] === true
+      || (!id.startsWith("cl:") && isPushTypeEnabled("liveUpdates", record.notifPrefs || null));
+  }).map(([userId]) => userId);
 }
 
 function hasFixtureNotificationEnabled(userId, fixtureId) {
@@ -5062,7 +5094,7 @@ async function fetchLiveMatches(mode) {
           status === "PAUSED" ||
           (["FINISHED", "AWARDED"].includes(status) &&
             Number.isFinite(kickoffTime) &&
-            Math.abs(now - kickoffTime) <= 36 * 60 * 60 * 1000);
+            Math.abs(now - kickoffTime) <= (normalizedMode === "champions" ? 3 : 36) * 60 * 60 * 1000);
         const hasEvents =
           [match.goals, match.bookings, match.substitutions].every(Array.isArray);
         const lineups = normalizeLineups(match);
@@ -5202,7 +5234,12 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       resultsCacheAtByKey[cacheKey] = Date.now();
       summary.byMode[competition.mode].fetchedMatches = matches.length;
       matches.forEach((match) => {
-        if (competition.mode === "champions" && Math.abs(Date.parse(match.utcDate) - Date.now()) > 24 * 3600000) return;
+        const status = String(match.status || "").toUpperCase();
+        const kickoff = Date.parse(match.utcDate);
+        const inPlay = ["LIVE", "IN_PLAY", "PAUSED", "EXTRA_TIME", "PENALTY_SHOOTOUT"].includes(status);
+        const nearKickoff = ["TIMED", "SCHEDULED"].includes(status) && kickoff <= Date.now() + 90 * 60000 && kickoff >= Date.now() - 4 * 3600000;
+        const recentlyFinished = ["FINISHED", "AWARDED"].includes(status) && kickoff >= Date.now() - 6 * 3600000 && kickoff <= Date.now();
+        if (!inPlay && !nearKickoff && !recentlyFinished) return;
         liveMatches.push({ match, fixtures: competition.mode === "champions" ? [championsFixture(match)] : competition.fixtures, mode: competition.mode });
       });
     });
@@ -5224,6 +5261,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
     const nextResults = { ...currentResults };
     const nextMatchStates = { ...currentMatchStates };
     const predictions = loadPredictions() || {};
+    const notificationSubscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
     const notificationTasks = [];
     let resultsChanged = false;
     let statesChanged = false;
@@ -5317,7 +5355,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         resultsChanged = true;
       }
 
-      const subscribedUserIds = getLiveStudioNotificationUserIds(fixtureId);
+      const subscribedUserIds = getLiveStudioNotificationUserIds(fixtureId, notificationSubscriptions);
       if (!subscribedUserIds.length) return;
       summary.subscribedFixtures += 1;
       summary.byMode[mode].subscribedFixtures += 1;

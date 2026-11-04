@@ -93,7 +93,7 @@ test("a later genuine goal restoring 0-1 remains separate from the removed Cunha
 test("the background notifier saves both reports and sends the missing correction once", async () => {
   let states = { 560626: copy(scored) }, results = { 560626: { homeGoals: 0, awayGoals: 1 } };
   const context = Object.assign({}, events, utils, {
-    console, Date, liveNotifierStatus: {}, normalizeLeagueMode: mode => mode,
+    console, Date, loadJson: () => ({}), PUSH_SUBSCRIPTIONS_FILE: "unused", liveNotifierStatus: {}, normalizeLeagueMode: mode => mode,
     loadFixturesFromSrc: () => [fixture], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [{ id: fixture.id, status: "PAUSED", minute: 45, utcDate: kickoff,
       lastUpdated: corrected.lastUpdated, homeTeam: { name: fixture.homeTeam }, awayTeam: { name: fixture.awayTeam },

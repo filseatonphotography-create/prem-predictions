@@ -11803,7 +11803,13 @@ const studioCoverage = useStudioCoverage({
   fixtures: gameMode === PREMIER_MODE ? activeFixtures : FIXTURES, states: matchStatesByFixtureId, results,
   primaryLabel: "Premier League", resolveBadge: resolveTeamBadge, fixturePrefs: fixturePushPrefs, globalAlerts: pushPrefs.liveUpdates !== false,
   enablePush: enablePushNotifications, pushEnabled, pushSupported,
-  onFixturePrefs: values => { setFixturePushPrefs(values); localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(values)); },
+  onFixturePrefs: (values, fixtureId) => {
+    setFixturePushPrefs(previous => {
+      const next = fixtureId ? { ...previous, [fixtureId]: values[fixtureId] === true } : values;
+      localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  },
   focusFixtureId: liveStudioFocusFixtureId,
   onOpenPrimary: () => {
     if (gameMode !== PREMIER_MODE) setGameMode(PREMIER_MODE);
@@ -21532,6 +21538,8 @@ if (!isLoggedIn) {
             </div>
             <button type="button" onClick={studioCoverage.showMatches} style={{ ...pillBtn(false), justifySelf: "start", padding: "8px 12px" }}>← Live games</button>
             <LiveStudioScoreStrip studio={studioCoverage} theme={theme} />
+            {studioCoverage.error && <div role="status" style={{ color: theme.muted, fontSize: 12 }}>Live scores are temporarily delayed. <button type="button" onClick={studioCoverage.refresh} style={pillBtn(false)}>Retry</button></div>}
+            {studioCoverage.detailsError && !studioCoverage.error && <div role="status" style={{ color: theme.muted, fontSize: 12 }}>{studioCoverage.detailsError}</div>}
             {liveStudioNotice && (
               <div
                 role="status"

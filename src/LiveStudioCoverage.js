@@ -19,12 +19,12 @@ export function LiveStudioCompetitions({ studio, theme, nowMs, isMobile }) {
   return <div style={{ display: 'grid', gap: 18 }}>
     <h2 style={{ margin: 0, fontSize: isMobile ? 22 : 28, textAlign: 'center' }}>Live Studio</h2>
     <p style={{ margin: 0, textAlign: 'center', fontSize: 13, color: theme.muted }}>Choose your competition.</p>
-    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 18, padding: 8 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 14, padding: 6, width: '100%', maxWidth: 620, margin: '0 auto', boxSizing: 'border-box' }}>
       {studio.groups.map(group => {
         const live = group.liveFixtures.length > 0;
         return <div key={group.id} style={{ display: 'grid', gap: 12, textAlign: 'center' }}>
           <button type="button" onClick={() => studio.openCompetition(group.id)} className={live ? 'live-studio-live-button' : undefined} aria-label={group.label}
-            style={{ ...buttonStyle(theme), padding: '22px 16px', minHeight: 90, fontSize: isMobile ? 20 : 23, border: `1px solid ${live ? 'rgba(34,197,94,0.75)' : theme.line}`, background: live ? 'linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))' : theme.panelHi, color: live ? '#052e16' : theme.text }}>
+            style={{ ...buttonStyle(theme), padding: '12px 20px', minHeight: 54, borderRadius: 999, fontSize: isMobile ? 16 : 18, border: `1px solid ${live ? 'rgba(34,197,94,0.75)' : theme.line}`, background: live ? 'linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))' : theme.panelHi, color: live ? '#052e16' : theme.text }}>
             <span style={{ display: 'block' }}>{group.label}</span>
             {live && <span style={{ display: 'block', fontSize: 12, marginTop: 6 }}>{group.liveFixtures.length} {group.liveFixtures.length === 1 ? 'game live' : 'games live'}</span>}
           </button>
@@ -53,24 +53,33 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
         {group.liveFixtures.map(fixture => {
+          const busy = studio.saving || studio.isAlertSaving(fixture.id);
           const pref = studio.alertPref(fixture), label = `${fixture.homeTeam} v ${fixture.awayTeam}`;
-          return <div key={fixture.id} style={{ background: theme.panelHi, border: `1px solid ${theme.line}`, borderRadius: 12, padding: '12px 14px', display: 'grid', gap: 8 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <label style={{ display: 'flex', gap: 10, alignItems: 'center', flex: 1, cursor: 'pointer', minWidth: 0 }}>
-                <input type="checkbox" aria-label={`Follow ${label}`} checked={studio.isSelected(fixture)} onChange={event => studio.select([fixture.id], event.target.checked)} />
-                <span style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-                  <span style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 14, fontWeight: 800 }}><StudioTeamBadge src={fixture.homeBadge} team={fixture.homeTeam} decorative />{fixture.homeTeam}</span>
-                  <span style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 14, fontWeight: 800 }}><StudioTeamBadge src={fixture.awayBadge} team={fixture.awayTeam} decorative />{fixture.awayTeam}</span>
-                </span>
+          const control = { width: 18, height: 18, margin: 0, transform: 'none', flexShrink: 0, position: 'static', accentColor: theme.accent };
+          const followId = `studio-follow-${fixture.id}`;
+          return <div key={fixture.id} role="group" aria-label={label} style={{ background: theme.panelHi, border: `1px solid ${studio.isSelected(fixture) ? theme.accent : theme.line}`, borderRadius: 12, padding: '14px 16px', display: 'grid', gap: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto', gap: 12, alignItems: 'center' }}>
+              <input id={followId} type="checkbox" style={control} aria-label={`Follow ${label}`} checked={studio.isSelected(fixture)} onChange={event => studio.select([fixture.id], event.target.checked)} />
+              <label htmlFor={followId} style={{ display: 'grid', gap: 9, cursor: 'pointer', minWidth: 0 }}>
+                {[['home', fixture.homeTeam], ['away', fixture.awayTeam]].map(([side, team]) => <span key={side} style={{ display: 'grid', gridTemplateColumns: '20px minmax(0, 1fr)', gap: 8, alignItems: 'center', fontSize: 14, fontWeight: 800 }}>
+                  <StudioTeamBadge src={fixture[`${side}Badge`]} team={team} decorative fallback={<span aria-hidden="true">⚽</span>} />
+                  <span style={{ overflowWrap: 'anywhere', lineHeight: 1.35 }}>{team}</span>
+                </span>)}
               </label>
-              <div style={{ textAlign: 'center', flexShrink: 0 }}><strong style={{ fontSize: 20 }}>{score(fixture)}</strong><div style={{ color: '#22c55e', fontSize: 12, marginTop: 3 }}>{matchStatus(fixture)}</div></div>
-              <button type="button" style={button} aria-label={`Push alerts for ${label}`} aria-pressed={Boolean(pref.enabled)} disabled={studio.saving} onClick={() => studio.saveAlert(fixture, { enabled: !pref.enabled })}>{pref.enabled ? '🔔' : '🔕'}</button>
+              <div style={{ textAlign: 'center', minWidth: 42 }}><strong style={{ fontSize: 20, whiteSpace: 'nowrap' }}>{score(fixture)}</strong><div style={{ color: '#22c55e', fontSize: 12, marginTop: 4 }}>{matchStatus(fixture)}</div></div>
             </div>
-            <details style={{ color: theme.muted, fontSize: 12 }}><summary style={{ cursor: 'pointer' }}>Alert settings</summary>
-              <select aria-label={`Alert level for ${label}`} value={pref.level} disabled={studio.saving} style={{ ...button, marginTop: 8, maxWidth: '100%' }} onChange={event => studio.saveAlert(fixture, { level: event.target.value })}>
-                <option value="goals">Goals and final score</option><option value="all">All match alerts</option>
-              </select>
-            </details>
+            <div style={{ borderTop: `1px solid ${theme.line}`, paddingTop: 12, display: 'grid', gap: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <span style={{ fontSize: 12, fontWeight: 800, color: theme.muted }}>Push notifications{studio.isAlertSaving(fixture.id) && <span role="status" style={{ marginLeft: 8, fontWeight: 500 }}>Saving…</span>}</span>
+                <button type="button" style={{ ...button, borderRadius: 999, padding: '6px 12px', color: pref.enabled ? theme.accent2 : theme.muted }} aria-label={`Push alerts for ${label}`} aria-pressed={Boolean(pref.enabled)} disabled={busy} onClick={() => studio.saveAlert(fixture, { enabled: !pref.enabled })}>{pref.enabled ? '🔔 On' : '🔕 Off'}</button>
+              </div>
+              <div role="group" aria-label={`Alert level for ${label}`} style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 20px' }}>
+                {[['goals', 'Goals and final score'], ['all', 'All match alerts']].map(([level, title]) => <label key={level} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, cursor: busy ? 'default' : 'pointer', fontSize: 12, lineHeight: 1.4, minHeight: 24 }}>
+                  <input type="checkbox" style={control} checked={pref.level === level} disabled={busy} onChange={() => { if (pref.level !== level) studio.saveAlert(fixture, { level }); }} />
+                  <span>{title}</span>
+                </label>)}
+              </div>
+            </div>
           </div>;
         })}
       </div>

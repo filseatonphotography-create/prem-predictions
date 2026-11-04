@@ -65,3 +65,15 @@ test('the standings endpoint keeps a separate CL cache, shares concurrent fetche
   context.championsStandingsCache = null;
   const failed = response(); await handler({}, failed); expect(failed.code).toBe(502);
 });
+
+test('saved standings render immediately on a later visit while the next refresh is pending', async () => {
+  localStorage.clear(); sessionStorage.clear();
+  global.fetch = jest.fn(async () => ({ ok: true, json: async () => data }));
+  render(<ChampionsLeagueTable base="cache-check" theme={theme} />); await act(flush); cleanup();
+  let complete;
+  global.fetch = jest.fn(() => new Promise(resolve => { complete = resolve; }));
+  render(<ChampionsLeagueTable base="cache-check" theme={theme} />);
+  expect(screen.getByRole('group', { name: 'League phase' })).toHaveTextContent('Liverpool');
+  expect(screen.queryByText('Loading Champions League standings…')).not.toBeInTheDocument();
+  await act(async () => { complete({ ok: true, json: async () => data }); await flush(); });
+});

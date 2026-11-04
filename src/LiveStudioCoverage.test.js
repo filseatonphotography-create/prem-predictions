@@ -31,7 +31,8 @@ beforeEach(() => {
     if (url.includes('/matches?')) {
       if (feedError) return { ok: false, json: async () => ({ error: 'Provider temporarily unavailable.' }) };
       data = { matches: nextMatches, nextFixture: { id: 'cl:79', kickoff: upcoming.kickoff, status: 'TIMED' } };
-    } else if (options.method === 'POST') {
+    } else if (url.includes('/api/champions-league/standings')) data = { competition: { code: 'CL' }, standings: [] };
+    else if (options.method === 'POST') {
       const { fixtureId, ...pref } = JSON.parse(options.body); saved[fixtureId] = pref; data = { prefs: { ...saved } };
     } else data = { prefs: { ...saved } };
     return { ok: true, json: async () => data };
@@ -72,15 +73,13 @@ test('selecting a live game opens coverage separately, and remembers the selecti
 
 test('both competitions save alert levels independently of feed selection', async () => {
   render(<Harness />); await act(flush); await open('Premier League');
-  fireEvent.click(screen.getByText('Alert settings'));
-  await act(async () => { fireEvent.change(screen.getByRole('combobox', { name: 'Alert level for Arsenal v Chelsea' }), { target: { value: 'goals' } }); await flush(); });
+  await act(async () => { fireEvent.click(within(screen.getByRole('group', { name: 'Alert level for Arsenal v Chelsea' })).getByRole('checkbox', { name: 'Goals and final score' })); await flush(); });
   expect(saved['57']).toEqual({ enabled: true, level: 'goals' });
   fireEvent.click(screen.getByRole('button', { name: '← Competitions' })); await open('Champions League');
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Push alerts for Fenerbahçe v Liverpool' })); await flush(); });
   expect(saved['cl:77']).toEqual({ enabled: true, level: 'all' });
   expect(screen.getByRole('checkbox', { name: 'Follow Fenerbahçe v Liverpool' })).not.toBeChecked();
-  fireEvent.click(screen.getByText('Alert settings'));
-  await act(async () => { fireEvent.change(screen.getByRole('combobox', { name: 'Alert level for Fenerbahçe v Liverpool' }), { target: { value: 'goals' } }); await flush(); });
+  await act(async () => { fireEvent.click(within(screen.getByRole('group', { name: 'Alert level for Fenerbahçe v Liverpool' })).getByRole('checkbox', { name: 'Goals and final score' })); await flush(); });
   expect(saved['cl:77']).toEqual({ enabled: true, level: 'goals' });
 });
 
@@ -96,7 +95,7 @@ test('when the game finishes it leaves the live list, stops pulsing, and shows t
   render(<Harness />); await act(flush); await open('Champions League');
   nextMatches = [{ ...champion, status: 'FINISHED' }];
   await act(async () => { jest.advanceTimersByTime(30000); await flush(); });
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: /^Follow / })).not.toBeInTheDocument();
   expect(screen.getByText('No games live right now.')).toBeInTheDocument(); expect(screen.getByText(/Next kick-off in/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '← Competitions' }));
   expect(screen.getByRole('button', { name: 'Champions League' })).not.toHaveClass('live-studio-live-button');
@@ -115,4 +114,80 @@ test('browser back returns from the live list to the competition picker', async 
   await act(async () => { window.dispatchEvent(new PopStateEvent('popstate')); await flush(); });
   expect(screen.getByRole('button', { name: 'Champions League' })).toBeInTheDocument();
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+});
+
+test('both alert levels are visible without opening anything, and the follow checkbox has its own grid cell', async () => {
+  render(<Harness />); await act(flush); await open('Champions League');
+  const row = screen.getByRole('group', { name: 'Fenerbahçe v Liverpool' });
+  expect(within(row).getByRole('checkbox', { name: 'Goals and final score' })).toBeVisible();
+  expect(within(row).getByRole('checkbox', { name: 'All match alerts' })).toBeVisible();
+  expect(within(row).queryByRole('combobox')).not.toBeInTheDocument();
+  const follow = within(row).getByRole('checkbox', { name: /^Follow / });
+  expect(follow).toHaveStyle({ width: '18px', margin: '0', transform: 'none' });
+  expect(follow.parentElement).toHaveStyle({ gridTemplateColumns: '22px minmax(0, 1fr) auto' });
+});
+
+test('the bell changes immediately during a slow save and rolls back if saving fails', async () => {
+  const original = global.fetch;
+  let complete;
+  global.fetch = jest.fn((url, options = {}) => options.method === 'POST' ? new Promise(resolve => { complete = resolve; }) : original(url, options));
+  render(<Harness />); await act(flush); await open('Champions League');
+  const bell = screen.getByRole('button', { name: 'Push alerts for Fenerbahçe v Liverpool' });
+  fireEvent.click(bell);
+  expect(bell).toHaveAttribute('aria-pressed', 'true');
+  expect(bell).toBeDisabled();
+  await act(async () => { complete({ ok: false, json: async () => ({ error: 'Save failed' }) }); await flush(); });
+  expect(bell).toHaveAttribute('aria-pressed', 'false');
+  expect(bell).not.toBeDisabled(); expect(screen.getByRole('alert')).toHaveTextContent('Save failed');
+});
+
+test('a slow or failing detailed feed does not block the live list or its green indicator', async () => {
+  const original = global.fetch;
+  global.fetch = jest.fn((url, options) => String(url).includes('/matches?') && !String(url).includes('summary=1')
+    ? Promise.resolve({ ok: false, json: async () => ({ error: 'Champions League updates are unavailable.' }) }) : original(url, options));
+  render(<Harness />); await act(flush);
+  expect(screen.getByRole('button', { name: 'Champions League' })).toHaveClass('live-studio-live-button');
+  await open('Champions League');
+  expect(screen.getByRole('checkbox', { name: /^Follow Fenerbahçe/ })).toBeVisible();
+  expect(screen.queryByText(/updates are unavailable/)).not.toBeInTheDocument();
+});
+
+test('cached current games pulse immediately on reload even while the overview refresh waits', async () => {
+  render(<Harness />); await act(flush); cleanup();
+  const original = global.fetch; let complete;
+  global.fetch = jest.fn((url, options) => String(url).includes('/matches?') ? new Promise(resolve => { complete = resolve; }) : original(url, options));
+  render(<Harness />);
+  expect(screen.getByRole('button', { name: 'Champions League' })).toHaveClass('live-studio-live-button');
+  await act(async () => { complete({ ok: true, json: async () => ({ matches: [champion] }) }); await flush(); });
+});
+
+test('late detailed data cannot roll back a more recent live score', async () => {
+  const original = global.fetch; let complete;
+  global.fetch = jest.fn((url, options) => String(url).includes('/matches?') && !String(url).includes('summary=1')
+    ? new Promise(resolve => { complete = resolve; }) : original(url, options));
+  render(<Harness />); await act(flush); await open('Champions League');
+  fireEvent.click(screen.getByRole('checkbox', { name: /^Follow Fenerbahçe/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Follow selected games (1)' })); await act(flush);
+  nextMatches = [{ ...champion, score: { fullTime: { home: 1, away: 2 } } }];
+  await act(async () => { jest.advanceTimersByTime(30000); await flush(); });
+  expect(screen.getByRole('group', { name: 'Selected match scores' })).toHaveTextContent('1–2');
+  await act(async () => { complete({ ok: true, json: async () => ({ matches: [champion] }) }); await flush(); });
+  expect(screen.getByRole('group', { name: 'Selected match scores' })).toHaveTextContent('1–2');
+});
+
+test('saving one game’s bell does not block another game’s notification controls', async () => {
+  nextMatches.push({ ...champion, id: 80, homeTeam: { name: 'Other Home' }, awayTeam: { name: 'Other Away' } });
+  const original = global.fetch; const pending = {};
+  global.fetch = jest.fn((url, options = {}) => options.method === 'POST' ? new Promise(resolve => { pending[JSON.parse(options.body).fixtureId] = resolve; }) : original(url, options));
+  render(<Harness />); await act(flush); await open('Champions League');
+  const first = screen.getByRole('button', { name: 'Push alerts for Fenerbahçe v Liverpool' });
+  const second = screen.getByRole('button', { name: 'Push alerts for Other Home v Other Away' });
+  fireEvent.click(first); expect(second).not.toBeDisabled(); fireEvent.click(second);
+  expect(first).toHaveAttribute('aria-pressed', 'true'); expect(second).toHaveAttribute('aria-pressed', 'true');
+  await act(async () => {
+    pending['cl:80']({ ok: true, json: async () => ({ prefs: { 'cl:80': { enabled: true, level: 'all' } } }) }); await flush();
+    pending['cl:77']({ ok: true, json: async () => ({ prefs: { 'cl:77': { enabled: true, level: 'all' } } }) }); await flush();
+  });
+  expect(first).toHaveAttribute('aria-pressed', 'true'); expect(second).toHaveAttribute('aria-pressed', 'true');
+  expect(first).not.toBeDisabled(); expect(second).not.toBeDisabled();
 });

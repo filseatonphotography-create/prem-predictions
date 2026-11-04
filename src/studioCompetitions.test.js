@@ -87,10 +87,10 @@ test('the background worker polls Champions League and sends football-only resul
   const source = fs.readFileSync('server.js', 'utf8');
   const raw = { ...match(), status: 'FINISHED', minute: 90, utcDate: new Date(Date.now() - 110 * 60000).toISOString(),
     lastUpdated: new Date().toISOString(), score: { fullTime: { home: 1, away: 2 } } };
-  const fetchMatches = jest.fn(async () => [raw]);
+  const fetchMatches = jest.fn(async () => [raw, { ...raw, id: 999, utcDate: new Date(Date.now() - 10 * 86400000).toISOString() }, { ...raw, id: 1000, status: 'TIMED', utcDate: new Date(Date.now() + 10 * 86400000).toISOString() }]);
   const send = jest.fn(async () => true), saveResults = jest.fn();
   const context = { ...events, ...utils, ...require('./studioCompetitions'), console, Date,
-    liveNotifierStatus: {}, normalizeLeagueMode: mode => mode === 'worldcup' ? 'worldcup' : 'premier',
+    loadJson: () => ({}), PUSH_SUBSCRIPTIONS_FILE: "unused", liveNotifierStatus: {}, normalizeLeagueMode: mode => mode === 'worldcup' ? 'worldcup' : 'premier',
     loadFixturesFromSrc: () => [], loadWorldCupFixturesFromSrc: () => [], fetchLiveMatches: fetchMatches,
     getResultsFetchConfig: () => ({ cacheKey: 'champions' }), resultsCacheByKey: {}, resultsCacheAtByKey: {},
     loadResults: () => ({ 57: { homeGoals: 3, awayGoals: 0 } }), loadMatchStates: () => ({}), loadPredictions: () => ({}),
@@ -107,6 +107,7 @@ test('the background worker polls Champions League and sends football-only resul
   const summary = await context.run('test', 'champions');
   expect(summary.lastError).toBeNull();
   expect(fetchMatches).toHaveBeenCalledWith('champions');
+  expect(summary.matchedFixtures).toBe(1);
   expect(saveResults).toHaveBeenCalledWith({ 57: { homeGoals: 3, awayGoals: 0 }, 'cl:77': { homeGoals: 1, awayGoals: 2 } });
   const final = send.mock.calls.find(call => call[2] === 'full-time');
   expect(final[1]).toBe('cl:77');
@@ -154,4 +155,19 @@ test('Studio supplies a countdown to the next Champions League game even beyond 
   await handler({ query: { competition: 'champions' } }, response);
   expect(response.data.matches.map(item => item.id)).toEqual([live.id]);
   expect(response.data.nextFixture).toMatchObject({ id: 'cl:88', kickoff: next.utcDate });
+});
+
+test('the quick overview route returns live games without waiting for detailed requests or reading match-state files', async () => {
+  const source = fs.readFileSync('server.js', 'utf8'); let handler;
+  const live = { ...match(), utcDate: new Date(Date.now() - 30 * 60000).toISOString() };
+  const details = jest.fn(() => new Promise(() => {})), readStates = jest.fn();
+  const context = { app: { get: (_path, callback) => { handler = callback; } }, Date, console, championsFixture,
+    championsOverview: { get: async () => ({ matches: [live], updatedAt: Date.now(), stale: false }) },
+    fetchLiveMatches: details, loadMatchStates: readStates };
+  const start = source.indexOf('app.get("/api/live-studio/matches"'), end = source.indexOf('app.get("/api/results"', start);
+  vm.runInNewContext(source.slice(start, end), context);
+  const response = { setHeader() {}, json(value) { this.data = value; } };
+  await handler({ query: { competition: 'champions', summary: '1' } }, response);
+  expect(response.data.matches[0]).toMatchObject({ id: live.id, status: 'IN_PLAY' });
+  expect(details).not.toHaveBeenCalled(); expect(readStates).not.toHaveBeenCalled();
 });

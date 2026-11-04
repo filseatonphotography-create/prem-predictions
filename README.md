@@ -222,3 +222,19 @@ The provider's ordering is retained, and qualification bands are provisional.
 The table refreshes every minute while open; its backend cache is independent of
 Premier League standings. Provider failures retain the last standings and show
 a delayed-update notice. The endpoint is `GET /api/champions-league/standings`.
+
+
+Live game lists and navigation indicators use the lightweight
+`/api/live-studio/matches?competition=champions&summary=1` overview. It performs
+one bounded provider request and never waits for individual match details.
+Detailed commentary loads independently once coverage is opened. Recent browser
+snapshots restore the indicator immediately on reload, and late detail responses
+cannot replace a newer overview score. Standings are prefetched while signed in
+and cached in the browser, with background server refreshes for cached tables.
+
+Live-match selection has a dedicated checkbox column. Both mutually exclusive
+alert levels are visible as checkboxes; no dropdown or disclosure is needed.
+Each bell and alert level updates immediately while its save is pending, shows
+saving status, and restores its previous setting if the save fails. Saves for
+other fixtures remain usable. The background notifier processes only active,
+imminent and recently finished fixtures and reads subscriptions once per poll.
