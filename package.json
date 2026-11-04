@@ -25,6 +25,7 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "postbuild": "node scripts/checkProductionStartup.js",
     "test": "react-scripts test",
     "export:emails": "node scripts/exportPlayerEmails.js",
     "test:screenshot-recognition": "node scripts/runFantasyIqScreenshotRecognitionCheck.js",

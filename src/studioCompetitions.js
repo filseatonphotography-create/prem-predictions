@@ -1,3 +1,4 @@
+// This module also runs in Node. Use Object.assign so Babel does not inject ESM spread helpers into its CommonJS exports.
 const { numeric, normalizeMatchEvents, getMatchEventMomentMs, mergeRecordedMatchState } = require('./liveMatchEvents');
 
 function championsFixture(match) {
@@ -45,10 +46,10 @@ function studioAlertAllowed(record = {}, fixtureId, kind) {
 }
 
 function currentChampionsMatch(raw) {
-  const incoming = { ...raw, homeGoals: numeric(raw.score?.fullTime?.home), awayGoals: numeric(raw.score?.fullTime?.away),
-    goalEvents: normalizeMatchEvents(raw).filter(event => event.type === 'GOAL'), matchEvents: normalizeMatchEvents(raw) };
+  const incoming = Object.assign({}, raw, { homeGoals: numeric(raw.score?.fullTime?.home), awayGoals: numeric(raw.score?.fullTime?.away),
+    goalEvents: normalizeMatchEvents(raw).filter(event => event.type === 'GOAL'), matchEvents: normalizeMatchEvents(raw) });
   const state = mergeRecordedMatchState(incoming, raw.recordedState || {});
-  return { ...raw, ...state, score: { ...raw.score, fullTime: { home: state.homeGoals, away: state.awayGoals } } };
+  return Object.assign({}, raw, state, { score: Object.assign({}, raw.score, { fullTime: { home: state.homeGoals, away: state.awayGoals } }) });
 }
 
 function footballFeed(raw) {
@@ -57,12 +58,12 @@ function footballFeed(raw) {
   const status = String(match.status || '').toUpperCase();
   const score = match.score?.fullTime || {};
   const scoreText = numeric(score.home) != null && numeric(score.away) != null ? `${fixture.homeTeam} ${score.home}–${score.away} ${fixture.awayTeam}` : `${fixture.homeTeam} v ${fixture.awayTeam}`;
-  const state = { ...match, homeGoals: numeric(score.home), awayGoals: numeric(score.away) };
+  const state = Object.assign({}, match, { homeGoals: numeric(score.home), awayGoals: numeric(score.away) });
   const entries = [];
   const add = (key, minute, title, lines, event = {}, extra = {}) => {
-    entries.push({ id: `${fixture.id}:${key}`, updateKey: `${fixture.id}:${key}`, fixtureId: fixture.id, fixture,
+    entries.push(Object.assign({ id: `${fixture.id}:${key}`, updateKey: `${fixture.id}:${key}`, fixtureId: fixture.id, fixture,
       competitionLabel: fixture.competitionLabel, minute, title, lines, tone: status === 'FINISHED' ? 'finished' : status === 'PAUSED' ? 'paused' : 'live',
-      momentMs: getMatchEventMomentMs(fixture, event, state), ...extra });
+      momentMs: getMatchEventMomentMs(fixture, event, state) }, extra));
   };
   const lineups = match.lineups;
   if (lineups?.home?.lineup?.length && lineups?.away?.lineup?.length) {
