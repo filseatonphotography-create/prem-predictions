@@ -43,7 +43,7 @@ function notifier({ fixtureBell = false } = {}) {
     awayTeam: { name: fx.awayTeam, lineup: starters("Away") }, score: {} };
   const send = jest.fn(async () => true);
   const context = {
-    ...utils, ...events, console, Date, URLSearchParams, liveNotifierStatus: {},
+    ...utils, ...events, ...require("./studioCompetitions"), console, Date, URLSearchParams, liveNotifierStatus: {},
     normalizeLeagueMode: mode => mode, loadFixturesFromSrc: () => [fx], loadWorldCupFixturesFromSrc: () => [],
     fetchLiveMatches: async () => [match], getResultsFetchConfig: () => ({ cacheKey: "premier" }),
     resultsCacheByKey: {}, resultsCacheAtByKey: {},

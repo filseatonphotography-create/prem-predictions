@@ -1,4 +1,5 @@
 import React from "react";
+import StudioTeamBadge from "./StudioTeamBadge";
 
 export function lineupPositionOrder(position = "") {
   const text = String(position).toLowerCase().replace(/[_-]/g, " ").trim();
@@ -23,8 +24,8 @@ export default function LiveStudioLineups({ teams, theme, isMobile = false }) {
       {teams.map((team, side) => (
         <section key={side} aria-label={`${team.name} starting XI`} style={{ minWidth: 0, padding: isMobile ? 8 : 12, borderRadius: 10, background: "rgba(255,255,255,0.04)", border: `1px solid ${theme.line}` }}>
           <div style={{ display: "grid", justifyItems: "center", gap: 7, textAlign: "center", marginBottom: 12 }}>
-            {team.badge ? <img src={team.badge} alt={`${team.name} badge`} style={{ width: isMobile ? 42 : 54, height: isMobile ? 42 : 54, objectFit: "contain" }} />
-              : <span aria-hidden="true" style={{ fontSize: 32 }}>{team.flag || "⚽"}</span>}
+            <StudioTeamBadge src={team.badge} team={`${team.name} badge`} size={isMobile ? 42 : 54}
+              fallback={<span aria-hidden="true" style={{ fontSize: 32 }}>{team.flag || "⚽"}</span>} />
             <div style={{ color: theme.text, fontSize: isMobile ? 13 : 16, fontWeight: 950, overflowWrap: "anywhere" }}>{team.name}</div>
             {team.formation && <div style={{ color: theme.accent2, fontSize: 12, fontWeight: 800 }}>{team.formation}</div>}
           </div>

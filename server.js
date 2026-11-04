@@ -3,6 +3,8 @@ const { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave } = 
 const { validatePredictionBadgeRecord, isFinalBadgeFixture } = require("./src/badgeRules");
 const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 
+const { championsFixture, studioAlertAllowed, buildChampionsForm } = require("./src/studioCompetitions");
+
 const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
@@ -39,7 +41,7 @@ const {
 
 const { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-11-01-card-upgrade-decisions";
+const BUILD_ID = "2026-11-05-multi-competition-live-studio";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -596,6 +598,9 @@ let resultsCacheByKey = {};
 let resultsCacheAtByKey = {};
 let standingsCache = null;
 let standingsCacheAt = 0;
+let championsStandingsCache = null;
+let championsStandingsCacheAt = 0;
+let championsStandingsPending = null;
 const STANDINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 let liveNotifierRunning = false;
 let liveNotifierLastStartedAt = 0;
@@ -645,7 +650,8 @@ function maybeRunLiveFixtureNotifier(reason, minIntervalMs = 30 * 1000, mode = "
 }
 
 function getResultsFetchConfig(mode) {
-  const normalizedMode = normalizeLeagueMode(mode);
+  const normalizedMode = mode === "champions" ? "champions" : normalizeLeagueMode(mode);
+  if (normalizedMode === "champions") return { cacheKey: "champions:default", url: `${FOOTBALL_DATA_API_BASE}/competitions/CL/matches`, headers: getFootballDataHeaders({ unfold: true }) };
   if (normalizedMode === "worldcup") {
     return {
       cacheKey: `worldcup:${WORLD_CUP_SEASON}`,
@@ -3683,6 +3689,28 @@ app.get("/api/match-states/snapshot", (req, res) => {
 // ---------------------------------------------------------------------------
 // RESULTS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
+app.get("/api/live-studio/matches", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (req.query.competition !== "champions") return res.status(400).json({ error: "Unsupported studio competition." });
+  try {
+    const { cacheKey } = getResultsFetchConfig("champions");
+    const now = Date.now();
+    if (!resultsCacheByKey[cacheKey] || now - (resultsCacheAtByKey[cacheKey] || 0) >= getResultsCacheTtl(resultsCacheByKey[cacheKey], now)) {
+      resultsCacheByKey[cacheKey] = await fetchLiveMatches("champions");
+      resultsCacheAtByKey[cacheKey] = Date.now();
+    }
+    const states = loadMatchStates() || {};
+    const matches = resultsCacheByKey[cacheKey].filter(match => {
+      const kickoff = Date.parse(match.utcDate);
+      return Number.isFinite(kickoff) && kickoff >= now - 24 * 3600000 && kickoff <= now + 24 * 3600000;
+    }).map(match => ({ ...match, form: buildChampionsForm(match, resultsCacheByKey[cacheKey]), lineups: normalizeLineups(match), recordedState: states[`cl:${match.id}`] || {} }));
+    res.json({ matches, updatedAt: resultsCacheAtByKey[cacheKey] });
+  } catch (error) {
+    console.error("Champions League studio feed:", error.message);
+    res.status(502).json({ error: "Champions League updates are unavailable. Please try again shortly." });
+  }
+});
+
 app.get("/api/results", async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   try {
@@ -3733,6 +3761,37 @@ app.get("/api/push/live-status", authMiddleware, (req, res) => {
 // ---------------------------------------------------------------------------
 // STANDINGS (football-data.org) – proxy
 // ---------------------------------------------------------------------------
+// Keep the Champions League cache separate from Premier League standings.
+app.get("/api/champions-league/standings", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    if (!championsStandingsCache || Date.now() - championsStandingsCacheAt >= 60000) {
+      if (!championsStandingsPending) {
+        championsStandingsPending = (async () => {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 20000);
+          try {
+            const response = await fetch(`${FOOTBALL_DATA_API_BASE}/competitions/CL/standings`, {
+              headers: getFootballDataHeaders(), signal: controller.signal,
+            });
+            if (!response.ok) throw new Error(`Champions League standings HTTP ${response.status}`);
+            const data = await response.json();
+            if (!Array.isArray(data?.standings) || data.competition?.code !== "CL") throw new Error("Invalid Champions League standings response");
+            championsStandingsCache = data;
+            championsStandingsCacheAt = Date.now();
+          } finally { clearTimeout(timeout); }
+        })().finally(() => { championsStandingsPending = null; });
+      }
+      await championsStandingsPending;
+    }
+    return res.json({ ...championsStandingsCache, updatedAt: championsStandingsCacheAt, stale: false });
+  } catch (error) {
+    console.error("Champions League standings:", error.message);
+    if (championsStandingsCache) return res.json({ ...championsStandingsCache, updatedAt: championsStandingsCacheAt, stale: true });
+    return res.status(502).json({ error: "Champions League standings are temporarily unavailable." });
+  }
+});
+
 app.get("/api/standings", async (req, res) => {
   try {
     const now = Date.now();
@@ -4058,9 +4117,11 @@ function getLiveUpdateNotificationUserIds() {
 }
 
 function getLiveStudioNotificationUserIds(fixtureId) {
+  const subscriptions = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
   return Array.from(new Set([
-    ...getLiveUpdateNotificationUserIds(),
+    ...(String(fixtureId).startsWith("cl:") ? [] : getLiveUpdateNotificationUserIds()),
     ...getFixtureNotificationUserIds(fixtureId),
+    ...Object.entries(subscriptions).filter(([, record]) => hasDeviceSubscription(record) && record.studioPrefs?.[String(fixtureId)]?.enabled === true).map(([id]) => id),
   ]));
 }
 
@@ -4552,7 +4613,9 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
   const eventKey = `${fixtureId}:${eventKind}:${scoreLabel || "na"}`;
   const liveUpdatesEnabled = isPushTypeEnabled("liveUpdates", getPushNotificationPrefs(userId));
   const fixtureBellEnabled = hasFixtureNotificationEnabled(userId, fixtureId);
-  if (!liveUpdatesEnabled && !fixtureBellEnabled) return false;
+  const record = loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[userId] || {};
+  if (!studioAlertAllowed(record, fixtureId, eventKind)) return false;
+  if (!liveUpdatesEnabled && !fixtureBellEnabled && record.studioPrefs?.[String(fixtureId)]?.enabled !== true) return false;
   const reservation = reserveFixtureNotificationEvent(userId, eventKey);
   if (!reservation) return false;
   const nextPayload = maybeApplyNoSpoilerFixturePayload(
@@ -4578,6 +4641,10 @@ async function sendFixtureUpdateNotification(userId, fixtureId, eventKind, score
 
 function findFixtureById(fixtureId) {
   const targetFixtureId = String(fixtureId);
+  if (targetFixtureId.startsWith("cl:")) {
+    const match = (resultsCacheByKey["champions:default"] || []).find(item => `cl:${item.id}` === targetFixtureId);
+    return match ? championsFixture(match) : null;
+  }
   return [...(loadFixturesFromSrc() || []), ...(loadWorldCupFixturesFromSrc() || [])].find(
     (fixture) => String(fixture?.id) === targetFixtureId
   ) || null;
@@ -4789,6 +4856,26 @@ app.get("/api/push/prefs", authMiddleware, (req, res) => {
   }
 });
 
+// Studio preferences are independent of feed selection and prediction mode.
+app.get("/api/live-studio/prefs", authMiddleware, (req, res) => {
+  const record = loadJson(PUSH_SUBSCRIPTIONS_FILE, {})[req.user.id] || {};
+  res.json({ prefs: record.studioPrefs || {} });
+});
+app.post("/api/live-studio/prefs", authMiddleware, (req, res) => {
+  const { fixtureId, enabled, level } = req.body || {};
+  if (typeof fixtureId !== "string" || !/^(?:cl:)?\d+$/.test(fixtureId) || typeof enabled !== "boolean" || !["all", "goals"].includes(level)) {
+    return res.status(400).json({ error: "A fixture, enabled flag and valid alert level are required." });
+  }
+  const records = loadJson(PUSH_SUBSCRIPTIONS_FILE, {});
+  const record = records[req.user.id] || {};
+  const fixturePrefs = { ...record.fixturePrefs };
+  if (enabled) fixturePrefs[fixtureId] = true;
+  else delete fixturePrefs[fixtureId];
+  records[req.user.id] = { ...record, fixturePrefs, studioPrefs: { ...record.studioPrefs, [fixtureId]: { enabled, level } } };
+  saveJson(PUSH_SUBSCRIPTIONS_FILE, records);
+  res.json({ prefs: records[req.user.id].studioPrefs, fixturePrefs });
+});
+
 app.get("/api/push/fixtures", authMiddleware, (req, res) => {
   try {
     const userId = req.user.id;
@@ -4823,6 +4910,7 @@ app.post("/api/push/fixtures", authMiddleware, (req, res) => {
       subscriptions: getDeviceSubscriptions(existing),
       notifPrefs: existing.notifPrefs || null,
       fixturePrefs,
+      ...(existing.studioPrefs?.[fixtureId] ? { studioPrefs: { ...existing.studioPrefs, [fixtureId]: { ...existing.studioPrefs[fixtureId], enabled } } } : {}),
     };
     saveJson(PUSH_SUBSCRIPTIONS_FILE, subscriptions);
 
@@ -4952,11 +5040,11 @@ async function fetchLiveMatches(mode) {
     return { ok: true, matches };
   };
 
-  const normalizedMode = normalizeLeagueMode(mode);
+  const normalizedMode = mode === "champions" ? "champions" : normalizeLeagueMode(mode);
   const direct = await fetchMatches(
     normalizedMode === "worldcup"
       ? `${FOOTBALL_DATA_API_BASE}/competitions/WC/matches?season=${WORLD_CUP_SEASON}`
-      : `${FOOTBALL_DATA_API_BASE}/competitions/PL/matches`,
+      : `${FOOTBALL_DATA_API_BASE}/competitions/${normalizedMode === "champions" ? "CL" : "PL"}/matches`,
     getFootballDataHeaders({ unfold: true })
   );
   const enrichMatchDetails = async (matches) => {
@@ -4988,8 +5076,8 @@ async function fetchLiveMatches(mode) {
 
   if (direct.ok) return enrichMatchDetails(direct.matches);
 
-  if (normalizedMode === "worldcup") {
-    throw new Error(direct.errorText || "Failed to fetch live World Cup matches");
+  if (normalizedMode === "worldcup" || normalizedMode === "champions") {
+    throw new Error(direct.errorText || `Failed to fetch live ${normalizedMode} matches`);
   }
 
   const proxy = await fetchMatches(
@@ -5005,7 +5093,7 @@ async function fetchLiveMatches(mode) {
 
 function findLocalFixtureForApiMatch(match, fixtures) {
   if (match.id != null) {
-    const exact = fixtures.find((f) => Number(f.id) === Number(match.id));
+    const exact = fixtures.find((f) => Number(f.providerId ?? f.id) === Number(match.id));
     if (exact) return exact;
   }
 
@@ -5043,7 +5131,7 @@ function findLocalFixtureForApiMatch(match, fixtures) {
 
 async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
   const normalizedModeFilter =
-    modeFilter === "all" ? "all" : normalizeLeagueMode(modeFilter);
+    modeFilter === "all" ? "all" : modeFilter === "champions" ? "champions" : normalizeLeagueMode(modeFilter);
   const summary = {
     lastStartedAt: new Date().toISOString(),
     lastFinishedAt: null,
@@ -5079,6 +5167,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         mode: "worldcup",
         fixtures: loadWorldCupFixturesFromSrc() || [],
       },
+      { mode: "champions", fixtures: [] },
     ].filter(
       (competition) =>
         normalizedModeFilter === "all" || competition.mode === normalizedModeFilter
@@ -5111,7 +5200,8 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       resultsCacheAtByKey[cacheKey] = Date.now();
       summary.byMode[competition.mode].fetchedMatches = matches.length;
       matches.forEach((match) => {
-        liveMatches.push({ match, fixtures: competition.fixtures, mode: competition.mode });
+        if (competition.mode === "champions" && Math.abs(Date.parse(match.utcDate) - Date.now()) > 24 * 3600000) return;
+        liveMatches.push({ match, fixtures: competition.mode === "champions" ? [championsFixture(match)] : competition.fixtures, mode: competition.mode });
       });
     });
 
@@ -5144,7 +5234,7 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
       summary.byMode[mode].matchedFixtures += 1;
 
       const score = match.score || {};
-      const selectedScore = getMatchScoreForPrediction(match);
+      const selectedScore = mode === "champions" ? { homeGoals: numeric(match.score?.fullTime?.home), awayGoals: numeric(match.score?.fullTime?.away) } : getMatchScoreForPrediction(match);
       const ht = score.halfTime || {};
       const homeGoals = selectedScore.homeGoals;
       const awayGoals = selectedScore.awayGoals;
@@ -5275,9 +5365,9 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
         });
       }
 
-      if (scoreChanged && new Set(["IN_PLAY", "PAUSED", "FINISHED"]).has(status)) {
+      if (scoreChanged && new Set(["IN_PLAY", "PAUSED", "FINISHED", "EXTRA_TIME"]).has(status)) {
         const shouldSendGoal =
-          (status === "IN_PLAY" || status === "PAUSED") &&
+          (status === "IN_PLAY" || status === "PAUSED" || status === "EXTRA_TIME") &&
           didGoalCountIncrease(prevHome, prevAway, homeGoals, awayGoals);
         if (shouldSendGoal) {
           const goalEvent = getLatestGoalEvent({
@@ -5290,14 +5380,14 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
             nextAway: awayGoals,
           });
           subscribedUserIds.forEach((userId) => {
-            const prediction = predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)] || null;
+            const prediction = mode === "champions" ? null : predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)] || null;
             const impactLine = buildPredictionImpactLine(
               prediction,
               { homeGoals: prevHome, awayGoals: prevAway },
               { homeGoals, awayGoals }
             );
             const goalBody = buildGoalAlertBody(fixture, homeGoals, awayGoals, goalEvent);
-            const bodyLines = [goalBody, impactLine].filter(Boolean);
+            const bodyLines = [goalBody || (mode === "champions" ? formatLivePushScore(fixture, homeGoals, awayGoals) : ""), impactLine].filter(Boolean);
             summary.attemptedNotifications += 1;
             notificationTasks.push(sendFixtureUpdateNotification(userId, fixtureId, "goal", `${homeGoals}-${awayGoals}`, {
               title: buildLivePushHeader({
@@ -5343,8 +5433,10 @@ async function runLiveFixtureNotifier(reason = "timer", modeFilter = "all") {
               homeGoals,
               awayGoals,
             }),
-            body: buildFullTimeAlertBody(fixture, homeGoals, awayGoals,
-              predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)]),
+            body: mode === "champions"
+              ? formatLivePushScore(fixture, homeGoals, awayGoals)
+              : buildFullTimeAlertBody(fixture, homeGoals, awayGoals,
+                predictions?.[userId]?.[fixtureId] || predictions?.[userId]?.[Number(fixtureId)]),
             url: "/",
           }));
         });

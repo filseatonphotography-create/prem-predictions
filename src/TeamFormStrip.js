@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function TeamFormStrip({ form = [], isMobile, theme }) {
+export default function TeamFormStrip({ form = [], isMobile, theme, emptyLabel = "No completed fixtures yet." }) {
   return <div style={{
     display: "grid",
     gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
@@ -20,6 +20,6 @@ export default function TeamFormStrip({ form = [], isMobile, theme }) {
           {item.opponentCode}<br />{item.venue}
         </div>
       </div>;
-    }) : <div style={{ fontSize: 12, color: theme.muted }}>No completed fixtures yet.</div>}
+    }) : <div style={{ fontSize: 12, color: theme.muted }}>{emptyLabel}</div>}
   </div>;
 }

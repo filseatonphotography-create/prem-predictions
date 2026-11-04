@@ -60,3 +60,25 @@ test("the full app shows both teams' table-style form strips on a kickoff card w
     }
   } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
 });
+
+test('Champions League kickoff cards render both teams’ competition-only form', async () => {
+  const { buildChampionsForm } = require('./studioCompetitions');
+  jest.useFakeTimers(); jest.setSystemTime(Date.parse('2026-11-04T18:14:00Z'));
+  localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
+  localStorage.setItem('pl_prediction_auth_v1', JSON.stringify({ token: 'test-only', userId: 'diagnostic', username: 'Diagnostic' }));
+  localStorage.setItem('activeView', 'liveStudio');
+  localStorage.setItem('live-studio-selection:v1:diagnostic', JSON.stringify({ 'cl:77': true }));
+  const raw = { id: 77, utcDate: '2026-11-04T17:45:00Z', status: 'IN_PLAY', minute: 29,
+    homeTeam: { id: 1, name: 'Fenerbahçe SK' }, awayTeam: { id: 2, name: 'Liverpool FC' }, score: { fullTime: { home: 1, away: 1 } } };
+  const prior = { id: 66, utcDate: '2026-10-20T18:00:00Z', status: 'FINISHED', competition: { code: 'CL' }, homeTeam: raw.homeTeam, awayTeam: raw.awayTeam, score: { fullTime: { home: 2, away: 0 } } };
+  raw.form = buildChampionsForm(raw, [prior]);
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn(async url => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => String(url).includes('/api/live-studio/matches?') ? { matches: [raw] } : {} }));
+  try {
+    render(<App />); await act(async () => { for (let i = 0; i < 70; i++) await Promise.resolve(); });
+    const section = screen.getByRole('region', { name: 'Team form at kick-off' });
+    expect(section).toHaveTextContent('Champions League form this season');
+    expect(within(section).getByRole('group', { name: 'Fenerbahçe SK form' })).toHaveTextContent('W');
+    expect(within(section).getByRole('group', { name: 'Liverpool form' })).toHaveTextContent('L');
+  } finally { cleanup(); global.fetch = originalFetch; jest.useRealTimers(); }
+});

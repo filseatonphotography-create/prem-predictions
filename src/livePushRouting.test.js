@@ -11,6 +11,8 @@ function dispatcher() {
   const finish = jest.fn();
   const context = {
     shouldPushMatchEvent, isMeaningfulFixturePush,
+    studioAlertAllowed: require("./studioCompetitions").studioAlertAllowed,
+    loadJson: () => ({}), PUSH_SUBSCRIPTIONS_FILE: "unused",
     isPushTypeEnabled: () => true, getPushNotificationPrefs: () => ({}), hasFixtureNotificationEnabled: () => true,
     reserveFixtureNotificationEvent: reserve, finishFixtureNotificationEvent: finish,
     maybeApplyNoSpoilerFixturePayload: (_user, _fixture, _kind, _key, payload) => payload,

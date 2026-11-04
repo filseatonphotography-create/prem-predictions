@@ -165,3 +165,43 @@ varied introduction. They share the league table's form calculation and visual
 strip (W/D/L colours, opponent codes, and home/away markers). The kickoff guide
 uses only results from fixtures before that match's start, keeping its own
 result and subsequent fixtures out of the pre-match form after reopening.
+
+### Live Studio competition coverage
+
+Live Studio's **Follow matches** menu selects games independently of prediction
+scoring. Premier League selections retain prediction and coins commentary;
+Champions League selections use football-only coverage. The score strip filters
+the feed to one selected game or returns to all matches. Match selections are
+remembered per account in this browser. Champions League fixtures cover the
+previous and next 24 hours and refresh every 30 seconds while Studio is open.
+Provider failures keep the last received scores visible with a retry control.
+
+Each match has an independent push bell and an alert level:
+
+- **Goals and final score:** goals, disallowed goals and full-time.
+- **All match alerts:** those events plus confirmed line-ups, kick-off,
+  half-time and the second-half restart. Cards and substitutions remain on-page.
+
+Alert choices for both competitions are saved on the backend in `studioPrefs`
+inside the existing push subscription record. An explicit match mute overrides
+global Live updates; Champions League alerts require an explicit opt-in. The
+existing no-spoilers preference applies to goal alerts. Background polling and
+push delivery use the existing server timer, so the backend must remain running.
+
+The backend exposes `GET /api/live-studio/matches?competition=champions` and
+account-authenticated `GET/POST /api/live-studio/prefs`. Champions League IDs use
+`cl:<provider match ID>` to keep their results separate from prediction fixtures.
+Deploy the frontend and backend changes together to enable this feature.
+
+Champions League kick-off cards show each side's latest five completed Champions
+League games from the current season, most recent first, using the same W/D/L
+strip as Premier League coverage. Only games completed before that kick-off are
+eligible. Early in the season the strip shows fewer games, with a clear empty
+message when no earlier results exist. Domestic games are excluded.
+
+**Leagues → Champions League Table** opens the provider's current league-phase
+standings, with badges, P/W/D/L, goals for/against, goal difference and points.
+The provider's ordering is retained, and qualification bands are provisional.
+The table refreshes every minute while open; its backend cache is independent of
+Premier League standings. Provider failures retain the last standings and show
+a delayed-update notice. The endpoint is `GET /api/champions-league/standings`.

@@ -6,6 +6,10 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
+import LiveStudioCoverage from "./LiveStudioCoverage";
+import StudioTeamBadge from "./StudioTeamBadge";
+import ChampionsLeagueTable from "./ChampionsLeagueTable";
+import useStudioCoverage from "./useStudioCoverage";
 import TeamFormStrip from "./TeamFormStrip";
 import PushDiagnostics from "./PushDiagnostics";
 import { readLiveStudioCache, writeLiveStudioCache } from "./liveStudioStorage";
@@ -11774,6 +11778,15 @@ const liveStudioFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.lengt
   ? liveStudioDemoFixtures
   : visibleFixtures;
 
+const studioCoverage = useStudioCoverage({
+  active: activeView === "liveStudio", base: BACKEND_BASE, token: authToken, userId: currentUserId,
+  fixtures: liveStudioFixtures, states: matchStatesByFixtureId, results,
+  primaryLabel: getModeLabel(gameMode), resolveBadge: resolveTeamBadge, fixturePrefs: fixturePushPrefs, globalAlerts: pushPrefs.liveUpdates !== false,
+  enablePush: enablePushNotifications, pushEnabled, pushSupported,
+  onFixturePrefs: values => { setFixturePushPrefs(values); localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(values)); },
+  focusFixtureId: liveStudioFocusFixtureId,
+});
+
 const liveStudioCountdownFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.length
   ? liveStudioFixtures
   : activeFixtures;
@@ -11936,7 +11949,7 @@ const liveStudioRows = useMemo(() => {
   liveStudioUsers,
 ]);
 
-const liveStudioCommentaryScope = `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${selectedMiniLeague?.id || "global"}:${new Date(liveStudioNow).toISOString().slice(0, 10)}`;
+const liveStudioCommentaryScope = `${currentUserId || currentPlayer}:${gameMode}:${selectedGameweek}:${selectedMiniLeague?.id || "global"}:${new Date(liveStudioNow).toISOString().slice(0, 10)}${studioCoverage.selectionScope}`;
 const liveStudioPreMatchContexts = useMemo(() => isWorldCupMode ? {} : Object.fromEntries(liveStudioFixtures.map(fixture =>
   [fixture.id, buildLiveStudioPreMatchContext(fixture, results, matchStatesByFixtureId)])),
   [isWorldCupMode, liveStudioFixtures, results, matchStatesByFixtureId]);
@@ -12069,6 +12082,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   const tableSwings = [];
   const savedFullTimeFixtures = getSavedLiveStudioFullTimeFixtures(liveStudioCommentaryScope);
   const entries = liveStudioFixtures
+    .filter(studioCoverage.isSelected)
     .flatMap((fixture) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
@@ -12462,7 +12476,7 @@ const liveStudioCurrentFeed = useMemo(() => {
       },
     ];
   }
-  const nextKickoffMs = liveStudioFixtures.map((fixture) => Date.parse(fixture.kickoff))
+  const nextKickoffMs = liveStudioFixtures.filter(studioCoverage.isSelected).map((fixture) => Date.parse(fixture.kickoff))
     .filter((kickoff) => kickoff > liveStudioNow).sort((a, b) => a - b)[0];
   const deskEntries = buildLiveStudioDeskEntries({
     matches: studioMatches, completedMatches: completedStudioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
@@ -12472,7 +12486,7 @@ const liveStudioCurrentFeed = useMemo(() => {
     getBadgeAwards: matches => isWorldCupMode ? [] : buildFinalBadgeAwards({ matches, fixtures: activeFixtures, results,
       states: matchStatesByFixtureId, players: liveStudioUsers.map(user => ({ userId: user.userId, username: user.username,
         predictions: Object.fromEntries(activeFixtures.map(fixture => [fixture.id, getUserPredictionForFixture(user, fixture)])) })) }),
-    hasUnfinishedFixtures: liveStudioFixtures.some((fixture) => {
+    hasUnfinishedFixtures: liveStudioFixtures.filter(studioCoverage.isSelected).some((fixture) => {
       const state = getFixtureMatchState(fixture);
       return Date.parse(fixture.kickoff) <= liveStudioNow
         && isLiveStudioFixtureInCoverageWindow(fixture, state, liveStudioNow)
@@ -12498,6 +12512,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   isWorldCupMode,
   generatedModelOddsByFixture,
   liveStudioPreMatchContexts,
+  studioCoverage.isSelected,
   getLiveStudioLeagueBasePoints,
   liveStudioDemoStateByFixtureId,
   liveStudioFixtures,
@@ -12525,6 +12540,19 @@ const liveStudioFeed = useLiveStudioCommentaryHistory(
   liveStudioDemoEnabled || studioSnapshotMode === gameMode
 );
 
+const combinedStudioFeed = useMemo(() => {
+  const primaryFeed = liveStudioFeed.map(entry => ({ ...entry, competitionLabel: getModeLabel(gameMode) }));
+  if (!studioCoverage.foreignFeed.length) return primaryFeed;
+  // Merge two timelines without disturbing the established Premier League order.
+  const merged = [...primaryFeed];
+  [...studioCoverage.foreignFeed].sort((a, b) => b.momentMs - a.momentMs).forEach(entry => {
+    const index = merged.findIndex(existing => (existing.momentMs || 0) < (entry.momentMs || 0));
+    merged.splice(index < 0 ? merged.length : index, 0, entry);
+  });
+  return merged;
+}, [liveStudioFeed, studioCoverage.foreignFeed, gameMode]);
+const visibleStudioFeed = studioCoverage.filterFeed(combinedStudioFeed);
+
 useEffect(() => {
   if (
     liveStudioFocusConsumedRef.current ||
@@ -12551,7 +12579,7 @@ useEffect(() => {
     } catch {}
   });
   return () => window.cancelAnimationFrame(frame);
-}, [activeView, liveStudioFocusFixtureId, liveStudioFocusUpdateKey, liveStudioFeed]);
+}, [activeView, liveStudioFocusFixtureId, liveStudioFocusUpdateKey, combinedStudioFeed]);
 
 const globalWeeklyScores = useMemo(() => {
   const gw = selectedGameweek;
@@ -20078,6 +20106,7 @@ if (!isLoggedIn) {
     ? [
         { id: "league" },
         { id: "worldCupGroupTables" },
+        { id: "championsLeagueTable" },
         { id: "coinsLeague" },
         { id: "globalLeague" },
         { id: "leagues" },
@@ -20086,6 +20115,7 @@ if (!isLoggedIn) {
         { id: "league" },
         { id: "globalLeague" },
         { id: "premierLeagueTable" },
+        { id: "championsLeagueTable" },
         { id: "coinsLeague" },
         { id: "leagues" },
       ]);
@@ -20772,6 +20802,7 @@ if (!isLoggedIn) {
                   { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
                   { action: "view", id: "league", label: "WC Mini League Table" },
                   { action: "view", id: "worldCupGroupTables", label: "WC Group Tables" },
+                  { action: "view", id: "championsLeagueTable", label: "Champions League Table" },
                   { action: "view", id: "coinsLeague", label: "WC Coins League" },
                   { action: "view", id: "globalLeague", label: "WC Global League" },
                   { action: "view", id: "leagues", label: "WC Mini-Leagues" },
@@ -20781,6 +20812,7 @@ if (!isLoggedIn) {
                   { action: "view", id: "league", label: "Mini League Table" },
                   { action: "view", id: "globalLeague", label: "Global League Table" },
                   { action: "view", id: "premierLeagueTable", label: "Premier League Table" },
+                  { action: "view", id: "championsLeagueTable", label: "Champions League Table" },
                   { action: "view", id: "coinsLeague", label: "Coins League" },
                   { action: "view", id: "leagues", label: "Mini‑Leagues" },
                 ]
@@ -21410,7 +21442,7 @@ if (!isLoggedIn) {
                   Live Studio
                 </div>
                 <h2 style={{ margin: "3px 0 0", fontSize: isMobile ? 22 : 28, lineHeight: 1.05 }}>
-                  {getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)} live switchboard
+                  {studioCoverage.selected.some(fixture => fixture.competition === "champions") ? "Live match switchboard" : `${getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)} live switchboard`}
                 </h2>
               </div>
               <div
@@ -21453,7 +21485,7 @@ if (!isLoggedIn) {
                 </label>
                 <button
                   type="button"
-                  onClick={() => refreshAutoResults(gameMode, activeFixtures)}
+                  onClick={() => { refreshAutoResults(gameMode, activeFixtures); studioCoverage.refresh(); }}
                   disabled={resultsRefreshing}
                   style={{
                     ...pillBtn(true),
@@ -21466,6 +21498,7 @@ if (!isLoggedIn) {
                 </button>
               </div>
             </div>
+            <LiveStudioCoverage studio={studioCoverage} theme={theme} />
             {liveStudioNotice && (
               <div
                 role="status"
@@ -21493,7 +21526,7 @@ if (!isLoggedIn) {
               }}
             >
               <div style={{ display: "grid", gap: 8 }}>
-                {liveStudioFeed.map((entry) => {
+                {visibleStudioFeed.map((entry) => {
                   const isFocusedLiveStudioUpdate =
                     liveStudioFocusUpdateKey &&
                     entry.updateKey === liveStudioFocusUpdateKey;
@@ -21560,20 +21593,18 @@ if (!isLoggedIn) {
                         {entryFixture ? (
                           <>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 3 }}>
-                              {isWorldCupMode ? (
+                              {isWorldCupMode && entryFixture.competition !== "champions" ? (
                                 <span style={{ fontSize: 16 }}>{getWorldCupFlag(entryFixture.homeTeam)}</span>
-                              ) : resolveTeamBadge(entryFixture.homeTeam) ? (
-                                <img src={resolveTeamBadge(entryFixture.homeTeam)} alt={entryFixture.homeTeam} style={{ width: 18, height: 18, objectFit: "contain" }} />
                               ) : (
-                                <span>{getTeamCode(entryFixture.homeTeam, gameMode)}</span>
+                                <StudioTeamBadge src={resolveTeamBadge(entryFixture.homeTeam) || entryFixture.homeBadge} team={entryFixture.homeTeam}
+                                  fallback={<span>{getTeamCode(entryFixture.homeTeam, gameMode)}</span>} />
                               )}
                               <span style={{ color: theme.muted, fontSize: 9 }}>v</span>
-                              {isWorldCupMode ? (
+                              {isWorldCupMode && entryFixture.competition !== "champions" ? (
                                 <span style={{ fontSize: 16 }}>{getWorldCupFlag(entryFixture.awayTeam)}</span>
-                              ) : resolveTeamBadge(entryFixture.awayTeam) ? (
-                                <img src={resolveTeamBadge(entryFixture.awayTeam)} alt={entryFixture.awayTeam} style={{ width: 18, height: 18, objectFit: "contain" }} />
                               ) : (
-                                <span>{getTeamCode(entryFixture.awayTeam, gameMode)}</span>
+                                <StudioTeamBadge src={resolveTeamBadge(entryFixture.awayTeam) || entryFixture.awayBadge} team={entryFixture.awayTeam}
+                                  fallback={<span>{getTeamCode(entryFixture.awayTeam, gameMode)}</span>} />
                               )}
                             </div>
                             <span>{entry.minute}</span>
@@ -21583,6 +21614,7 @@ if (!isLoggedIn) {
                         )}
                       </div>
                       <div style={{ minWidth: 0 }}>
+                        {entry.competitionLabel && <div style={{ color: theme.muted, fontSize: 10, fontWeight: 850, marginBottom: 4 }}>{entry.competitionLabel}</div>}
                         {entry.verdictLabel && (
                           <div
                             style={{
@@ -21645,20 +21677,23 @@ if (!isLoggedIn) {
                             </div>
                           ))}
                         </div>
-                        {isKickoffCard && !isWorldCupMode && entryFixture && (
+                        {isKickoffCard && entryFixture && (entryFixture.competition === "champions" || !isWorldCupMode) && (
                           <section aria-label="Team form at kick-off" style={{ marginTop: 12, display: "grid", gap: 10 }}>
                             <div style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35 }}>
-                              {pickLiveStudioPhrase(`${entryFixture.id}:kickoff-form`, [
+                              {entryFixture.competition === "champions" ? "Champions League form this season · before kick-off · latest first" : pickLiveStudioPhrase(`${entryFixture.id}:kickoff-form`, [
                                 "Let's look at the teams' current form.",
                                 "A quick look at recent form for both sides.",
                                 "How are they coming into this one? Here's the form.",
                                 "Before we get going, here's how these two have been shaping up.",
                               ])}
                             </div>
-                            {[entryFixture.homeTeam, entryFixture.awayTeam].map(team => (
+                            {[entryFixture.homeTeam, entryFixture.awayTeam].map((team, sideIndex) => (
                               <div key={team} role="group" aria-label={`${getLiveStudioTeamName(team)} form`} style={{ display: "grid", gap: 5 }}>
                                 <strong style={{ color: theme.text, fontSize: isMobile ? 12 : 13 }}>{getLiveStudioTeamName(team)}</strong>
-                                <TeamFormStrip form={buildPremierTeamForm(team, results, Date.parse(entryFixture.kickoff))} isMobile={isMobile} theme={theme} />
+                                <TeamFormStrip
+                                  form={entryFixture.competition === "champions" ? entry.championsForm?.[sideIndex === 0 ? "home" : "away"] || [] : buildPremierTeamForm(team, results, Date.parse(entryFixture.kickoff))}
+                                  emptyLabel={entryFixture.competition === "champions" ? entry.championsForm ? "No earlier Champions League results this season." : "Champions League form is unavailable." : undefined}
+                                  isMobile={isMobile} theme={theme} />
                               </div>
                             ))}
                           </section>
@@ -21717,7 +21752,7 @@ if (!isLoggedIn) {
                           teams={["home", "away"].map((side) => {
                             const name = side === "home" ? entryFixture.homeTeam : entryFixture.awayTeam;
                             return { ...entry.lineups[side], name: getLiveStudioTeamName(name),
-                              badge: isWorldCupMode ? null : resolveTeamBadge(name),
+                              badge: entryFixture.competition === "champions" ? resolveTeamBadge(name) || entryFixture[`${side}Badge`] : isWorldCupMode ? null : resolveTeamBadge(name),
                               flag: isWorldCupMode ? getWorldCupFlag(name) : null };
                           })}
                         />}
@@ -23548,6 +23583,12 @@ if (!isLoggedIn) {
                 </div>
               );
             })()}
+          </section>
+        )}
+
+        {activeView === "championsLeagueTable" && (
+          <section style={cardStyle}>
+            <ChampionsLeagueTable base={BACKEND_BASE} theme={theme} resolveBadge={resolveTeamBadge} />
           </section>
         )}
 
