@@ -6,9 +6,11 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
-import LiveStudioCoverage from "./LiveStudioCoverage";
+import LiveStudioCoverage, { LiveStudioCompetitions, LiveStudioScoreStrip } from "./LiveStudioCoverage";
+import { isStudioMatchLive } from "./studioNavigation";
 import StudioTeamBadge from "./StudioTeamBadge";
 import ChampionsLeagueTable from "./ChampionsLeagueTable";
+import LeagueTableRow from "./LeagueTableRow";
 import useStudioCoverage from "./useStudioCoverage";
 import TeamFormStrip from "./TeamFormStrip";
 import PushDiagnostics from "./PushDiagnostics";
@@ -11779,12 +11781,17 @@ const liveStudioFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.lengt
   : visibleFixtures;
 
 const studioCoverage = useStudioCoverage({
-  active: activeView === "liveStudio", base: BACKEND_BASE, token: authToken, userId: currentUserId,
-  fixtures: liveStudioFixtures, states: matchStatesByFixtureId, results,
-  primaryLabel: getModeLabel(gameMode), resolveBadge: resolveTeamBadge, fixturePrefs: fixturePushPrefs, globalAlerts: pushPrefs.liveUpdates !== false,
+  active: activeView === "liveStudio", poll: isLoggedIn, nowMs: activeView === "liveStudio" ? liveStudioNow : Date.now(), base: BACKEND_BASE, token: authToken, userId: currentUserId,
+  fixtures: gameMode === PREMIER_MODE ? activeFixtures : FIXTURES, states: matchStatesByFixtureId, results,
+  primaryLabel: "Premier League", resolveBadge: resolveTeamBadge, fixturePrefs: fixturePushPrefs, globalAlerts: pushPrefs.liveUpdates !== false,
   enablePush: enablePushNotifications, pushEnabled, pushSupported,
   onFixturePrefs: values => { setFixturePushPrefs(values); localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(values)); },
   focusFixtureId: liveStudioFocusFixtureId,
+  onOpenPrimary: () => {
+    if (gameMode !== PREMIER_MODE) setGameMode(PREMIER_MODE);
+    const liveFixture = activeFixtures.find(fixture => isStudioMatchLive(matchStatesByFixtureId[fixture.id]));
+    if (gameMode === PREMIER_MODE && liveFixture) setSelectedGameweek(Number(liveFixture.gameweek));
+  },
 });
 
 const liveStudioCountdownFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.length
@@ -12082,7 +12089,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   const tableSwings = [];
   const savedFullTimeFixtures = getSavedLiveStudioFullTimeFixtures(liveStudioCommentaryScope);
   const entries = liveStudioFixtures
-    .filter(studioCoverage.isSelected)
+    .filter(studioCoverage.isCovered)
     .flatMap((fixture) => {
       const demoState = liveStudioDemoStateByFixtureId[fixture.id];
       const matchState = demoState || matchStatesByFixtureId[fixture.id] || {};
@@ -12476,7 +12483,7 @@ const liveStudioCurrentFeed = useMemo(() => {
       },
     ];
   }
-  const nextKickoffMs = liveStudioFixtures.filter(studioCoverage.isSelected).map((fixture) => Date.parse(fixture.kickoff))
+  const nextKickoffMs = liveStudioFixtures.filter(studioCoverage.isCovered).map((fixture) => Date.parse(fixture.kickoff))
     .filter((kickoff) => kickoff > liveStudioNow).sort((a, b) => a - b)[0];
   const deskEntries = buildLiveStudioDeskEntries({
     matches: studioMatches, completedMatches: completedStudioMatches, nowMs: liveStudioNow, nextKickoffMs, tableSwings,
@@ -12486,7 +12493,7 @@ const liveStudioCurrentFeed = useMemo(() => {
     getBadgeAwards: matches => isWorldCupMode ? [] : buildFinalBadgeAwards({ matches, fixtures: activeFixtures, results,
       states: matchStatesByFixtureId, players: liveStudioUsers.map(user => ({ userId: user.userId, username: user.username,
         predictions: Object.fromEntries(activeFixtures.map(fixture => [fixture.id, getUserPredictionForFixture(user, fixture)])) })) }),
-    hasUnfinishedFixtures: liveStudioFixtures.filter(studioCoverage.isSelected).some((fixture) => {
+    hasUnfinishedFixtures: liveStudioFixtures.filter(studioCoverage.isCovered).some((fixture) => {
       const state = getFixtureMatchState(fixture);
       return Date.parse(fixture.kickoff) <= liveStudioNow
         && isLiveStudioFixtureInCoverageWindow(fixture, state, liveStudioNow)
@@ -12512,7 +12519,7 @@ const liveStudioCurrentFeed = useMemo(() => {
   isWorldCupMode,
   generatedModelOddsByFixture,
   liveStudioPreMatchContexts,
-  studioCoverage.isSelected,
+  studioCoverage.isCovered,
   getLiveStudioLeagueBasePoints,
   liveStudioDemoStateByFixtureId,
   liveStudioFixtures,
@@ -20679,11 +20686,12 @@ if (!isLoggedIn) {
             >
               <button
                 type="button"
-                className={liveStudioLiveFixture ? "live-studio-live-button" : undefined}
+                className={studioCoverage.anyLive ? "live-studio-live-button" : undefined}
                 onClick={() => {
                   if (liveStudioLiveFixture?.gameweek) {
                     setSelectedGameweek(Number(liveStudioLiveFixture.gameweek));
                   }
+                  studioCoverage.showCompetitions();
                   setActiveView("liveStudio");
                   setShowMobileMenu(false);
                   setShowLeaguesMenu(false);
@@ -20692,7 +20700,7 @@ if (!isLoggedIn) {
                   ...headerActionButtonStyle,
                   background: activeView === "liveStudio" ? "rgba(56,189,248,0.15)" : headerActionButtonStyle.background,
                   color: activeView === "liveStudio" ? theme.text : theme.accent,
-                  ...(liveStudioLiveFixture ? {
+                  ...(studioCoverage.anyLive ? {
                     border: "1px solid rgba(34,197,94,0.75)",
                     background: "linear-gradient(135deg, rgba(34,197,94,0.98), rgba(16,185,129,0.88))",
                     color: "#052e16",
@@ -21412,7 +21420,13 @@ if (!isLoggedIn) {
 
         </section>
 
-        {activeView === "liveStudio" && (
+        {activeView === "liveStudio" && studioCoverage.route.page === "competitions" && (
+          <section style={cardStyle}><LiveStudioCompetitions studio={studioCoverage} theme={theme} isMobile={isMobile} nowMs={liveStudioNow} /></section>
+        )}
+        {activeView === "liveStudio" && studioCoverage.route.page === "matches" && (
+          <section style={cardStyle}><LiveStudioCoverage studio={studioCoverage} theme={theme} nowMs={liveStudioNow} /></section>
+        )}
+        {activeView === "liveStudio" && studioCoverage.route.page === "coverage" && (
           <section
             style={{
               ...cardStyle,
@@ -21442,7 +21456,7 @@ if (!isLoggedIn) {
                   Live Studio
                 </div>
                 <h2 style={{ margin: "3px 0 0", fontSize: isMobile ? 22 : 28, lineHeight: 1.05 }}>
-                  {studioCoverage.selected.some(fixture => fixture.competition === "champions") ? "Live match switchboard" : `${getModeGameweekLabel(gameMode, liveStudioDemoGameweek || selectedGameweek)} live switchboard`}
+                  {studioCoverage.group.label} · Live coverage
                 </h2>
               </div>
               <div
@@ -21498,7 +21512,8 @@ if (!isLoggedIn) {
                 </button>
               </div>
             </div>
-            <LiveStudioCoverage studio={studioCoverage} theme={theme} />
+            <button type="button" onClick={studioCoverage.showMatches} style={{ ...pillBtn(false), justifySelf: "start", padding: "8px 12px" }}>← Live games</button>
+            <LiveStudioScoreStrip studio={studioCoverage} theme={theme} />
             {liveStudioNotice && (
               <div
                 role="status"
@@ -21520,7 +21535,7 @@ if (!isLoggedIn) {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 220px",
+                gridTemplateColumns: isMobile || studioCoverage.route.competition === "champions" ? "1fr" : "minmax(0, 1fr) 220px",
                 gap: 12,
                 alignItems: "start",
               }}
@@ -21819,6 +21834,7 @@ if (!isLoggedIn) {
                 })}
               </div>
 
+              {studioCoverage.route.competition === "primary" && (
               <aside
                 style={{
                   border: `1px solid ${theme.line}`,
@@ -21858,6 +21874,7 @@ if (!isLoggedIn) {
                   );
                 })}
               </aside>
+              )}
             </div>
           </section>
         )}
@@ -23588,7 +23605,7 @@ if (!isLoggedIn) {
 
         {activeView === "championsLeagueTable" && (
           <section style={cardStyle}>
-            <ChampionsLeagueTable base={BACKEND_BASE} theme={theme} resolveBadge={resolveTeamBadge} />
+            <ChampionsLeagueTable base={BACKEND_BASE} theme={theme} isMobile={isMobile} resolveBadge={resolveTeamBadge} />
           </section>
         )}
 
@@ -23719,143 +23736,9 @@ if (!isLoggedIn) {
                   }
 
                   return (
-                    <div
-                      key={row?.team?.id || `${teamName}-${i}`}
-                      style={{
-                        background: theme.panelHi,
-                        border: `2px solid ${borderColor}`,
-                        borderRadius: 12,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() =>
-                          setExpandedPremierTeam((prev) => (prev === teamKey ? "" : teamKey))
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setExpandedPremierTeam((prev) => (prev === teamKey ? "" : teamKey));
-                          }
-                        }}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: isMobile ? "36px auto 78px" : "42px auto 158px",
-                          gap: 10,
-                          alignItems: "center",
-                          padding: isMobile ? "10px 12px" : "12px 14px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div
-                            style={{
-                              color: i === 0 ? "#FFD700" : theme.muted,
-                              fontWeight: 800,
-                              fontSize: 16,
-                              textAlign: "center",
-                            }}
-                          >
-                            {row.position || i + 1}
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            minWidth: 0,
-                          }}
-                        >
-                          {badgeSrc && (
-                            <img
-                              src={badgeSrc}
-                              alt={teamName}
-                              style={{
-                                width: isMobile ? 28 : 32,
-                                height: isMobile ? 28 : 32,
-                                objectFit: "contain",
-                                flexShrink: 0,
-                              }}
-                            />
-                          )}
-                          <div style={{ minWidth: 0 }}>
-                            <div
-                              style={{
-                                fontWeight: 700,
-                                fontSize: isMobile ? 14 : 15,
-                                color: theme.text,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                              title={row?.team?.name || teamName}
-                            >
-                              {teamName}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: 12,
-                                color: theme.muted,
-                                marginTop: 2,
-                              }}
-                            >
-                              P {row.playedGames ?? 0}  GD {row.goalDifference ?? 0}
-                            </div>
-                          </div>
-                          <div
-                            style={{
-                              marginLeft: "auto",
-                              color: theme.muted,
-                              fontSize: 14,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {isExpanded ? "▲" : "▼"}
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
-                            gap: 6,
-                            textAlign: "center",
-                          }}
-                        >
-                          {[
-                            { label: "W", value: row.won ?? 0 },
-                            { label: "D", value: row.draw ?? 0 },
-                            { label: "L", value: row.lost ?? 0 },
-                            { label: "PTS", value: row.points ?? 0, accent: true },
-                          ].map((stat) => (
-                            <div key={stat.label}>
-                              <div
-                                style={{
-                                  fontSize: 10,
-                                  color: theme.muted,
-                                  letterSpacing: 0.3,
-                                }}
-                              >
-                                {stat.label}
-                              </div>
-                              <div
-                                style={{
-                                  fontWeight: 800,
-                                  fontSize: stat.accent ? 16 : 14,
-                                  color: stat.accent ? theme.accent : theme.text,
-                                }}
-                              >
-                                {stat.value}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
+                    <LeagueTableRow key={row?.team?.id || `${teamName}-${i}`} row={{ ...row, position: row.position || i + 1 }} teamName={teamName} badgeSrc={badgeSrc}
+                      borderColor={borderColor} first={i === 0} expanded={isExpanded} isMobile={isMobile} theme={theme}
+                      onToggle={() => setExpandedPremierTeam(previous => previous === teamKey ? "" : teamKey)}>
                       {isExpanded && (
                         <div
                           style={{
@@ -23955,7 +23838,7 @@ if (!isLoggedIn) {
                           </div>
                         </div>
                       )}
-                    </div>
+                    </LeagueTableRow>
                   );
                 })}
             </div>

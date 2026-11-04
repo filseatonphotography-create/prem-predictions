@@ -39,8 +39,20 @@ async function check(name, activeView) {
     if (errors.length) throw errors[0];
     const root = win.document.getElementById('root');
     if (!root.textContent.trim()) throw new Error(`${name}: the production app rendered a blank root`);
-    if (activeView === 'liveStudio' && !root.querySelector('article[data-live-studio-fixture-id="cl:77"]')) throw new Error('The production Studio did not render its selected Champions League match');
-    if (activeView === 'championsLeagueTable' && !root.querySelector('table')) throw new Error('The production Champions League table did not render');
+    if (activeView === 'liveStudio') {
+      const league = root.querySelector('button[aria-label="Champions League"]');
+      const premier = root.querySelector('button[aria-label="Premier League"]');
+      if (!league || !premier || root.querySelector('article')) throw new Error('Studio must open with its two competition buttons');
+      if (!league.classList.contains('live-studio-live-button')) throw new Error('The live competition button must pulse');
+      league.click(); await new Promise(resolve => setTimeout(resolve, 100));
+      if (!root.querySelector('input[aria-label="Follow Startup Home v Startup Away"]') || root.querySelector('article')) throw new Error('The competition page must show the live match list separately');
+      const follow = [...root.querySelectorAll('button')].find(button => button.textContent.startsWith('Follow selected games'));
+      if (!follow || follow.disabled) throw new Error('Selected live games must be followable');
+      follow.click(); await new Promise(resolve => setTimeout(resolve, 100));
+      if (!root.querySelector('article[data-live-studio-fixture-id="cl:77"]')) throw new Error('The selected match coverage did not render');
+    }
+    if (activeView === 'championsLeagueTable' && !root.querySelector('[data-league-team-id]')) throw new Error('The production Champions League table did not render');
+    if (errors.length) throw errors[0];
     console.log(`Production startup passed: ${name}`);
   } finally { win.close(); }
 }

@@ -11,6 +11,7 @@ test("refresh restores all ten Originals rows and points while league requests a
   const predictionsByUserId = Object.fromEntries(users.map(user => [user.userId, { 560626: { homeGoals: 2, awayGoals: 0 } }]));
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "phil-id", username: "Phil" }));
   localStorage.setItem("activeView", "liveStudio");
+  window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 9 }));
   localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 9, predictions: {} }));
   const state = { status: "FINISHED", minute: 90, utcDate: "2026-10-31T12:30:00Z", homeGoals: 2, awayGoals: 0,

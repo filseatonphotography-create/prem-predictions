@@ -17,15 +17,20 @@ afterEach(() => { cleanup(); global.fetch = originalFetch; jest.useRealTimers();
 test('the league-phase table uses provider ranks, statistics and badges, with a delayed-update notice', async () => {
   global.fetch = jest.fn(async () => ({ ok: true, json: async () => data }));
   render(<ChampionsLeagueTable base="" theme={theme} />); await act(flush);
-  const rows = within(screen.getByRole('table', { name: 'League phase' })).getAllByRole('row');
-  expect(rows[1]).toHaveTextContent('Arsenal'); expect(rows[2]).toHaveTextContent('Liverpool');
-  expect(rows[2].querySelector('img').src).toBe('https://crests.football-data.org/64.png');
+  const rows = within(screen.getByRole('group', { name: 'League phase' })).getAllByRole('button');
+  expect(rows[0]).toHaveTextContent('Arsenal'); expect(rows[1]).toHaveTextContent('Liverpool');
+  expect(rows[1].querySelector('img').src).toBe('https://crests.football-data.org/64.png');
   expect(screen.getByText(/1–8: Round of 16/)).toBeInTheDocument();
   expect(screen.getByText(/may lag live scores/)).toBeInTheDocument();
+  expect(rows[0]).toHaveStyle({ gridTemplateColumns: '42px auto 158px' });
+  expect(rows[0]).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.click(rows[0]);
+  expect(rows[0]).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByText(/Goals for 9/)).toBeInTheDocument();
   global.fetch.mockResolvedValue({ ok: false, json: async () => ({}) });
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refresh table' })); await flush(); });
   expect(screen.getByRole('status')).toHaveTextContent('Showing the last received standings.');
-  expect(screen.getByRole('table')).toBeInTheDocument();
+  expect(screen.getByRole('group', { name: 'League phase' })).toBeInTheDocument();
 });
 
 test('the Leagues menu opens the Champions League table without changing prediction mode', async () => {
@@ -37,7 +42,7 @@ test('the Leagues menu opens the Champions League table without changing predict
   fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Champions League Table' })); await flush(); });
   expect(screen.getByRole('heading', { name: 'Champions League Table' })).toBeInTheDocument();
-  expect(screen.getByRole('table', { name: 'League phase' })).toBeInTheDocument();
+  expect(screen.getByRole('group', { name: 'League phase' })).toBeInTheDocument();
   expect(screen.getByText('Premier League Mode')).toBeInTheDocument();
 });
 

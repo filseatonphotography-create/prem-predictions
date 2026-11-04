@@ -7,6 +7,7 @@ test("Studio shows the actual stoppage-time equaliser and first-half red-card co
   localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "context-test", username: "ContextTest" }));
   localStorage.setItem("activeView", "liveStudio");
+  window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 9 }));
   localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 9, predictions: {} }));
   const goal = (minute, homeGoals, awayGoals, teamName, scorerName, injuryTime = null) => ({ type: "GOAL", minute,

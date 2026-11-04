@@ -11,7 +11,7 @@ const cloud = {
 };
 const results = { 560602: { homeGoals: 2, awayGoals: 1 }, 560603: { homeGoals: 0, awayGoals: 0 } };
 
-beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-18T12:00:00Z")); localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn(); });
+beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-18T12:00:00Z")); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/"); window.scrollTo = jest.fn(); });
 afterEach(() => { cleanup(); jest.useRealTimers(); });
 
 test("canonical league picks ignore the viewing player, local boosts and account order", () => {
@@ -49,7 +49,7 @@ test("two signed-in viewers see the same league and Studio totals despite differ
   try {
     for (const viewer of [{ id: "phil-id", name: "Phil" }, { id: "tin-id", name: "Tin Tin" }]) {
       viewerId = viewer.id;
-      localStorage.clear(); sessionStorage.clear();
+      localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/");
       localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: viewer.id, username: viewer.name }));
       localStorage.setItem("activeView", "league");
       localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
@@ -60,7 +60,9 @@ test("two signed-in viewers see the same league and Studio totals despite differ
       render(<App />); await flush();
       expect(readLeague()).toEqual({ Phil: 21, "Tin Tin": 16 });
       const buttons = screen.getAllByRole("button", { name: "Live Studio" });
-      await act(async () => { buttons[0].click(); }); await flush();
+      await act(async () => { buttons[0].click();
+        window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
+        window.dispatchEvent(new PopStateEvent("popstate")); }); await flush();
       expect(readStudio()).toEqual({ Phil: 21, "Tin Tin": 16 });
       const philUpdate = screen.getAllByRole("region", { name: "Phil's studio update" })[0];
       const tinUpdate = screen.getAllByRole("region", { name: "Tin Tin's studio update" })[0];

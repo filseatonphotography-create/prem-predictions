@@ -24,7 +24,7 @@ test("kickoff form uses the league table's latest-five order and excludes this g
 
 test("the full app shows both teams' table-style form strips on a kickoff card without opening Leagues", async () => {
   jest.useFakeTimers(); jest.setSystemTime(before + 60000);
-  localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
+  localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier"); window.scrollTo = jest.fn();
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 8 }));
@@ -64,7 +64,7 @@ test("the full app shows both teams' table-style form strips on a kickoff card w
 test('Champions League kickoff cards render both teams’ competition-only form', async () => {
   const { buildChampionsForm } = require('./studioCompetitions');
   jest.useFakeTimers(); jest.setSystemTime(Date.parse('2026-11-04T18:14:00Z'));
-  localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
+  localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=champions"); window.scrollTo = jest.fn();
   localStorage.setItem('pl_prediction_auth_v1', JSON.stringify({ token: 'test-only', userId: 'diagnostic', username: 'Diagnostic' }));
   localStorage.setItem('activeView', 'liveStudio');
   localStorage.setItem('live-studio-selection:v1:diagnostic', JSON.stringify({ 'cl:77': true }));

@@ -7,6 +7,7 @@ test("Studio folds Mateta's replaced yellow into the red decision and keeps it o
   localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "card-test", username: "CardTest" }));
   localStorage.setItem("activeView", "liveStudio");
+  window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 9 }));
   localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 9, predictions: {} }));
   const yellow = { type: "YELLOW_CARD", card: "YELLOW", minute: 12,

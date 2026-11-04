@@ -139,3 +139,19 @@ test('form excludes domestic games, this fixture, later results, unfinished game
   expect(buildChampionsForm(current, invalid)).toEqual({ home: [], away: [] });
   expect(buildChampionsForm({ ...current, homeTeam: { name: 'Fenerbahçe SK' } }, [prior]).home).toEqual([]);
 });
+
+test('Studio supplies a countdown to the next Champions League game even beyond the live-fixture window', async () => {
+  const source = fs.readFileSync('server.js', 'utf8'); let handler;
+  const now = Date.now(), live = { ...match(), utcDate: new Date(now - 30 * 60000).toISOString() };
+  const next = { ...match(), id: 88, status: 'TIMED', utcDate: new Date(now + 7 * 86400000).toISOString() };
+  const context = { app: { get: (_path, callback) => { handler = callback; } }, Date, console,
+    getResultsFetchConfig: () => ({ cacheKey: 'champions' }), getResultsCacheTtl: () => 60000,
+    resultsCacheByKey: { champions: [live, next] }, resultsCacheAtByKey: { champions: now }, loadMatchStates: () => ({}),
+    buildChampionsForm: require('./studioCompetitions').buildChampionsForm, normalizeLineups: () => null, championsFixture };
+  const start = source.indexOf('app.get("/api/live-studio/matches"'), end = source.indexOf('app.get("/api/results"', start);
+  vm.runInNewContext(source.slice(start, end), context);
+  const response = { setHeader() {}, json(value) { this.data = value; } };
+  await handler({ query: { competition: 'champions' } }, response);
+  expect(response.data.matches.map(item => item.id)).toEqual([live.id]);
+  expect(response.data.nextFixture).toMatchObject({ id: 'cl:88', kickoff: next.utcDate });
+});

@@ -6,7 +6,7 @@ jest.setTimeout(30000);
 
 test("a delayed Cunha goal and its score withdrawal appear before Chelsea–United's existing half-time card", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-31T13:27:00Z"));
-  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 9 }));
@@ -49,7 +49,7 @@ test("a delayed Cunha goal and its score withdrawal appear before Chelsea–Unit
 test("the full app puts new updates first and combines half-time into one studio post", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:12:00Z"));
   window.scrollTo = jest.fn();
-  localStorage.clear(); sessionStorage.clear();
+  localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "diagnostic-token", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
@@ -154,7 +154,7 @@ test("the full app puts new updates first and combines half-time into one studio
 test("a returning viewer keeps restored history and new updates in their original arrival order", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:46:00Z"));
   window.scrollTo = jest.fn();
-  localStorage.clear(); sessionStorage.clear();
+  localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "diagnostic-token", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
@@ -217,7 +217,7 @@ test("a returning viewer keeps restored history and new updates in their origina
 
 test("confirmed half-time appears while the detailed provider response is still pending", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T17:14:00Z"));
-  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
@@ -249,7 +249,7 @@ test("confirmed half-time appears while the detailed provider response is still 
 
 test("a second-half phase reconstructed at 84 minutes does not jump above existing goals or next-game lineups", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T18:10:00Z"));
-  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
@@ -285,7 +285,7 @@ test("a second-half phase reconstructed at 84 minutes does not jump above existi
 
 test("a late startup snapshot cannot replace the newer state already shown by a Studio refresh", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-17T18:00:00Z"));
-  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 7 }));
@@ -332,7 +332,7 @@ test("a late startup snapshot cannot replace the newer state already shown by a 
 
 test("AVL's goal and Guéhi booking survive reopening before any network response with the corrected kickoff", async () => {
   jest.useFakeTimers(); jest.setSystemTime(Date.parse("2026-10-24T12:08:00Z"));
-  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear();
+  window.scrollTo = jest.fn(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "diagnostic", username: "Diagnostic" }));
   localStorage.setItem("activeView", "liveStudio");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 8 }));

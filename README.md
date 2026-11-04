@@ -168,13 +168,29 @@ result and subsequent fixtures out of the pre-match form after reopening.
 
 ### Live Studio competition coverage
 
-Live Studio's **Follow matches** menu selects games independently of prediction
-scoring. Premier League selections retain prediction and coins commentary;
-Champions League selections use football-only coverage. The score strip filters
-the feed to one selected game or returns to all matches. Match selections are
-remembered per account in this browser. Champions League fixtures cover the
-previous and next 24 hours and refresh every 30 seconds while Studio is open.
-Provider failures keep the last received scores visible with a retry control.
+Live Studio opens with two competition buttons: **Premier League** and
+**Champions League**. Each pulses green while that competition has games live;
+otherwise it shows a countdown to the next scheduled kick-off. The main Live
+Studio button pulses when either competition is live.
+
+Choosing a competition opens its own live-match page. Only games in progress
+(including half-time, extra time and penalties) can be selected. Completed,
+scheduled, postponed and cancelled games are excluded, and stale unfinished
+snapshots cannot keep a competition live indefinitely. Follow selected games
+opens their coverage on a separate page. Back controls and browser history let
+users return to the list or competition picker. Match selections are remembered
+per account in this browser. Alerts remain independent of feed selection.
+
+Premier League coverage retains prediction and coins commentary; Champions
+League coverage contains football updates. Scores and commentary are scoped to
+the chosen competition. The selected-game score strip can focus its feed to one
+match. An already-followed match can display its closing coverage after the
+final whistle, but is removed from the live-match chooser.
+
+Champions League fixtures refresh every 30 seconds while signed in, keeping
+competition and navigation live indicators current across the app. The server
+also supplies the next scheduled fixture beyond the 24-hour coverage window for
+the countdown. Provider failures show a retry control.
 
 Each match has an independent push bell and an alert level:
 
@@ -200,7 +216,8 @@ eligible. Early in the season the strip shows fewer games, with a clear empty
 message when no earlier results exist. Domestic games are excluded.
 
 **Leagues → Champions League Table** opens the provider's current league-phase
-standings, with badges, P/W/D/L, goals for/against, goal difference and points.
+standings using the same expandable row component as the Premier League page,
+with badges, P/GD and W/D/L/PTS. Expanded rows show form and goal statistics.
 The provider's ordering is retained, and qualification bands are provisional.
 The table refreshes every minute while open; its backend cache is independent of
 Premier League standings. Provider failures retain the last standings and show

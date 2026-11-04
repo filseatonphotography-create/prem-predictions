@@ -55,6 +55,7 @@ test("the full Studio repairs a seven-founder half-time snapshot when the Origin
   const league = { id: "originals-test", name: "The Originals", members: users.map(user => user.userId) };
   localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "phil-id", username: "Phil" }));
   localStorage.setItem("activeView", "liveStudio");
+  window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
   localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 8 }));
   localStorage.setItem("pl_prediction_game_v2", JSON.stringify({ selectedGameweek: 8, predictions: {} }));
   const goal = { type: "GOAL", minute: 6, homeGoals: 1, awayGoals: 0, scorerName: "Jackson", teamName: fixture.homeTeam };

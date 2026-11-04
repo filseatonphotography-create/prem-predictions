@@ -53,7 +53,9 @@ test("a live 2-0 prediction is the ninth exact score until the final whistle, in
     await act(async () => { jest.advanceTimersByTime(30000); await flush(); });
     expect(screen.getByText("10/10 season exact scores")).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("prediction_seen_badges_v1"))["badge-test"]).toContain("sniper");
-    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Live Studio" })[0]); await flush(); });
+    await act(async () => { fireEvent.click(screen.getAllByRole("button", { name: "Live Studio" })[0]);
+      window.history.replaceState({}, "", "/?view=liveStudio&studio=coverage&competition=premier");
+      window.dispatchEvent(new PopStateEvent("popstate")); await flush(); });
     expect(screen.getByRole("region", { name: "Badges earned at full-time" })).toHaveTextContent("BadgeTest · Sniper · 10 exact scores");
     expect(screen.getByText("Penalty under review · Chelsea FC")).toBeInTheDocument();
     expect(screen.getByText("Penalty awarded · Chelsea FC")).toBeInTheDocument();

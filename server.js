@@ -41,7 +41,7 @@ const {
 
 const { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, mergeMatchEvents, mergeMatchPhaseState, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, numeric } = require("./src/liveMatchEvents");
 
-const BUILD_ID = "2026-11-05-multi-competition-live-studio";
+const BUILD_ID = "2026-11-05-studio-competition-pages";
 console.log("SERVER BUILD:", BUILD_ID);
 
 const PORT = process.env.PORT || 5001;
@@ -3704,7 +3704,9 @@ app.get("/api/live-studio/matches", async (req, res) => {
       const kickoff = Date.parse(match.utcDate);
       return Number.isFinite(kickoff) && kickoff >= now - 24 * 3600000 && kickoff <= now + 24 * 3600000;
     }).map(match => ({ ...match, form: buildChampionsForm(match, resultsCacheByKey[cacheKey]), lineups: normalizeLineups(match), recordedState: states[`cl:${match.id}`] || {} }));
-    res.json({ matches, updatedAt: resultsCacheAtByKey[cacheKey] });
+    const nextMatch = resultsCacheByKey[cacheKey].filter(match => ["TIMED", "SCHEDULED"].includes(match.status) && Date.parse(match.utcDate) > now)
+      .sort((a, b) => Date.parse(a.utcDate) - Date.parse(b.utcDate))[0];
+    res.json({ matches, nextFixture: nextMatch ? championsFixture(nextMatch) : null, updatedAt: resultsCacheAtByKey[cacheKey] });
   } catch (error) {
     console.error("Champions League studio feed:", error.message);
     res.status(502).json({ error: "Champions League updates are unavailable. Please try again shortly." });
