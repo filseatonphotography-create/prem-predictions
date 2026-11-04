@@ -5,7 +5,7 @@ function championsFixture(match) {
   return { id: `cl:${match.id}`, providerId: match.id, competition: 'champions', competitionLabel: 'Champions League',
     homeTeam: match.homeTeam?.name || '', awayTeam: match.awayTeam?.name || '',
     homeBadge: match.homeTeam?.crest || '', awayBadge: match.awayTeam?.crest || '',
-    kickoff: match.utcDate, gameweek: match.matchday, stage: match.stage };
+    kickoff: match.utcDate, venue: match.venue || '', gameweek: match.matchday, stage: match.stage };
 }
 
 // The caller supplies the current Champions League season, not domestic results.
@@ -62,7 +62,7 @@ function footballFeed(raw) {
   const entries = [];
   const add = (key, minute, title, lines, event = {}, extra = {}) => {
     entries.push(Object.assign({ id: `${fixture.id}:${key}`, updateKey: `${fixture.id}:${key}`, fixtureId: fixture.id, fixture,
-      competitionLabel: fixture.competitionLabel, minute, title, lines, tone: status === 'FINISHED' ? 'finished' : status === 'PAUSED' ? 'paused' : 'live',
+      competitionLabel: fixture.competitionLabel, matchScore: { homeGoals: numeric(score.home), awayGoals: numeric(score.away) }, minute, title, lines, tone: status === 'FINISHED' ? 'finished' : status === 'PAUSED' ? 'paused' : 'live',
       momentMs: getMatchEventMomentMs(fixture, event, state) }, extra));
   };
   const lineups = match.lineups;
@@ -80,7 +80,7 @@ function footballFeed(raw) {
     const line = kind === 'SUBSTITUTION' ? [event.playerInName || event.substituteName, 'replaces', event.playerOutName || person].filter(Boolean).join(' ') : [person, event.teamName].filter(Boolean).join(' · ');
     const eventScore = numeric(event.homeGoals) != null && numeric(event.awayGoals) != null ? `${fixture.homeTeam} ${event.homeGoals}–${event.awayGoals} ${fixture.awayTeam}` : '';
     const key = kind === 'GOAL' && eventScore ? `goal:${event.homeGoals}-${event.awayGoals}` : `${kind.toLowerCase().replace(/_/g, '-')}:${event.id ?? `${event.minute}:${index}`}`;
-    add(key, minute, `${label}${event.teamName ? ` for ${event.teamName}` : ''}`, [line, eventScore].filter(Boolean), event, { icon: kind === 'GOAL' ? '⚽' : kind.includes('CARD') ? '▣' : '↔' });
+    add(key, minute, `${label}${event.teamName ? ` for ${event.teamName}` : ''}`, [line, eventScore].filter(Boolean), event, { event, events: normalizeMatchEvents(match), championsForm: match.form, icon: kind === 'GOAL' ? '⚽' : kind.includes('CARD') ? '▣' : '↔' });
   });
   if (status === 'PAUSED' || match.score?.halfTime?.home != null && (numeric(match.minute) > 45 || status === 'FINISHED')) {
     const ht = match.score?.halfTime || {};
@@ -90,7 +90,7 @@ function footballFeed(raw) {
   if (status === 'FINISHED' || status === 'AWARDED') {
     const penalties = match.score?.penalties;
     const suffix = penalties?.home != null && penalties?.away != null ? `Penalties: ${penalties.home}–${penalties.away}.` : match.score?.duration === 'EXTRA_TIME' ? 'After extra time.' : '';
-    add(`full-time:${score.home}-${score.away}`, 'FT', 'Full time in the Champions League', [scoreText, suffix].filter(Boolean), { statusLabel: 'FT', minute: numeric(match.minute) || (['EXTRA_TIME', 'PENALTY_SHOOTOUT'].includes(match.score?.duration) ? 120 : 90) }, { icon: '🏁' });
+    add(`full-time:${score.home}-${score.away}`, 'FT', 'Full time in the Champions League', [scoreText, suffix].filter(Boolean), { statusLabel: 'FT', minute: numeric(match.minute) || (['EXTRA_TIME', 'PENALTY_SHOOTOUT'].includes(match.score?.duration) ? 120 : 90) }, { icon: '🏁', penalties });
   }
   if (started && status !== 'FINISHED') {
     add('current', status === 'PAUSED' ? 'HT' : numeric(match.minute) != null ? `${match.minute}'` : 'Live', scoreText,

@@ -30,7 +30,7 @@ export default function ChampionsLeagueTable({ base, theme, isMobile = false, re
   const first = data?.season?.startDate?.slice(0, 4), last = data?.season?.endDate?.slice(2, 4);
   const button = { padding: '8px 12px', borderRadius: 8, border: `1px solid ${theme.line}`, background: theme.panelHi, color: theme.text, cursor: 'pointer' };
   return <>
-    <h2 style={{ marginTop: 0, fontSize: 18, textAlign: 'center' }}>Champions League Table</h2>
+    <h2 style={{ marginTop: 0, fontSize: 18, textAlign: 'center', fontFamily: 'inherit', color: theme.text }}>Champions League Table</h2>
     <div style={{ marginTop: -2, marginBottom: 10, textAlign: 'center', fontSize: 12, color: theme.muted }}>Click team for form and statistics.</div>
     <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
       <select aria-label="Champions League season" value="current" style={{ width: isMobile ? '100%' : 260, padding: '9px 10px', borderRadius: 8, border: '1.5px solid #ffffff', background: theme.panelHi, color: theme.text, fontWeight: 700, fontSize: 13 }} onChange={() => {}}>

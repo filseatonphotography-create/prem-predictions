@@ -9,7 +9,7 @@ import LiveStudioScores from "./LiveStudioScores";
 import LiveStudioCoverage, { LiveStudioScoreStrip } from "./LiveStudioCoverage";
 import { isStudioMatchLive } from "./studioNavigation";
 import StudioTeamBadge from "./StudioTeamBadge";
-import ChampionsLeagueMode from "./ChampionsLeagueMode";
+import ChampionsLeagueMode, { championsTheme } from "./ChampionsLeagueMode";
 import { CHAMPIONS, COMPETITIONS, COMPETITION_MODE_KEY, readCompetitionMode, readCompetitionAuth } from "./competitionModes";
 import { studioRequest } from "./studioRequest";
 import LeagueTableRow from "./LeagueTableRow";
@@ -4637,6 +4637,7 @@ const LIVE_STUDIO_VENUES_BY_CODE = {
 
 function getLiveStudioVenue(fixture, mode = PREMIER_MODE) {
   if (mode === WORLD_CUP_MODE) return `${getTeamCode(fixture.homeTeam, mode)} v ${getTeamCode(fixture.awayTeam, mode)}`;
+  if (fixture.competition === "champions" && fixture.venue) return fixture.venue;
   const canonicalHomeTeam = resolveCanonicalPremierLeagueTeam(fixture.homeTeam);
   const teamCode = getTeamCode(canonicalHomeTeam || fixture.homeTeam, mode);
   return (
@@ -4644,7 +4645,7 @@ function getLiveStudioVenue(fixture, mode = PREMIER_MODE) {
     LIVE_STUDIO_VENUES[fixture.homeTeam] ||
     LIVE_STUDIO_VENUES_BY_CODE[teamCode] ||
     canonicalHomeTeam ||
-    fixture.homeTeam
+    (fixture.competition === "champions" ? `${getLiveStudioTeamName(fixture.homeTeam)}'s ground` : fixture.homeTeam)
   );
 }
 
@@ -5090,7 +5091,7 @@ export function buildLiveStudioEventLine({ fixture, event, score, seed, matchCon
     const announcement = pickLiveStudioPhrase(`${seed}:${getLiveStudioUpdateKeyPart(event)}`, [
       `We're off to ${venue}, where there's been a red card... but for who, Chris Kamara? ${reveal}`,
       `Hold on! Big news from ${venue}. ${reveal}${opponent ? ` That hands ${opponent} an advantage.` : ""}`,
-      `Over to ${venue}. ${reveal} That could change a few predictions.`,
+      `Over to ${venue}. ${reveal} ${matchContext.footballOnly ? "That could change the whole match." : "That could change a few predictions."}`,
       `There's trouble at ${venue}! ${reveal}${opponent ? ` A chance for ${opponent} to make this count.` : ""}`,
       `A red card at ${venue}! ${reveal} Anyone still expecting a quiet afternoon?`,
     ]);
@@ -5159,7 +5160,7 @@ export function buildLiveStudioEventLine({ fixture, event, score, seed, matchCon
       `There is movement in the story at ${team}${at}. The prediction picture may need a second look.`,
     ],
   };
-  return pickLiveStudioPhrase(`${seed}:${kind}:${player}:${score?.homeGoals || 0}-${score?.awayGoals || 0}`, phrases[kind] || phrases.update);
+  return pickLiveStudioPhrase(`${seed}:${kind}:${player}:${score?.homeGoals || 0}-${score?.awayGoals || 0}`, (phrases[kind] || phrases.update).filter(line => !matchContext.footballOnly || !/prediction|slip|live table/i.test(line)));
 }
 
 function getLiveStudioPredictionSide(prediction) {
@@ -5483,7 +5484,25 @@ export function buildLiveStudioFullTimePointsLines({ picks = [], score, seed }) 
   });
 }
 
-export function buildLiveStudioFullTimeSummary({ fixture, score, probabilities, venue, seed }) {
+export function buildLiveStudioFullTimeSummary({ fixture, score, probabilities, venue, seed, footballOnly = false, penalties }) {
+  if (footballOnly && numeric(penalties?.home) != null && numeric(penalties?.away) != null && Number(penalties.home) !== Number(penalties.away)) {
+    const winner = getLiveStudioTeamName(Number(penalties.home) > Number(penalties.away) ? fixture.homeTeam : fixture.awayTeam);
+    return `${winner} win the shootout! Nerves shredded, celebrations underway at ${venue}.`;
+  }
+  if (footballOnly && (numeric(score?.homeGoals) == null || numeric(score?.awayGoals) == null)) return `That's the whistle at ${venue}. We're waiting for the confirmed final score.`;
+  if (footballOnly && score) {
+    const side = getLiveStudioLeadingSide(score);
+    if (side === "D") return pickLiveStudioPhrase(seed, [
+      `That's that at ${venue}. Honours even. Time to catch our breath.`,
+      `All square at ${venue}. Neither side could find the winner.`,
+    ]);
+    const winner = getLiveStudioTeamName(side === "H" ? fixture.homeTeam : fixture.awayTeam);
+    return pickLiveStudioPhrase(seed, [
+      `That's the whistle! ${winner} get the win at ${venue}. Breathing resumed.`,
+      `${winner} see it through. The final whistle brings the celebrations.`,
+      `All over at ${venue}. ${winner} have done their bit tonight.`,
+    ]);
+  }
   if (!score) return `That's the whistle at ${venue}.`;
   const side = getLiveStudioLeadingSide(score);
   if (side === "D") return pickLiveStudioPhrase(seed, [
@@ -5722,9 +5741,42 @@ export function buildLiveStudioRevealLine(fixture, score, event, matchContext = 
     `The celebrations are underway at ${venue}. ${reveal}`,
     `Stop what you're doing. Goal at ${venue}! ${reveal}`,
     `Straight back to ${venue}, and there's a goal to tell you about. ${reveal}`,
-    `A goal at ${venue}! ${reveal} Now, who had that on their slip?`,
+    `A goal at ${venue}! ${reveal}${matchContext.footballOnly ? "" : " Now, who had that on their slip?"}`,
   ]);
   return [announcement, situation].filter(Boolean).join(" ");
+}
+
+export function buildChampionsStudioCommentary(entry) {
+  const { fixture, event } = entry;
+  if (!fixture || entry.prematch || entry.lineups) return entry;
+  const seed = entry.updateKey, venue = getLiveStudioVenue(fixture);
+  let lines;
+  if (event) {
+    const kind = getLiveStudioEventKind(event), score = getLiveStudioEventScore(event);
+    const context = { footballOnly: true, events: entry.events || [], homeForm: entry.championsForm?.home || [], awayForm: entry.championsForm?.away || [] };
+    const goal = ["goal", "goal-disallowed"].includes(kind);
+    const reveal = goal ? buildLiveStudioRevealLine(fixture, score, event, context)
+      : buildLiveStudioEventLine({ fixture, event, score, seed, matchContext: context });
+    lines = [reveal, goal ? buildLiveStudioAside({ fixture, event, events: entry.events }) : "", ...entry.lines.slice(1)].filter(Boolean);
+  } else if (entry.updateKey?.includes(':kick-off:')) {
+    lines = [pickLiveStudioPhrase(seed, [
+      `We're underway at ${venue}. Settle in, here we go!`,
+      `The whistle goes at ${venue}. ${getLiveStudioTeamName(fixture.homeTeam)} and ${getLiveStudioTeamName(fixture.awayTeam)} are up and running.`,
+    ])];
+  } else if (entry.minute === 'HT') {
+    lines = [pickLiveStudioPhrase(seed, [
+      `A breather at ${venue}. Drinks down, we'll be back for the second half.`,
+      `The whistle goes at ${venue}. Time for tea and a breather.`,
+    ]), ...entry.lines.filter(line => /[0-9][–-][0-9]/.test(line))];
+  } else if (entry.minute === '2H') {
+    lines = [pickLiveStudioPhrase(seed, [
+      `We're back at ${venue}. Drinks down, here we go again.`,
+      `Second half underway at ${venue}. Who needs this one to turn?`,
+    ])];
+  } else if (entry.minute === 'FT') {
+    lines = [buildLiveStudioFullTimeSummary({ fixture, score: entry.matchScore, venue, seed, footballOnly: true, penalties: entry.penalties }), ...entry.lines];
+  }
+  return lines ? { ...entry, lines } : entry;
 }
 
 // Stable per event: polling must not keep changing the commentator's lines.
@@ -7559,7 +7611,7 @@ export default function App() {
     window.addEventListener("popstate", restore); window.addEventListener("storage", restore);
     return () => { window.removeEventListener("popstate", restore); window.removeEventListener("storage", restore); };
   }, []);
-  if (competitionMode === CHAMPIONS && auth) return <ChampionsLeagueMode auth={auth} base={BACKEND_BASE} onModeChange={chooseMode} onLogout={logout} />;
+  if (competitionMode === CHAMPIONS && auth) return <ChampionsLeagueMode auth={auth} base={BACKEND_BASE} commentary={buildChampionsStudioCommentary} onModeChange={chooseMode} onLogout={logout} />;
   return <PredictionApp key={competitionMode} onEnterChampions={() => chooseMode(CHAMPIONS)} onAuthChange={setAuth} onLegacyModeChange={legacyModeChanged} />;
 }
 
@@ -20870,10 +20922,10 @@ if (!isLoggedIn) {
                 ]
               : [
                   { action: "mode", mode: WORLD_CUP_MODE, label: "World Cup Mode" },
+                  { action: "mode", mode: CHAMPIONS, label: "Champions League Mode" },
                   { action: "view", id: "league", label: "Mini League Table" },
                   { action: "view", id: "globalLeague", label: "Global League Table" },
                   { action: "view", id: "premierLeagueTable", label: "Premier League Table" },
-                  { action: "mode", mode: CHAMPIONS, label: "Champions League Mode" },
                   { action: "view", id: "coinsLeague", label: "Coins League" },
                   { action: "view", id: "leagues", label: "Mini‑Leagues" },
                 ]
@@ -20883,6 +20935,8 @@ if (!isLoggedIn) {
                 ? premierModeTextColor
                 : item.action === "mode" && item.mode === WORLD_CUP_MODE
                 ? wcMenuTextColor
+                : item.action === "mode" && item.mode === CHAMPIONS
+                ? championsTheme.accent
                 : isWorldCupMode
                 ? wcMenuTextColor
                 : undefined;

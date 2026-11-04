@@ -18,7 +18,7 @@ function NextKickoff({ group, nowMs, theme }) {
 }
 export function LiveStudioCompetitions({ studio, theme, nowMs, isMobile }) {
   return <div style={{ display: 'grid', gap: 18 }}>
-    <h2 style={{ margin: 0, fontSize: isMobile ? 22 : 28, textAlign: 'center' }}>Live Studio</h2>
+    <h2 style={{ margin: 0, fontSize: isMobile ? 22 : 28, textAlign: 'center', color: theme.text, fontFamily: 'inherit' }}>Live Studio</h2>
     <p style={{ margin: 0, textAlign: 'center', fontSize: 13, color: theme.muted }}>Choose your competition.</p>
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 14, padding: 6, width: '100%', maxWidth: 620, margin: '0 auto', boxSizing: 'border-box' }}>
       {studio.groups.map(group => {
@@ -44,7 +44,7 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
   const selectedCount = group.liveFixtures.filter(studio.isSelected).length;
   return <div style={{ display: 'grid', gap: 14 }}>
     {!studio.lockedCompetition && <div><button type="button" style={button} onClick={studio.showCompetitions}>← Competitions</button></div>}
-    <h2 style={{ margin: 0, fontSize: 22 }}>{group.label} · Live coverage</h2>
+    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, fontFamily: 'inherit', letterSpacing: 0, color: theme.text }}>{studio.lockedCompetition ? 'Live games' : `${group.label} · Live coverage`}</h2>
     {group.id === 'champions' && studio.loading && <p role="status" style={{ color: theme.muted }}>Loading live games…</p>}
     {group.id === 'champions' && studio.error && <p role="status" style={{ color: '#fbbf24' }}>{studio.error} <button type="button" style={button} onClick={studio.refresh}>Retry</button></p>}
     {!group.liveFixtures.length && !(group.id === 'champions' && (studio.loading || studio.error)) && <div role="status" style={{ textAlign: 'center', padding: '24px 8px', display: 'grid', gap: 12 }}>
@@ -94,11 +94,11 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
     {studio.alertsUnavailable && <button type="button" onClick={studio.retryAlerts} style={button}>Retry notification settings</button>}
   </div>;
 }
-export function LiveStudioScoreStrip({ studio, theme }) {
+export function LiveStudioScoreStrip({ studio, theme, showAll = true }) {
   const button = buttonStyle(theme);
   return <div role="group" aria-label="Selected match scores" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-    <button type="button" style={button} aria-pressed={!studio.focused} onClick={() => studio.setFocused('')}>All selected games</button>
-    {studio.selected.map(fixture => <button key={fixture.id} type="button" aria-pressed={studio.focused === String(fixture.id)} onClick={() => studio.setFocused(String(fixture.id))} style={{ ...button, flexShrink: 0, borderColor: studio.focused === String(fixture.id) ? theme.accent : theme.line, textAlign: 'left' }}>
+    {showAll && <button type="button" style={button} aria-pressed={!studio.focused} onClick={() => studio.setFocused('')}>All selected games</button>}
+    {studio.selected.map(fixture => <button key={fixture.id} type="button" aria-pressed={studio.focused === String(fixture.id)} onClick={() => studio.setFocused(studio.focused === String(fixture.id) ? '' : String(fixture.id))} style={{ ...button, flexShrink: 0, borderColor: studio.focused === String(fixture.id) ? theme.accent : theme.line, textAlign: 'left' }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}><StudioTeamBadge src={fixture.homeBadge} team={fixture.homeTeam} decorative />{fixture.homeTeam} {score(fixture)} {fixture.awayTeam}<StudioTeamBadge src={fixture.awayBadge} team={fixture.awayTeam} decorative /></span>
     </button>)}
   </div>;
