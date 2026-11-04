@@ -1,6 +1,7 @@
 import { getPredictionPoints as scoreSavedPrediction, normalizePredictionBoosts } from "./predictionRules";
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
+import AppBrand from "./AppBrand";
 import { buildGoalMatchContext, buildRedCardMatchContext } from "./liveStudioMatchContext";
 import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
@@ -7611,7 +7612,7 @@ export default function App() {
     window.addEventListener("popstate", restore); window.addEventListener("storage", restore);
     return () => { window.removeEventListener("popstate", restore); window.removeEventListener("storage", restore); };
   }, []);
-  if (competitionMode === CHAMPIONS && auth) return <ChampionsLeagueMode auth={auth} base={BACKEND_BASE} commentary={buildChampionsStudioCommentary} onModeChange={chooseMode} onLogout={logout} />;
+  if (competitionMode === CHAMPIONS && auth) return <ChampionsLeagueMode auth={auth} base={BACKEND_BASE} commentary={buildChampionsStudioCommentary} tagline={randomTagline} onModeChange={chooseMode} onLogout={logout} />;
   return <PredictionApp key={competitionMode} onEnterChampions={() => chooseMode(CHAMPIONS)} onAuthChange={setAuth} onLegacyModeChange={legacyModeChanged} />;
 }
 
@@ -20731,49 +20732,7 @@ if (!isLoggedIn) {
         >
           {/* Title + API status (centered) */}
           <div style={{ textAlign: "center", width: "100%", minWidth: 0 }}>
-                            <h1
-  style={{
-    marginTop: "0.8rem",
-    marginBottom: "0.5rem",
-    fontSize: isMobile ? "1.5rem" : "3rem",
-    fontWeight: 700,
-    letterSpacing: "0.5px",
-    maxWidth: "100%",
-    overflow: "visible",
-  }}
->
-
-  Predicti
-  <span
-  className="football-icon"
-  role="img"
-  aria-label="football"
-  style={{
-    fontSize: isMobile ? "1.5rem" : "3rem",
-    position: "relative",
-    top: "-1px",
-  }}
->
-    ⚽
-  </span>
-  n Addicti
-  <span
-  className="football-icon"
-  role="img"
-  aria-label="football"
-  style={{
-    fontSize: isMobile ? "1.5rem" : "3rem",
-    position: "relative",
-    top: "-1px",
-  }}
->
-    ⚽
-  </span>
-  n
-</h1>
-<p style={{ margin: 0, fontSize: "0.9rem", opacity: 0.9 }}>
-  {randomTagline}
-</p>
+            <AppBrand isMobile={isMobile} tagline={randomTagline} />
 <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: theme.accent }}>
   {getModeLabel(gameMode)} Mode
 </div>
@@ -20913,9 +20872,9 @@ if (!isLoggedIn) {
             isWorldCupMode
               ? [
                   { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
+                  { action: "mode", mode: CHAMPIONS, label: "Champions League Mode" },
                   { action: "view", id: "league", label: "WC Mini League Table" },
                   { action: "view", id: "worldCupGroupTables", label: "WC Group Tables" },
-                  { action: "mode", mode: CHAMPIONS, label: "Champions League Mode" },
                   { action: "view", id: "coinsLeague", label: "WC Coins League" },
                   { action: "view", id: "globalLeague", label: "WC Global League" },
                   { action: "view", id: "leagues", label: "WC Mini-Leagues" },

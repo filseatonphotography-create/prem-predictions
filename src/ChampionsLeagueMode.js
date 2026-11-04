@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import AppBrand from './AppBrand';
 import ChampionsLeagueTable from './ChampionsLeagueTable';
 import LiveStudioCoverage, { LiveStudioScoreStrip } from './LiveStudioCoverage';
 import LiveStudioLineups from './LiveStudioLineups';
@@ -16,8 +17,8 @@ const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(k
 const pushDefaults = { deadline1h: true, deadline24h: true, liveUpdates: true, noSpoilerFixtureUpdates: false };
 const empty = [];
 const emptyObject = {};
-export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout, commentary = entry => entry }) {
-  const [mobile, setMobile] = useState(window.innerWidth < 700);
+export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout, tagline, commentary = entry => entry }) {
+  const [mobile, setMobile] = useState(window.innerWidth <= 600);
   const [now, setNow] = useState(Date.now());
   const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') || localStorage.getItem('activeView') || 'liveStudio');
   const [leaguesOpen, setLeaguesOpen] = useState(false);
@@ -28,7 +29,7 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
   const [settingsError, setSettingsError] = useState('');
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
-    const resize = () => setMobile(window.innerWidth < 700);
+    const resize = () => setMobile(window.innerWidth <= 600);
     const restore = () => setView(new URLSearchParams(window.location.search).get('view') || 'liveStudio');
     window.addEventListener('resize', resize); window.addEventListener('popstate', restore);
     currentStudioPush().then(subscription => setPushEnabled(Boolean(subscription))).catch(() => {});
@@ -77,15 +78,17 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
   };
   return <main style={{ minHeight: '100vh', background: theme.bg, color: theme.text, padding: mobile ? '16px 12px' : '16px 24px', boxSizing: 'border-box', minWidth: 0, display: 'grid', gap: 12, alignContent: 'start', fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif' }}>
     <header style={{ ...card, position: 'sticky', top: 8, zIndex: 10, textAlign: 'center' }}>
-      <h1 style={{ margin: '0.8rem 0 0.5rem', fontSize: mobile ? 'clamp(16px, 5.4vw, 24px)' : '3rem', fontWeight: 700, letterSpacing: '0.5px', whiteSpace: 'nowrap', maxWidth: '100%', color: theme.text }}>Predicti<span className="football-icon" role="img" aria-label="football" style={{ fontSize: 'inherit', position: 'relative', top: -1 }}>⚽</span>n Addicti<span className="football-icon" role="img" aria-label="football" style={{ fontSize: 'inherit', position: 'relative', top: -1 }}>⚽</span>n</h1>
-      <div style={{ color: theme.accent, fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Champions League Mode</div>
+      <div style={{ textAlign: 'center', width: '100%', minWidth: 0 }}>
+        <AppBrand isMobile={mobile} tagline={tagline} />
+        <div style={{ marginTop: 8, color: theme.accent, fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Champions League Mode</div>
+      </div>
       <nav aria-label="Champions League navigation" style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className={studio.anyLive ? 'live-studio-live-button' : undefined} style={{ ...pill, ...(studio.anyLive ? { background: 'linear-gradient(135deg, #22c55e, #10b981)', color: '#052e16', borderColor: '#22c55e' } : {}) }} onClick={() => { studio.showMatches(); open('liveStudio'); }}>Live Studio</button>
         <div style={{ position: 'relative' }}><button type="button" style={pill} aria-expanded={leaguesOpen} onClick={() => { setLeaguesOpen(!leaguesOpen); setMenuOpen(false); }}>Leagues ▾</button>
           {leaguesOpen && <div style={dropdown}>
-            <button type="button" style={menuButton} onClick={() => open('championsLeagueTable')}>Champions League Table</button>
-            <button type="button" style={{ ...menuButton, color: '#38bdf8' }} onClick={() => onModeChange(PREMIER)}>Premier League Mode</button>
+            <button type="button" style={{ ...menuButton, color: '#38bdf8' }} onClick={() => onModeChange(PREMIER)}>Back to Premier League</button>
             <button type="button" style={{ ...menuButton, color: '#f59e0b' }} onClick={() => onModeChange(WORLD_CUP)}>World Cup Mode</button>
+            <button type="button" style={menuButton} onClick={() => open('championsLeagueTable')}>Champions League Table</button>
           </div>}
         </div>
         <div style={{ position: 'relative' }}><button type="button" style={pill} aria-expanded={menuOpen} onClick={() => { setMenuOpen(!menuOpen); setLeaguesOpen(false); }}>Menu ▾</button>
