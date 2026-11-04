@@ -8,12 +8,12 @@ const manifest = JSON.parse(fs.readFileSync(path.join(buildPath, 'asset-manifest
 const mainPath = manifest.files['main.js'].replace(/^https?:\/\/[^/]+/, '').replace(/^\//, '');
 const bundle = fs.readFileSync(path.join(buildPath, mainPath), 'utf8');
 
-async function check(name, activeView) {
+async function check(name, activeView, mode = 'champions') {
   const errors = [];
   const virtualConsole = new VirtualConsole();
   virtualConsole.on('jsdomError', error => { if (error.type === 'unhandled exception') errors.push(error.detail || error); });
   const dom = new JSDOM('<!DOCTYPE html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole,
+    url: activeView === 'liveStudio' ? `http://localhost/?mode=${mode}&view=liveStudio` : 'http://localhost', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole,
   });
   const win = dom.window;
   win.scrollTo = () => {};
@@ -39,12 +39,14 @@ async function check(name, activeView) {
     if (errors.length) throw errors[0];
     const root = win.document.getElementById('root');
     if (!root.textContent.trim()) throw new Error(`${name}: the production app rendered a blank root`);
-    if (activeView === 'liveStudio') {
-      const league = root.querySelector('button[aria-label="Champions League"]');
-      const premier = root.querySelector('button[aria-label="Premier League"]');
-      if (!league || !premier || root.querySelector('article')) throw new Error('Studio must open with its two competition buttons');
-      if (!league.classList.contains('live-studio-live-button')) throw new Error('The live competition button must pulse');
-      league.click(); await new Promise(resolve => setTimeout(resolve, 100));
+    if (activeView === 'liveStudio' && mode === 'premier') {
+      if (!root.textContent.includes('Premier League Mode') || !root.textContent.includes('Live Studio')) throw new Error('Premier League Studio did not render');
+      if (root.textContent.includes('Champions League Mode')) throw new Error('Champions mode must remain separate');
+    }
+    if (activeView === 'liveStudio' && mode === 'champions') {
+      if (!root.textContent.includes('Champions League Mode')) throw new Error('Studio must open inside Champions League mode');
+      const live = [...root.querySelectorAll('button')].find(button => button.textContent === 'Live Studio');
+      if (!live?.classList.contains('live-studio-live-button')) throw new Error('The live Studio button must pulse');
       if (!root.querySelector('input[aria-label="Follow Startup Home v Startup Away"]') || root.querySelector('article')) throw new Error('The competition page must show the live match list separately');
       const follow = [...root.querySelectorAll('button')].find(button => button.textContent.startsWith('Follow selected games'));
       if (!follow || follow.disabled) throw new Error('Selected live games must be followable');
@@ -59,6 +61,7 @@ async function check(name, activeView) {
 
 (async () => {
   await check('welcome page');
-  await check('signed-in Live Studio', 'liveStudio');
+  await check('Premier League Live Studio', 'liveStudio', 'premier');
+  await check('Champions League Live Studio', 'liveStudio');
   await check('Champions League table', 'championsLeagueTable');
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

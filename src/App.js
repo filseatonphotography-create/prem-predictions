@@ -6,10 +6,12 @@ import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
-import LiveStudioCoverage, { LiveStudioCompetitions, LiveStudioScoreStrip } from "./LiveStudioCoverage";
+import LiveStudioCoverage, { LiveStudioScoreStrip } from "./LiveStudioCoverage";
 import { isStudioMatchLive } from "./studioNavigation";
 import StudioTeamBadge from "./StudioTeamBadge";
-import ChampionsLeagueTable from "./ChampionsLeagueTable";
+import ChampionsLeagueMode from "./ChampionsLeagueMode";
+import { CHAMPIONS, COMPETITIONS, COMPETITION_MODE_KEY, readCompetitionMode, readCompetitionAuth } from "./competitionModes";
+import { studioRequest } from "./studioRequest";
 import LeagueTableRow from "./LeagueTableRow";
 import useStudioCoverage from "./useStudioCoverage";
 import TeamFormStrip from "./TeamFormStrip";
@@ -223,7 +225,12 @@ function normalizePushPrefs(prefs = {}) {
   return next;
 }
 function readSavedGameMode() {
-  try { return localStorage.getItem(GAME_MODE_STORAGE_KEY) || "premierLeague"; }
+  try {
+    const mode = new URLSearchParams(window.location.search).get("mode");
+    if (mode === "worldcup") return "worldCup";
+    if (mode === "premier") return "premierLeague";
+    return localStorage.getItem(GAME_MODE_STORAGE_KEY) === "worldCup" ? "worldCup" : "premierLeague";
+  }
   catch { return "premierLeague"; }
 }
 const PREMIER_MODE = "premierLeague";
@@ -7524,6 +7531,39 @@ const TAGLINES = [
 
 const randomTagline = TAGLINES[Math.floor(Math.random() * TAGLINES.length)];
 export default function App() {
+  const [competitionMode, setCompetitionMode] = useState(readCompetitionMode);
+  const [auth, setAuth] = useState(readCompetitionAuth);
+  const modeRef = useRef(competitionMode); modeRef.current = competitionMode;
+  const chooseMode = useCallback(mode => {
+    if (!COMPETITIONS[mode]) return;
+    localStorage.setItem(COMPETITION_MODE_KEY, mode);
+    if (mode !== CHAMPIONS) localStorage.setItem(GAME_MODE_STORAGE_KEY, mode);
+    const view = mode === CHAMPIONS ? "liveStudio" : "predictions";
+    localStorage.setItem("activeView", view);
+    const url = new URL(window.location.href);
+    ["studio", "competition", "games", "fixtureId", "update"].forEach(key => url.searchParams.delete(key));
+    url.searchParams.set("mode", COMPETITIONS[mode].apiKey); url.searchParams.set("view", view);
+    window.history.pushState({}, "", url.pathname + url.search + url.hash);
+    setCompetitionMode(mode);
+  }, []);
+  const legacyModeChanged = useCallback(mode => {
+    if (modeRef.current === CHAMPIONS) return;
+    localStorage.setItem(COMPETITION_MODE_KEY, mode);
+    const url = new URL(window.location.href); url.searchParams.set("mode", COMPETITIONS[mode].apiKey);
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    setCompetitionMode(mode);
+  }, []);
+  const logout = useCallback(() => { localStorage.removeItem(AUTH_STORAGE_KEY); setAuth(null); }, []);
+  useEffect(() => {
+    const restore = () => { setCompetitionMode(readCompetitionMode()); setAuth(readCompetitionAuth()); };
+    window.addEventListener("popstate", restore); window.addEventListener("storage", restore);
+    return () => { window.removeEventListener("popstate", restore); window.removeEventListener("storage", restore); };
+  }, []);
+  if (competitionMode === CHAMPIONS && auth) return <ChampionsLeagueMode auth={auth} base={BACKEND_BASE} onModeChange={chooseMode} onLogout={logout} />;
+  return <PredictionApp key={competitionMode} onEnterChampions={() => chooseMode(CHAMPIONS)} onAuthChange={setAuth} onLegacyModeChange={legacyModeChanged} />;
+}
+
+function PredictionApp({ onEnterChampions, onAuthChange, onLegacyModeChange }) {
   // Auth state (must be first for use in effects)
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [authToken, setAuthToken] = useState("");
@@ -8086,7 +8126,8 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   useEffect(() => {
     localStorage.setItem(GAME_MODE_STORAGE_KEY, gameMode);
-  }, [gameMode]);
+    onLegacyModeChange?.(gameMode);
+  }, [gameMode, onLegacyModeChange]);
 
   useEffect(() => {
     localStorage.setItem(WORLD_CUP_CENTRAL_OPEN_STORAGE_KEY, String(worldCupCentralOpen));
@@ -10322,7 +10363,8 @@ useEffect(() => {
     } else {
       localStorage.removeItem(AUTH_STORAGE_KEY);
     }
-  }, [authHydrated, isLoggedIn, authToken, currentUserId, currentPlayer]);
+    onAuthChange?.(isLoggedIn && authToken && currentUserId && currentPlayer ? { token: authToken, userId: currentUserId, username: currentPlayer } : null);
+  }, [authHydrated, isLoggedIn, authToken, currentUserId, currentPlayer, onAuthChange]);
 
   // Load cloud predictions after login/restore (ONLY for logged-in user)
   useEffect(() => {
@@ -11052,37 +11094,17 @@ setNewPasswordInput("");
       throw new Error("Permission denied for notifications");
     }
 
-    const vapidRes = await fetch(`${BACKEND_BASE}/api/push/vapid-public-key`);
-    if (!vapidRes.ok) {
-      throw new Error(`Failed to get VAPID key: ${vapidRes.status}`);
+    const { registration, subscription: existingSubscription } = await getExistingPushSubscription();
+    if (refreshExisting && existingSubscription) await removePushSubscription(existingSubscription);
+    let subscription = !refreshExisting && existingSubscription;
+    if (!subscription) {
+      const { publicKey } = await studioRequest(`${BACKEND_BASE}/api/push/vapid-public-key`);
+      subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
     }
-
-    const { publicKey } = await vapidRes.json();
-    const { registration, subscription: existingSubscription } =
-      await getExistingPushSubscription();
-    if (refreshExisting && existingSubscription) {
-      await removePushSubscription(existingSubscription);
-    }
-    const subscription =
-      (!refreshExisting && existingSubscription) ||
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      }));
-
-    const subRes = await fetch(`${BACKEND_BASE}/api/push/subscribe`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${authToken}`,
-      },
+    await studioRequest(`${BACKEND_BASE}/api/push/subscribe`, {
+      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ subscription, prefs: pushPrefs, fixturePrefs: fixturePushPrefs }),
     });
-
-    if (!subRes.ok) {
-      const subData = await subRes.json().catch(() => ({}));
-      throw new Error(subData.error || "Failed to save subscription");
-    }
 
     setPushEnabled(true);
     return true;
@@ -11799,9 +11821,9 @@ const liveStudioFixtures = liveStudioDemoEnabled && liveStudioDemoFixtures.lengt
   : visibleFixtures;
 
 const studioCoverage = useStudioCoverage({
-  active: activeView === "liveStudio", poll: isLoggedIn, nowMs: activeView === "liveStudio" ? liveStudioNow : Date.now(), base: BACKEND_BASE, token: authToken, userId: currentUserId,
-  fixtures: gameMode === PREMIER_MODE ? activeFixtures : FIXTURES, states: matchStatesByFixtureId, results,
-  primaryLabel: "Premier League", resolveBadge: resolveTeamBadge, fixturePrefs: fixturePushPrefs, globalAlerts: pushPrefs.liveUpdates !== false,
+  active: activeView === "liveStudio", poll: isLoggedIn, competition: "primary", prematchEnabled: gameMode === PREMIER_MODE, nowMs: activeView === "liveStudio" ? liveStudioNow : Date.now(), base: BACKEND_BASE, token: authToken, userId: currentUserId,
+  fixtures: activeFixtures, states: matchStatesByFixtureId, results,
+  primaryLabel: getModeLabel(gameMode), resolveBadge: resolveTeamBadge, fixturePrefs: fixturePushPrefs, globalAlerts: pushPrefs.liveUpdates !== false,
   enablePush: enablePushNotifications, pushEnabled, pushSupported,
   onFixturePrefs: (values, fixtureId) => {
     setFixturePushPrefs(previous => {
@@ -20146,7 +20168,6 @@ if (!isLoggedIn) {
     ? [
         { id: "league" },
         { id: "worldCupGroupTables" },
-        { id: "championsLeagueTable" },
         { id: "coinsLeague" },
         { id: "globalLeague" },
         { id: "leagues" },
@@ -20155,7 +20176,6 @@ if (!isLoggedIn) {
         { id: "league" },
         { id: "globalLeague" },
         { id: "premierLeagueTable" },
-        { id: "championsLeagueTable" },
         { id: "coinsLeague" },
         { id: "leagues" },
       ]);
@@ -20724,7 +20744,7 @@ if (!isLoggedIn) {
                   if (liveStudioLiveFixture?.gameweek) {
                     setSelectedGameweek(Number(liveStudioLiveFixture.gameweek));
                   }
-                  studioCoverage.showCompetitions();
+                  studioCoverage.showMatches();
                   setActiveView("liveStudio");
                   setShowMobileMenu(false);
                   setShowLeaguesMenu(false);
@@ -20843,7 +20863,7 @@ if (!isLoggedIn) {
                   { action: "mode", mode: PREMIER_MODE, label: "Back to Premier League" },
                   { action: "view", id: "league", label: "WC Mini League Table" },
                   { action: "view", id: "worldCupGroupTables", label: "WC Group Tables" },
-                  { action: "view", id: "championsLeagueTable", label: "Champions League Table" },
+                  { action: "mode", mode: CHAMPIONS, label: "Champions League Mode" },
                   { action: "view", id: "coinsLeague", label: "WC Coins League" },
                   { action: "view", id: "globalLeague", label: "WC Global League" },
                   { action: "view", id: "leagues", label: "WC Mini-Leagues" },
@@ -20853,7 +20873,7 @@ if (!isLoggedIn) {
                   { action: "view", id: "league", label: "Mini League Table" },
                   { action: "view", id: "globalLeague", label: "Global League Table" },
                   { action: "view", id: "premierLeagueTable", label: "Premier League Table" },
-                  { action: "view", id: "championsLeagueTable", label: "Champions League Table" },
+                  { action: "mode", mode: CHAMPIONS, label: "Champions League Mode" },
                   { action: "view", id: "coinsLeague", label: "Coins League" },
                   { action: "view", id: "leagues", label: "Mini‑Leagues" },
                 ]
@@ -20871,6 +20891,9 @@ if (!isLoggedIn) {
               key={item.id || item.label}
               type="button"
               onClick={() => {
+                if (item.action === "mode" && item.mode === CHAMPIONS) {
+                  onEnterChampions(); return;
+                }
                 if (item.action === "mode") {
                   setGameMode(item.mode);
                   setActiveView("predictions");
@@ -21453,9 +21476,6 @@ if (!isLoggedIn) {
 
         </section>
 
-        {activeView === "liveStudio" && studioCoverage.route.page === "competitions" && (
-          <section style={cardStyle}><LiveStudioCompetitions studio={studioCoverage} theme={theme} isMobile={isMobile} nowMs={liveStudioNow} /></section>
-        )}
         {activeView === "liveStudio" && studioCoverage.route.page === "matches" && (
           <section style={cardStyle}><LiveStudioCoverage studio={studioCoverage} theme={theme} nowMs={liveStudioNow} /></section>
         )}
@@ -23635,12 +23655,6 @@ if (!isLoggedIn) {
                 </div>
               );
             })()}
-          </section>
-        )}
-
-        {activeView === "championsLeagueTable" && (
-          <section style={cardStyle}>
-            <ChampionsLeagueTable base={BACKEND_BASE} theme={theme} isMobile={isMobile} resolveBadge={resolveTeamBadge} />
           </section>
         )}
 

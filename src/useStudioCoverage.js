@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { studioRequest } from './studioRequest';
 import { fetchChampionsStandings } from './championsStandingsClient';
 import { fetchStudioOverview } from './studioOverviewClient';
 import { isStudioMatchLive, nextStudioKickoff, readStudioRoute } from './studioNavigation';
@@ -10,7 +11,7 @@ function read(key) {
 }
 function write(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} }
 
-export default function useStudioCoverage({ active, base, token, userId, fixtures, states, results, primaryLabel, resolveBadge, fixturePrefs, globalAlerts, enablePush, pushEnabled, pushSupported = true, onFixturePrefs, focusFixtureId, poll = active, nowMs = Date.now(), onOpenPrimary }) {
+export default function useStudioCoverage({ active, base, token, userId, fixtures, states, results, primaryLabel, resolveBadge, fixturePrefs, globalAlerts, enablePush, pushEnabled, pushSupported = true, onFixturePrefs, focusFixtureId, poll = active, nowMs = Date.now(), onOpenPrimary, competition = null, onAuthExpired, prematchEnabled = true }) {
   const storageKey = `live-studio-selection:v1:${userId || 'guest'}`;
   const [savedSelection, setSelection] = useState(() => ({ key: storageKey, values: read(storageKey) }));
   const selection = savedSelection.key === storageKey ? savedSelection.values : read(storageKey);
@@ -29,7 +30,10 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
   const [lineupTimes, setLineupTimes] = useState(() => read('studio-lineup-times:v1'));
   const [matches, setMatches] = useState(() => cachedOverview?.matches || []);
   const [upcomingChampion, setUpcomingChampion] = useState(() => cachedOverview?.nextFixture || cachedSchedule);
-  const [route, setRoute] = useState(readStudioRoute);
+  const [route, setRoute] = useState(() => {
+    const value = readStudioRoute();
+    return competition ? { ...value, competition, page: value.page === 'competitions' ? 'matches' : value.page } : value;
+  });
   const navigate = useCallback(next => {
     setRoute(next); setFocused('');
     const url = new URL(window.location.href);
@@ -46,10 +50,10 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     window.history.pushState({}, '', url.pathname + url.search + url.hash);
   }, []);
   useEffect(() => {
-    const restore = () => { setRoute(readStudioRoute()); setFocused(''); };
+    const restore = () => { const value = readStudioRoute(); setRoute(competition ? { ...value, competition, page: value.page === 'competitions' ? 'matches' : value.page } : value); setFocused(''); };
     window.addEventListener('popstate', restore);
     return () => window.removeEventListener('popstate', restore);
-  }, []);
+  }, [competition]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(!cachedOverview && !cachedSchedule);
   const [detailsError, setDetailsError] = useState('');
@@ -57,6 +61,7 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
   const alertSaves = useRef(new Set());
   const [prefsLoading, setPrefsLoading] = useState(true);
   const [prefsReady, setPrefsReady] = useState(false);
+  const [prefsRetry, setPrefsRetry] = useState(0);
   const [alertError, setAlertError] = useState('');
   const [focused, setFocused] = useState('');
   const generation = useRef(0);
@@ -82,17 +87,15 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     if (!token) { setPrefsLoading(false); return () => controller.abort(); }
     (async () => {
       try {
-        const response = await fetch(`${base}/api/live-studio/prefs`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Could not load match alerts.');
+        const data = await studioRequest(`${base}/api/live-studio/prefs`, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal });
         if (!controller.signal.aborted) { setPrefs({ token, values: data.prefs || {} }); setPrefsReady(true); setAlertError(''); }
-      } catch (err) { if (!controller.signal.aborted) setAlertError('Could not load match alerts. Reload Live Studio to try again.'); }
+      } catch (err) { if (!controller.signal.aborted) { if (err.status === 401) onAuthExpired?.(); setAlertError(err.message || 'Could not load match alerts.'); } }
       finally { if (!controller.signal.aborted && current === generation.current) setPrefsLoading(false); }
     })();
     return () => controller.abort();
-  }, [active, base, token]);
+  }, [active, base, token, prefsRetry]);
   useEffect(() => {
-    if (!poll) return;
+    if (!poll || competition === 'primary') return;
     const controller = new AbortController();
     let timer, pending = false;
     const refresh = async () => {
@@ -116,11 +119,11 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     refreshRef.current = refresh;
     tick();
     return () => { controller.abort(); clearTimeout(timer); refreshRef.current = null; };
-  }, [poll, base, overviewKey]);
+  }, [poll, base, overviewKey, competition]);
 
   useEffect(() => {
-    if (poll) fetchChampionsStandings(base).catch(() => {});
-  }, [poll, base]);
+    if (poll && competition !== 'primary') fetchChampionsStandings(base).catch(() => {});
+  }, [poll, base, competition]);
   useEffect(() => {
     if (!active || route.page !== 'coverage' || route.competition !== 'champions') return;
     const controller = new AbortController();
@@ -177,7 +180,7 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
   });
   const foreign = matches.map(match => ({ ...championsFixture(match), homeBadge: resolveBadge?.(match.homeTeam?.name) || match.homeTeam?.crest, awayBadge: resolveBadge?.(match.awayTeam?.name) || match.awayTeam?.crest, status: match.status, minute: match.minute, lineups: match.lineups, lineupsAvailable: hasStudioLineups(match), lineupsAnnouncedAt: lineupTime(championsFixture(match), match), championsForm: match.form,
     homeGoals: match.score?.fullTime?.home, awayGoals: match.score?.fullTime?.away }));
-  const groups = [{ id: 'primary', label: primaryLabel, fixtures: primary }, { id: 'champions', label: 'Champions League', fixtures: foreign }].map(group => ({
+  const groups = [{ id: 'primary', label: primaryLabel, fixtures: primary }, { id: 'champions', label: 'Champions League', fixtures: foreign }].filter(group => !competition || group.id === competition).map(group => ({
     ...group, liveFixtures: group.fixtures.filter(fixture => isStudioMatchLive(fixture, nowMs)),
     nextFixture: nextStudioKickoff(group.id === 'champions' && upcomingChampion ? [...group.fixtures, upcomingChampion] : group.fixtures, nowMs),
   }));
@@ -203,18 +206,26 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
         const subscription = await enablePush({ refreshExisting: false });
         if (!subscription) throw new Error('Enable notifications on this device before turning on match alerts.');
       }
-      const response = await fetch(`${base}/api/live-studio/prefs`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fixtureId: String(fixture.id), ...next }),
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not save match alerts.');
+      let data;
+      try {
+        data = await studioRequest(`${base}/api/live-studio/prefs`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ fixtureId: String(fixture.id), ...next }),
+        });
+      } catch (error) {
+        if (!error.unconfirmed) throw error;
+        // A delayed POST may have reached the server. Confirm its stored value before declaring success or retrying.
+        data = await studioRequest(`${base}/api/live-studio/prefs`, { timeoutMs: 3000, headers: { Authorization: `Bearer ${token}` } });
+        const saved = data.prefs?.[fixtureKey];
+        if (!saved || saved.enabled !== next.enabled || saved.level !== next.level) throw error;
+      }
       if (currentGeneration === generation.current) {
         setPrefs(current => ({ token, values: { ...current.values, [fixtureKey]: data.prefs?.[fixtureKey] || next } }));
         if (data.fixturePrefs) onFixturePrefs?.(data.fixturePrefs, fixtureKey);
       }
     } catch (err) {
       if (currentGeneration === generation.current) {
+        if (err.status === 401) onAuthExpired?.();
         setPrefs(current => { const values = { ...current.values }; if (previousExplicit) values[fixture.id] = previousExplicit; else delete values[fixture.id]; return { token, values }; });
         setAlertError(err.message);
       }
@@ -222,7 +233,7 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     finally { if (currentGeneration === generation.current) { alertSaves.current.delete(fixtureKey); setSavingIds([...alertSaves.current]); } }
   };
   const foreignFeed = useMemo(() => matches.flatMap(match => footballFeed({ ...match, lineupsAnnouncedAt: lineupTime(championsFixture(match), match) })), [matches, lineupTime]);
-  const preMatchFeed = group.fixtures.filter(isCovered).flatMap(fixture => buildStudioPrematchCards({ fixture, state: fixture, announcedAt: fixture.lineupsAnnouncedAt, now: nowMs, form: fixture.championsForm || null }));
+  const preMatchFeed = prematchEnabled ? group.fixtures.filter(isCovered).flatMap(fixture => buildStudioPrematchCards({ fixture, state: fixture, announcedAt: fixture.lineupsAnnouncedAt, now: nowMs, form: fixture.championsForm || null })) : [];
   const filterFeed = entries => {
     const included = id => (String(id).startsWith('cl:') ? 'champions' : 'primary') === route.competition
       && (route.gameIds ? route.gameIds.includes(String(id)) : isSelected({ id })) && (!effectiveFocused || String(id) === effectiveFocused);
@@ -238,11 +249,11 @@ export default function useStudioCoverage({ active, base, token, userId, fixture
     });
   };
   const deselectedPrimary = fixtures.filter(fixture => !isSelected(fixture)).map(fixture => String(fixture.id)).sort();
-  return { groups, group, route, anyLive: groups.some(item => item.liveFixtures.length > 0),
+  return { groups, group, route, lockedCompetition: Boolean(competition), anyLive: groups.some(item => item.liveFixtures.length > 0),
     openCompetition: id => { if (id === 'primary') onOpenPrimary?.(); navigate({ page: 'matches', competition: id, gameIds: null }); },
-    showCompetitions: () => navigate({ page: 'competitions', competition: 'primary', gameIds: null }),
+    showCompetitions: () => navigate({ page: competition ? 'matches' : 'competitions', competition: competition || 'primary', gameIds: null }),
     showMatches: () => navigate({ page: 'matches', competition: route.competition, gameIds: null }),
     openCoverage: () => navigate({ page: 'coverage', competition: route.competition, gameIds: group.liveFixtures.filter(isSelected).map(fixture => String(fixture.id)) }),
     selected, isSelected, isCovered, lineupTime, preMatchFeed, select, alertPref, saveAlert, saving: prefsLoading || !prefsReady, isAlertSaving: id => savingIds.includes(String(id)), alertError, error, detailsError, loading, foreignFeed, filterFeed,
-    focused: effectiveFocused, setFocused, refresh: () => refreshRef.current?.(), selectionScope: route.gameIds ? `:coverage:${route.competition}:${route.gameIds.join(',')}` : deselectedPrimary.length ? `:following:${deselectedPrimary.join(',')}` : '' };
+    retryAlerts: () => setPrefsRetry(value => value + 1), alertsUnavailable: !prefsLoading && !prefsReady, focused: effectiveFocused, setFocused, refresh: () => refreshRef.current?.(), selectionScope: route.gameIds ? `:coverage:${route.competition}:${route.gameIds.join(',')}` : deselectedPrimary.length ? `:following:${deselectedPrimary.join(',')}` : '' };
 }

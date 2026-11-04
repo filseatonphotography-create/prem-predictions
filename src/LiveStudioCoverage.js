@@ -43,7 +43,7 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
   const button = buttonStyle(theme), group = studio.group;
   const selectedCount = group.liveFixtures.filter(studio.isSelected).length;
   return <div style={{ display: 'grid', gap: 14 }}>
-    <div><button type="button" style={button} onClick={studio.showCompetitions}>← Competitions</button></div>
+    {!studio.lockedCompetition && <div><button type="button" style={button} onClick={studio.showCompetitions}>← Competitions</button></div>}
     <h2 style={{ margin: 0, fontSize: 22 }}>{group.label} · Live coverage</h2>
     {group.id === 'champions' && studio.loading && <p role="status" style={{ color: theme.muted }}>Loading live games…</p>}
     {group.id === 'champions' && studio.error && <p role="status" style={{ color: '#fbbf24' }}>{studio.error} <button type="button" style={button} onClick={studio.refresh}>Retry</button></p>}
@@ -91,6 +91,7 @@ export default function LiveStudioCoverage({ studio, theme, nowMs }) {
       <button type="button" disabled={!selectedCount} onClick={studio.openCoverage} style={{ ...button, background: selectedCount ? theme.accent : theme.panelHi, color: selectedCount ? '#08111f' : theme.muted, padding: 12 }}>Follow selected games{selectedCount ? ` (${selectedCount})` : ''}</button>
     </>}
     {studio.alertError && <div role="alert" style={{ color: '#fbbf24', fontSize: 12 }}>{studio.alertError}</div>}
+    {studio.alertsUnavailable && <button type="button" onClick={studio.retryAlerts} style={button}>Retry notification settings</button>}
   </div>;
 }
 export function LiveStudioScoreStrip({ studio, theme }) {

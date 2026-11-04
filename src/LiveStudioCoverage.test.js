@@ -222,3 +222,27 @@ test('a known announcement time is retained when joining after kickoff', async (
   const times = JSON.parse(localStorage.getItem('studio-lineup-times:v1'));
   expect(times['cl:77|2026-11-04T17:45:00Z']).toBe('2026-11-04T16:45:00.000Z');
 });
+
+test('a stalled save is confirmed by reading the stored preference after eight seconds', async () => {
+  const original = global.fetch;
+  global.fetch = jest.fn((url, options = {}) => {
+    if (options.method === 'POST') { const { fixtureId, ...pref } = JSON.parse(options.body); saved[fixtureId] = pref; return new Promise(() => {}); }
+    return original(url, options);
+  });
+  render(<Harness />); await act(flush); await open('Champions League');
+  const bell = screen.getByRole('button', { name: 'Push alerts for Fenerbahçe v Liverpool' });
+  fireEvent.click(bell); expect(screen.getByText('Saving…')).toBeInTheDocument();
+  await act(async () => { jest.advanceTimersByTime(8000); await flush(); });
+  expect(screen.queryByText('Saving…')).not.toBeInTheDocument(); expect(bell).not.toBeDisabled();
+  expect(bell).toHaveAttribute('aria-pressed', 'true'); expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+test('an unconfirmed save rolls back and stops saving when both requests stall', async () => {
+  render(<Harness />); await act(flush); await open('Champions League');
+  global.fetch = jest.fn(() => new Promise(() => {}));
+  const bell = screen.getByRole('button', { name: 'Push alerts for Fenerbahçe v Liverpool' });
+  fireEvent.click(bell);
+  await act(async () => { jest.advanceTimersByTime(8000); await flush(); });
+  await act(async () => { jest.advanceTimersByTime(3000); await flush(); });
+  expect(screen.queryByText('Saving…')).not.toBeInTheDocument(); expect(bell).not.toBeDisabled();
+  expect(bell).toHaveAttribute('aria-pressed', 'false'); expect(screen.getByRole('alert')).toHaveTextContent('taking too long');
+});

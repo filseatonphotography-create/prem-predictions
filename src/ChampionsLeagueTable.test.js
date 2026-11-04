@@ -33,7 +33,7 @@ test('the league-phase table uses provider ranks, statistics and badges, with a 
   expect(screen.getByRole('group', { name: 'League phase' })).toBeInTheDocument();
 });
 
-test('the Leagues menu opens the Champions League table without changing prediction mode', async () => {
+test('the Champions League table is available only after switching to its own mode', async () => {
   localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
   localStorage.setItem('pl_prediction_auth_v1', JSON.stringify({ token: 'test-only', userId: 'diagnostic', username: 'Diagnostic' }));
   localStorage.setItem('activeView', 'predictions');
@@ -41,10 +41,15 @@ test('the Leagues menu opens the Champions League table without changing predict
   global.fetch = jest.fn(async url => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => String(url).includes('/api/champions-league/standings') ? data : {} }));
   render(<App />); await act(flush);
   fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
+  expect(screen.queryByRole('button', { name: 'Champions League Table' })).not.toBeInTheDocument();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Champions League Mode' })); await flush(); });
+  expect(screen.getByText('Champions League Mode')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Champions League Table' })); await flush(); });
   expect(screen.getByRole('heading', { name: 'Champions League Table' })).toBeInTheDocument();
   expect(screen.getByRole('group', { name: 'League phase' })).toBeInTheDocument();
-  expect(screen.getByText('Premier League Mode')).toBeInTheDocument();
+  expect(screen.getByText('Champions League Mode')).toBeInTheDocument();
+  expect(new URLSearchParams(window.location.search).get('mode')).toBe('champions');
   expect(new URLSearchParams(window.location.search).get('view')).toBe('championsLeagueTable');
 });
 
