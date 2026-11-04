@@ -37,6 +37,7 @@ test('the Leagues menu opens the Champions League table without changing predict
   localStorage.clear(); sessionStorage.clear(); window.scrollTo = jest.fn();
   localStorage.setItem('pl_prediction_auth_v1', JSON.stringify({ token: 'test-only', userId: 'diagnostic', username: 'Diagnostic' }));
   localStorage.setItem('activeView', 'predictions');
+  window.history.replaceState({}, '', '/?view=predictions');
   global.fetch = jest.fn(async url => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => String(url).includes('/api/champions-league/standings') ? data : {} }));
   render(<App />); await act(flush);
   fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
@@ -44,6 +45,7 @@ test('the Leagues menu opens the Champions League table without changing predict
   expect(screen.getByRole('heading', { name: 'Champions League Table' })).toBeInTheDocument();
   expect(screen.getByRole('group', { name: 'League phase' })).toBeInTheDocument();
   expect(screen.getByText('Premier League Mode')).toBeInTheDocument();
+  expect(new URLSearchParams(window.location.search).get('view')).toBe('championsLeagueTable');
 });
 
 test('the standings endpoint keeps a separate CL cache, shares concurrent fetches and reports stale data on failure', async () => {

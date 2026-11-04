@@ -7893,6 +7893,24 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
     const saved = localStorage.getItem('activeView');
     return saved || "predictions";
   });
+  // Keep the Studio's page URLs in step with the app's existing menu navigation.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("view") || url.searchParams.get("view") === activeView) return;
+    url.searchParams.set("view", activeView);
+    if (activeView !== "liveStudio") {
+      ["studio", "competition", "games", "fixtureId", "update"].forEach(key => url.searchParams.delete(key));
+    }
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  }, [activeView]);
+  useEffect(() => {
+    const restoreView = () => {
+      const view = new URLSearchParams(window.location.search).get("view");
+      if (view) setActiveView(view);
+    };
+    window.addEventListener("popstate", restoreView);
+    return () => window.removeEventListener("popstate", restoreView);
+  }, []);
   const liveStudioFocusFixtureId = useMemo(() => {
     try {
       return new URLSearchParams(window.location.search || "").get("fixtureId") || "";
