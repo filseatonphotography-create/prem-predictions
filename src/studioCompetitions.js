@@ -84,9 +84,9 @@ function footballFeed(raw) {
   });
   if (status === 'PAUSED' || match.score?.halfTime?.home != null && (numeric(match.minute) > 45 || status === 'FINISHED')) {
     const ht = match.score?.halfTime || {};
-    add('half-time', 'HT', 'Half-time in the Champions League', [numeric(ht.home) != null && numeric(ht.away) != null ? `${fixture.homeTeam} ${ht.home}–${ht.away} ${fixture.awayTeam}` : scoreText], { statusLabel: 'HT', minute: 45 }, { icon: '☕' });
+    add('half-time', 'HT', 'Half-time in the Champions League', [numeric(ht.home) != null && numeric(ht.away) != null ? `${fixture.homeTeam} ${ht.home}–${ht.away} ${fixture.awayTeam}` : scoreText], { statusLabel: 'HT', minute: 45 }, { icon: '☕', phaseScore: { homeGoals: numeric(ht.home) ?? (status === 'PAUSED' ? numeric(score.home) : null), awayGoals: numeric(ht.away) ?? (status === 'PAUSED' ? numeric(score.away) : null) } });
   }
-  if (match.secondHalfAt || numeric(match.minute) > 45) add('second-half', '2H', 'Second half underway', [`Back underway: ${fixture.homeTeam} v ${fixture.awayTeam}.`], { statusLabel: 'SH', minute: 45 }, { icon: '▶' });
+  if (match.secondHalfAt || numeric(match.minute) > 45) add('second-half', '2H', 'Second half underway', [`Back underway: ${fixture.homeTeam} v ${fixture.awayTeam}.`], { statusLabel: 'SH', minute: 45 }, { icon: '▶', phaseScore: { homeGoals: numeric(match.score?.halfTime?.home), awayGoals: numeric(match.score?.halfTime?.away) } });
   if (status === 'FINISHED' || status === 'AWARDED') {
     const penalties = match.score?.penalties;
     const suffix = penalties?.home != null && penalties?.away != null ? `Penalties: ${penalties.home}–${penalties.away}.` : match.score?.duration === 'EXTRA_TIME' ? 'After extra time.' : '';

@@ -34,6 +34,27 @@ test('unknown scorers are not invented and historical goals do not inherit the l
 test('shootout commentary credits the winner and missing final scores are not called draws', () => {
   const final = footballFeed({ ...raw, status: 'FINISHED', score: { fullTime: { home: 1, away: 1 }, penalties: { home: 3, away: 4 } } }).find(entry => entry.minute === 'FT');
   expect(buildChampionsStudioCommentary(final).lines[0]).toContain('Liverpool win the shootout');
+  expect(buildChampionsStudioCommentary(final).title).toContain('Penalties: 3–4.');
+  expect(buildChampionsStudioCommentary(final).lines.join(' ')).not.toMatch(/3[–-]4/);
   const unknown = footballFeed({ ...raw, status: 'FINISHED', score: {} }).find(entry => entry.minute === 'FT');
   expect(buildChampionsStudioCommentary(unknown).lines[0]).toContain('waiting for the confirmed final score');
+});
+
+test.each([['GOAL', '⚽'], ['YELLOW_CARD', '🟨'], ['RED_CARD', '🟥'], ['SUBSTITUTION', '🔁'], ['PENALTY_MISSED', '🥅'], ['GOAL_DISALLOWED', '❌']])('Champions %s updates use the Premier League icon', (type, icon) => {
+  const entry = footballFeed(raw).find(entry => entry.event);
+  expect(buildChampionsStudioCommentary({ ...entry, event: { ...entry.event, type } }).icon).toBe(icon);
+});
+test('goal scores belong in the shared event heading and are not repeated in the commentary body', () => {
+  const entry = footballFeed(raw).find(entry => entry.event);
+  const result = buildChampionsStudioCommentary(entry);
+  expect(result.title).toContain('Goal for LIV!'); expect(result.title).toContain('1-1');
+  expect(result.lines.join(' ')).not.toMatch(/1[–-]1/);
+});
+test('half-time and second-half headings retain the half-time score after later goals', () => {
+  const feed = footballFeed({ ...raw, status: 'FINISHED', minute: 90, score: { halfTime: { home: 0, away: 0 }, fullTime: { home: 4, away: 2 } } }).map(buildChampionsStudioCommentary);
+  const half = feed.find(entry => entry.minute === 'HT'), restart = feed.find(entry => entry.minute === '2H'), final = feed.find(entry => entry.minute === 'FT');
+  for (const entry of [half, restart]) { expect(entry.title).toContain('0-0'); expect(entry.title).not.toContain('4-2'); expect(entry.lines.join(' ')).not.toMatch(/0[–-]0|4[–-]2/); }
+  expect(half.icon).toBe('🕛'); expect(restart.icon).toBe('▶');
+  expect(final.title).toContain('4-2'); expect(final.icon).toBe('🏁');
+  expect(final.lines.join(' ')).not.toMatch(/4[–-]2/);
 });

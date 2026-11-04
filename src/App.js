@@ -10,6 +10,7 @@ import LiveStudioScores from "./LiveStudioScores";
 import LiveStudioCoverage, { LiveStudioScoreStrip } from "./LiveStudioCoverage";
 import { isStudioMatchLive } from "./studioNavigation";
 import StudioTeamBadge from "./StudioTeamBadge";
+import StudioEventIcon from "./StudioEventIcon";
 import ChampionsLeagueMode, { championsTheme } from "./ChampionsLeagueMode";
 import { CHAMPIONS, COMPETITIONS, COMPETITION_MODE_KEY, readCompetitionMode, readCompetitionAuth } from "./competitionModes";
 import { studioRequest } from "./studioRequest";
@@ -5751,33 +5752,43 @@ export function buildChampionsStudioCommentary(entry) {
   const { fixture, event } = entry;
   if (!fixture || entry.prematch || entry.lineups) return entry;
   const seed = entry.updateKey, venue = getLiveStudioVenue(fixture);
-  let lines;
+  let lines, title = entry.title, icon = entry.icon;
+  const phase = entry.updateKey?.includes(":kick-off:") ? "KO" : entry.updateKey?.endsWith(":half-time") ? "HT"
+    : entry.updateKey?.endsWith(":second-half") ? "SH" : entry.minute === "FT" ? "FT" : "";
+  if (phase) {
+    const score = getLiveStudioEventScore(phase === "FT" ? entry.matchScore : entry.phaseScore);
+    title = buildLiveStudioEventHeader({ fixture, event: {}, score, statusLabel: phase });
+    icon = getLiveStudioEventIcon({ statusLabel: phase });
+    if (phase === "FT") title = [title, ...entry.lines.slice(1)].join(" · ");
+  }
   if (event) {
     const kind = getLiveStudioEventKind(event), score = getLiveStudioEventScore(event);
+    title = buildLiveStudioEventHeader({ fixture, event, score });
+    icon = getLiveStudioEventIcon(event);
     const context = { footballOnly: true, events: entry.events || [], homeForm: entry.championsForm?.home || [], awayForm: entry.championsForm?.away || [] };
     const goal = ["goal", "goal-disallowed"].includes(kind);
     const reveal = goal ? buildLiveStudioRevealLine(fixture, score, event, context)
       : buildLiveStudioEventLine({ fixture, event, score, seed, matchContext: context });
-    lines = [reveal, goal ? buildLiveStudioAside({ fixture, event, events: entry.events }) : "", ...entry.lines.slice(1)].filter(Boolean);
-  } else if (entry.updateKey?.includes(':kick-off:')) {
+    lines = [reveal, goal ? buildLiveStudioAside({ fixture, event, events: entry.events }) : ""].filter(Boolean);
+  } else if (phase === "KO") {
     lines = [pickLiveStudioPhrase(seed, [
       `We're underway at ${venue}. Settle in, here we go!`,
       `The whistle goes at ${venue}. ${getLiveStudioTeamName(fixture.homeTeam)} and ${getLiveStudioTeamName(fixture.awayTeam)} are up and running.`,
     ])];
-  } else if (entry.minute === 'HT') {
+  } else if (phase === "HT") {
     lines = [pickLiveStudioPhrase(seed, [
       `A breather at ${venue}. Drinks down, we'll be back for the second half.`,
       `The whistle goes at ${venue}. Time for tea and a breather.`,
-    ]), ...entry.lines.filter(line => /[0-9][–-][0-9]/.test(line))];
-  } else if (entry.minute === '2H') {
+    ])];
+  } else if (phase === "SH") {
     lines = [pickLiveStudioPhrase(seed, [
       `We're back at ${venue}. Drinks down, here we go again.`,
       `Second half underway at ${venue}. Who needs this one to turn?`,
     ])];
-  } else if (entry.minute === 'FT') {
-    lines = [buildLiveStudioFullTimeSummary({ fixture, score: entry.matchScore, venue, seed, footballOnly: true, penalties: entry.penalties }), ...entry.lines];
+  } else if (phase === "FT") {
+    lines = [buildLiveStudioFullTimeSummary({ fixture, score: entry.matchScore, venue, seed, footballOnly: true, penalties: entry.penalties })];
   }
-  return lines ? { ...entry, lines } : entry;
+  return lines ? { ...entry, title, icon, lines } : entry;
 }
 
 // Stable per event: polling must not keep changing the commentator's lines.
@@ -21723,24 +21734,7 @@ if (!isLoggedIn) {
                             minWidth: 0,
                           }}
                         >
-                          <span
-                            aria-hidden="true"
-                            style={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: 999,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              background: "rgba(255,255,255,0.08)",
-                              border: `1px solid ${theme.line}`,
-                              flex: "0 0 auto",
-                              fontSize: 14,
-                              lineHeight: 1,
-                            }}
-                          >
-                            {entry.icon || "•"}
-                          </span>
+                          <StudioEventIcon icon={entry.icon} theme={theme} />
                           <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
                           {entry.title}
                           </span>

@@ -4,6 +4,7 @@ import ChampionsLeagueTable from './ChampionsLeagueTable';
 import LiveStudioCoverage, { LiveStudioScoreStrip } from './LiveStudioCoverage';
 import LiveStudioLineups from './LiveStudioLineups';
 import StudioTeamBadge from './StudioTeamBadge';
+import StudioEventIcon from './StudioEventIcon';
 import TeamFormStrip from './TeamFormStrip';
 import useStudioCoverage from './useStudioCoverage';
 import { studioRequest } from './studioRequest';
@@ -116,7 +117,7 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
                 {fixture && <><StudioTeamBadge src={fixture.homeBadge} team={fixture.homeTeam} /><span style={{ color: theme.muted, fontSize: 10 }}>v</span><StudioTeamBadge src={fixture.awayBadge} team={fixture.awayTeam} /></>}
                 <strong style={{ color: theme.accent, fontSize: 12 }}>{entry.minute}</strong>
               </div>
-              <strong style={{ fontSize: 15 }}>{entry.icon} <span>{entry.title}</span></strong>
+              <div style={{ color: theme.text, fontSize: mobile ? 14 : 15, fontWeight: 950, display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}><StudioEventIcon icon={entry.icon} theme={theme} /><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{entry.title}</span></div>
               {entry.lines.map((line, index) => <div key={index} style={{ color: index ? theme.muted : theme.text, fontSize: 13, lineHeight: 1.4 }}>{line}</div>)}
               {entry.lineups && fixture && <LiveStudioLineups theme={theme} isMobile={mobile} teams={['home', 'away'].map(side => ({ ...entry.lineups[side], name: cleanName(fixture[`${side}Team`]), badge: fixture[`${side}Badge`] }))} />}
               {showForm && fixture && <section aria-label={entry.formCard ? 'Team form before kick-off' : 'Team form at kick-off'} style={{ display: 'grid', gap: 10 }}>
