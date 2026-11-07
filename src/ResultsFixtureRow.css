@@ -5,6 +5,45 @@
   padding: 12px 8px;
 }
 
+.results-fixture-toggle {
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.results-fixture-toggle:focus-visible {
+  outline: 2px solid var(--results-accent);
+  outline-offset: 4px;
+}
+
+.results-fixture-disclosure {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+.results-fixture-details:not([hidden]) {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 4px 0;
+  border-top: 1px solid;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.results-fixture-detail-label {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.results-fixture-boost {
+  color: var(--results-accent);
+  font-weight: 700;
+}
+
 .results-fixture-meta {
   display: flex;
   justify-content: center;

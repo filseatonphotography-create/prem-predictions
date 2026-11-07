@@ -23198,6 +23198,9 @@ if (!isLoggedIn) {
             stageLabel={isWorldCupMode ? getWorldCupFixtureLabel(fixture) : ""}
             points={pointsForThisFixture}
             prediction={pred}
+            bet={coinsState.bets?.[fixture.id]}
+            betsLoading={coinsState.loading}
+            betsError={coinsState.error}
             live={fixtureLive}
             isMobile={isMobile}
             theme={theme}
