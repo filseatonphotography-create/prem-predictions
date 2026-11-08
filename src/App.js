@@ -22195,7 +22195,7 @@ if (!isLoggedIn) {
             role="group"
             aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} predictions${locked ? ", closed" : ""}`}
             style={{
-              background: locked ? "#2b3d50" : theme.panelHi,
+              background: locked ? "rgba(148,163,184,0.08)" : theme.panelHi,
               color: fixtureText,
               borderRadius: 12,
               border: "1px solid #ffffff",
@@ -22648,7 +22648,7 @@ if (!isLoggedIn) {
         textAlign: "center",
         padding: "6px 4px",
         borderRadius: 8,
-        border: "1.5px solid #ffffff",
+        border: locked ? `1.5px solid ${theme.line}` : "1.5px solid #ffffff",
         background: theme.panelHi,
         color: fixtureText,
         fontWeight: 700,
