@@ -22198,7 +22198,7 @@ if (!isLoggedIn) {
               background: locked ? theme.panelHi : "#1c2c3e",
               color: fixtureText,
               borderRadius: 12,
-              border: locked ? `1px solid ${theme.line}` : "1px solid rgba(148,163,184,0.4)",
+              border: "1px solid #ffffff",
               padding: isMobile ? "12px 8px" : "14px 16px",
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr)",
