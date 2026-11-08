@@ -22135,6 +22135,12 @@ if (!isLoggedIn) {
         const fixtureText = locked ? theme.muted : "#ffffff";
         const playerPreds = predictions[currentPredictionKey] || {};
         const modeFixtureIds = new Set(activeFixtures.map((f) => String(f.id)));
+        const captainUsedElsewhereThisWeek = activeFixtures.some(other =>
+          String(other.gameweek) === String(fixture.gameweek) &&
+          String(other.id) !== String(fixture.id) &&
+          (playerPreds[other.id]?.isDouble || playerPreds[other.id]?.isTriple)
+        );
+        const disableCaptainBox = locked || pred.isTriple || captainUsedElsewhereThisWeek;
 
         // Find if a triple exists anywhere
         const tripleFixtureId = Object.entries(playerPreds).find(
@@ -22151,7 +22157,7 @@ if (!isLoggedIn) {
           tripleFixtureId && !isCurrentTriple;
 
         const disableTripleBox =
-          lockedTriple || tripleUsedElsewhere || pred.isDouble;
+          lockedTriple || tripleUsedElsewhere || pred.isDouble || captainUsedElsewhereThisWeek;
 
         const o = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
         const coinsBet =
@@ -22533,7 +22539,7 @@ if (!isLoggedIn) {
     alignItems: "center",
     gap: 6,
     fontSize: 12,
-    color: fixtureText,
+    color: disableCaptainBox ? theme.muted : fixtureText,
   }}
 >
   <span style={{ fontSize: 16 }}>👑</span>
@@ -22541,10 +22547,10 @@ if (!isLoggedIn) {
   <input
     type="checkbox"
     checked={!!pred.isDouble}
-    disabled={locked}
+    disabled={disableCaptainBox}
     style={{
-      opacity: locked ? 0.4 : 1,
-      cursor: locked ? "not-allowed" : "pointer",
+      opacity: disableCaptainBox ? 0.4 : 1,
+      cursor: disableCaptainBox ? "not-allowed" : "pointer",
     }}
     onChange={(e) => {
       playScoreSound(e.target.checked);
