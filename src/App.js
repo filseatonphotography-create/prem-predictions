@@ -3,7 +3,6 @@ import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallba
 import "./App.css";
 import AppBrand from "./AppBrand";
 import { buildGoalMatchContext, buildRedCardMatchContext } from "./liveStudioMatchContext";
-import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import { canShowMatchHighlights } from "./matchHighlights";
 import LiveStudioLineups from "./LiveStudioLineups";
@@ -3315,20 +3314,6 @@ async function apiGetFixturePushPrefs(token) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || "Failed to load fixture notification prefs.");
-  return data.fixturePrefs || {};
-}
-
-async function apiSetFixturePushPref(token, fixtureId, enabled) {
-  const res = await fetch(`${BACKEND_BASE}/api/push/fixtures`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ fixtureId, enabled }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Failed to save fixture notification preference.");
   return data.fixturePrefs || {};
 }
 
@@ -7740,10 +7725,6 @@ function PredictionApp({ onEnterChampions, onAuthChange, onLegacyModeChange }) {
     playSoundFile("/page-swipe.MP3", 0.24);
   };
 
-  const playFixtureBellSound = (enabled) => {
-    playSoundFile(enabled ? "/notification-bell.MP3" : "/negative-sound.MP3", 0.35);
-  };
-
   const updateSoundEffectsEnabled = (enabled) => {
     setSoundEffectsEnabled(enabled);
     localStorage.setItem("sound_effects_enabled_v1", String(enabled));
@@ -11186,40 +11167,6 @@ setNewPasswordInput("");
     return true;
   };
 
-  const toggleFixturePush = async (fixtureId) => {
-    if (!authToken) {
-      alert("Please log in again.");
-      return;
-    }
-    if (!pushSupported) {
-      alert("Push notifications are not supported in this browser.");
-      return;
-    }
-
-    const fixtureKey = String(fixtureId);
-    const previousEnabled = !!fixturePushPrefs[fixtureKey];
-    const nextEnabled = !previousEnabled;
-
-    try {
-      if (nextEnabled && !pushEnabled) {
-        await enablePushNotifications();
-      }
-
-      setFixturePushPrefs((prev) => ({
-        ...prev,
-        [fixtureKey]: nextEnabled,
-      }));
-
-      const savedPrefs = await apiSetFixturePushPref(authToken, fixtureKey, nextEnabled);
-      setFixturePushPrefs(savedPrefs || {});
-      localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(savedPrefs || {}));
-      playFixtureBellSound(nextEnabled);
-    } catch (err) {
-      setFixturePushPrefs((prev) => ({ ...prev, [fixtureKey]: previousEnabled }));
-      alert(`Failed to update fixture notifications: ${err.message}`);
-    }
-  };
-
   // ---------- MINI-LEAGUES ----------
   const handleLoadLeagues = async () => {
     if (!authToken) return setLeagueError("Please log in again.");
@@ -11716,16 +11663,6 @@ const currentGwPoints = useMemo(() => {
   });
   return total;
 }, [selectedGameweek, results, predictions, currentPredictionKey, activeFixtures]);
-
-const currentGwTopScore = useMemo(() => {
-  const gw = selectedGameweek;
-  if (!gw) return 0;
-  if (computedWeeklyTotals && computedWeeklyTotals[gw]) {
-    const vals = Object.values(computedWeeklyTotals[gw]).map((v) => Number(v) || 0);
-    return vals.length ? Math.max(...vals) : 0;
-  }
-  return currentGwPoints;
-}, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
 
 const liveStudioUsers = useMemo(() => buildLiveStudioUsers({
   leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId,
@@ -22181,61 +22118,6 @@ if (!isLoggedIn) {
         )}
       </div>
 
-      {/* Gameweek points so far */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          marginTop: 6,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: isMobile ? "8px 12px" : "9px 14px",
-            borderRadius: 999,
-            border: "2px solid rgba(255, 255, 255, 0.5)",
-            background: theme.panelHi,
-            fontSize: isMobile ? 12 : 13,
-            color: theme.muted,
-          }}
-        >
-          <span>{isWorldCupMode ? "Matchday points so far" : "GW points so far"}</span>
-          <span
-            style={{
-              minWidth: isMobile ? 38 : 44,
-              textAlign: "center",
-              padding: isMobile ? "3px 9px" : "4px 10px",
-              borderRadius: 999,
-              fontWeight: 800,
-              color:
-                currentGwPoints === 0
-                  ? "#fff"
-                  : currentGwPoints === currentGwTopScore && currentGwPoints > 0
-                  ? "#111827"
-                  : "#0b1f12",
-              background:
-                currentGwPoints === 0
-                  ? "#ef4444"
-                  : currentGwPoints === currentGwTopScore && currentGwPoints > 0
-                  ? "#f59e0b"
-                  : "#22c55e",
-              border:
-                currentGwPoints === currentGwTopScore && currentGwPoints > 0
-                  ? "2px solid rgba(255,255,255,0.55)"
-                  : "2px solid rgba(255,255,255,0.45)",
-            }}
-          >
-            <AnimatedNumber
-              value={currentGwPoints}
-              duration={450}
-              format={(v) => Math.round(v)}
-            />
-          </span>
-        </div>
-      </div>
     </div>
 
     {/* Predictions card with fixtures list */}
@@ -22251,17 +22133,6 @@ if (!isLoggedIn) {
           predictions[currentPredictionKey]?.[fixture.id] || {};
         const locked = isPredictionLocked(fixture);
         const o = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
-        // eslint-disable-next-line no-unused-vars
-        const probs = computeProbabilities(o);
-
-        const r = results[fixture.id];
-        const hasResult =
-          hasValidResultScore(r);
-        const scoreLabel = getScoreLabel(matchStatesByFixtureId[fixture.id]);
-        const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
-        const pointsForThisFixture = getFixturePredictionPoints(pred, r);
-        const fixturePushEnabled = !!fixturePushPrefs[String(fixture.id)];
-
         const coinsBet =
           (coinsState.bets && coinsState.bets[fixture.id]) || {};
         const coinsStake = coinsBet.stake ?? 0;
@@ -22296,26 +22167,16 @@ if (!isLoggedIn) {
           }
         }
 
-        const coinsWin =
-          hasResult && coinsStake > 0 && coinsSide === getResult(r.homeGoals, r.awayGoals);
-        const coinsPossibleReturnColor =
-          coinsStake <= 0
-            ? theme.muted
-            : !hasResult
-            ? "#ffffff"
-            : coinsWin
-            ? "#22c55e"
-            : "#ef4444";
-
         return (
           <div
             key={fixture.id}
+            className="prediction-fixture"
+            role="group"
+            aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} predictions${locked ? ", closed" : ""}`}
             style={{
-              background: theme.panelHi,
+              background: locked ? "#35232c" : theme.panelHi,
               borderRadius: 12,
-              border: fixtureLive
-                ? "2px solid #22c55e"
-                : "1px solid rgba(255, 255, 255, 0.3)",
+              border: locked ? "1px solid rgba(248,113,113,0.45)" : `1px solid ${theme.line}`,
               padding: 8,
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr)",
@@ -22327,7 +22188,7 @@ if (!isLoggedIn) {
             }}
           >
             {/* Left content column */}
-            <div style={{ display: "grid", gap: 6, minHeight: 92, maxWidth: "100%", overflow: "hidden", justifyItems: "center" }}>
+            <div style={{ display: "grid", gap: 6, maxWidth: "100%", overflow: "hidden", justifyItems: "center" }}>
               {/* Kickoff time */}
               <div
                 style={{
@@ -22335,7 +22196,7 @@ if (!isLoggedIn) {
                   textAlign: "center",
                   fontSize: 12,
                   color: theme.muted,
-                  marginBottom: 6,
+                  marginBottom: 0,
                 }}
               >
                 {isWorldCupMode && (
@@ -22360,9 +22221,10 @@ if (!isLoggedIn) {
                   </div>
                 )}
                 {formatFixtureKickoff(fixture, gameMode)}
+                {locked && <span style={{ color: "#fca5a5" }}> · Closed</span>}
               </div>
 
-              {/* Main score row */}
+              {/* Predicted score */}
               <div
                 style={{
                   display: "flex",
@@ -22379,6 +22241,7 @@ if (!isLoggedIn) {
                 <div
                   style={{
                     display: "flex",
+                    flexDirection: "column",
                     gap: isMobile ? 4 : 4,
                     alignItems: "center",
                     flex: "0 1 auto",
@@ -22448,8 +22311,9 @@ if (!isLoggedIn) {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       min="0"
-                      style={smallInput}
-                      value={pred.homeGoals || ""}
+                      style={{ ...smallInput, boxSizing: "border-box", width: 38, minHeight: 32 }}
+                      aria-label={`${fixture.homeTeam} predicted goals`}
+                      value={pred.homeGoals ?? ""}
                       disabled={locked}
                       onChange={(e) => {
                         const val = e.target.value.replace(/[^0-9]/g, '');
@@ -22504,6 +22368,7 @@ if (!isLoggedIn) {
                 <div
                   style={{
                     display: "flex",
+                    flexDirection: "column-reverse",
                     gap: 4,
                     alignItems: "center",
                     flex: "0 1 auto",
@@ -22543,8 +22408,9 @@ if (!isLoggedIn) {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       min="0"
-                      style={smallInput}
-                      value={pred.awayGoals || ""}
+                      style={{ ...smallInput, boxSizing: "border-box", width: 38, minHeight: 32 }}
+                      aria-label={`${fixture.awayTeam} predicted goals`}
+                      value={pred.awayGoals ?? ""}
                       disabled={locked}
                       onChange={(e) => {
                         const val = e.target.value.replace(/[^0-9]/g, '');
@@ -22617,238 +22483,14 @@ if (!isLoggedIn) {
                 </div>
               </div>
 
-              {hasResult && (
-                <div
-                  aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} score ${r.homeGoals}-${r.awayGoals}`}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr",
-                    justifyItems: "center",
-                    gap: 5,
-                    maxWidth: "100%",
-                    color: theme.muted,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    lineHeight: 1,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: fixtureLive ? "#22c55e" : theme.muted,
-                      fontSize: 11,
-                      fontWeight: 800,
-                      textAlign: "center",
-                    }}
-                  >
-                    {scoreLabel}
-                  </span>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "minmax(56px, 1fr) auto minmax(56px, 1fr)",
-                      alignItems: "center",
-                      justifyItems: "center",
-                      gap: isMobile ? 8 : 10,
-                      width: "100%",
-                      maxWidth: isMobile ? 276 : 320,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "flex-end",
-                        justifySelf: "stretch",
-                        gap: 5,
-                        minWidth: 0,
-                      }}
-                    >
-                      {isWorldCupMode ? (
-                        <span style={{ fontSize: isMobile ? 14 : 16, flexShrink: 0 }}>
-                          {getWorldCupFlag(fixture.homeTeam)}
-                        </span>
-                      ) : resolveTeamBadge(fixture.homeTeam) ? (
-                        <img
-                          src={resolveTeamBadge(fixture.homeTeam)}
-                          alt={fixture.homeTeam}
-                          style={{
-                            width: isMobile ? 14 : 16,
-                            height: isMobile ? 14 : 16,
-                            objectFit: "contain",
-                            flexShrink: 0,
-                          }}
-                        />
-                      ) : null}
-                      <span style={{ color: theme.text, fontSize: 11, fontWeight: 700 }}>
-                        {getTeamCode(fixture.homeTeam, gameMode)}
-                      </span>
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: `${isMobile ? 28 : 30}px 10px ${isMobile ? 28 : 30}px`,
-                        alignItems: "center",
-                        justifyItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                    <span
-                      style={{
-                        ...smallInput,
-                        width: isMobile ? 28 : 30,
-                        minHeight: isMobile ? 28 : 30,
-                        padding: "4px 6px",
-                        boxSizing: "border-box",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontWeight: 800,
-                        background: theme.panel,
-                      }}
-                    >
-                      {r.homeGoals}
-                    </span>
-                    <span style={{ color: theme.muted, fontWeight: 800 }}>-</span>
-                    <span
-                      style={{
-                        ...smallInput,
-                        width: isMobile ? 28 : 30,
-                        minHeight: isMobile ? 28 : 30,
-                        padding: "4px 6px",
-                        boxSizing: "border-box",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontWeight: 800,
-                        background: theme.panel,
-                      }}
-                    >
-                      {r.awayGoals}
-                    </span>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "flex-start",
-                        justifySelf: "stretch",
-                        gap: 5,
-                        minWidth: 0,
-                      }}
-                    >
-                      <span style={{ color: theme.text, fontSize: 11, fontWeight: 700 }}>
-                        {getTeamCode(fixture.awayTeam, gameMode)}
-                      </span>
-                      {isWorldCupMode ? (
-                        <span style={{ fontSize: isMobile ? 14 : 16, flexShrink: 0 }}>
-                          {getWorldCupFlag(fixture.awayTeam)}
-                        </span>
-                      ) : resolveTeamBadge(fixture.awayTeam) ? (
-                        <img
-                          src={resolveTeamBadge(fixture.awayTeam)}
-                          alt={fixture.awayTeam}
-                          style={{
-                            width: isMobile ? 14 : 16,
-                            height: isMobile ? 14 : 16,
-                            objectFit: "contain",
-                            flexShrink: 0,
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* POINTS + LOCK row */}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  marginTop: 6,
-                }}
-              >
-                {/* POINTS + LOCK + FIXTURE BELL */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    alignSelf: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  <FixturePointsBox
-                    points={pointsForThisFixture}
-                    prediction={pred}
-                    live={fixtureLive}
-                    isMobile={isMobile}
-                    theme={theme}
-                    inputStyle={smallInput}
-                  />
-
-                  <div
-                    style={{
-                      width: 22,
-                      height: 22,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      borderRadius: "50%",
-                      background: locked ? "#ff4d4d" : "#2ecc71",
-                      color: "#fff",
-                      fontSize: 14,
-                      lineHeight: 1,
-                      flexShrink: 0,
-                      marginTop: 12,
-                    }}
-                  >
-                    {locked ? "🔒" : "🔑"}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => toggleFixturePush(fixture.id)}
-                    title={
-                      fixturePushEnabled
-                        ? "Fixture notifications enabled"
-                        : "Fixture notifications disabled"
-                    }
-                    aria-label={
-                      fixturePushEnabled
-                        ? `Disable notifications for ${fixture.homeTeam} vs ${fixture.awayTeam}`
-                        : `Enable notifications for ${fixture.homeTeam} vs ${fixture.awayTeam}`
-                    }
-                    style={{
-                      width: 28,
-                      height: 28,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                      borderRadius: "50%",
-                      border: `1px solid ${fixturePushEnabled ? "#22c55e" : "#ef4444"}`,
-                      background: fixturePushEnabled ? "rgba(34,197,94,0.18)" : "rgba(239,68,68,0.18)",
-                      color: fixturePushEnabled ? "#22c55e" : "#ef4444",
-                      fontSize: 15,
-                      lineHeight: 1,
-                      flexShrink: 0,
-                      marginTop: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    🔔
-                  </button>
-                </div>
-              </div>
-
               {/* Captain / Triple + Coins */}
               <div
                 style={{
                   display: "flex",
                   flexDirection: "column",
                   width: "100%",
-                  marginTop: 10,
-                  gap: 12,
+                  marginTop: 2,
+                  gap: 8,
                 }}
               >
                 {/* Captain + Triple */}
@@ -22870,7 +22512,7 @@ if (!isLoggedIn) {
   }}
 >
   <span style={{ fontSize: 16 }}>👑</span>
-  Captain
+  Captain ×2
   <input
     type="checkbox"
     checked={!!pred.isDouble}
@@ -22900,7 +22542,7 @@ if (!isLoggedIn) {
                     }}
                   >
                     <span style={{ fontSize: 16 }}>⚡</span>
-                    Triple
+                    Triple ×3
                     {(() => {
   const playerPreds = predictions[currentPredictionKey] || {};
   const modeFixtureIds = new Set(activeFixtures.map((f) => String(f.id)));
@@ -22953,14 +22595,15 @@ if (!isLoggedIn) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    gap: 10,
+                    gap: 8,
+                    flexWrap: "wrap",
                     fontSize: 12,
                     color: theme.muted,
                     width: "100%",
                   }}
                 >
                   {/* Center content */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
                     {/* MINI WRAPPER with +/- buttons */}
                     <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                       <CoinIcon />
@@ -22999,8 +22642,9 @@ if (!isLoggedIn) {
     <div
       style={{
         width: isMobile ? 34 : 36,
+        boxSizing: "border-box",
         textAlign: "center",
-        padding: isMobile ? "6px 7px" : "6px 8px",
+        padding: "6px 4px",
         borderRadius: 8,
         border: "1.5px solid #ffffff",
         background: theme.panelHi,
@@ -23089,13 +22733,13 @@ if (!isLoggedIn) {
                       alignItems: "center",
                       gap: 4,
                       fontSize: 11,
-                      minWidth: 90,
+                      minWidth: 76,
                       justifyContent: "flex-end",
-                      color: coinsPossibleReturnColor,
+                      color: coinsStake > 0 ? theme.text : theme.muted,
                       fontWeight: 700,
                     }}
                   >
-                    = {Number(coinsPossibleReturn).toFixed(2)}
+                    Return {Number(coinsPossibleReturn).toFixed(2)}
                     <CoinIcon />
                   </div>
                   </div>
