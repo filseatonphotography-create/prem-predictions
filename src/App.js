@@ -11664,6 +11664,16 @@ const currentGwPoints = useMemo(() => {
   return total;
 }, [selectedGameweek, results, predictions, currentPredictionKey, activeFixtures]);
 
+const currentGwTopScore = useMemo(() => {
+  const gw = selectedGameweek;
+  if (!gw) return 0;
+  if (computedWeeklyTotals && computedWeeklyTotals[gw]) {
+    const vals = Object.values(computedWeeklyTotals[gw]).map((v) => Number(v) || 0);
+    return vals.length ? Math.max(...vals) : 0;
+  }
+  return currentGwPoints;
+}, [selectedGameweek, computedWeeklyTotals, currentGwPoints]);
+
 const liveStudioUsers = useMemo(() => buildLiveStudioUsers({
   leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId,
 }), [leagueHistoryUsers, selectedMiniLeague, isWorldCupMode, currentPlayer, currentUserId]);
@@ -22771,6 +22781,63 @@ if (!isLoggedIn) {
         {selectedWorldCupStage}
       </div>
     )}
+
+      {/* Gameweek points so far */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          marginTop: 6,
+          marginBottom: 12,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: isMobile ? "8px 12px" : "9px 14px",
+            borderRadius: 999,
+            border: "2px solid rgba(255, 255, 255, 0.5)",
+            background: theme.panelHi,
+            fontSize: isMobile ? 12 : 13,
+            color: theme.muted,
+          }}
+        >
+          <span>{isWorldCupMode ? "Matchday points so far" : "GW points so far"}</span>
+          <span
+            style={{
+              minWidth: isMobile ? 38 : 44,
+              textAlign: "center",
+              padding: isMobile ? "3px 9px" : "4px 10px",
+              borderRadius: 999,
+              fontWeight: 800,
+              color:
+                currentGwPoints === 0
+                  ? "#fff"
+                  : currentGwPoints === currentGwTopScore && currentGwPoints > 0
+                  ? "#111827"
+                  : "#0b1f12",
+              background:
+                currentGwPoints === 0
+                  ? "#ef4444"
+                  : currentGwPoints === currentGwTopScore && currentGwPoints > 0
+                  ? "#f59e0b"
+                  : "#22c55e",
+              border:
+                currentGwPoints === currentGwTopScore && currentGwPoints > 0
+                  ? "2px solid rgba(255,255,255,0.55)"
+                  : "2px solid rgba(255,255,255,0.45)",
+            }}
+          >
+            <AnimatedNumber
+              value={currentGwPoints}
+              duration={450}
+              format={(v) => Math.round(v)}
+            />
+          </span>
+        </div>
+      </div>
 
     {/* Coins outcome summary for this gameweek */}
     {authToken && coinsOutcome && (
