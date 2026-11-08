@@ -22125,7 +22125,7 @@ if (!isLoggedIn) {
       style={{
         display: "grid",
         gridTemplateColumns: "1fr",
-        gap: 8,
+        gap: 12,
       }}
     >
       {visibleFixtures.map((fixture) => {
@@ -22170,14 +22170,15 @@ if (!isLoggedIn) {
         return (
           <div
             key={fixture.id}
-            className="prediction-fixture"
+            className={`prediction-fixture${locked ? " prediction-fixture--closed" : ""}`}
             role="group"
             aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} predictions${locked ? ", closed" : ""}`}
             style={{
-              background: locked ? "#35232c" : theme.panelHi,
+              background: locked ? theme.panelHi : "#1c2c3e",
+              color: locked ? theme.muted : theme.text,
               borderRadius: 12,
-              border: locked ? "1px solid rgba(248,113,113,0.45)" : `1px solid ${theme.line}`,
-              padding: 8,
+              border: locked ? `1px solid ${theme.line}` : "1px solid rgba(148,163,184,0.4)",
+              padding: isMobile ? "12px 8px" : "14px 16px",
               display: "grid",
               gridTemplateColumns: "minmax(0, 1fr)",
               gap: 8,
@@ -22188,7 +22189,7 @@ if (!isLoggedIn) {
             }}
           >
             {/* Left content column */}
-            <div style={{ display: "grid", gap: 6, maxWidth: "100%", overflow: "hidden", justifyItems: "center" }}>
+            <div style={{ display: "grid", gap: 12, maxWidth: "100%", overflow: "hidden", justifyItems: "center" }}>
               {/* Kickoff time */}
               <div
                 style={{
@@ -22221,11 +22222,12 @@ if (!isLoggedIn) {
                   </div>
                 )}
                 {formatFixtureKickoff(fixture, gameMode)}
-                {locked && <span style={{ color: "#fca5a5" }}> · Closed</span>}
+                {locked && <span style={{ color: theme.muted }}> · Closed</span>}
               </div>
 
               {/* Predicted score */}
               <div
+                className="prediction-score-row"
                 style={{
                   display: "flex",
                   gap: isMobile ? 4 : 4,
@@ -22241,7 +22243,7 @@ if (!isLoggedIn) {
                 <div
                   style={{
                     display: "flex",
-                    flexDirection: "column",
+                    flexDirection: "row",
                     gap: isMobile ? 4 : 4,
                     alignItems: "center",
                     flex: "0 1 auto",
@@ -22272,7 +22274,8 @@ if (!isLoggedIn) {
                       />
                     ) : null}
                     <span
-                      style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
+                      className="prediction-team-code"
+                      style={{ fontSize: isMobile ? 12 : 12, color: locked ? theme.muted : theme.text, fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.homeTeam, gameMode)}
                     </span>
@@ -22311,7 +22314,7 @@ if (!isLoggedIn) {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       min="0"
-                      style={{ ...smallInput, boxSizing: "border-box", width: 38, minHeight: 32 }}
+                      style={{ ...smallInput, color: locked ? theme.muted : theme.text, borderColor: locked ? theme.line : "#ffffff", boxSizing: "border-box", width: 38, minHeight: 32 }}
                       aria-label={`${fixture.homeTeam} predicted goals`}
                       value={pred.homeGoals ?? ""}
                       disabled={locked}
@@ -22368,7 +22371,7 @@ if (!isLoggedIn) {
                 <div
                   style={{
                     display: "flex",
-                    flexDirection: "column-reverse",
+                    flexDirection: "row",
                     gap: 4,
                     alignItems: "center",
                     flex: "0 1 auto",
@@ -22408,7 +22411,7 @@ if (!isLoggedIn) {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       min="0"
-                      style={{ ...smallInput, boxSizing: "border-box", width: 38, minHeight: 32 }}
+                      style={{ ...smallInput, color: locked ? theme.muted : theme.text, borderColor: locked ? theme.line : "#ffffff", boxSizing: "border-box", width: 38, minHeight: 32 }}
                       aria-label={`${fixture.awayTeam} predicted goals`}
                       value={pred.awayGoals ?? ""}
                       disabled={locked}
@@ -22457,7 +22460,8 @@ if (!isLoggedIn) {
                     }}
                   >
                     <span
-                      style={{ fontSize: isMobile ? 12 : 12, color: "#ffffff", fontWeight: 600 }}
+                      className="prediction-team-code"
+                      style={{ fontSize: isMobile ? 12 : 12, color: locked ? theme.muted : theme.text, fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.awayTeam, gameMode)}
                     </span>
@@ -22489,8 +22493,8 @@ if (!isLoggedIn) {
                   display: "flex",
                   flexDirection: "column",
                   width: "100%",
-                  marginTop: 2,
-                  gap: 8,
+                  marginTop: 4,
+                  gap: 16,
                 }}
               >
                 {/* Captain + Triple */}
@@ -22648,7 +22652,7 @@ if (!isLoggedIn) {
         borderRadius: 8,
         border: "1.5px solid #ffffff",
         background: theme.panelHi,
-        color: theme.text,
+        color: locked ? theme.muted : theme.text,
         fontWeight: 700,
         fontSize: 14,
       }}
@@ -22713,8 +22717,8 @@ if (!isLoggedIn) {
           borderRadius: 999,
           border: `1px solid ${theme.line}`,
           backgroundColor:
-            coinsSide === s ? theme.accent : "transparent",
-          color: coinsSide === s ? theme.buttonText : theme.text,
+            coinsSide === s ? (locked ? "#263445" : theme.accent) : "transparent",
+          color: locked ? theme.muted : coinsSide === s ? theme.buttonText : theme.text,
           fontSize: 11,
           cursor: locked ? "default" : "pointer",
         }}
@@ -22735,7 +22739,7 @@ if (!isLoggedIn) {
                       fontSize: 11,
                       minWidth: 76,
                       justifyContent: "flex-end",
-                      color: coinsStake > 0 ? theme.text : theme.muted,
+                      color: !locked && coinsStake > 0 ? theme.text : theme.muted,
                       fontWeight: 700,
                     }}
                   >
