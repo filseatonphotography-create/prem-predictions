@@ -22132,6 +22132,27 @@ if (!isLoggedIn) {
         const pred =
           predictions[currentPredictionKey]?.[fixture.id] || {};
         const locked = isPredictionLocked(fixture);
+        const fixtureText = locked ? theme.muted : "#ffffff";
+        const playerPreds = predictions[currentPredictionKey] || {};
+        const modeFixtureIds = new Set(activeFixtures.map((f) => String(f.id)));
+
+        // Find if a triple exists anywhere
+        const tripleFixtureId = Object.entries(playerPreds).find(
+          ([id, p]) => modeFixtureIds.has(String(id)) && p?.isTriple
+        )?.[0];
+
+        // Is this the fixture holding the triple?
+        const isCurrentTriple =
+          String(tripleFixtureId) === String(fixture.id);
+
+        const lockedTriple = locked;
+
+        const tripleUsedElsewhere =
+          tripleFixtureId && !isCurrentTriple;
+
+        const disableTripleBox =
+          lockedTriple || tripleUsedElsewhere || pred.isDouble;
+
         const o = generatedModelOddsByFixture[fixture.id] || odds[fixture.id] || {};
         const coinsBet =
           (coinsState.bets && coinsState.bets[fixture.id]) || {};
@@ -22175,7 +22196,7 @@ if (!isLoggedIn) {
             aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} predictions${locked ? ", closed" : ""}`}
             style={{
               background: locked ? theme.panelHi : "#1c2c3e",
-              color: locked ? theme.muted : theme.text,
+              color: fixtureText,
               borderRadius: 12,
               border: locked ? `1px solid ${theme.line}` : "1px solid rgba(148,163,184,0.4)",
               padding: isMobile ? "12px 8px" : "14px 16px",
@@ -22196,7 +22217,7 @@ if (!isLoggedIn) {
                   width: "100%",
                   textAlign: "center",
                   fontSize: 12,
-                  color: theme.muted,
+                  color: fixtureText,
                   marginBottom: 0,
                 }}
               >
@@ -22222,7 +22243,7 @@ if (!isLoggedIn) {
                   </div>
                 )}
                 {formatFixtureKickoff(fixture, gameMode)}
-                {locked && <span style={{ color: theme.muted }}> · Closed</span>}
+                {locked && <span style={{ color: fixtureText }}> · Closed</span>}
               </div>
 
               {/* Predicted score */}
@@ -22275,7 +22296,7 @@ if (!isLoggedIn) {
                     ) : null}
                     <span
                       className="prediction-team-code"
-                      style={{ fontSize: isMobile ? 12 : 12, color: locked ? theme.muted : theme.text, fontWeight: 600 }}
+                      style={{ fontSize: isMobile ? 12 : 12, color: fixtureText, fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.homeTeam, gameMode)}
                     </span>
@@ -22314,7 +22335,7 @@ if (!isLoggedIn) {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       min="0"
-                      style={{ ...smallInput, color: locked ? theme.muted : theme.text, borderColor: locked ? theme.line : "#ffffff", boxSizing: "border-box", width: 38, minHeight: 32 }}
+                      style={{ ...smallInput, color: fixtureText, borderColor: locked ? theme.line : "#ffffff", boxSizing: "border-box", width: 38, minHeight: 32 }}
                       aria-label={`${fixture.homeTeam} predicted goals`}
                       value={pred.homeGoals ?? ""}
                       disabled={locked}
@@ -22357,7 +22378,7 @@ if (!isLoggedIn) {
                 {/* VS */}
                 <span
                   style={{
-                    color: theme.muted,
+                    color: fixtureText,
                     fontWeight: 700,
                     alignSelf: "center",
                     fontSize: isMobile ? 16 : 18,
@@ -22411,7 +22432,7 @@ if (!isLoggedIn) {
                       inputMode="numeric"
                       pattern="[0-9]*"
                       min="0"
-                      style={{ ...smallInput, color: locked ? theme.muted : theme.text, borderColor: locked ? theme.line : "#ffffff", boxSizing: "border-box", width: 38, minHeight: 32 }}
+                      style={{ ...smallInput, color: fixtureText, borderColor: locked ? theme.line : "#ffffff", boxSizing: "border-box", width: 38, minHeight: 32 }}
                       aria-label={`${fixture.awayTeam} predicted goals`}
                       value={pred.awayGoals ?? ""}
                       disabled={locked}
@@ -22461,7 +22482,7 @@ if (!isLoggedIn) {
                   >
                     <span
                       className="prediction-team-code"
-                      style={{ fontSize: isMobile ? 12 : 12, color: locked ? theme.muted : theme.text, fontWeight: 600 }}
+                      style={{ fontSize: isMobile ? 12 : 12, color: fixtureText, fontWeight: 600 }}
                     >
                       {getTeamCode(fixture.awayTeam, gameMode)}
                     </span>
@@ -22512,7 +22533,7 @@ if (!isLoggedIn) {
     alignItems: "center",
     gap: 6,
     fontSize: 12,
-    color: theme.muted,
+    color: fixtureText,
   }}
 >
   <span style={{ fontSize: 16 }}>👑</span>
@@ -22542,33 +22563,11 @@ if (!isLoggedIn) {
                       alignItems: "center",
                       gap: 6,
                       fontSize: 12,
-                      color: theme.muted,
+                      color: disableTripleBox ? theme.muted : fixtureText,
                     }}
                   >
                     <span style={{ fontSize: 16 }}>⚡</span>
                     Triple ×3
-                    {(() => {
-  const playerPreds = predictions[currentPredictionKey] || {};
-  const modeFixtureIds = new Set(activeFixtures.map((f) => String(f.id)));
-
-  // Find if a triple exists anywhere
-  const tripleFixtureId = Object.entries(playerPreds).find(
-    ([id, p]) => modeFixtureIds.has(String(id)) && p?.isTriple
-  )?.[0];
-
-  // Is this the fixture holding the triple?
-  const isCurrentTriple =
-    String(tripleFixtureId) === String(fixture.id);
-
-  const lockedTriple = locked;
-
-  const tripleUsedElsewhere =
-    tripleFixtureId && !isCurrentTriple;
-
-  const disableTripleBox =
-    lockedTriple || tripleUsedElsewhere || pred.isDouble;
-
-  return (
     <input
   type="checkbox"
   disabled={disableTripleBox}
@@ -22588,8 +22587,7 @@ if (!isLoggedIn) {
     );
   }}
 />
-  );
-})()}
+
                   </label>
                 </div>
 
@@ -22602,7 +22600,7 @@ if (!isLoggedIn) {
                     gap: 8,
                     flexWrap: "wrap",
                     fontSize: 12,
-                    color: theme.muted,
+                    color: fixtureText,
                     width: "100%",
                   }}
                 >
@@ -22652,7 +22650,7 @@ if (!isLoggedIn) {
         borderRadius: 8,
         border: "1.5px solid #ffffff",
         background: theme.panelHi,
-        color: locked ? theme.muted : theme.text,
+        color: fixtureText,
         fontWeight: 700,
         fontSize: 14,
       }}
@@ -22718,7 +22716,7 @@ if (!isLoggedIn) {
           border: `1px solid ${theme.line}`,
           backgroundColor:
             coinsSide === s ? (locked ? "#263445" : theme.accent) : "transparent",
-          color: locked ? theme.muted : coinsSide === s ? theme.buttonText : theme.text,
+          color: fixtureText,
           fontSize: 11,
           cursor: locked ? "default" : "pointer",
         }}
@@ -22739,7 +22737,7 @@ if (!isLoggedIn) {
                       fontSize: 11,
                       minWidth: 76,
                       justifyContent: "flex-end",
-                      color: !locked && coinsStake > 0 ? theme.text : theme.muted,
+                      color: fixtureText,
                       fontWeight: 700,
                     }}
                   >
