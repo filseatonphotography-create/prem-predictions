@@ -44,6 +44,35 @@
   font-weight: 700;
 }
 
+.results-highlights-list {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.results-highlights-link {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.results-highlights-link img {
+  width: clamp(80px, 27cqw, 140px);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 5px;
+}
+
+.results-highlights-link > span { min-width: 0; }
+.results-highlights-link strong,
+.results-highlights-link span span { display: block; }
+.results-highlights-source { font-size: 11px; }
+.results-highlights-retry { border: 0; background: none; cursor: pointer; font: inherit; text-decoration: underline; }
+
 .results-fixture-meta {
   display: flex;
   justify-content: center;

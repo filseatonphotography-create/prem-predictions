@@ -5,6 +5,7 @@ import AppBrand from "./AppBrand";
 import { buildGoalMatchContext, buildRedCardMatchContext } from "./liveStudioMatchContext";
 import FixturePointsBox from "./FixturePointsBox";
 import ResultsFixtureRow from "./ResultsFixtureRow";
+import { canShowMatchHighlights } from "./matchHighlights";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
 import LiveStudioCoverage, { LiveStudioScoreStrip } from "./LiveStudioCoverage";
@@ -23201,6 +23202,7 @@ if (!isLoggedIn) {
             bet={coinsState.bets?.[fixture.id]}
             betsLoading={coinsState.loading}
             betsError={coinsState.error}
+            highlights={!isWorldCupMode ? { fixtureId: fixture.id, finished: canShowMatchHighlights(fixture, res, matchStatesByFixtureId[fixture.id]), base: BACKEND_BASE } : undefined}
             live={fixtureLive}
             isMobile={isMobile}
             theme={theme}

@@ -24,3 +24,4 @@ yarn-error.log*
 
 # local exports
 /data/player-emails.csv
+/data/youtube-highlights-cache.json

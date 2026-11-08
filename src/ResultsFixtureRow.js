@@ -1,5 +1,6 @@
 import React, { useId, useState } from "react";
 import FixturePointsBox from "./FixturePointsBox";
+import FixtureHighlights from "./FixtureHighlights";
 import "./ResultsFixtureRow.css";
 
 function Team({ team, away = false }) {
@@ -12,7 +13,7 @@ function Team({ team, away = false }) {
   return <div className="results-fixture-team">{away ? name : badge}{away ? badge : name}</div>;
 }
 
-export default function ResultsFixtureRow({ home, away, score, scoreLabel, stageLabel, points, prediction, bet, betsLoading = false, betsError = "", live, isMobile, theme, inputStyle }) {
+export default function ResultsFixtureRow({ home, away, score, scoreLabel, stageLabel, points, prediction, bet, betsLoading = false, betsError = "", highlights, live, isMobile, theme, inputStyle }) {
   const [expanded, setExpanded] = useState(false);
   const detailsId = useId();
   const hasPrediction = [prediction?.homeGoals, prediction?.awayGoals].every(value =>
@@ -68,7 +69,7 @@ export default function ResultsFixtureRow({ home, away, score, scoreLabel, stage
           </div>
         </div>
         <div className="results-fixture-disclosure" style={{ color: theme.muted }}>
-          Prediction & bets <span aria-hidden="true">{expanded ? "▲" : "▼"}</span>
+          Prediction & bets{highlights ? " · Highlights" : ""} <span aria-hidden="true">{expanded ? "▲" : "▼"}</span>
         </div>
       </div>
       <div id={detailsId} hidden={!expanded} className="results-fixture-details" style={{ borderColor: theme.line, color: theme.text }}>
@@ -89,6 +90,7 @@ export default function ResultsFixtureRow({ home, away, score, scoreLabel, stage
               {Number.isFinite(price) && price > 0 && <div>Odds: {price.toFixed(2)} · Possible return: {(Number(bet.stake) * price).toFixed(2)} coins</div>}
             </> : <div>No bet placed.</div>}
         </div>
+        {expanded && highlights && <FixtureHighlights {...highlights} active={expanded} theme={theme} />}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ const { shouldSendRecentFullTimeUpdate } = require("./src/liveMatchEvents");
 const { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave } = require("./src/predictionRules");
 const { validatePredictionBadgeRecord, isFinalBadgeFixture } = require("./src/badgeRules");
 const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
+const { createMatchHighlightsService } = require("./matchHighlightsService");
 
 const { championsFixture, studioAlertAllowed, buildChampionsForm } = require("./src/studioCompetitions");
 
@@ -3685,6 +3686,29 @@ app.post("/api/admin/worldcup/results", (req, res) => {
     return res.status(500).json({ error: "Failed to save World Cup override" });
   }
 });
+
+// Shared catalogue: no paid provider, no per-visitor YouTube searches.
+const highlightsService = createMatchHighlightsService({
+  apiKey: process.env.YOUTUBE_API_KEY || "",
+  readCache: () => loadJson(path.join(DATA_DIR, "youtube-highlights-cache.json"), {}),
+  writeCache: data => saveJson(path.join(DATA_DIR, "youtube-highlights-cache.json"), data),
+});
+app.get("/api/fixtures/:fixtureId/highlights", async (req, res) => {
+  const fixture = loadFixturesFromSrc().find(item => String(item.id) === req.params.fixtureId);
+  if (!fixture) return res.status(404).json({ error: "Unknown fixture" });
+  try {
+    const highlights = await highlightsService.forFixture(fixture, loadResults()[fixture.id], loadMatchStates()[fixture.id]);
+    res.setHeader("Cache-Control", highlights.status === "error" ? "no-store" : "public, max-age=300");
+    return res.json(highlights);
+  } catch {
+    return res.status(503).json({ error: "Highlights temporarily unavailable" });
+  }
+});
+// Keep recent uploads available even when nobody has opened a fixture yet.
+if (process.env.YOUTUBE_API_KEY) {
+  highlightsService.refresh().catch(() => {});
+  setInterval(() => highlightsService.refresh().catch(() => {}), 30 * 60 * 1000).unref();
+}
 
 // Public: return latest results snapshot (global source of truth)
 app.get("/api/results/snapshot", (req, res) => {
