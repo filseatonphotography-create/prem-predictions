@@ -22195,7 +22195,7 @@ if (!isLoggedIn) {
             role="group"
             aria-label={`${fixture.homeTeam} vs ${fixture.awayTeam} predictions${locked ? ", closed" : ""}`}
             style={{
-              background: locked ? theme.panelHi : "#1c2c3e",
+              background: locked ? "#2b3d50" : theme.panelHi,
               color: fixtureText,
               borderRadius: 12,
               border: "1px solid #ffffff",
