@@ -1,11 +1,28 @@
 const { canShowMatchHighlights } = require("./src/matchHighlights");
 
-// Verified against the official channel pages. Only these publishers can appear
-// as official highlights; never search across arbitrary YouTube uploads.
+// Official club channels, verified against their YouTube channel pages.
+// Broadcaster videos are excluded, including entries from older saved caches.
 const CHANNELS = [
-  { id: "UCNAf1k0yIjyGu3k9BwAg3lg", name: "Sky Sports Premier League" },
-  { id: "UCqZQlzSHbVJrwrn5XvzrzcA", name: "NBC Sports" },
-  { id: "UCG5qGWdu8nIRZqJ_GgDwQ-w", name: "Premier League" },
+  { id: "UC6yW44UGJJBvYTlfC7CRg2Q", name: "Manchester United", handle: "ManUtd" },
+  { id: "UCpryVRk_VDudG8SHXgWcG0w", name: "Arsenal", handle: "Arsenal" },
+  { id: "UCkzCjdRMrW2vXLx8mvPVLdQ", name: "Manchester City", handle: "mancity" },
+  { id: "UC2VLfz92cTT8jHIFOecC-LA", name: "Fulham", handle: "fulhamfc" },
+  { id: "UCtK4QAczAN2mt2ow_jlGinQ", name: "Everton", handle: "everton" },
+  { id: "UC9LQwHZoucFT94I2h6JOcjw", name: "Liverpool", handle: "LiverpoolFC" },
+  { id: "UCICNP0mvtr0prFwGUQIABfQ", name: "Aston Villa", handle: "avfcofficial" },
+  { id: "UCf-cpC9WAdOsas19JHipukA", name: "Brighton & Hove Albion", handle: "officialbhafc" },
+  { id: "UCAalMUm3LIf504ItA3rqfug", name: "Brentford", handle: "BrentfordFC" },
+  { id: "UCU2PacFf99vhb3hNiYDmxww", name: "Chelsea", handle: "ChelseaFC" },
+  { id: "UCWB9N0012fG6bGyj486Qxmg", name: "Crystal Palace", handle: "OfficialCPFC" },
+  { id: "UCch_NWdo3JWKngAyO9XlycA", name: "Coventry City", handle: "CoventryCityFC" },
+  { id: "UC8MRV5E-Bi5qWomGjOF0ZQg", name: "Hull City", handle: "hullcityofficial" },
+  { id: "UCjNwxJec96lMWgCXjEDhXgQ", name: "Ipswich Town", handle: "IpswichTown" },
+  { id: "UCyQcJHDN4uYfPa1DHzKVSnw", name: "Leeds United", handle: "LeedsUnited" },
+  { id: "UCywGl_BPp9QhD0uAcP2HsJw", name: "Newcastle United", handle: "NUFC" },
+  { id: "UCyAxjuAr8f_BFDGCO3Htbxw", name: "Nottingham Forest", handle: "NottinghamForestFC" },
+  { id: "UCrw-7k6yJc0EMJdf-0BAkoQ", name: "Sunderland", handle: "SunderlandAFC" },
+  { id: "UCEg25rdRZXg32iwai6N6l0w", name: "Tottenham Hotspur", handle: "TottenhamHotspur" },
+  { id: "UCeOCuVSSweaEj6oVtJZEKQw", name: "Bournemouth", handle: "afcbournemouth" },
 ];
 const REFRESH_MS = 30 * 60 * 1000;
 const RETENTION_MS = 28 * 24 * 60 * 60 * 1000;
@@ -30,7 +47,8 @@ function teamAliases(name) {
 }
 
 function matchesFixture(video, fixture) {
-  if (!CHANNELS.some(channel => channel.id === video.channelId)) return false;
+  const channel = CHANNELS.find(channel => channel.id === video.channelId);
+  if (!channel || ![fixture.homeTeam, fixture.awayTeam].some(team => teamAliases(team).includes(normalize(channel.name)))) return false;
   const publishedMs = Date.parse(video.publishedAt), kickoffMs = Date.parse(fixture.kickoff);
   if (!Number.isFinite(publishedMs) || !Number.isFinite(kickoffMs)
     || publishedMs < kickoffMs + 90 * 60 * 1000 || publishedMs > kickoffMs + 3 * DAY_MS) return false;
@@ -53,7 +71,17 @@ function normalizeVideo(item, channel, retrievedAt) {
     publishedAt: details.videoPublishedAt || snippet.publishedAt, retrievedAt };
 }
 
-function createMatchHighlightsService({ apiKey = "", fetchImpl = global.fetch, readCache = () => ({}), writeCache = () => {}, now = Date.now } = {}) {
+function isPlayableInCountry(video, country, nowMs) {
+  const availability = video.availability;
+  if (!availability || !Number.isFinite(availability.checkedAt)
+    || nowMs - availability.checkedAt >= DAY_MS || availability.checkedAt > nowMs
+    || availability.privacyStatus !== "public" || availability.uploadStatus !== "processed") return false;
+  const restrictions = availability.regionRestriction || {};
+  if (Array.isArray(restrictions.allowed) && !restrictions.allowed.includes(country)) return false;
+  return !Array.isArray(restrictions.blocked) || !restrictions.blocked.includes(country);
+}
+
+function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl = global.fetch, readCache = () => ({}), writeCache = () => {}, now = Date.now } = {}) {
   const saved = readCache() || {};
   let videos = Array.isArray(saved.videos) ? saved.videos : [];
   let checkedAt = 0, pending = null, failed = false;
@@ -75,7 +103,8 @@ function createMatchHighlightsService({ apiKey = "", fetchImpl = global.fetch, r
 
   function currentVideos() {
     const cutoff = now() - RETENTION_MS;
-    return videos.filter(video => Number(video.retrievedAt) > cutoff && /^[\w-]{11}$/.test(video.videoId || ""));
+    return videos.filter(video => CHANNELS.some(channel => channel.id === video.channelId)
+      && Number(video.retrievedAt) > cutoff && /^[\w-]{11}$/.test(video.videoId || ""));
   }
 
   async function refresh() {
@@ -104,7 +133,27 @@ function createMatchHighlightsService({ apiKey = "", fetchImpl = global.fetch, r
           if (result.status === "fulfilled") collected.push(...result.value);
           else errors += 1;
         });
-        videos = [...new Map([...currentVideos(), ...collected].map(video => [video.videoId, video])).values()]
+        const catalogue = new Map(currentVideos().map(video => [video.videoId, video]));
+        collected.filter(video => /\bhighlights?\b/i.test(video.title)).forEach(video => {
+          catalogue.set(video.videoId, { ...catalogue.get(video.videoId), ...video });
+        });
+        const candidates = [...catalogue.values()];
+        const batches = [];
+        for (let index = 0; index < candidates.length; index += 50) batches.push(candidates.slice(index, index + 50));
+        // YouTube reports country allow/block lists on the videos resource.
+        // Unknown availability is never treated as confirmation of playback.
+        const checks = await Promise.allSettled(batches.map(async batch => {
+          const details = await api("videos", { part: "contentDetails,status", id: batch.map(video => video.videoId).join(",") });
+          const byId = new Map(details.map(detail => [detail.id, detail]));
+          batch.forEach(video => {
+            const detail = byId.get(video.videoId);
+            video.availability = { checkedAt: now(), privacyStatus: detail?.status?.privacyStatus || "unavailable",
+              uploadStatus: detail?.status?.uploadStatus || "unavailable",
+              regionRestriction: detail?.contentDetails?.regionRestriction || {} };
+          });
+        }));
+        errors += checks.filter(result => result.status === "rejected").length;
+        videos = candidates
           .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, 2000);
         // Keep the recent catalogue across restarts, and expire API metadata
         // within 30 days. A transient source failure preserves unexpired items.
@@ -124,7 +173,8 @@ function createMatchHighlightsService({ apiKey = "", fetchImpl = global.fetch, r
     if (!apiKey) return { status: "unavailable", videos: [] };
     await refresh();
     const effectiveFixture = { ...fixture, kickoff: state.utcDate || fixture.kickoff };
-    const matched = currentVideos().filter(video => matchesFixture(video, effectiveFixture)).slice(0, 3)
+    const matched = currentVideos().filter(video => matchesFixture(video, effectiveFixture)
+      && isPlayableInCountry(video, String(country).toUpperCase(), now())).slice(0, 3)
       .map(({ videoId, title, channelName }) => ({ videoId, title, channelName }));
     return { status: matched.length ? "available" : failed ? "error" : "empty", videos: matched };
   }
@@ -132,4 +182,4 @@ function createMatchHighlightsService({ apiKey = "", fetchImpl = global.fetch, r
   return { forFixture, refresh };
 }
 
-module.exports = { CHANNELS, matchesFixture, normalizeVideo, createMatchHighlightsService };
+module.exports = { CHANNELS, matchesFixture, normalizeVideo, isPlayableInCountry, createMatchHighlightsService };

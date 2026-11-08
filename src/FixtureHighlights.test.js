@@ -6,7 +6,7 @@ const originalFetch = global.fetch;
 const props = { home: { name: "Arsenal", code: "ARS" }, away: { name: "Chelsea", code: "CHE" }, score: {},
   theme: { muted: "#aaa", text: "#fff", accent: "#ff0", line: "#444" },
   highlights: { fixtureId: 123, finished: true, base: "https://example.test" } };
-const highlight = { videoId: "Abcdef123_-", title: "Arsenal v Chelsea | Highlights", channelName: "Sky Sports Premier League" };
+const highlight = { videoId: "Abcdef123_-", title: "Arsenal v Chelsea | Highlights", channelName: "Arsenal" };
 afterEach(() => { cleanup(); global.fetch = originalFetch; });
 
 test("highlights are fetched only on expansion and display an official YouTube thumbnail link", async () => {
