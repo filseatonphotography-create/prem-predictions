@@ -15,7 +15,7 @@ export default function FixtureHighlights({ fixtureId, finished, active, base = 
         const response = await fetch(`${base}/api/fixtures/${encodeURIComponent(fixtureId)}/highlights`, { signal: controller.signal });
         if (!response.ok) throw new Error("Highlights unavailable");
         const data = await response.json();
-        const videos = (Array.isArray(data.videos) ? data.videos : []).filter(video => /^[\w-]{11}$/.test(video.videoId || ""));
+        const videos = (Array.isArray(data.videos) ? data.videos : []).filter(video => /^[\w-]{11}$/.test(video.videoId || "")).slice(0, 1);
         if (!cancelled) setState({ status: videos.length ? "available" : data.status === "error" ? "error" : "empty", videos });
       } catch {
         if (!cancelled) setState({ status: "error", videos: [] });

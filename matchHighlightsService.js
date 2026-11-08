@@ -174,7 +174,7 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
     await refresh();
     const effectiveFixture = { ...fixture, kickoff: state.utcDate || fixture.kickoff };
     const matched = currentVideos().filter(video => matchesFixture(video, effectiveFixture)
-      && isPlayableInCountry(video, String(country).toUpperCase(), now())).slice(0, 3)
+      && isPlayableInCountry(video, String(country).toUpperCase(), now())).slice(0, 1)
       .map(({ videoId, title, channelName }) => ({ videoId, title, channelName }));
     return { status: matched.length ? "available" : failed ? "error" : "empty", videos: matched };
   }
