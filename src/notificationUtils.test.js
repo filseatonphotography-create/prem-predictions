@@ -166,4 +166,48 @@ describe("goal alert details", () => {
       )
     ).toBe("You're one goal away from Bingpot.");
   });
+
+  test.each([
+    [{ homeGoals: 1, awayGoals: 0 }, { homeGoals: 0, awayGoals: 1 }, { homeGoals: 1, awayGoals: 1 }],
+    [{ homeGoals: 0, awayGoals: 1 }, { homeGoals: 1, awayGoals: 0 }, { homeGoals: 1, awayGoals: 1 }],
+    [{ homeGoals: 1, awayGoals: 0 }, null, { homeGoals: 1, awayGoals: 1 }],
+    [{ homeGoals: 0, awayGoals: 1 }, null, { homeGoals: 1, awayGoals: 1 }],
+    [{ homeGoals: 0, awayGoals: 0 }, { homeGoals: 1, awayGoals: 0 }, { homeGoals: 0, awayGoals: 1 }],
+  ])("never claims Bingpot is one goal away when either team has overshot: %p", (prediction, before, after) => {
+    expect(buildPredictionImpactLine(prediction, before, after)).toBe("");
+  });
+
+  test.each([{}, { isDouble: true }, { isTriple: true }])("the reported 1-0 prediction loses its Bingpot after the equaliser: %p", boost => {
+    const points = boost.isTriple ? 21 : boost.isDouble ? 14 : 7;
+    expect(buildPredictionImpactLine({ homeGoals: "1", awayGoals: "0", ...boost },
+      { homeGoals: 1, awayGoals: 0 }, { homeGoals: 1, awayGoals: 1 }))
+      .toBe(`That goal drops you from ${points} pts to 0.`);
+  });
+
+  test.each([
+    [{ homeGoals: 2, awayGoals: 2 }, { homeGoals: 0, awayGoals: 2 }, { homeGoals: 1, awayGoals: 2 }],
+    [{ homeGoals: "2", awayGoals: "2" }, { homeGoals: 2, awayGoals: 0 }, { homeGoals: "2", awayGoals: "1" }],
+  ])("still nudges when one additional home or away goal can reach the prediction", (prediction, before, after) => {
+    expect(buildPredictionImpactLine(prediction, before, after)).toBe("You're one goal away from Bingpot.");
+  });
+
+  test("an overshot exact score can still earn outcome points without claiming another Bingpot is possible", () => {
+    expect(buildPredictionImpactLine({ homeGoals: 1, awayGoals: 0 },
+      { homeGoals: 1, awayGoals: 0 }, { homeGoals: 2, awayGoals: 0 }))
+      .toBe("That goal drops you to correct outcome (2 pts).");
+  });
+
+  test("uses the latest confirmed score if VAR restores a reachable prediction", () => {
+    const prediction = { homeGoals: 2, awayGoals: 2 };
+    expect(buildPredictionImpactLine(prediction, null, { homeGoals: 3, awayGoals: 2 })).toBe("");
+    expect(buildPredictionImpactLine(prediction, { homeGoals: 3, awayGoals: 1 }, { homeGoals: 2, awayGoals: 1 }))
+      .toBe("You're one goal away from Bingpot.");
+    expect(buildPredictionImpactLine(prediction, { homeGoals: 2, awayGoals: 1 }, { homeGoals: 2, awayGoals: 2 }))
+      .toBe("That goal moves you onto Bingpot (7 pts).");
+  });
+
+  test.each([undefined, null, "", " ", -1, 1.5, true, "not a score"])("missing or invalid score values cannot produce fictional prediction advice: %p", value => {
+    expect(buildPredictionImpactLine({ homeGoals: value, awayGoals: 1 }, null, { homeGoals: 0, awayGoals: 0 })).toBe("");
+    expect(buildPredictionImpactLine({ homeGoals: 1, awayGoals: 1 }, null, { homeGoals: value, awayGoals: 0 })).toBe("");
+  });
 });

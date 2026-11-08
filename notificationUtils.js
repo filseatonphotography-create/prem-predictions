@@ -147,11 +147,10 @@ function buildFullTimeAlertBody(fixture, homeGoals, awayGoals, prediction) {
 }
 
 function getPredictionScoreValues(prediction, result) {
-  const ph = Number(prediction?.homeGoals);
-  const pa = Number(prediction?.awayGoals);
-  const rh = Number(result?.homeGoals);
-  const ra = Number(result?.awayGoals);
-  if ([ph, pa, rh, ra].some((value) => !Number.isFinite(value))) return null;
+  const scores = [prediction?.homeGoals, prediction?.awayGoals, result?.homeGoals, result?.awayGoals];
+  if (scores.some(value => (typeof value !== "string" && typeof value !== "number")
+    || String(value).trim() === "" || !Number.isSafeInteger(Number(value)) || Number(value) < 0)) return null;
+  const [ph, pa, rh, ra] = scores.map(Number);
   return { ph, pa, rh, ra };
 }
 
@@ -191,7 +190,9 @@ function isOneGoalFromBingpot(prediction, result) {
   const values = getPredictionScoreValues(prediction, result);
   if (!values) return false;
   const { ph, pa, rh, ra } = values;
-  return Math.abs(ph - rh) + Math.abs(pa - ra) === 1;
+  // A further goal must reach the prediction. Never imply that a goal can be
+  // subtracted; a confirmed VAR correction is reflected in the next live score.
+  return (ph === rh + 1 && pa === ra) || (pa === ra + 1 && ph === rh);
 }
 
 function buildPredictionImpactLine(prediction, prevResult, nextResult) {
