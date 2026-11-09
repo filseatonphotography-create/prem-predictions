@@ -27,16 +27,17 @@
   display: block;
   flex: 0 0 auto;
   width: 74px;
-  height: 82px;
+  height: 74px;
   filter: drop-shadow(0 0 12px rgba(110, 242, 189, 0.12));
 }
 
-.app-brand__crest svg { display: block; width: 100%; height: 100%; }
-.app-brand__shield { fill: #102c30; stroke: var(--brand-mint); stroke-width: 1.5; }
-.app-brand__shield-inset { stroke: #6ef2bd; stroke-opacity: 0.2; stroke-width: 0.75; }
-.app-brand__monogram-p { fill: #f3f7fc; }
-.app-brand__monogram-a { fill: var(--brand-mint); stroke: #102c30; stroke-width: 1.5; }
-.app-brand__crest-detail { stroke: var(--brand-mint); stroke-width: 1.5; stroke-linecap: round; }
+.app-brand__crest img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 16px;
+}
 
 .app-brand__wordmark {
   position: relative;
@@ -72,8 +73,12 @@
 .app-brand--intro .app-brand__crest { animation: brand-illuminate 1600ms ease-out both; }
 .app-brand--intro .app-brand__light { animation: brand-light-sweep 1000ms 450ms ease-in-out both; }
 
-.app-brand--compact .app-brand__logo { font-size: clamp(20px, 6vw, 25px); gap: 12px; }
-.app-brand--compact .app-brand__crest { width: 54px; height: 60px; }
+.app-brand--compact .app-brand__logo { font-size: clamp(23px, 8.3vw, 36px); gap: 12px; }
+.app-brand--compact .app-brand__crest {
+  width: clamp(54px, 16vw, 68px);
+  height: clamp(54px, 16vw, 68px);
+}
+.app-brand--compact .app-brand__crest img { border-radius: 12px; }
 .app-brand--compact .app-brand__tagline { font-size: 12px; margin-top: 7px; }
 
 @keyframes brand-reveal {
