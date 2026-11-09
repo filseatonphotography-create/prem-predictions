@@ -166,6 +166,12 @@ async function apiSetAvatar(token, payload) {
 }
 
 const DEV_USE_LOCAL = false; // always use cloud backend
+// Optional caches and view preferences must not take down the app when a
+// home-screen browser has exhausted its storage quota. Retain the previous copy.
+function persistOptionalLocalState(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
+}
+
 const BACKEND_BASE =
   process.env.REACT_APP_BACKEND_BASE ||
   (window.location.hostname === "localhost"
@@ -8135,15 +8141,15 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
 
   // Save activeView to localStorage whenever it changes
   useEffect(() => {
-    localStorage.setItem('activeView', activeView);
+    persistOptionalLocalState('activeView', activeView);
   }, [activeView]);
 
   useEffect(() => {
-    localStorage.setItem(SEASON_WINNERS_STORAGE_KEY, JSON.stringify(seasonWinnerHistory));
+    persistOptionalLocalState(SEASON_WINNERS_STORAGE_KEY, JSON.stringify(seasonWinnerHistory));
   }, [seasonWinnerHistory]);
 
   useEffect(() => {
-    localStorage.setItem(BADGE_HISTORY_STORAGE_KEY, JSON.stringify(badgeHistory));
+    persistOptionalLocalState(BADGE_HISTORY_STORAGE_KEY, JSON.stringify(badgeHistory));
   }, [badgeHistory]);
 
   useEffect(() => {
@@ -10104,7 +10110,7 @@ useEffect(() => {
       if (prefs && typeof prefs === "object") {
         setPushPrefs((prev) => {
           const next = normalizePushPrefs({ ...prev, ...prefs });
-          localStorage.setItem(PUSH_PREFS_STORAGE_KEY, JSON.stringify(next));
+          persistOptionalLocalState(PUSH_PREFS_STORAGE_KEY, JSON.stringify(next));
           return next;
         });
       }
@@ -10123,7 +10129,7 @@ useEffect(() => {
       const remotePrefs = await apiGetFixturePushPrefs(authToken);
       setFixturePushPrefs((localPrefs) => {
         const fixturePrefs = { ...localPrefs, ...(remotePrefs || {}) };
-        localStorage.setItem(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(fixturePrefs));
+        persistOptionalLocalState(FIXTURE_PUSH_STORAGE_KEY, JSON.stringify(fixturePrefs));
         return fixturePrefs;
       });
     } catch {}
@@ -10356,7 +10362,7 @@ useEffect(() => {
   useEffect(() => {
     const persistTimer = window.setTimeout(() => {
       const cachePredictions = keepSupportedFixturePredictions(predictions);
-      localStorage.setItem(
+      persistOptionalLocalState(
         STORAGE_KEY,
         JSON.stringify({ predictions: cachePredictions, results, odds, selectedGameweek, selectedGameweekByMode })
       );
@@ -13958,7 +13964,7 @@ useEffect(() => {
     if (String(computedTotalsLeagueId || "") !== String(selectedMiniLeague.id)) return;
   }
   const seenKey = `winner_popup_seen_${modeKey}_${leagueScope}_gw${selectedGameweek}_${currentUserId}`;
-  if (localStorage.getItem(seenKey)) return;
+  if (readLiveStudioCache(seenKey, false)) return;
 
   let winners = [];
   if (activeView === "league") {
@@ -14000,7 +14006,7 @@ useEffect(() => {
   if (!isWorldCupMode) {
     setPredictionIqPendingAfterWinner(true);
   }
-  localStorage.setItem(seenKey, "true");
+  writeLiveStudioCache(seenKey, true);
 }, [
   activeView,
   selectedGameweek,
@@ -14044,7 +14050,7 @@ useEffect(() => {
 
   const modeKey = getModeKey(gameMode);
   const seenKey = `season_winner_popup_seen_${modeKey}_${activeView}_s${finalGw}_${currentUserId}`;
-  if (localStorage.getItem(seenKey)) return;
+  if (readLiveStudioCache(seenKey, false)) return;
 
   let winners = [];
   if (activeView === "league") {
@@ -14076,7 +14082,7 @@ useEffect(() => {
   setWinnerIndex(0);
   setWinnerModalType("season");
   setShowWinnerModal(true);
-  localStorage.setItem(seenKey, "true");
+  writeLiveStudioCache(seenKey, true);
 }, [
   activeView,
   leaderboard,
@@ -14111,18 +14117,24 @@ useEffect(() => {
 
 useEffect(() => {
   if (!showWinnerModal || !soundEffectsEnabled) return;
-  if (!winnerAudioRef.current) {
-    winnerAudioRef.current = new Audio("/winner.mp3");
-  }
-  winnerAudioRef.current.currentTime = 0;
-  winnerAudioRef.current.volume = 0.5;
-  winnerAudioRef.current.play().catch(() => {
-    // Fallback for setups where winner.mp3 hasn't been added yet.
-    if (winnerAudioRef.current?.src?.includes("/winner.mp3")) {
-      winnerAudioRef.current.src = "/coin.mp3";
-      winnerAudioRef.current.play().catch(() => {});
+  let cancelled = false;
+  (async () => {
+    try {
+      if (!winnerAudioRef.current) winnerAudioRef.current = new Audio("/winner.mp3");
+      winnerAudioRef.current.currentTime = 0;
+      winnerAudioRef.current.volume = 0.5;
+      await winnerAudioRef.current.play();
+    } catch {
+      // Playback, seeking, and audio construction can fail in a home-screen
+      // browser. Neither the celebration nor its fallback may break the table.
+      if (cancelled || !winnerAudioRef.current?.src?.includes("/winner.mp3")) return;
+      try {
+        winnerAudioRef.current.src = "/coin.mp3";
+        await winnerAudioRef.current.play();
+      } catch {}
     }
-  });
+  })();
+  return () => { cancelled = true; };
 }, [showWinnerModal, soundEffectsEnabled]);
 
 const winnerConfetti = useMemo(() => {

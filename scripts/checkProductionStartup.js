@@ -64,4 +64,5 @@ async function check(name, activeView, mode = 'champions') {
   await check('Premier League Live Studio', 'liveStudio', 'premier');
   await check('Champions League Live Studio', 'liveStudio');
   await check('Champions League table', 'championsLeagueTable');
+  await require('./checkLeagueNavigation')(buildPath);
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });
