@@ -51,6 +51,8 @@
   padding: 3px 0.3em 3px 0.13em;
   line-height: 0.9;
   white-space: nowrap;
+  /* Optical fallback for browsers without capital-height text trimming. */
+  transform: translateY(0.05em);
 }
 
 .app-brand__prediction { font-size: 0.78em; letter-spacing: 0.055em; }
@@ -58,6 +60,13 @@
   font-size: 1.12em;
   color: var(--brand-mint);
   margin-left: 0.5em;
+}
+
+/* Center the actual capitals, excluding the font's ascender/descender space. */
+@supports (text-box: trim-both cap alphabetic) {
+  .app-brand__wordmark { transform: none; }
+  .app-brand__prediction,
+  .app-brand__addiction { text-box: trim-both cap alphabetic; }
 }
 
 .app-brand__light {
@@ -88,6 +97,9 @@
 .app-brand--intro .app-brand__logo { animation: brand-reveal 650ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .app-brand--intro .app-brand__crest { animation: brand-illuminate 1600ms ease-out both; }
 .app-brand--intro .app-brand__light::after { animation: brand-light-sweep 1000ms 450ms ease-in-out both; }
+.app-brand--intro .app-brand__logo,
+.app-brand--intro .app-brand__crest { animation-delay: var(--brand-intro-delay, 0ms); }
+.app-brand--intro .app-brand__light::after { animation-delay: calc(450ms + var(--brand-intro-delay, 0ms)); }
 
 .app-brand--compact { --brand-badge-size: clamp(54px, 16vw, 68px); }
 .app-brand--compact .app-brand__logo { font-size: clamp(23px, 7.8vw, 34px); gap: 12px; }

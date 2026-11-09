@@ -1,7 +1,7 @@
 import { getPredictionPoints as scoreSavedPrediction, normalizePredictionBoosts } from "./predictionRules";
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
-import AppBrand from "./AppBrand";
+import AppBrand, { restartBrandIntro } from "./AppBrand";
 import { buildGoalMatchContext, buildRedCardMatchContext } from "./liveStudioMatchContext";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 import { canShowMatchHighlights } from "./matchHighlights";
@@ -10813,6 +10813,7 @@ useEffect(() => {
           : await apiLogin(name, pwd);
       const landingGameweek = getPredictionLandingGameweek(activeFixtures, activeGameweeks);
 
+      restartBrandIntro();
       setIsLoggedIn(true);
       setAuthToken(result.token);
       setCurrentUserId(result.userId);
