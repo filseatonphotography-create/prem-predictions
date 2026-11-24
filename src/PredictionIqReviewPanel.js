@@ -18,11 +18,11 @@ function OutcomeRate({ count, total, color }) {
   );
 }
 
-export default function PredictionIqReview({ week, recent, theme, resolveTeamBadge, children }) {
+export default function PredictionIqReview({ week, recent, theme, resolveTeamBadge, getTeamCode, children }) {
   if (!week.rows.length) {
     return (
       <>
-        <p className="prediction-iq-empty" style={{ color: theme.muted }}>Your gameweek review will appear when the first final score is confirmed.</p>
+        <p className="prediction-iq-empty">Your gameweek review will appear when the first final score is confirmed.</p>
         {children}
       </>
     );
@@ -36,23 +36,18 @@ export default function PredictionIqReview({ week, recent, theme, resolveTeamBad
   const missedOutcome = miss && OUTCOMES.find(outcome => outcome.key === miss.actual);
   const backedOutcome = miss && OUTCOMES.find(outcome => outcome.key === miss.predicted);
   const goals = total => (total / week.picks).toFixed(1);
-  const teamName = name => {
+  const teamCode = name => {
     const badge = resolveTeamBadge(name);
     return (
       <span className="prediction-iq-team">
-        {badge && <img src={badge} alt="" width="18" height="18" />}
-        {name}
+        {badge && <img src={badge} alt="" width="14" height="14" />}
+        <abbr title={name}>{getTeamCode(name)}</abbr>
       </span>
     );
   };
 
   return (
-    <div className="prediction-iq-review" style={{
-      "--iq-panel": theme.panelHi,
-      "--iq-line": theme.line,
-      "--iq-muted": theme.muted,
-      "--iq-accent": theme.accent,
-    }}>
+    <div className="prediction-iq-review">
       <div className="prediction-iq-review-grid">
         <section className="prediction-iq-panel">
           <h3>How your points added up</h3>
@@ -68,10 +63,10 @@ export default function PredictionIqReview({ week, recent, theme, resolveTeamBad
               ))}
             </div>
           )}
-          <dl className="prediction-iq-tier-list">
+          <dl className="prediction-iq-stat-list">
             {POINT_TIERS.map(({ points, label }, index) => (
               <div key={points}>
-                <dt><span style={{ background: tierColors[index] }} /> {label}</dt>
+                <dt><span className="prediction-iq-tier-dot" style={{ background: tierColors[index] }} /> {label}</dt>
                 <dd>{week.tierCounts[points]} × {points} pts</dd>
               </div>
             ))}
@@ -131,10 +126,14 @@ export default function PredictionIqReview({ week, recent, theme, resolveTeamBad
               return (
                 <tr key={fixture.id}>
                   <th scope="row">
-                    {teamName(fixture.homeTeam)}
-                    {teamName(fixture.awayTeam)}
+                    <span className="prediction-iq-matchup">
+                      {teamCode(fixture.homeTeam)}
+                      <span className="prediction-iq-muted">v</span>
+                      {teamCode(fixture.awayTeam)}
+                    </span>
                     <span className="prediction-iq-fixture-detail">
-                      {prediction ? POINT_TIERS[tierIndex].label : "No pick"}
+                      {basePoints === 4 ? <abbr title={POINT_TIERS[tierIndex].label}>Result + GD</abbr>
+                        : prediction ? POINT_TIERS[tierIndex].label : "No pick"}
                       {boost > 1 && <span className="prediction-iq-boost">{boost}×</span>}
                     </span>
                   </th>

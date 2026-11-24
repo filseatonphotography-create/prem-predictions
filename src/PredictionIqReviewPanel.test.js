@@ -1,5 +1,6 @@
 import React from "react";
 import { render, screen, within } from "@testing-library/react";
+import { getTeamCode } from "./App";
 import PredictionIqReview from "./PredictionIqReviewPanel";
 import { buildPredictionIqReview } from "./predictionIqReview";
 
@@ -36,17 +37,19 @@ test("scores each tier with the shared rules and excludes incomplete picks from 
 });
 
 test("shows each final score with its pick and points and compares accuracy with recent picks", () => {
-  render(<PredictionIqReview week={week} recent={recent} theme={{}} resolveTeamBadge={() => ""} />);
+  render(<PredictionIqReview week={week} recent={recent} theme={{}} resolveTeamBadge={() => ""} getTeamCode={getTeamCode} />);
   expect(screen.getByText("75%")).toBeInTheDocument();
   expect(screen.getByText("25 percentage points above recent form")).toBeInTheDocument();
   expect(screen.getByText("1 pick was one goal off the exact score.", { exact: false })).toBeInTheDocument();
   const drawRow = screen.getByRole("row", { name: /Draws/ });
   expect(within(drawRow).getByText("1/1")).toBeInTheDocument();
   expect(within(drawRow).getByText("—")).toBeInTheDocument();
-  const exact = screen.getByRole("row", { name: /Arsenal Everton/ });
+  const exact = screen.getByRole("row", { name: /ARS v EVE/ });
+  expect(within(exact).getByText("ARS")).toHaveAttribute("title", "Arsenal");
+  expect(within(exact).queryByText("Arsenal")).not.toBeInTheDocument();
   expect(within(exact).getByText("3×")).toBeInTheDocument();
   expect(within(exact).getByText("21")).toBeInTheDocument();
-  const missing = screen.getByRole("row", { name: /Liverpool Burnley/ });
+  const missing = screen.getByRole("row", { name: /LIV v BUR/ });
   expect(within(missing).getByText("No pick")).toBeInTheDocument();
   expect(within(missing).getByText("0–0")).toBeInTheDocument();
 });
@@ -55,13 +58,13 @@ test("describes the most frequent repeated miss using the actual-outcome denomin
   const earlier = buildPredictionIqReview(fixtures, {
     1: score(0, 1), 2: score(0, 0), 3: score(0, 1), 4: score(2, 1),
   }, results);
-  render(<PredictionIqReview week={week} recent={earlier} theme={{}} resolveTeamBadge={() => ""} />);
+  render(<PredictionIqReview week={week} recent={earlier} theme={{}} resolveTeamBadge={() => ""} getTeamCode={getTeamCode} />);
   expect(screen.getByText("You picked an away win in 2 of 2 matches that ended in a home win.")).toBeInTheDocument();
 });
 
 test("shows an appropriate empty state before results settle", () => {
   const empty = buildPredictionIqReview([], picks, results);
-  render(<PredictionIqReview week={empty} recent={recent} theme={{}} resolveTeamBadge={() => ""} />);
+  render(<PredictionIqReview week={empty} recent={recent} theme={{}} resolveTeamBadge={() => ""} getTeamCode={getTeamCode} />);
   expect(screen.getByText(/when the first final score is confirmed/)).toBeInTheDocument();
   expect(screen.queryByRole("table")).not.toBeInTheDocument();
 });

@@ -12868,7 +12868,6 @@ const predictionIqReport = useMemo(() => {
   let captainPointsTotal = 0;
   let captainPointsMaximum = 0;
   const captainedTeamCounts = {};
-  const failedCaptainedTeamCounts = {};
   settledFixtures.forEach(fixture => {
     const pred = currentPredictions[fixture.id];
     if (!hasPredictionScore(pred) || !(pred.isDouble || pred.isTriple)) return;
@@ -12882,12 +12881,9 @@ const predictionIqReport = useMemo(() => {
     captainPointsMaximum += pred.isTriple ? 21 : 14;
     captainedTeamCounts[backedTeam] = (captainedTeamCounts[backedTeam] || 0) + 1;
     if (predictedResult === actualResult) correctCaptains += 1;
-    else failedCaptainedTeamCounts[backedTeam] = (failedCaptainedTeamCounts[backedTeam] || 0) + 1;
   });
-  const mostFrequentPick = counts => Object.entries(counts)
+  const mostCaptainedTeam = Object.entries(captainedTeamCounts)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
-  const mostCaptainedTeam = mostFrequentPick(captainedTeamCounts);
-  const mostMissedCaptain = mostFrequentPick(failedCaptainedTeamCounts);
 
   return {
     weeklyReview,
@@ -12903,7 +12899,6 @@ const predictionIqReport = useMemo(() => {
     captainAccuracy: `${correctCaptains}/${captainSelections} selections`,
     captainPoints: `${captainPointsTotal}/${captainPointsMaximum} points`,
     mostCaptainedTeam: mostCaptainedTeam ? `${mostCaptainedTeam[0]} (${mostCaptainedTeam[1]})` : "—",
-    biggestCaptainMiss: mostMissedCaptain ? `${mostMissedCaptain[0]} (${mostMissedCaptain[1]})` : "None",
     completedPredictions: weeklyReview.picks,
     gameweek: selectedGameweek,
   };
@@ -12962,7 +12957,6 @@ const predictionIqDemoReport = useMemo(() => {
     captainAccuracy: "3/5 selections",
     captainPoints: "34/70 points",
     mostCaptainedTeam: "Liverpool (2)",
-    biggestCaptainMiss: "Chelsea (1)",
     completedPredictions: weeklyReview.picks,
     gameweek: selectedGameweek || 5,
   };
@@ -15305,114 +15299,31 @@ useEffect(() => {
       { icon: "🌍", label: "Global rank", value: report.currentRank ? `#${report.currentRank}` : "—" },
       { icon: "📈", label: "Global ranking movement", value: rankText },
     ];
-    const captainItems = [
-      { label: "Correct captain selection", value: report.captainAccuracy, color: "#22C55E" },
-      { label: "Captain points", value: report.captainPoints, color: "#F59E0B" },
-      { label: "Most captained team", value: report.mostCaptainedTeam, color: "#38BDF8", teamValue: report.mostCaptainedTeam },
-      { label: "Most missed captain pick", value: report.biggestCaptainMiss, color: "#EF4444", teamValue: report.biggestCaptainMiss },
-    ];
-    const getIqTeamBadge = (value = "") => {
-      const text = String(value || "");
-      const teams = Array.from(
-        new Set(activeFixtures.flatMap((fixture) => [fixture.homeTeam, fixture.awayTeam]))
-      ).sort((a, b) => b.length - a.length);
-      const team = teams.find((teamName) =>
-        text.toLowerCase().includes(String(teamName).toLowerCase())
-      );
-      return team ? resolveTeamBadge(team) : resolveTeamBadge(text.replace(/\s*[-(].*$/, "").trim());
-    };
-    const renderIqImpactCard = (item) => {
-      const badgeSrc = item.teamValue ? getIqTeamBadge(item.teamValue) : "";
-      return (
-        <div
-          key={item.label}
-          style={{
-            background: theme.panelHi,
-            border: `2px solid ${item.color || theme.line}`,
-            borderRadius: 12,
-            padding: isMobile || compact ? "14px 12px" : "16px 14px",
-            minWidth: 0,
-            textAlign: "center",
-            display: "grid",
-            justifyItems: "center",
-            gap: 8,
-            boxShadow: "0 8px 18px rgba(0,0,0,0.18)",
-          }}
-        >
-          {badgeSrc && (
-            <img
-              src={badgeSrc}
-              alt=""
-              aria-hidden="true"
-              style={{
-                width: isMobile || compact ? 34 : 42,
-                height: isMobile || compact ? 34 : 42,
-                objectFit: "contain",
-              }}
-            />
-          )}
-          <div
-            style={{
-              width: 46,
-              height: 3,
-              borderRadius: 999,
-              background: item.color || theme.accent,
-            }}
-          />
-          <div style={{ fontSize: 12, color: item.color || theme.muted, fontWeight: 900 }}>
-            {item.label}
-          </div>
-          <div
-            title={item.value}
-            style={{
-              fontSize: isMobile || compact ? 17 : 20,
-              fontWeight: 950,
-              color: theme.text,
-              lineHeight: 1.18,
-              overflowWrap: "anywhere",
-            }}
-          >
-            {item.value}
-          </div>
-        </div>
-      );
-    };
-
     const captainAnalysis = (
-      <div
-        style={{
-          background: "linear-gradient(180deg, rgba(245,158,11,0.08), rgba(11,18,32,0.94))",
-          border: `2px solid ${theme.warn}`,
-          borderRadius: 12,
-          padding: 14,
-          display: "grid",
-          gap: 12,
-        }}
-      >
-        <div style={{ textAlign: "center" }}>
-          <h3 style={{ margin: 0, fontSize: 16, color: theme.warn }}>Captain analysis</h3>
-          <div style={{ marginTop: 4, fontSize: 12, color: theme.muted }}>
-            Season through {getModeGameweekLabel(gameMode, report.gameweek)}
-          </div>
-        </div>
-        {report.captainSelections ? <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
-            gap: 10,
-          }}
-        >
-          {captainItems.map(renderIqImpactCard)}
-        </div> : (
-          <p style={{ margin: 0, fontSize: 13, color: theme.muted, textAlign: "center" }}>
-            Captain stats appear once a boosted pick has a final score.
-          </p>
+      <section className="prediction-iq-panel">
+        <h3>Captain analysis</h3>
+        <p>Season through {getModeGameweekLabel(gameMode, report.gameweek)}</p>
+        {report.captainSelections ? (
+          <dl className="prediction-iq-stat-list">
+            <div><dt>Correct captain picks</dt><dd>{report.captainAccuracy}</dd></div>
+            <div><dt>Captain points</dt><dd>{report.captainPoints}</dd></div>
+            <div><dt>Most frequent captain pick</dt><dd>{report.mostCaptainedTeam}</dd></div>
+          </dl>
+        ) : (
+          <p>Captain stats appear once a boosted pick has a final score.</p>
         )}
-      </div>
+      </section>
     );
 
     return (
-      <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
+      <div style={{
+        display: "grid",
+        gap: compact ? 12 : 14,
+        "--iq-panel": theme.panelHi,
+        "--iq-line": theme.line,
+        "--iq-muted": theme.muted,
+        "--iq-accent": theme.accent,
+      }}>
         <div
           style={{
             display: "grid",
@@ -15520,6 +15431,7 @@ useEffect(() => {
             recent={report.recentReview}
             theme={theme}
             resolveTeamBadge={resolveTeamBadge}
+            getTeamCode={getTeamCode}
           >
             {captainAnalysis}
           </PredictionIqReview>
