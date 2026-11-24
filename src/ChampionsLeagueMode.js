@@ -52,7 +52,8 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
     onFixturePrefs: (values, id) => setFixturePrefs(previous => { const next = { ...previous, [id]: values[id] === true }; localStorage.setItem('fixture_push_prefs_v1', JSON.stringify(next)); return next; }),
   });
   const open = next => {
-    setView(next); setLeaguesOpen(false); setMenuOpen(false); localStorage.setItem('activeView', next);
+    setView(next); setLeaguesOpen(false); setMenuOpen(false);
+    try { localStorage.setItem('activeView', next); } catch {}
     const url = new URL(window.location.href); url.searchParams.set('mode', 'champions'); url.searchParams.set('view', next);
     if (next !== 'liveStudio') ['studio', 'competition', 'games', 'fixtureId', 'update'].forEach(key => url.searchParams.delete(key));
     window.history.pushState({}, '', url.pathname + url.search + url.hash);

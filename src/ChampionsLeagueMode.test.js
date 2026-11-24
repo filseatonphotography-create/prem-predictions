@@ -42,6 +42,32 @@ test.each([['Back to Premier League', 'premierLeague', 'premier'], ['World Cup M
   expect(localStorage.getItem('prediction_game_mode_v1')).toBe(stored);
 });
 
+test('the league menu opens Champions League when browser storage is full', async () => {
+  window.history.replaceState({}, '', '/?mode=premier&view=predictionIq');
+  render(<App />); await act(flush);
+  const setItem = window.Storage.prototype.setItem;
+  const storage = jest.spyOn(window.Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+    if (this === window.localStorage && this.getItem(key) !== String(value)) {
+      throw new window.DOMException('Storage quota exceeded', 'QuotaExceededError');
+    }
+    return setItem.call(this, key, value);
+  });
+  try {
+    fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Champions League Mode' })); await flush(); });
+    expect(screen.getByRole('navigation', { name: 'Champions League navigation' })).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('mode')).toBe('champions');
+    fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Champions League Table' })); await flush(); });
+    expect(screen.getByRole('heading', { name: 'Champions League Table' })).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('view')).toBe('championsLeagueTable');
+    fireEvent.click(screen.getByRole('button', { name: 'Leagues ▾' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Back to Premier League' })); await flush(); });
+    expect(screen.getByText('Premier League Mode')).toBeInTheDocument();
+    expect(new URLSearchParams(window.location.search).get('mode')).toBe('premier');
+  } finally { storage.mockRestore(); }
+});
+
 test('mobile coverage uses the shared brand and compact coverage heading and toggles match focus without an All selected games button', async () => {
   const previousWidth = window.innerWidth; window.innerWidth = 375;
   window.history.replaceState({}, '', '/?mode=champions&view=liveStudio&studio=coverage&competition=champions&games=cl:77');

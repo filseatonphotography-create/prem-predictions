@@ -7630,10 +7630,10 @@ export default function App() {
   const modeRef = useRef(competitionMode); modeRef.current = competitionMode;
   const chooseMode = useCallback(mode => {
     if (!COMPETITIONS[mode]) return;
-    localStorage.setItem(COMPETITION_MODE_KEY, mode);
-    if (mode !== CHAMPIONS) localStorage.setItem(GAME_MODE_STORAGE_KEY, mode);
+    persistOptionalLocalState(COMPETITION_MODE_KEY, mode);
+    if (mode !== CHAMPIONS) persistOptionalLocalState(GAME_MODE_STORAGE_KEY, mode);
     const view = mode === CHAMPIONS ? "liveStudio" : "predictions";
-    localStorage.setItem("activeView", view);
+    persistOptionalLocalState("activeView", view);
     const url = new URL(window.location.href);
     ["studio", "competition", "games", "fixtureId", "update"].forEach(key => url.searchParams.delete(key));
     url.searchParams.set("mode", COMPETITIONS[mode].apiKey); url.searchParams.set("view", view);
@@ -7642,7 +7642,7 @@ export default function App() {
   }, []);
   const legacyModeChanged = useCallback(mode => {
     if (modeRef.current === CHAMPIONS) return;
-    localStorage.setItem(COMPETITION_MODE_KEY, mode);
+    persistOptionalLocalState(COMPETITION_MODE_KEY, mode);
     const url = new URL(window.location.href); url.searchParams.set("mode", COMPETITIONS[mode].apiKey);
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
     setCompetitionMode(mode);
@@ -8215,7 +8215,7 @@ const [passwordSuccess, setPasswordSuccess] = useState("");
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(GAME_MODE_STORAGE_KEY, gameMode);
+    persistOptionalLocalState(GAME_MODE_STORAGE_KEY, gameMode);
     onLegacyModeChange?.(gameMode);
   }, [gameMode, onLegacyModeChange]);
 
