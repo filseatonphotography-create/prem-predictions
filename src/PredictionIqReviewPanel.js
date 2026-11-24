@@ -123,23 +123,31 @@ export default function PredictionIqReview({ week, recent, theme, resolveTeamBad
           <tbody>
             {week.rows.map(({ fixture, prediction, result, points, basePoints, boost }) => {
               const tierIndex = POINT_TIERS.findIndex(tier => tier.points === basePoints);
+              const pickDetail = basePoints === 4 ? <abbr title={POINT_TIERS[tierIndex].label}>Result + GD</abbr>
+                : points > 0 ? POINT_TIERS[tierIndex].label : prediction ? "" : "No pick";
+              const pointsColor = !prediction ? theme.muted : points === 0 ? theme.danger : tierColors[tierIndex];
               return (
                 <tr key={fixture.id}>
                   <th scope="row">
                     <span className="prediction-iq-matchup">
-                      {teamCode(fixture.homeTeam)}
-                      <span className="prediction-iq-muted">v</span>
-                      {teamCode(fixture.awayTeam)}
-                    </span>
-                    <span className="prediction-iq-fixture-detail">
-                      {basePoints === 4 ? <abbr title={POINT_TIERS[tierIndex].label}>Result + GD</abbr>
-                        : prediction ? POINT_TIERS[tierIndex].label : "No pick"}
-                      {boost > 1 && <span className="prediction-iq-boost">{boost}×</span>}
+                      <span className="prediction-iq-matchup-line">
+                        {teamCode(fixture.homeTeam)}
+                        <span className="prediction-iq-muted">v</span>
+                      </span>
+                      <span className="prediction-iq-matchup-line">
+                        {teamCode(fixture.awayTeam)}
+                        {(pickDetail || boost > 1) && (
+                          <span className="prediction-iq-fixture-detail">
+                            {pickDetail}
+                            {boost > 1 && <span className="prediction-iq-boost">{boost}×</span>}
+                          </span>
+                        )}
+                      </span>
                     </span>
                   </th>
                   <td>{prediction ? scoreLabel(prediction) : "—"}</td>
                   <td>{scoreLabel(result)}</td>
-                  <td style={{ color: points ? tierColors[tierIndex] : theme.muted }}>{prediction ? points : "—"}</td>
+                  <td style={{ color: pointsColor }}>{prediction ? points : "—"}</td>
                 </tr>
               );
             })}

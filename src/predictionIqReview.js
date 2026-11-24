@@ -10,7 +10,7 @@ export const POINT_TIERS = [
   { points: 7, label: "Exact score" },
   { points: 4, label: "Result + goal difference" },
   { points: 2, label: "Result only" },
-  { points: 0, label: "Wrong result" },
+  { points: 0, label: "Zero-point picks" },
 ];
 
 const outcomeOf = (home, away) => home > away ? "H" : home < away ? "A" : "D";

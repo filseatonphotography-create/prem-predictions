@@ -37,7 +37,7 @@ test("scores each tier with the shared rules and excludes incomplete picks from 
 });
 
 test("shows each final score with its pick and points and compares accuracy with recent picks", () => {
-  render(<PredictionIqReview week={week} recent={recent} theme={{}} resolveTeamBadge={() => ""} getTeamCode={getTeamCode} />);
+  render(<PredictionIqReview week={week} recent={recent} theme={{ danger: "#ff0000", muted: "#999999" }} resolveTeamBadge={() => ""} getTeamCode={getTeamCode} />);
   expect(screen.getByText("75%")).toBeInTheDocument();
   expect(screen.getByText("25 percentage points above recent form")).toBeInTheDocument();
   expect(screen.getByText("1 pick was one goal off the exact score.", { exact: false })).toBeInTheDocument();
@@ -46,12 +46,18 @@ test("shows each final score with its pick and points and compares accuracy with
   expect(within(drawRow).getByText("—")).toBeInTheDocument();
   const exact = screen.getByRole("row", { name: /ARS v EVE/ });
   expect(within(exact).getByText("ARS")).toHaveAttribute("title", "Arsenal");
+  expect(within(exact).getByText("ARS").closest(".prediction-iq-matchup-line")).toContainElement(within(exact).getByText("v"));
+  expect(within(exact).getByText("EVE").closest(".prediction-iq-matchup-line")).not.toContainElement(within(exact).getByText("v"));
   expect(within(exact).queryByText("Arsenal")).not.toBeInTheDocument();
   expect(within(exact).getByText("3×")).toBeInTheDocument();
   expect(within(exact).getByText("21")).toBeInTheDocument();
+  const wrongPick = screen.getByRole("row", { name: /BRE v BHA/ });
+  expect(within(wrongPick).getByText("0")).toHaveStyle("color: #ff0000");
+  expect(within(wrongPick).getByRole("rowheader")).toHaveTextContent(/^BREvBHA$/);
   const missing = screen.getByRole("row", { name: /LIV v BUR/ });
   expect(within(missing).getByText("No pick")).toBeInTheDocument();
   expect(within(missing).getByText("0–0")).toBeInTheDocument();
+  expect(within(missing).getAllByText("—").at(-1)).toHaveStyle("color: #999999");
 });
 
 test("describes the most frequent repeated miss using the actual-outcome denominator", () => {
