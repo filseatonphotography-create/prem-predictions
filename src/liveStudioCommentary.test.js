@@ -13,6 +13,7 @@ import {
   buildLiveStudioDeskEntries,
   buildLiveStudioClosingVerdict,
   buildLiveStudioEntryLines,
+  mergeLiveStudioDeskHistory,
 } from "./App";
 
 const fixture = { id: 17, homeTeam: "Arsenal", awayTeam: "Coventry" };
@@ -49,7 +50,8 @@ describe("Live Studio commentary", () => {
     const score = { homeGoals: 3, awayGoals: 1 };
     const event = { type: "GOAL", scorerName: "Away striker", previousHomeGoals: 3, previousAwayGoals: 0, ...score };
     const line = buildLiveStudioRevealLine(fixture, score, event);
-    expect(line).toContain("Away striker has scored for Coventry");
+    expect(line).toContain("Away striker");
+    expect(line).toContain("Coventry");
     expect(buildLiveStudioEventHeader({ fixture, event, score })).toContain("Goal for COV");
     const unknown = buildLiveStudioRevealLine(fixture, score, { type: "GOAL" });
     expect(unknown).not.toContain("goal for Arsenal");
@@ -79,18 +81,49 @@ describe("Live Studio commentary", () => {
     expect(buildLiveStudioAside({ fixture, event: third, events: [first, second, cancelled, third] })).toContain("On for a hat-trick");
   });
 
-  test("keeps silly asides occasional and stable across refreshes", () => {
+  test("varies goal delivery and puts occasional quotes around the reveal", () => {
+    const opening = /Goooooooal! That\. Was\. A\. Goal!|The studio biscuit has been dropped\. Repeat: biscuit down\./;
+    const reaction = /Liquid football!|He must have a foot like a traction engine!/;
+    const score = { homeGoals: 1, awayGoals: 0 };
     const lines = Array.from({ length: 120 }, (_, index) => {
-      const event = goal(index + 1);
-      const line = buildLiveStudioAside({ fixture, event });
-      expect(buildLiveStudioAside({ fixture, event })).toBe(line);
-      if (line) expect(buildLiveStudioEntryLines({ entryKind: "goal", revealLine: "Goal!", aside: line,
-        stakesLine: "Phil has 7 points", tableImpactLine: "Phil moves up" })).toContain(line);
+      const event = { ...goal(25), previousHomeGoals: 0, previousAwayGoals: 0, detail: "long-range" };
+      const match = { ...fixture, id: index + 1 };
+      const line = buildLiveStudioRevealLine(match, score, event);
+      expect(buildLiveStudioRevealLine(match, score, event)).toBe(line);
+      expect(line).toContain("Saka");
+      expect(line).toContain("Arsenal");
+      expect(line).not.toMatch(/who.s it for/);
+      const opener = line.match(opening), response = line.match(reaction);
+      if (opener) expect(opener.index).toBe(0);
+      if (response) {
+        expect(response.index).toBeGreaterThan(line.indexOf("Saka"));
+        expect(line.endsWith(response[0])).toBe(false);
+      }
       return line;
-    }).filter(Boolean);
-    expect(lines.length).toBeGreaterThan(0);
-    expect(lines.length).toBeLessThan(24);
-    expect(new Set(lines).size).toBeGreaterThan(3);
+    });
+    const quotes = lines.flatMap(line => [line.match(opening)?.[0] || line.match(reaction)?.[0]].filter(Boolean));
+    expect(quotes.length).toBeGreaterThan(4);
+    expect(quotes.length).toBeLessThan(35);
+    expect(new Set(quotes).size).toBe(4);
+    expect(new Set(lines.filter(line => !opening.test(line) && !reaction.test(line))).size).toBeGreaterThan(8);
+  });
+
+  test("repairs a saved goal where the quote used to follow the points reaction", () => {
+    const event = { ...goal(25), previousHomeGoals: 0, previousAwayGoals: 0 };
+    const score = { homeGoals: 1, awayGoals: 0 };
+    const quote = "Liquid football!";
+    const match = Array.from({ length: 120 }, (_, index) => ({ ...fixture, id: index + 1 }))
+      .find(candidate => buildLiveStudioRevealLine(candidate, score, event).includes(quote));
+    const [restored] = mergeLiveStudioDeskHistory([{
+      id: "saved-goal",
+      lines: ["Goal for Arsenal!", "Phil has 7 points.", quote],
+      goalCommentary: {
+        fixture: match, event, score, entryKind: "goal", aside: quote, revealLine: "Goal for Arsenal!",
+        picks: [{ username: "Phil", prediction: { homeGoals: 1, awayGoals: 0 } }], seed: "saved",
+      },
+    }]);
+    expect(restored.lines[0]).toContain(quote);
+    expect(restored.lines[1]).toContain("Phil");
   });
 
   test("calls out a lost Bingpot using the before and after score", () => {
@@ -247,12 +280,12 @@ describe("Live Studio pacing and quiet periods", () => {
     expect(buildLiveStudioDeskEntries({ matches: [{ ...match, live: false }], nowMs })).toEqual([]);
   });
 
-  test("routine events get one line and selected goal asides survive personal reactions", () => {
+  test("routine events get one line and goal milestones precede personal reactions", () => {
     const options = { revealLine: "The event", stakesLine: "Phil loses Bingpot", aside: "A silly joke", tableImpactLine: "Phil drops to second" };
     expect(buildLiveStudioEntryLines({ ...options, entryKind: "yellow-card" })).toEqual(["The event"]);
     expect(buildLiveStudioEntryLines({ ...options, entryKind: "substitution" })).toEqual(["The event"]);
-    expect(buildLiveStudioEntryLines({ ...options, entryKind: "goal" })).toEqual(["The event", "Phil loses Bingpot", "A silly joke", "Phil drops to second"]);
-    expect(buildLiveStudioEntryLines({ ...options, entryKind: "goal", aside: "Hat-trick for Saka", isMilestone: true })).toContain("Hat-trick for Saka");
+    expect(buildLiveStudioEntryLines({ ...options, entryKind: "goal", aside: "Hat-trick for Saka" }))
+      .toEqual(["The event", "Hat-trick for Saka", "Phil loses Bingpot", "Phil drops to second"]);
   });
 });
 

@@ -7,6 +7,9 @@ function scoreValue(value) {
   const number = Number(value);
   return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
+function hasPredictionScore(prediction) {
+  return scoreValue(prediction?.homeGoals) !== null && scoreValue(prediction?.awayGoals) !== null;
+}
 function getPredictionPoints(prediction, result) {
   if (!prediction || !result) return 0;
   const values = [prediction.homeGoals, prediction.awayGoals, result.homeGoals, result.awayGoals].map(scoreValue);
@@ -91,4 +94,4 @@ function applyPredictionSave(previous = {}, fixtureId, incoming, fixtureGroups =
   out[id] = clean;
   return { predictions: out, changed: true };
 }
-module.exports = { getPredictionPoints, normalizePredictionBoosts, applyPredictionSave, isPredictionLocked };
+module.exports = { getPredictionPoints, hasPredictionScore, normalizePredictionBoosts, applyPredictionSave, isPredictionLocked };

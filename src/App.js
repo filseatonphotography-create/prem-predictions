@@ -1,6 +1,8 @@
-import { getPredictionPoints as scoreSavedPrediction, normalizePredictionBoosts } from "./predictionRules";
+import { getPredictionPoints as scoreSavedPrediction, hasPredictionScore, normalizePredictionBoosts } from "./predictionRules";
 import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import "./App.css";
+import PredictionIqReview from "./PredictionIqReviewPanel";
+import { buildPredictionIqReview } from "./predictionIqReview";
 import AppBrand, { restartBrandIntro } from "./AppBrand";
 import { buildGoalMatchContext, buildRedCardMatchContext } from "./liveStudioMatchContext";
 import ResultsFixtureRow from "./ResultsFixtureRow";
@@ -5328,7 +5330,7 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   };
   const cardDecisions = allPosts.filter(entry => entry.cardEvent?.cardUpgrade);
   history.filter(entry => !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry) && !isSupersededYellowPost(entry, cardDecisions))
-    .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable)
+    .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).map(repairSavedLiveStudioGoalQuote)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const key = keyFor(entry);
       const previous = entries.get(key);
@@ -5688,6 +5690,22 @@ function getLiveStudioScoreSummary(fixture, score) {
   return `${homeTeam} ${score.homeGoals}-${score.awayGoals} ${awayTeam}`;
 }
 
+const LIVE_STUDIO_GOAL_QUOTES = [
+  { text: "Goooooooal! That. Was. A. Goal!", placement: "opening" },
+  { text: "He must have a foot like a traction engine!", placement: "reaction", needsPowerfulShot: true },
+  { text: "Liquid football!", placement: "reaction" },
+  { text: "The studio biscuit has been dropped. Repeat: biscuit down.", placement: "opening" },
+];
+
+function getLiveStudioGoalQuote(seed, event, player, ownGoal) {
+  if (!player || event.synthetic || ownGoal || isPenaltyGoal(event)) return null;
+  const quoteSeed = `${seed}:aside`;
+  if (getLiveStudioPhraseIndex(quoteSeed, 6) !== 0) return null;
+  const powerfulShot = /long[- ]range|powerful|thunderbolt/i.test(`${event.detail || ""} ${event.description || ""}`);
+  return pickLiveStudioPhrase(`${quoteSeed}:joke`,
+    LIVE_STUDIO_GOAL_QUOTES.filter(quote => !quote.needsPowerfulShot || powerfulShot));
+}
+
 export function buildLiveStudioRevealLine(fixture, score, event, matchContext = {}) {
   const venue = getLiveStudioVenue(fixture);
   if (!event) return `We're keeping an eye on ${venue}.`;
@@ -5696,9 +5714,9 @@ export function buildLiveStudioRevealLine(fixture, score, event, matchContext = 
   const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}`;
   const side = normalizeTeamName(team) === normalizeTeamName(fixture.homeTeam) ? "home"
     : normalizeTeamName(team) === normalizeTeamName(fixture.awayTeam) ? "away" : null;
-  const ownGoalEvent = /own[ _-]?goal/i.test(`${event.type || ""} ${event.detail || ""} ${event.goalType || ""}`);
+  const ownGoal = /own[ _-]?goal/i.test(`${event.type || ""} ${event.detail || ""} ${event.goalType || ""}`);
   const situation = getLiveStudioEventKind(event) === "goal" ? buildGoalMatchContext({ ...matchContext, event, score, team,
-    side: ownGoalEvent ? null : side,
+    side: ownGoal ? null : side,
     opponent: side === "home" ? getLiveStudioTeamName(fixture.awayTeam) : side === "away" ? getLiveStudioTeamName(fixture.homeTeam) : "",
     previousScore: matchContext.previousScore || getLiveStudioPreviousScore(fixture, event, score), seed,
     form: side === "home" ? matchContext.homeForm : side === "away" ? matchContext.awayForm : [],
@@ -5717,27 +5735,41 @@ export function buildLiveStudioRevealLine(fixture, score, event, matchContext = 
       `No goal at ${venue}! ${subject} has been disallowed. Put the confetti away.`,
     ]);
   }
-  const ownGoal = /own[ _-]?goal/i.test(`${event.type || ""} ${event.detail || ""} ${event.goalType || ""}`);
   const minute = formatGoalMinute(event);
   const at = minute ? ` (${minute})` : "";
-  const reveal = ownGoal
-    ? player ? `An own goal from ${player}${team ? `, giving ${team} the goal` : ""}${at}!` : `An own goal${team ? ` in ${team}'s favour` : ""}${at}!`
-    : player ? `${player} has scored${team ? ` for ${team}` : ""}${at}!` : team ? `It's a goal for ${team}${at}!` : "We've got a goal; we're waiting on the scorer.";
-  const announcement = pickLiveStudioPhrase(seed, [
-    `There's been a goal at ${venue}... but who's it for? ${reveal}`,
-    `We have another goal to bring you. Let's head over to ${venue}! ${reveal}`,
-    `Hold on, there's a roar at ${venue}. ${reveal}`,
-    `We're off to ${venue}, where the net has just moved! ${reveal}`,
-    `Goal news coming through from ${venue}! ${reveal}`,
-    `Sorry to interrupt, but something's happened at ${venue}. ${reveal}`,
-    `Now then! Over to ${venue}. ${reveal}`,
-    `We've got a goal! Get us to ${venue}. ${reveal}`,
-    `The celebrations are underway at ${venue}. ${reveal}`,
-    `Stop what you're doing. Goal at ${venue}! ${reveal}`,
-    `Straight back to ${venue}, and there's a goal to tell you about. ${reveal}`,
-    `A goal at ${venue}! ${reveal}${matchContext.footballOnly ? "" : " Now, who had that on their slip?"}`,
-  ]);
-  return [announcement, situation].filter(Boolean).join(" ");
+  const credit = team ? ` for ${team}` : "";
+  const quote = getLiveStudioGoalQuote(seed, event, player, ownGoal);
+  const openingQuote = quote && (quote.placement === "opening" || !situation);
+  let announcement;
+  if (ownGoal) {
+    announcement = player
+      ? `An own goal from ${player}${team ? `, giving ${team} the goal` : ""}${at}!`
+      : `An own goal${team ? ` in ${team}'s favour` : ""}${at}!`;
+  } else if (player) {
+    const direct = `${player} has scored${credit}${at}!`;
+    announcement = openingQuote ? direct : pickLiveStudioPhrase(`${seed}:delivery`, [
+      direct,
+      `${player} finds the net${credit}${at}!`,
+      `${player} gets the goal${credit}${at}!`,
+      `There's a roar at ${venue}! ${direct}`,
+      `Straight to ${venue}. ${direct}`,
+      `It's ${player} on the scoresheet${credit}${at}!`,
+      `Listen to that! ${player} scores${credit}${at}!`,
+      `Goal${credit} at ${venue}! ${player} with the finish${at}.`,
+      team ? `${team} have scored! ${player} gets the goal${at}.` : `Goal at ${venue}! ${player} gets it${at}.`,
+      `${player} strikes${credit}${at}!`,
+    ]);
+  } else if (team) {
+    announcement = pickLiveStudioPhrase(`${seed}:delivery`, [
+      `${team} have scored${at}!`,
+      `Goal for ${team} at ${venue}${at}!`,
+      `It's ${team} celebrating${at}!`,
+    ]);
+  } else {
+    announcement = `Goal at ${venue}${at}. We're waiting on the details.`;
+  }
+  return [openingQuote ? quote.text : "", announcement, quote && !openingQuote ? quote.text : "",
+    situation].filter(Boolean).join(" ");
 }
 
 export function buildChampionsStudioCommentary(entry) {
@@ -5761,7 +5793,7 @@ export function buildChampionsStudioCommentary(entry) {
     const goal = ["goal", "goal-disallowed"].includes(kind);
     const reveal = goal ? buildLiveStudioRevealLine(fixture, score, event, context)
       : buildLiveStudioEventLine({ fixture, event, score, seed, matchContext: context });
-    lines = [reveal, goal ? buildLiveStudioAside({ fixture, event, events: entry.events }) : ""].filter(Boolean);
+    lines = [reveal, goal ? buildLiveStudioAside({ event, events: entry.events }) : ""].filter(Boolean);
   } else if (phase === "KO") {
     lines = [pickLiveStudioPhrase(seed, [
       `We're underway at ${venue}. Settle in, here we go!`,
@@ -5784,7 +5816,7 @@ export function buildChampionsStudioCommentary(entry) {
 }
 
 // Stable per event: polling must not keep changing the commentator's lines.
-export function buildLiveStudioAside({ fixture, event, events = [] }) {
+export function buildLiveStudioAside({ event, events = [] }) {
   if (getLiveStudioEventKind(event) !== "goal") return "";
   const player = getLiveStudioEventPlayerName(event);
   const isOwnGoal = (goal) => /own[ _-]?goal/i.test(`${goal.type || ""} ${goal.detail || ""} ${goal.goalType || ""}`);
@@ -5818,14 +5850,7 @@ export function buildLiveStudioAside({ fixture, event, events = [] }) {
     if (goals === 3) return `That's the hat-trick for ${player}! The match ball is going home with them.`;
     if (goals > 3) return `${goals} for ${player} now. Leave some for everyone else!`;
   }
-  const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:aside`;
-  if (getLiveStudioPhraseIndex(seed, 6) !== 0) return "";
-  return pickLiveStudioPhrase(`${seed}:joke`, [
-    "Goooooooal! That. Was. A. Goal!",
-    "He must have a foot like a traction engine!",
-    "Liquid football!",
-    "The studio biscuit has been dropped. Repeat: biscuit down.",
-  ]);
+  return "";
 }
 
 export function buildLiveStudioStakesLine({ fixture, event, score, previousScore, picks = [], history = [], seed }) {
@@ -6214,6 +6239,20 @@ export function buildLiveStudioPredictionOutlook({ fixture, prediction, score, u
     `${username}'s exact score is out of reach in ${match}. A ${side} is the route back to result points.`,
     `${match} needs to turn towards a ${side} for ${username}. The exact score has gone, but there are result points to rescue.`,
   ]);
+}
+
+function repairSavedLiveStudioGoalQuote(entry) {
+  const context = entry.goalCommentary;
+  if (!LIVE_STUDIO_GOAL_QUOTES.some(quote => quote.text === context?.aside)) return entry;
+  return refreshLiveStudioGoalCommentary({
+    ...entry,
+    goalCommentary: {
+      ...context,
+      aside: "",
+      revealLine: buildLiveStudioRevealLine(context.fixture, context.score, context.event,
+        { ...context.matchContext, events: context.history || [] }),
+    },
+  });
 }
 
 function refreshLiveStudioGoalCommentary(entry, previous) {
@@ -6675,12 +6714,11 @@ export function buildLiveStudioClosingVerdict({ matches = [], leagueName = "the 
   return lines;
 }
 
-export function buildLiveStudioEntryLines({ entryKind, statusLabel, revealLine, aside = "", isMilestone = false, stakesLine = "", tableImpactLine = "", betLine = "", previewLines = [], pointsLines = [] }) {
+export function buildLiveStudioEntryLines({ entryKind, statusLabel, revealLine, aside = "", stakesLine = "", tableImpactLine = "", betLine = "", previewLines = [], pointsLines = [] }) {
   if (statusLabel === "KO") return [revealLine, ...previewLines, betLine].filter(Boolean);
   if (statusLabel === "FT") return [revealLine, ...pointsLines, betLine].filter(Boolean);
   if (["yellow-card", "substitution", "injury"].includes(entryKind)) return [revealLine].filter(Boolean);
-  // The occasional selected aside must survive a prediction-points reaction.
-  return [revealLine, isMilestone ? aside : "", stakesLine, !isMilestone ? aside : "", tableImpactLine].filter(Boolean);
+  return [revealLine, aside, stakesLine, tableImpactLine].filter(Boolean);
 }
 
 function getLiveStudioPhraseIndex(seed, count) {
@@ -12441,7 +12479,7 @@ const liveStudioCurrentFeed = useMemo(() => {
           fixture, event, score: entryScore, previousScore, picks: fixturePicks, history: repairedTimelineEvents,
           seed: `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:stakes`,
         }) : "";
-        const aside = entryIsGoal ? buildLiveStudioAside({ fixture, event, events: repairedTimelineEvents }) : "";
+        const aside = entryIsGoal ? buildLiveStudioAside({ event, events: repairedTimelineEvents }) : "";
         const verdictLabel = buildLiveStudioVerdictLabel({
           event,
           entryKind,
@@ -12497,7 +12535,6 @@ const liveStudioCurrentFeed = useMemo(() => {
           tableLabel: entryTableLabel,
           lines: buildLiveStudioEntryLines({
             entryKind, statusLabel, revealLine: entryRevealLine, aside,
-            isMilestone: /hat-trick|Leave some for everyone else/.test(aside),
             stakesLine: entryStakesLine, tableImpactLine: entryTableImpactLine,
             betLine: isFullTime ? fullTimeBetLine : kickoffBetLine,
             pointsLines: isFullTime ? buildLiveStudioFullTimePointsLines({
@@ -12511,7 +12548,7 @@ const liveStudioCurrentFeed = useMemo(() => {
             fixture, event, score: entryScore, previousScore, picks: fixturePicks, history: repairedTimelineEvents,
             seed: `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}:stakes`,
             entryKind, statusLabel, revealLine: entryRevealLine, aside,
-            isMilestone: /hat-trick|Leave some for everyone else/.test(aside), tableImpactLine: entryTableImpactLine,
+            tableImpactLine: entryTableImpactLine,
           } : undefined,
         };
       });
@@ -12773,356 +12810,101 @@ useEffect(() => {
 }, [globalLeagueTotalPages]);
 
 const predictionIqReport = useMemo(() => {
-  const emptyReport = {
-    rating: 0,
-    exactScores: 0,
-    correctResults: 0,
-    currentWinningStreak: 0,
-    longestWinningStreak: 0,
-    closeMisses: 0,
-    rankChange: 0,
-    strongestTeam: "Not enough data",
-    weakestTeam: "Not enough data",
-    drawAccuracy: "No draws yet",
-    resultAccuracyBreakdown: "No results yet",
-    biasDetector: "Not enough data",
-    bestPrediction: "Not enough data",
-    captainAccuracy: "No captains yet",
-    captainPoints: "0 points",
-    mostCaptainedTeam: "Not enough data",
-    biggestCaptainMiss: "Not enough data",
-    missedOpportunity: "Not enough data",
-    suggestion: "Make a few more predictions to unlock a sharper suggestion.",
-    completedPredictions: 0,
-    gameweek: selectedGameweek,
-  };
-
-  if (isWorldCupMode || !selectedGameweek) return emptyReport;
-
   const currentPredictions = predictions[currentPredictionKey] || {};
-  const completedFixtures = activeFixtures.filter(
-    (fixture) => fixture.gameweek === selectedGameweek && isFinalBadgeFixture(fixture, results, matchStatesByFixtureId)
+  const settledFixtures = isWorldCupMode || !selectedGameweek ? [] : activeFixtures.filter(
+    (fixture) => fixture.gameweek <= selectedGameweek && isFinalBadgeFixture(fixture, results, matchStatesByFixtureId)
   );
-  if (!completedFixtures.length) return emptyReport;
-
-  const getPred = (fixtureId) =>
-    currentPredictions[String(fixtureId)] !== undefined
-      ? currentPredictions[String(fixtureId)]
-      : currentPredictions[fixtureId];
-  const hasPredictionScore = (pred) => {
-    if (!pred) return false;
-    const home = Number(pred.homeGoals);
-    const away = Number(pred.awayGoals);
-    return Number.isFinite(home) && Number.isFinite(away);
-  };
-
-  let exactScores = 0;
-  let correctResults = 0;
-  let closeMisses = 0;
-  let possiblePredictions = 0;
-  let totalPoints = 0;
-  let actualDraws = 0;
-  let correctDraws = 0;
-  const actualSideStats = {
-    H: { total: 0, correct: 0 },
-    D: { total: 0, correct: 0 },
-    A: { total: 0, correct: 0 },
-  };
-  const predictedSideCounts = { H: 0, D: 0, A: 0 };
-  let awayGoalUnderestimates = 0;
-  let awayResultUnderestimates = 0;
-  let missedOpportunity = null;
-  let bestPrediction = null;
-  const teamStats = {};
-
-  completedFixtures.forEach((fixture) => {
-    const pred = getPred(fixture.id);
-    if (!hasPredictionScore(pred)) return;
-
-    possiblePredictions += 1;
-    const result = results[fixture.id];
-    const predHome = Number(pred.homeGoals);
-    const predAway = Number(pred.awayGoals);
-    const realHome = Number(result.homeGoals);
-    const realAway = Number(result.awayGoals);
-    const basePoints = getBasePoints(predHome, predAway, realHome, realAway);
-    const points = getTotalPoints(pred, result);
-    totalPoints += points;
-
-    const predictedResult = getResult(predHome, predAway);
-    const actualResult = getResult(realHome, realAway);
-    const isCorrectResult = predictedResult === actualResult;
-
-    predictedSideCounts[predictedResult] = (predictedSideCounts[predictedResult] || 0) + 1;
-    actualSideStats[actualResult].total += 1;
-    if (isCorrectResult) actualSideStats[actualResult].correct += 1;
-
-    if (predHome === realHome && predAway === realAway) exactScores += 1;
-    else if (Math.abs(predHome - realHome) + Math.abs(predAway - realAway) === 1) closeMisses += 1;
-    if (isCorrectResult) {
-      correctResults += 1;
-    }
-    if (actualResult === "D") {
-      actualDraws += 1;
-      if (predictedResult === "D") correctDraws += 1;
-    }
-    if (predAway < realAway) awayGoalUnderestimates += 1;
-    if (predictedResult !== "A" && actualResult === "A") {
-      awayResultUnderestimates += 1;
-    }
-
-    [fixture.homeTeam, fixture.awayTeam].forEach((team) => {
-      if (!teamStats[team]) teamStats[team] = { points: 0, played: 0 };
-      teamStats[team].points += points;
-      teamStats[team].played += 1;
-    });
-
-    const multiplier = pred.isTriple ? 3 : pred.isDouble ? 2 : 1;
-    const missedScore = (7 * multiplier) - points;
-    if (points > 0 && (!bestPrediction || points > bestPrediction.points)) {
-      bestPrediction = {
-        label: `${fixture.homeTeam} ${predHome}-${predAway} ${fixture.awayTeam} (${points} pts)`,
-        points,
-      };
-    }
-    if (points === 0 && (!missedOpportunity || missedScore > missedOpportunity.missedScore)) {
-      missedOpportunity = {
-        label: `${fixture.homeTeam} ${realHome}-${realAway} ${fixture.awayTeam}, predicted ${predHome}-${predAway}`,
-        missedScore,
-      };
-    }
+  const previousFixtures = settledFixtures.filter(fixture => fixture.gameweek < selectedGameweek);
+  const weeklyFixtures = settledFixtures.filter(fixture => fixture.gameweek === selectedGameweek);
+  const weeklyReview = buildPredictionIqReview(weeklyFixtures, currentPredictions, results);
+  const recentReview = buildPredictionIqReview(
+    previousFixtures.filter(fixture => fixture.gameweek >= selectedGameweek - 5), currentPredictions, results
+  );
+  const completedGameweeks = activeGameweeks.filter(gw => {
+    if (gw > selectedGameweek) return false;
+    const fixtures = activeFixtures.filter(fixture => fixture.gameweek === gw);
+    return fixtures.length > 0 && fixtures.length === settledFixtures.filter(fixture => fixture.gameweek === gw).length;
   });
 
-  const teamRows = Object.entries(teamStats)
-    .filter(([, stat]) => stat.played > 0)
-    .map(([team, stat]) => ({
-      team,
-      average: stat.points / stat.played,
-      played: stat.played,
-    }))
-    .sort((a, b) => b.average - a.average || b.played - a.played);
+  const weeklyWinnerFlags = completedGameweeks.map(gw => {
+    const totals = computedWeeklyTotals?.[gw] || {};
+    const topScore = Math.max(0, ...Object.values(totals).map(score => Number(score) || 0));
+    const userKey = [currentPredictionKey, currentUserId, currentPlayer].find(key => key && totals[key] !== undefined);
+    const userScore = userKey ? Number(totals[userKey]) : gw === selectedGameweek ? currentGwPoints : 0;
+    return topScore > 0 && userScore === topScore;
+  });
+  let currentWinningStreak = 0;
+  let longestWinningStreak = 0;
+  weeklyWinnerFlags.forEach(wonWeek => {
+    currentWinningStreak = wonWeek ? currentWinningStreak + 1 : 0;
+    longestWinningStreak = Math.max(longestWinningStreak, currentWinningStreak);
+  });
 
-  const gwTotals = computedWeeklyTotals?.[selectedGameweek] || {};
-  const getUserScoreFromTotals = (totals = {}, gw = selectedGameweek) => {
-    const candidates = [currentPredictionKey, currentUserId, currentPlayer].filter(Boolean);
-    for (const key of candidates) {
-      if (totals[key] !== undefined) return Number(totals[key]) || 0;
+  let currentRank = 0;
+  let rankChange = null;
+  if (weeklyFixtures.length && dedupedGlobalUsers.length) {
+    const scoreUpToGameweek = (picks, fixtures) => fixtures.reduce(
+      (total, fixture) => total + getTotalPoints(picks[fixture.id], results[fixture.id]), 0
+    );
+    const previousScore = scoreUpToGameweek(currentPredictions, previousFixtures);
+    const currentScore = previousScore + weeklyReview.points;
+    if (currentScore > 0) {
+      currentRank = 1;
+      let previousRank = previousScore > 0 ? 1 : 0;
+      dedupedGlobalUsers.forEach(({ userId, username }) => {
+        if (String(userId) === String(currentUserId) || username === currentPlayer) return;
+        const picks = globalPredictionsByUserId[userId] || predictions[userId] || predictions[username] || {};
+        const before = scoreUpToGameweek(picks, previousFixtures);
+        const weekPoints = scoreUpToGameweek(picks, weeklyFixtures);
+        if (before + weekPoints > currentScore) currentRank += 1;
+        if (previousRank && before > previousScore) previousRank += 1;
+      });
+      if (previousRank) rankChange = previousRank - currentRank;
     }
-    return gw === selectedGameweek ? currentGwPoints : 0;
-  };
-  const completedGameweeks = activeGameweeks
-    .filter((gw) => gw <= selectedGameweek)
-    .filter((gw) => {
-      const fixtures = activeFixtures.filter((fixture) => fixture.gameweek === gw);
-      return fixtures.length > 0 && fixtures.every((fixture) => isFinalBadgeFixture(fixture, results, matchStatesByFixtureId));
-    });
-  const rankOf = (entries, key, fallbackScore = 0) => {
-    const sorted = [...entries];
-    if (!sorted.some(([entryKey]) => String(entryKey) === String(key))) {
-      sorted.push([key, fallbackScore]);
-    }
-    sorted.sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
-    const index = sorted.findIndex(([entryKey]) => String(entryKey) === String(key));
-    return index === -1 ? 0 : index + 1;
-  };
-  const globalUsersForRank = (dedupedGlobalUsers || []).length
-    ? dedupedGlobalUsers
-    : (globalLeaderboard || []).map((row) => ({
-        userId: row.userId || row.player,
-        username: row.player,
-      }));
-  const scoreGlobalUserToGameweek = (user, maxGameweek) => {
-    const userId = String(user?.userId || "");
-    const username = user?.username || user?.player || "";
-    const preds =
-      String(userId) === String(currentUserId || "") || username === currentPlayer
-        ? currentPredictions
-        : (globalPredictionsByUserId[userId] || predictions[userId] || predictions[username] || {});
-    let score = 0;
-    activeFixtures.forEach((fixture) => {
-      if (fixture.gameweek > maxGameweek) return;
-      const res = results[fixture.id];
-      if (!hasValidResultScore(res)) return;
-      const pred =
-        preds[String(fixture.id)] !== undefined
-          ? preds[String(fixture.id)]
-          : preds[fixture.id];
-      if (!hasPredictionScore(pred)) return;
-      score += getTotalPoints(pred, res);
-    });
-    return score;
-  };
-  const globalCurrentEntries = globalUsersForRank
-    .map((user) => [user.userId || user.username, scoreGlobalUserToGameweek(user, selectedGameweek)])
-    .filter(([, score]) => Number(score) > 0);
-  const globalPreviousEntries = globalUsersForRank
-    .map((user) => [user.userId || user.username, scoreGlobalUserToGameweek(user, selectedGameweek - 1)])
-    .filter(([, score]) => Number(score) > 0);
-  const globalUser = globalUsersForRank.find(
-    (user) =>
-      String(user?.userId || "") === String(currentUserId || "") ||
-      String(user?.username || user?.player || "") === String(currentPlayer || "")
-  );
-  const globalUserKey = globalUser?.userId || currentUserId || currentPlayer;
-  const globalCurrentScore = globalUser
-    ? scoreGlobalUserToGameweek(globalUser, selectedGameweek)
-    : currentGwPoints;
-  const globalPreviousScore = globalUser
-    ? scoreGlobalUserToGameweek(globalUser, selectedGameweek - 1)
-    : 0;
-  const previousRank = globalUserKey
-    ? rankOf(globalPreviousEntries, globalUserKey, globalPreviousScore)
-    : 0;
-  const currentRank = globalUserKey
-    ? rankOf(globalCurrentEntries, globalUserKey, globalCurrentScore)
-    : 0;
-  const rankChange = previousRank && currentRank ? previousRank - currentRank : 0;
+  }
 
   let captainSelections = 0;
   let correctCaptains = 0;
   let captainPointsTotal = 0;
-  let biggestCaptainMiss = null;
+  let captainPointsMaximum = 0;
   const captainedTeamCounts = {};
   const failedCaptainedTeamCounts = {};
-  completedGameweeks.forEach((gw) => {
-    const captainFixture = activeFixtures.find((fixture) => {
-      if (fixture.gameweek !== gw) return false;
-      const pred = getPred(fixture.id);
-      return hasPredictionScore(pred) && !!pred.isDouble && hasValidResultScore(results[fixture.id]);
-    });
-    if (!captainFixture) return;
-    const pred = getPred(captainFixture.id);
-    const result = results[captainFixture.id];
-    const predHome = Number(pred.homeGoals);
-    const predAway = Number(pred.awayGoals);
-    const realHome = Number(result.homeGoals);
-    const realAway = Number(result.awayGoals);
-    const predictedResult = getResult(predHome, predAway);
-    const actualResult = getResult(realHome, realAway);
-    const basePoints = getBasePoints(predHome, predAway, realHome, realAway);
-    const captainPoints = getTotalPoints(pred, result);
-    const backedTeam =
-      predictedResult === "H"
-        ? captainFixture.homeTeam
-        : predictedResult === "A"
-        ? captainFixture.awayTeam
-        : "Draw";
+  settledFixtures.forEach(fixture => {
+    const pred = currentPredictions[fixture.id];
+    if (!hasPredictionScore(pred) || !(pred.isDouble || pred.isTriple)) return;
+    const result = results[fixture.id];
+    const predictedResult = getResult(Number(pred.homeGoals), Number(pred.awayGoals));
+    const actualResult = getResult(Number(result.homeGoals), Number(result.awayGoals));
+    const backedTeam = predictedResult === "H" ? fixture.homeTeam : predictedResult === "A" ? fixture.awayTeam : "Draw";
 
     captainSelections += 1;
-    captainPointsTotal += captainPoints;
+    captainPointsTotal += getTotalPoints(pred, result);
+    captainPointsMaximum += pred.isTriple ? 21 : 14;
     captainedTeamCounts[backedTeam] = (captainedTeamCounts[backedTeam] || 0) + 1;
     if (predictedResult === actualResult) correctCaptains += 1;
-    if (basePoints === 0) {
-      failedCaptainedTeamCounts[backedTeam] = (failedCaptainedTeamCounts[backedTeam] || 0) + 1;
-    }
-
-    const missedCaptainPoints = 14 - captainPoints;
-    if (
-      basePoints === 0 &&
-      (!biggestCaptainMiss || missedCaptainPoints > biggestCaptainMiss.missedCaptainPoints)
-    ) {
-      biggestCaptainMiss = {
-        label: `${captainFixture.homeTeam} ${realHome}-${realAway} ${captainFixture.awayTeam}, predicted ${predHome}-${predAway}`,
-        missedCaptainPoints,
-      };
-    }
+    else failedCaptainedTeamCounts[backedTeam] = (failedCaptainedTeamCounts[backedTeam] || 0) + 1;
   });
-  const mostCaptainedTeam = Object.entries(captainedTeamCounts)
+  const mostFrequentPick = counts => Object.entries(counts)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
-  const biggestLosingTeam = Object.entries(failedCaptainedTeamCounts)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
-  const weeklyWinnerFlags = completedGameweeks.map((gw) => {
-    const totals = computedWeeklyTotals?.[gw] || {};
-    const scores = Object.values(totals).map((score) => Number(score) || 0);
-    const topScore = scores.length ? Math.max(...scores) : 0;
-    const userScore = getUserScoreFromTotals(totals, gw);
-    return topScore > 0 && userScore === topScore;
-  });
-  let currentWinningStreak = 0;
-  for (let i = weeklyWinnerFlags.length - 1; i >= 0; i -= 1) {
-    if (!weeklyWinnerFlags[i]) break;
-    currentWinningStreak += 1;
-  }
-  let longestWinningStreak = 0;
-  let streakRun = 0;
-  weeklyWinnerFlags.forEach((wonWeek) => {
-    if (wonWeek) {
-      streakRun += 1;
-      longestWinningStreak = Math.max(longestWinningStreak, streakRun);
-    } else {
-      streakRun = 0;
-    }
-  });
-
-  const accuracy = possiblePredictions ? correctResults / possiblePredictions : 0;
-  const exactBonus = possiblePredictions ? exactScores / possiblePredictions : 0;
-  const averagePoints = possiblePredictions ? totalPoints / possiblePredictions : 0;
-  const rating = Math.max(
-    0,
-    Math.min(100, Math.round(accuracy * 58 + exactBonus * 27 + Math.min(15, averagePoints * 2)))
-  );
-
-  let suggestion = "Your result reads are balanced this week. Keep watching team news and fixture context.";
-  let biasDetector = "Balanced prediction mix";
-  if (possiblePredictions >= 3) {
-    const homeShare = predictedSideCounts.H / possiblePredictions;
-    const drawShare = predictedSideCounts.D / possiblePredictions;
-    const awayShare = predictedSideCounts.A / possiblePredictions;
-    if (homeShare >= 0.6) {
-      biasDetector = "You lean heavily towards home wins.";
-    } else if (awayShare >= 0.5) {
-      biasDetector = "You are unusually willing to back away teams.";
-    } else if (drawShare <= 0.1 && actualDraws > 0) {
-      biasDetector = "You are avoiding draws.";
-    } else if (awayGoalUnderestimates >= Math.ceil(possiblePredictions / 2)) {
-      biasDetector = "You tend to underrate away goals.";
-    }
-  }
-  const resultAccuracyBreakdown = ["H", "D", "A"]
-    .map((side) => {
-      const label = side === "H" ? "Home" : side === "D" ? "Draw" : "Away";
-      const stat = actualSideStats[side];
-      return `${label} ${stat.correct}/${stat.total}`;
-    })
-    .join(" • ");
-
-  if (awayResultUnderestimates >= 2 || awayGoalUnderestimates >= Math.ceil(possiblePredictions / 2)) {
-    suggestion = "You consistently underestimate away teams.";
-  } else if (exactScores === 0 && correctResults > 0) {
-    suggestion = "Your outcomes are working; tighten the scorelines by one goal either way.";
-  } else if (correctResults < Math.max(1, Math.floor(possiblePredictions / 3))) {
-    suggestion = "Lean less on favourites this week and give draws more room in tight fixtures.";
-  }
+  const mostCaptainedTeam = mostFrequentPick(captainedTeamCounts);
+  const mostMissedCaptain = mostFrequentPick(failedCaptainedTeamCounts);
 
   return {
-    rating,
-    exactScores,
-    correctResults,
+    weeklyReview,
+    recentReview,
+    rating: weeklyReview.rating,
+    exactScores: weeklyReview.exactScores,
+    correctResults: weeklyReview.correctResults,
     currentWinningStreak,
     longestWinningStreak,
-    closeMisses,
+    currentRank,
     rankChange,
-    strongestTeam: teamRows[0]?.team || "Not enough data",
-    weakestTeam: teamRows[teamRows.length - 1]?.team || "Not enough data",
-    drawAccuracy: actualDraws ? `${correctDraws}/${actualDraws} draws` : "No draws yet",
-    resultAccuracyBreakdown,
-    biasDetector,
-    bestPrediction: bestPrediction?.label || "No scoring prediction yet",
-    captainAccuracy: captainSelections
-      ? `${correctCaptains}/${captainSelections} selections`
-      : "No captains yet",
-    captainPoints: captainSelections
-      ? `${captainPointsTotal}/${captainSelections * 14} points`
-      : "0/0 points",
-    mostCaptainedTeam: mostCaptainedTeam
-      ? `${mostCaptainedTeam[0]} (${mostCaptainedTeam[1]})`
-      : "Not enough data",
-    biggestCaptainMiss: biggestLosingTeam
-      ? `${biggestLosingTeam[0]} - (${biggestLosingTeam[1]})`
-      : biggestCaptainMiss?.label || "No major miss",
-    missedOpportunity: missedOpportunity?.label || "No major miss",
-    suggestion,
-    completedPredictions: possiblePredictions,
+    captainSelections,
+    captainAccuracy: `${correctCaptains}/${captainSelections} selections`,
+    captainPoints: `${captainPointsTotal}/${captainPointsMaximum} points`,
+    mostCaptainedTeam: mostCaptainedTeam ? `${mostCaptainedTeam[0]} (${mostCaptainedTeam[1]})` : "—",
+    biggestCaptainMiss: mostMissedCaptain ? `${mostMissedCaptain[0]} (${mostMissedCaptain[1]})` : "None",
+    completedPredictions: weeklyReview.picks,
     gameweek: selectedGameweek,
   };
 }, [
@@ -13134,8 +12916,6 @@ const predictionIqReport = useMemo(() => {
   currentPlayer,
   currentUserId,
   dedupedGlobalUsers,
-  gameMode,
-  globalLeaderboard,
   globalPredictionsByUserId,
   isWorldCupMode,
   predictions,
@@ -13144,32 +12924,49 @@ const predictionIqReport = useMemo(() => {
   selectedGameweek,
 ]);
 
-const predictionIqDemoReport = useMemo(
-  () => ({
-    rating: 84,
-    exactScores: 3,
-    correctResults: 7,
+const predictionIqDemoReport = useMemo(() => {
+  if (!predictionIqDemo) return null;
+  const fixtures = [
+    ["Newcastle United", "Tottenham Hotspur", 2, 1, 2, 1, 2],
+    ["Arsenal", "Everton", 2, 0, 3, 1],
+    ["Chelsea", "Brighton", 2, 0, 1, 0],
+    ["Aston Villa", "Fulham", 2, 1, 1, 1],
+    ["Crystal Palace", "Brentford", 1, 1, 1, 1],
+    ["Leeds United", "Manchester City", 1, 2, 0, 2],
+    ["Wolverhampton Wanderers", "Liverpool", 2, 1, 1, 2],
+    ["Nottingham Forest", "Manchester United", 1, 0, 0, 1],
+    ["Sunderland", "West Ham United", null, null, 0, 0],
+  ].map(([homeTeam, awayTeam, homeGoals, awayGoals, finalHome, finalAway, boost], id) => ({
+    fixture: { id, homeTeam, awayTeam },
+    prediction: { homeGoals, awayGoals, isDouble: boost === 2 },
+    result: { homeGoals: finalHome, awayGoals: finalAway },
+  }));
+  const results = Object.fromEntries(fixtures.map(({ fixture, result }) => [fixture.id, result]));
+  const review = picks => buildPredictionIqReview(fixtures.map(({ fixture }) => fixture), picks, results);
+  const weeklyReview = review(Object.fromEntries(fixtures.map(({ fixture, prediction }) => [fixture.id, prediction])));
+  const recentReview = review(Object.fromEntries(fixtures.map(({ fixture, result }) => [fixture.id, {
+    homeGoals: Math.max(0, result.homeGoals - 1),
+    awayGoals: result.awayGoals,
+  }])));
+  return {
+    weeklyReview,
+    recentReview,
+    rating: weeklyReview.rating,
+    exactScores: weeklyReview.exactScores,
+    correctResults: weeklyReview.correctResults,
     currentWinningStreak: 2,
     longestWinningStreak: 3,
-    closeMisses: 4,
+    currentRank: 24,
     rankChange: 12,
-    strongestTeam: "Liverpool",
-    weakestTeam: "Chelsea",
-    drawAccuracy: "1/2 draws",
-    resultAccuracyBreakdown: "Home 4/5 • Draw 1/2 • Away 2/3",
-    biasDetector: "You lean slightly towards home wins.",
-    bestPrediction: "Newcastle 2-1 Spurs (7 pts)",
+    captainSelections: 5,
     captainAccuracy: "3/5 selections",
     captainPoints: "34/70 points",
     mostCaptainedTeam: "Liverpool (2)",
-    biggestCaptainMiss: "Chelsea - (2)",
-    missedOpportunity: "Villa 2-1 Spurs, predicted 1-3",
-    suggestion: "Your captain picks are strong, but you leave points behind by underrating away goals.",
-    completedPredictions: 10,
+    biggestCaptainMiss: "Chelsea (1)",
+    completedPredictions: weeklyReview.picks,
     gameweek: selectedGameweek || 5,
-  }),
-  [selectedGameweek]
-);
+  };
+}, [predictionIqDemo, selectedGameweek]);
 
 const fantasyIqReport = useMemo(() => {
   const emptyReport = {
@@ -15492,38 +15289,27 @@ useEffect(() => {
   const renderPredictionIqReport = (options = {}) => {
     const compact = !!options.compact;
     const report = options.report || predictionIqReport;
-    const rankText =
-      report.rankChange > 0
-        ? `+${report.rankChange} ranking places`
-        : report.rankChange < 0
-        ? `${report.rankChange} ranking places`
-        : "No ranking change";
+    const rankText = report.rankChange > 0
+      ? `↑ ${report.rankChange} places`
+      : report.rankChange < 0
+      ? `↓ ${-report.rankChange} places`
+      : report.rankChange === 0 ? "No change" : "—";
     const ratingColor =
       report.rating >= 80 ? theme.accent2 : report.rating >= 55 ? theme.accent : theme.danger;
+    const pickCount = report.completedPredictions;
     const statItems = [
-      { icon: "✅", label: "Exact scores", value: report.exactScores },
-      { icon: "🏆", label: "Correct results", value: report.correctResults },
-      { icon: "🔥", label: "Win Streak", value: report.currentWinningStreak || 0 },
-      { icon: "⭐", label: "Longest Win Streak", value: report.longestWinningStreak || 0 },
+      { icon: "🏆", label: "Correct results", value: pickCount ? `${report.correctResults}/${pickCount}` : "—" },
+      { icon: "✅", label: "Exact scores", value: pickCount ? `${report.exactScores}/${pickCount}` : "—" },
+      { icon: "🔥", label: "Win streak", value: report.currentWinningStreak || 0 },
+      { icon: "⭐", label: "Longest win streak", value: report.longestWinningStreak || 0 },
+      { icon: "🌍", label: "Global rank", value: report.currentRank ? `#${report.currentRank}` : "—" },
       { icon: "📈", label: "Global ranking movement", value: rankText },
-    ];
-    const detailItems = [
-      { label: "Your strongest team", value: report.strongestTeam, color: "#22C55E", teamValue: report.strongestTeam },
-      { label: "Your weakest", value: report.weakestTeam, color: "#EF4444", teamValue: report.weakestTeam },
-      { label: "Draw accuracy", value: report.drawAccuracy, color: "#38BDF8" },
-      { label: "Near misses", value: `${report.closeMisses || 0} one-goal misses`, color: "#F59E0B" },
-      { label: "Biggest missed opportunity", value: report.missedOpportunity, color: "#A78BFA" },
     ];
     const captainItems = [
       { label: "Correct captain selection", value: report.captainAccuracy, color: "#22C55E" },
       { label: "Captain points", value: report.captainPoints, color: "#F59E0B" },
       { label: "Most captained team", value: report.mostCaptainedTeam, color: "#38BDF8", teamValue: report.mostCaptainedTeam },
-      { label: "Biggest losing team", value: report.biggestCaptainMiss, color: "#EF4444", teamValue: report.biggestCaptainMiss },
-    ];
-    const styleItems = [
-      { label: "Bias detector", value: report.biasDetector, color: "#A78BFA" },
-      { label: "Best prediction", value: report.bestPrediction, color: "#22C55E" },
-      { label: "Home/Draw/Away accuracy", value: report.resultAccuracyBreakdown, color: "#38BDF8" },
+      { label: "Most missed captain pick", value: report.biggestCaptainMiss, color: "#EF4444", teamValue: report.biggestCaptainMiss },
     ];
     const getIqTeamBadge = (value = "") => {
       const text = String(value || "");
@@ -15592,6 +15378,39 @@ useEffect(() => {
       );
     };
 
+    const captainAnalysis = (
+      <div
+        style={{
+          background: "linear-gradient(180deg, rgba(245,158,11,0.08), rgba(11,18,32,0.94))",
+          border: `2px solid ${theme.warn}`,
+          borderRadius: 12,
+          padding: 14,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <h3 style={{ margin: 0, fontSize: 16, color: theme.warn }}>Captain analysis</h3>
+          <div style={{ marginTop: 4, fontSize: 12, color: theme.muted }}>
+            Season through {getModeGameweekLabel(gameMode, report.gameweek)}
+          </div>
+        </div>
+        {report.captainSelections ? <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
+            gap: 10,
+          }}
+        >
+          {captainItems.map(renderIqImpactCard)}
+        </div> : (
+          <p style={{ margin: 0, fontSize: 13, color: theme.muted, textAlign: "center" }}>
+            Captain stats appear once a boosted pick has a final score.
+          </p>
+        )}
+      </div>
+    );
+
     return (
       <div style={{ display: "grid", gap: compact ? 12 : 14 }}>
         <div
@@ -15618,8 +15437,8 @@ useEffect(() => {
               Overall Rating
             </div>
             <div style={{ fontSize: 38, lineHeight: 1, fontWeight: 900, color: ratingColor }}>
-              {report.rating}
-              <span style={{ fontSize: 18, color: theme.muted }}>/100</span>
+              {pickCount ? report.rating : "—"}
+              {pickCount > 0 && <span style={{ fontSize: 18, color: theme.muted }}>/100</span>}
             </div>
             <div style={{ fontSize: 11, color: theme.muted }}>
               {getModeGameweekLabel(gameMode, report.gameweek)}
@@ -15637,7 +15456,7 @@ useEffect(() => {
             }}
           >
             <div style={{ fontSize: 13, color: theme.muted, fontWeight: 800 }}>
-              You predicted
+              Gameweek summary
             </div>
             <div
               style={{
@@ -15673,9 +15492,7 @@ useEffect(() => {
                     <span aria-hidden="true">{item.icon}</span>
                     <span
                       style={{
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        overflowWrap: "anywhere",
                       }}
                     >
                       {item.label}
@@ -15697,84 +15514,15 @@ useEffect(() => {
           </div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
-            gap: 10,
-          }}
-        >
-          {detailItems.map(renderIqImpactCard)}
-        </div>
-
-        <div
-          style={{
-            background: "linear-gradient(180deg, rgba(245,158,11,0.08), rgba(11,18,32,0.94))",
-            border: `2px solid ${theme.warn}`,
-            borderRadius: 12,
-            padding: 14,
-            display: "grid",
-            gap: 12,
-          }}
-        >
-          <div style={{ fontSize: 16, color: theme.warn, fontWeight: 900, textAlign: "center" }}>
-            Captain analysis
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(2, minmax(0, 1fr))",
-              gap: 10,
-            }}
+        {compact ? captainAnalysis : (
+          <PredictionIqReview
+            week={report.weeklyReview}
+            recent={report.recentReview}
+            theme={theme}
+            resolveTeamBadge={resolveTeamBadge}
           >
-            {captainItems.map(renderIqImpactCard)}
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "linear-gradient(180deg, rgba(56,189,248,0.08), rgba(11,18,32,0.94))",
-            border: `2px solid ${theme.accent}`,
-            borderRadius: 12,
-            padding: 14,
-            display: "grid",
-            gap: 12,
-          }}
-        >
-          <div style={{ fontSize: 16, color: theme.accent, fontWeight: 900, textAlign: "center" }}>
-            Prediction style
-          </div>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isMobile || compact ? "1fr" : "repeat(3, minmax(0, 1fr))",
-              gap: 10,
-            }}
-          >
-            {styleItems.map(renderIqImpactCard)}
-          </div>
-        </div>
-
-        <div
-          style={{
-            background: "rgba(56,189,248,0.1)",
-            border: `1px solid ${theme.accent}`,
-            borderRadius: 12,
-            padding: 12,
-          }}
-        >
-          <div style={{ fontSize: 11, color: theme.muted, fontWeight: 800 }}>
-            AI Suggestion
-          </div>
-          <div style={{ marginTop: 4, fontSize: 14, lineHeight: 1.35, fontWeight: 700 }}>
-            {report.suggestion}
-          </div>
-        </div>
-
-        {!report.completedPredictions && (
-          <div style={{ fontSize: 12, color: theme.muted, textAlign: "center" }}>
-            This report updates once your completed gameweek predictions have results.
-          </div>
+            {captainAnalysis}
+          </PredictionIqReview>
         )}
       </div>
     );
@@ -23101,7 +22849,7 @@ if (!isLoggedIn) {
                 Prediction IQ Report
               </h2>
               <div style={{ marginTop: 3, fontSize: 12, color: theme.muted }}>
-                Weekly insight for {currentPlayer || "your account"}
+                {predictionIqDemo ? "Sample gameweek" : `Weekly insight for ${currentPlayer || "your account"}`}
               </div>
               <button
                 type="button"
