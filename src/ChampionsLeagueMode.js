@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import AppBrand from './AppBrand';
 import ChampionsLeagueTable from './ChampionsLeagueTable';
+import ChampionsLeagueScores from './ChampionsLeagueScores';
 import LiveStudioCoverage, { LiveStudioScoreStrip } from './LiveStudioCoverage';
 import LiveStudioLineups from './LiveStudioLineups';
 import StudioTeamBadge from './StudioTeamBadge';
@@ -43,7 +44,7 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
     }).catch(error => { if (!cancelled && error.status === 401) onLogout(); });
     return () => { cancelled = true; };
   }, [auth.token, base, onLogout]);
-  const studio = useStudioCoverage({ active: view === 'liveStudio', poll: true, competition: 'champions', nowMs: now,
+  const studio = useStudioCoverage({ active: view === 'liveStudio', poll: view !== 'championsLeagueScores', competition: 'champions', nowMs: now,
     base, token: auth.token, userId: auth.userId, fixtures: empty, states: emptyObject, results: emptyObject,
     primaryLabel: 'Premier League', fixturePrefs, globalAlerts: pushPrefs.liveUpdates !== false,
     enablePush: async () => { const enabled = await enableStudioPush({ base, token: auth.token, prefs: pushPrefs, fixturePrefs }); setPushEnabled(enabled); return enabled; },
@@ -86,6 +87,8 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
       </div>
       <nav aria-label="Champions League navigation" style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
         <button type="button" className={studio.anyLive ? 'live-studio-live-button' : undefined} style={{ ...pill, ...(studio.anyLive ? { background: 'linear-gradient(135deg, #22c55e, #10b981)', color: '#052e16', borderColor: '#22c55e' } : {}) }} onClick={() => { studio.showMatches(); open('liveStudio'); }}>Live Studio</button>
+        <button type="button" aria-current={view === 'championsLeagueScores' ? 'page' : undefined} onClick={() => open('championsLeagueScores')}
+          style={{ ...pill, ...(view === 'championsLeagueScores' ? { background: theme.accent, color: theme.bg } : {}) }}>Live Scores &amp; Results</button>
         <div style={{ position: 'relative' }}><button type="button" style={pill} aria-expanded={leaguesOpen} onClick={() => { setLeaguesOpen(!leaguesOpen); setMenuOpen(false); }}>Leagues ▾</button>
           {leaguesOpen && <div style={dropdown}>
             <button type="button" style={{ ...menuButton, color: '#38bdf8' }} onClick={() => onModeChange(PREMIER)}>Back to Premier League</button>
@@ -102,6 +105,7 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
       </nav>
     </header>
     {view === 'championsLeagueTable' ? <section style={card}><ChampionsLeagueTable base={base} theme={theme} isMobile={mobile} /></section>
+      : view === 'championsLeagueScores' ? <section style={card}><ChampionsLeagueScores base={base} theme={theme} buttonStyle={pill} /></section>
       : view === 'settings' ? <section style={{ ...card, display: 'grid', gap: 12 }}><h2 style={{ margin: 0, fontFamily: 'inherit', fontSize: 18, color: theme.text }}>Settings</h2><div>Signed in as {auth.username}</div>
         <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}><input type="checkbox" checked={pushPrefs.noSpoilerFixtureUpdates} onChange={event => saveSpoilers(event.target.checked)} style={{ margin: 0, transform: 'none' }} />No spoilers for goal push notifications</label>
         {settingsError && <p role="alert">{settingsError}</p>}</section>

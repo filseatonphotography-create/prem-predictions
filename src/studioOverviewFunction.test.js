@@ -15,7 +15,12 @@ test('the same-site feed supplies upcoming lineups, announcement timing and Cham
   expect(data.matches[0].lineupsAnnouncedAt).toBeTruthy();
   expect(data.matches[0].form.home[0].outcome).toBe('W');
   expect(global.fetch.mock.calls[0][0]).toContain('/competitions/CL/matches');
-  await handler(); expect(global.fetch).toHaveBeenCalledTimes(1);
+  const scores = JSON.parse((await handler({ queryStringParameters: { scope: 'fixtures' } })).body);
+  expect(scores.scope).toBe('fixtures');
+  expect(scores.matches.map(match => match.id)).toEqual([prior.id, upcoming.id]);
+  expect(scores.matches[0].score).toEqual(prior.score);
+  expect(scores.matches[1]).not.toHaveProperty('lineups');
+  expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 test('missing provider configuration returns a retriable response without leaking credentials', async () => {
   jest.resetModules(); delete process.env.FOOTBALL_DATA_TOKEN;

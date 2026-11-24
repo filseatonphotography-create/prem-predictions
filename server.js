@@ -4,7 +4,7 @@ const { validatePredictionBadgeRecord, isFinalBadgeFixture } = require("./src/ba
 const { getResultsCacheTtl } = require("./src/liveResultsRefresh");
 const { createMatchHighlightsService } = require("./matchHighlightsService");
 
-const { championsFixture, studioAlertAllowed, buildChampionsForm } = require("./src/studioCompetitions");
+const { championsFixture, championsScoresSnapshot, studioAlertAllowed, buildChampionsForm } = require("./src/studioCompetitions");
 
 const { createStudioOverviewCache } = require("./src/studioOverviewCache");
 const { hasStudioLineups } = require("./src/studioPrematch");
@@ -3740,6 +3740,7 @@ app.get("/api/live-studio/matches", async (req, res) => {
   if (req.query.competition !== "champions") return res.status(400).json({ error: "Unsupported studio competition." });
   try {
     const now = Date.now();
+    if (req.query.scope === "fixtures") return res.json(championsScoresSnapshot(await championsOverview.get()));
     if (req.query.summary === "1") {
       const overview = await championsOverview.get();
       const next = overview.matches.filter(match => ["TIMED", "SCHEDULED"].includes(match.status) && Date.parse(match.utcDate) > now)

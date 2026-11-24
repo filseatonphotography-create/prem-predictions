@@ -68,6 +68,39 @@ test('the league menu opens Champions League when browser storage is full', asyn
   } finally { storage.mockRestore(); }
 });
 
+test('Live Scores & Results shows live scores, future fixtures and past results without prediction controls', async () => {
+  const fixture = (id, status, home, away, score, dayOffset) => ({
+    id, status, homeTeam: { name: home }, awayTeam: { name: away }, score,
+    utcDate: new Date(Date.now() + dayOffset * 86400000).toISOString(),
+  });
+  const matches = [
+    { ...fixture(1, 'IN_PLAY', 'Inter', 'Lyon', { fullTime: { home: 0, away: 0 } }, 0), minute: 18 },
+    fixture(2, 'TIMED', 'Ajax', 'Porto', { fullTime: { home: null, away: null } }, 14),
+    fixture(3, 'FINISHED', 'Benfica', 'Celtic', { duration: 'PENALTY_SHOOTOUT',
+      fullTime: { home: 5, away: 4 }, regularTime: { home: 1, away: 1 },
+      extraTime: { home: 0, away: 0 }, penalties: { home: 4, away: 3 } }, -14),
+  ];
+  global.fetch = jest.fn(async url => ({
+    ok: true, status: 200, headers: { get: () => null },
+    json: async () => String(url).includes('scope=fixtures') ? { scope: 'fixtures', matches }
+      : String(url).includes('/matches?') ? { matches: [] } : {},
+  }));
+  render(<App />); await act(flush);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Live Scores & Results' })); await flush(); });
+  expect(screen.getByRole('heading', { name: 'Champions League scores & fixtures' })).toBeInTheDocument();
+  expect(new URLSearchParams(window.location.search).get('view')).toBe('championsLeagueScores');
+  expect(screen.getByRole('heading', { name: 'Live now' })).toBeInTheDocument();
+  expect(screen.getByText('18′').closest('li')).toHaveTextContent('0–0');
+  expect(screen.getByText('Ajax').closest('li')).not.toHaveTextContent('0–0');
+  expect(screen.getByText('Porto')).toBeInTheDocument();
+  expect(screen.queryByText('Benfica')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Predictions' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Results' }));
+  expect(screen.getByText('Benfica').closest('li')).toHaveTextContent('FT1–1Pens 4–3');
+  expect(screen.queryByText('Ajax')).not.toBeInTheDocument();
+  expect(global.fetch.mock.calls.some(([url]) => /predictions|coins/.test(url))).toBe(false);
+});
+
 test('mobile coverage uses the shared brand and compact coverage heading and toggles match focus without an All selected games button', async () => {
   const previousWidth = window.innerWidth; window.innerWidth = 375;
   window.history.replaceState({}, '', '/?mode=champions&view=liveStudio&studio=coverage&competition=champions&games=cl:77');

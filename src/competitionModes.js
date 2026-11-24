@@ -9,16 +9,17 @@ export const COMPETITIONS = {
   [CHAMPIONS]: { label: 'Champions League', apiKey: 'champions', predictionsEnabled: false },
   [WORLD_CUP]: { label: 'World Cup', apiKey: 'worldcup', predictionsEnabled: true },
 };
+const championsViews = ['championsLeagueTable', 'championsLeagueScores'];
 export function readCompetitionMode() {
   try {
     const params = new URLSearchParams(window.location.search), mode = params.get('mode');
     if (mode === 'champions') return CHAMPIONS;
     if (mode === 'premier') return PREMIER;
     if (mode === 'worldcup') return WORLD_CUP;
-    if (params.get('competition') === 'champions' || params.get('fixtureId')?.startsWith('cl:') || params.get('view') === 'championsLeagueTable') return CHAMPIONS;
+    if (params.get('competition') === 'champions' || params.get('fixtureId')?.startsWith('cl:') || championsViews.includes(params.get('view'))) return CHAMPIONS;
     const saved = localStorage.getItem(COMPETITION_MODE_KEY);
     if (COMPETITIONS[saved]) return saved;
-    if (localStorage.getItem('activeView') === 'championsLeagueTable') return CHAMPIONS;
+    if (championsViews.includes(localStorage.getItem('activeView'))) return CHAMPIONS;
     return localStorage.getItem(PREDICTION_MODE_KEY) === WORLD_CUP ? WORLD_CUP : PREMIER;
   } catch { return PREMIER; }
 }

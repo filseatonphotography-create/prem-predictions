@@ -20,7 +20,7 @@ async function check(name, activeView, mode = 'champions') {
   win.addEventListener('error', event => errors.push(event.error || new Error(event.message)));
   win.fetch = async url => {
     let data = {};
-    if (String(url).includes('/api/live-studio/matches?')) data = { matches: [{ id: 77,
+    if (String(url).includes('/api/live-studio/matches?')) data = { scope: String(url).includes('scope=fixtures') ? 'fixtures' : undefined, matches: [{ id: 77,
       utcDate: new Date(Date.now() - 30 * 60000).toISOString(), status: 'IN_PLAY', minute: 30,
       homeTeam: { id: 1, name: 'Startup Home' }, awayTeam: { id: 2, name: 'Startup Away' },
       score: { fullTime: { home: 1, away: 0 } }, form: { home: [], away: [] } }] };
@@ -45,7 +45,12 @@ async function check(name, activeView, mode = 'champions') {
     }
     if (activeView === 'liveStudio' && mode === 'champions') {
       if (!root.textContent.includes('Champions League Mode')) throw new Error('Studio must open inside Champions League mode');
+      const scores = [...root.querySelectorAll('button')].find(button => button.textContent === 'Live Scores & Results');
+      if (!scores) throw new Error('Champions League Live Scores & Results button is missing');
+      scores.click(); await new Promise(resolve => setTimeout(resolve, 100));
+      if (!root.querySelector('li')?.textContent.includes('1–0')) throw new Error('Champions League scores did not render');
       const live = [...root.querySelectorAll('button')].find(button => button.textContent === 'Live Studio');
+      live?.click(); await new Promise(resolve => setTimeout(resolve, 100));
       if (!live?.classList.contains('live-studio-live-button')) throw new Error('The live Studio button must pulse');
       if (!root.querySelector('input[aria-label="Follow Startup Home v Startup Away"]') || root.querySelector('article')) throw new Error('The competition page must show the live match list separately');
       const follow = [...root.querySelectorAll('button')].find(button => button.textContent.startsWith('Follow selected games'));

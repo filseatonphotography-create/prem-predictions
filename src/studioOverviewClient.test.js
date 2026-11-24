@@ -21,6 +21,17 @@ test('falls back to the backend if the same-site endpoint is not deployed yet', 
   await fetchStudioOverview('https://backend.example', { preferSameOrigin: true });
   expect(global.fetch.mock.calls[1][0]).toBe('https://backend.example/api/live-studio/matches?competition=champions&summary=1');
 });
+test('the scores view requests the full fixture scope and rejects a legacy summary response', async () => {
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ matches: [] }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ scope: 'fixtures', matches: [] }) });
+  await expect(fetchStudioOverview('https://backend.example', { preferSameOrigin: true, scope: 'fixtures' }))
+    .resolves.toEqual({ scope: 'fixtures', matches: [] });
+  expect(global.fetch.mock.calls.map(([url]) => url)).toEqual([
+    '/.netlify/functions/studio-overview?scope=fixtures',
+    'https://backend.example/api/live-studio/matches?competition=champions&scope=fixtures',
+  ]);
+});
 test('leaving the page cancels the request without starting a fallback', async () => {
   global.fetch = jest.fn(() => new Promise(() => {})); const controller = new AbortController();
   const result = fetchStudioOverview('', { preferSameOrigin: true, signal: controller.signal });

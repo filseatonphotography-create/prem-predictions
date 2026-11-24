@@ -8,6 +8,22 @@ function championsFixture(match) {
     kickoff: match.utcDate, venue: match.venue || '', gameweek: match.matchday, stage: match.stage };
 }
 
+function championsScoresSnapshot({ matches, updatedAt, stale }) {
+  const team = ({ name, crest } = {}) => ({ name, crest });
+  return {
+    scope: 'fixtures', updatedAt, stale,
+    matches: matches.map(match => ({
+      id: match.id,
+      utcDate: match.utcDate,
+      status: match.status,
+      minute: match.minute,
+      homeTeam: team(match.homeTeam || undefined),
+      awayTeam: team(match.awayTeam || undefined),
+      score: match.score,
+    })),
+  };
+}
+
 // The caller supplies the current Champions League season, not domestic results.
 function buildChampionsForm(fixture, seasonMatches = []) {
   const before = Date.parse(fixture.utcDate);
@@ -100,4 +116,4 @@ function footballFeed(raw) {
   return entries;
 }
 
-module.exports = { buildChampionsForm, championsFixture, studioAlertAllowed, footballFeed, currentChampionsMatch };
+module.exports = { buildChampionsForm, championsFixture, championsScoresSnapshot, studioAlertAllowed, footballFeed, currentChampionsMatch };
