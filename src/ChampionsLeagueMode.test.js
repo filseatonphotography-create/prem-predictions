@@ -84,8 +84,8 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
   global.fetch = jest.fn(async url => ({
     ok: true, status: 200, headers: { get: () => null },
     json: async () => String(url).includes('/fixtures/cl%3A3/highlights') ? { videos: [
-      { videoId: 'Abcdef123_-', title: 'Benfica vs Celtic', channelName: 'Official channel', regions: null },
-      { videoId: 'Gbcdef123_-', title: 'Benfica vs Celtic extended', channelName: 'Regional channel', regions: { allowed: ['GB'] } },
+      { videoId: 'Abcdef123_-', title: 'Benfica vs Celtic', channelName: 'Official channel', language: 'en' },
+      { videoId: 'Gbcdef123_-', title: 'Benfica vs Celtic extended', channelName: 'Another channel', language: 'en' },
     ] } : String(url).includes('/highlights') ? { videos: [] } : String(url).includes('scope=fixtures') ? { scope: 'fixtures', matches }
       : String(url).includes('/matches?') ? { matches: [] } : {},
   }));
@@ -104,12 +104,11 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
   expect(screen.getByText('Benfica').closest('li')).toHaveTextContent('FT1–1Pens 4–3');
   expect(global.fetch.mock.calls.some(([url]) => url.includes('/highlights'))).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Highlights for Benfica vs Celtic' }));
-  const clips = await screen.findAllByRole('link', { name: /Watch on YouTube/ });
-  expect(clips[0]).toHaveAttribute('href', 'https://www.youtube.com/watch?v=Abcdef123_-');
-  expect(clips[1]).toHaveTextContent('Available in United Kingdom');
+  const clip = await screen.findByRole('link', { name: /Watch on YouTube/ });
+  expect(clip).toHaveAttribute('href', 'https://www.youtube.com/watch?v=Abcdef123_-');
   fireEvent.click(screen.getByRole('button', { name: 'Highlights for Madrid vs Milan' }));
-  const searchLink = await screen.findByRole('link', { name: /Search YouTube for this match/ });
-  expect(new URL(searchLink.href).searchParams.get('search_query')).toContain('Madrid vs Milan Champions League official highlights');
+  expect(await screen.findByText('No verified English highlight is available in your region yet.')).toBeVisible();
+  expect(screen.getAllByRole('link', { name: /YouTube/ })).toHaveLength(1);
   expect(screen.queryByText('Ajax')).not.toBeInTheDocument();
   expect(global.fetch.mock.calls.some(([url]) => /predictions|coins/.test(url))).toBe(false);
 });

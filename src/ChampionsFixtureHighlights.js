@@ -13,8 +13,7 @@ export default function ChampionsFixtureHighlights({ match, theme, base }) {
         Highlights <span aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
       <div id={id} hidden={!open} style={{ textAlign: 'left', paddingTop: 4 }}>
-        {open && <FixtureHighlights fixtureId={`cl:${match.id}`} finished active base={base} theme={theme}
-          searchQuery={`${match.homeTeam.name} vs ${match.awayTeam.name} Champions League official highlights ${match.utcDate?.slice(0, 10) || ''}`.trim()} />}
+        {open && <FixtureHighlights fixtureId={`cl:${match.id}`} finished active englishOnly base={base} theme={theme} />}
       </div>
     </div>
   );

@@ -31,9 +31,8 @@ const CHAMPIONS_CHANNELS = [
   { id: "UCt9a_qP9CqHCNwilf-iULag", name: "Paris Saint-Germain" },
   { id: "UCvXzEblUa0cfny4HAJ_ZOWw", name: "Inter" },
   { id: "UCK8rTVgp3-MebXkmeJcQb1Q", name: "Borussia Dortmund" },
-  { id: "UCET00YnetHT7tOpu12v8jxg", name: "CBS Sports Golazo", broadcaster: true },
-  { id: "UC4i_9WvfPRTuRWEaWyfKuFw", name: "TNT Sports Football", broadcaster: true },
-  { id: "UCbxWTKqVmD_AMeOIcKFhQ3Q", name: "TV360 Thể Thao", broadcaster: true },
+  { id: "UCET00YnetHT7tOpu12v8jxg", name: "CBS Sports Golazo", broadcaster: true, english: true },
+  { id: "UC4i_9WvfPRTuRWEaWyfKuFw", name: "TNT Sports Football", broadcaster: true, english: true },
 ];
 const allChannels = [...CHANNELS, ...CHAMPIONS_CHANNELS];
 const REFRESH_MS = 30 * 60 * 1000;
@@ -116,6 +115,28 @@ function isPlayableInCountry(video, country, nowMs) {
   return !Array.isArray(restrictions.blocked) || !restrictions.blocked.includes(country);
 }
 
+function isEnglishHighlight(video) {
+  const { audioLanguage, titleLanguage } = video.availability;
+  if (typeof audioLanguage !== "string") return false;
+  const english = language => /^en(?:[-_]|$)/i.test(language);
+  if (audioLanguage) return english(audioLanguage);
+  if (titleLanguage && !english(titleLanguage)) return false;
+  return CHANNELS.some(channel => channel.id === video.channelId)
+    || CHAMPIONS_CHANNELS.some(channel => channel.id === video.channelId && channel.english);
+}
+
+function pickChampionsVideo(candidates, viewerCountry, nowMs) {
+  const country = /^[A-Z]{2}$/.test(viewerCountry) ? viewerCountry : "";
+  const unrestricted = video => {
+    const { allowed, blocked } = video.availability.regionRestriction || {};
+    return !Array.isArray(allowed) && !blocked?.length;
+  };
+  const eligible = candidates.filter(video => video.availability?.ageRestricted === false
+    && isPublicVideo(video, nowMs) && isEnglishHighlight(video)
+    && (country ? isPlayableInCountry(video, country, nowMs) : unrestricted(video)));
+  return eligible.find(unrestricted) || eligible[0];
+}
+
 function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl = global.fetch, readCache = () => ({}), writeCache = () => {}, now = Date.now } = {}) {
   const saved = readCache() || {};
   let videos = Array.isArray(saved.videos) ? saved.videos : [];
@@ -179,13 +200,19 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
         // YouTube reports country allow/block lists on the videos resource.
         // Unknown availability is never treated as confirmation of playback.
         const checks = await Promise.allSettled(batches.map(async batch => {
-          const details = await api("videos", { part: "contentDetails,status", id: batch.map(video => video.videoId).join(",") });
+          const details = await api("videos", {
+            part: "contentDetails,status,snippet",
+            fields: "items(id,contentDetails(contentRating,regionRestriction),status(privacyStatus,uploadStatus),snippet(defaultAudioLanguage,defaultLanguage))",
+            id: batch.map(video => video.videoId).join(","),
+          });
           const byId = new Map(details.map(detail => [detail.id, detail]));
           batch.forEach(video => {
             const detail = byId.get(video.videoId);
             video.availability = { checkedAt: now(), privacyStatus: detail?.status?.privacyStatus || "unavailable",
               uploadStatus: detail?.status?.uploadStatus || "unavailable",
               ageRestricted: detail?.contentDetails?.contentRating?.ytRating === "ytAgeRestricted",
+              audioLanguage: detail?.snippet?.defaultAudioLanguage || "",
+              titleLanguage: detail?.snippet?.defaultLanguage || "",
               regionRestriction: detail?.contentDetails?.regionRestriction || {} };
           });
         }));
@@ -207,22 +234,16 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
     try { await pending; } finally { pending = null; }
   }
 
-  async function forFixture(fixture, score = {}, state = {}) {
+  async function forFixture(fixture, score = {}, state = {}, { viewerCountry = "" } = {}) {
     if (!canShowMatchHighlights(fixture, score, state, now())) return { status: "pending", videos: [] };
     if (!apiKey) return { status: "unavailable", videos: [] };
     await refresh();
     const effectiveFixture = { ...fixture, kickoff: state.utcDate || fixture.kickoff };
     const candidates = currentVideos().filter(video => matchesFixture(video, effectiveFixture));
-    const matched = fixture.competition === "champions"
-      ? candidates.filter(video => video.availability?.ageRestricted === false && isPublicVideo(video, now()))
-        .map(({ videoId, title, channelName, availability }) => {
-          const { allowed, blocked } = availability.regionRestriction || {};
-          const regions = Array.isArray(allowed) ? { allowed } : blocked?.length ? { blocked } : null;
-          return { videoId, title, channelName, regions };
-        })
-        .filter(video => video.regions?.allowed?.length !== 0)
-        .sort((a, b) => Number(Boolean(a.regions)) - Number(Boolean(b.regions)))
-        .slice(0, 4)
+    const champions = fixture.competition === "champions";
+    const clip = champions ? pickChampionsVideo(candidates, viewerCountry, now()) : null;
+    const matched = champions
+      ? clip ? [{ videoId: clip.videoId, title: clip.title, channelName: clip.channelName, language: "en" }] : []
       : candidates.filter(video => isPlayableInCountry(video, String(country).toUpperCase(), now())).slice(0, 1)
         .map(({ videoId, title, channelName }) => ({ videoId, title, channelName }));
     const lookupFailed = fixture.competition === "champions" ? championsFailed : failed;

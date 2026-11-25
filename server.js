@@ -3702,7 +3702,8 @@ app.get("/api/fixtures/:fixtureId/highlights", async (req, res) => {
       const match = matches.find(item => `cl:${item.id}` === fixtureId);
       if (!match) return res.status(404).json({ error: "Unknown fixture" });
       if (match.status !== "FINISHED") return res.json({ status: "pending", videos: [] });
-      highlights = await highlightsService.forFixture(championsFixture(match), {}, match);
+      const viewerCountry = String(req.query?.country || "").toUpperCase();
+      highlights = await highlightsService.forFixture(championsFixture(match), {}, match, { viewerCountry });
     } else {
       const fixture = loadFixturesFromSrc().find(item => String(item.id) === fixtureId);
       if (!fixture) return res.status(404).json({ error: "Unknown fixture" });

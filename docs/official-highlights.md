@@ -17,7 +17,7 @@ This uses the API's default free quota. No paid football data subscription or
 quota extension is needed. The existing football statistics plan is unchanged.
 The backend reads the configured clubs' and broadcasters' official uploads
 playlists every 30 minutes, sharing that catalogue across all visitors. A normal
-day uses about 1,440 playlist requests, plus the channel lookup at startup and batched video
+day uses about 1,400 playlist requests, plus the channel lookup at startup and batched video
 availability checks. This stays within the default free quota; there is no search
 per fixture.
 If a request fails, the service waits for the next refresh interval.
@@ -47,10 +47,13 @@ playing. Champions League results also use configured official broadcasters.
   guaranteed, and a video's availability can vary by country or change later.
 - Recent API metadata is retained in `DATA_DIR/youtube-highlights-cache.json`
   across restarts and expires after 28 days unless refreshed from YouTube.
-- Champions League results put public, processed clips without listed country
-  restrictions first. Other eligible clips show their regional restrictions.
-  Age-restricted clips are excluded. If no unrestricted match clip is listed,
-  the dropdown also offers a YouTube search for the fixture.
+- Champions League results show one English-language clip, preferring clips
+  without country restrictions. The site passes the viewer's country code to the
+  backend to filter regional releases. If the country is unknown, it only
+  selects unrestricted videos. The service excludes age-restricted videos and
+  uses YouTube's audio-language field when provided. When no audio language is
+  listed, it accepts videos from configured English-language publishers if the
+  title language is English or unspecified.
 
 Without a configured key, the dropdown shows that official highlights are not
 available yet. API errors have a retry action. The key is never sent to browsers.

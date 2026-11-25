@@ -115,21 +115,30 @@ test("Champions League uses official broadcasters and club aliases without expos
   expect(matchesFixture(clip, { ...european, competition: "premier" })).toBe(false);
 });
 
-test("Champions League ranks unrestricted clips first and returns region alternatives without age-gated videos", async () => {
+test.each([
+  ["US", true, "JJcdef123_-"],
+  ["US", false, "GGcdef123_-"],
+  ["GB", false, "HHcdef123_-"],
+  ["VN", false, null],
+  ["", false, null],
+])("Champions League returns a single eligible English clip for %j with worldwide clip=%j", async (viewerCountry, worldwide, expected) => {
   const broadcaster = CHAMPIONS_CHANNELS.find(channel => channel.broadcaster);
   const clips = [
     { id: "GGcdef123_-", regionRestriction: { allowed: ["US"] } },
-    { id: "HHcdef123_-", regionRestriction: { blocked: ["GB"] } },
+    { id: "HHcdef123_-", regionRestriction: { allowed: ["GB"] } },
     { id: "IIcdef123_-", contentRating: { ytRating: "ytAgeRestricted" } },
-    { id: "JJcdef123_-", regionRestriction: {} },
+    { id: "KKcdef123_-", audioLanguage: "vi-VN" },
+    { id: "LLcdef123_-", titleLanguage: "vi" },
+    ...(worldwide ? [{ id: "JJcdef123_-", audioLanguage: "en-GB", regionRestriction: {} }] : []),
   ];
   const fetchImpl = jest.fn(async input => {
     const url = new URL(input);
     if (url.pathname.endsWith("/channels")) return response(allChannels.map(channel => ({
       id: channel.id, contentDetails: { relatedPlaylists: { uploads: channel.id } },
     })));
-    if (url.pathname.endsWith("/videos")) return response(clips.map(({ id, ...contentDetails }) => ({
+    if (url.pathname.endsWith("/videos")) return response(clips.map(({ id, audioLanguage, titleLanguage, ...contentDetails }) => ({
       id, status: { privacyStatus: "public", uploadStatus: "processed" }, contentDetails,
+      snippet: { defaultAudioLanguage: audioLanguage, defaultLanguage: titleLanguage },
     })));
     return response(url.searchParams.get("playlistId") === broadcaster.id ? clips.map(({ id }) => ({
       snippet: { title: video.title, videoOwnerChannelId: broadcaster.id },
@@ -137,11 +146,9 @@ test("Champions League ranks unrestricted clips first and returns region alterna
     })) : []);
   });
   const service = createMatchHighlightsService({ apiKey: "test-only", country: "VN", fetchImpl, now: () => nowMs });
-  const result = await service.forFixture({ ...fixture, competition: "champions" }, score, finished);
-  expect(result.status).toBe("available");
-  expect(result.videos.map(({ videoId, regions }) => [videoId, regions])).toEqual([
-    ["JJcdef123_-", null], ["GGcdef123_-", { allowed: ["US"] }], ["HHcdef123_-", { blocked: ["GB"] }],
-  ]);
+  const result = await service.forFixture({ ...fixture, competition: "champions" }, score, finished, { viewerCountry });
+  expect(result.status).toBe(expected ? "available" : "empty");
+  expect(result.videos.map(({ videoId, language }) => [videoId, language])).toEqual(expected ? [[expected, "en"]] : []);
 });
 
 test.each([
@@ -220,9 +227,9 @@ test("the public endpoint resolves fixtures on the server and returns a cacheabl
   expect(res.setHeader).toHaveBeenCalledWith("Cache-Control", "public, max-age=300");
   await handler({ params: { fixtureId: "cl:43" } }, res);
   expect(res.json).toHaveBeenLastCalledWith({ status: "pending", videos: [] });
-  await handler({ params: { fixtureId: "cl:42" } }, res);
+  await handler({ params: { fixtureId: "cl:42" }, query: { country: "gb" } }, res);
   expect(championsFixture).toHaveBeenCalledWith(championsMatch);
-  expect(forFixture).toHaveBeenLastCalledWith({ ...fixture, competition: "champions", id: "cl:42" }, {}, championsMatch);
+  expect(forFixture).toHaveBeenLastCalledWith({ ...fixture, competition: "champions", id: "cl:42" }, {}, championsMatch, { viewerCountry: "GB" });
   forFixture.mockRejectedValueOnce(new Error("Failure"));
   await handler({ params: { fixtureId: "1" } }, res);
   expect(res.status).toHaveBeenCalledWith(503);
