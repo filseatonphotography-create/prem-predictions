@@ -1,7 +1,6 @@
 const { canShowMatchHighlights } = require("./src/matchHighlights");
 
-// Official club channels, verified against their YouTube channel pages.
-// Broadcaster videos are excluded, including entries from older saved caches.
+// Official club channels for Premier League matches.
 const CHANNELS = [
   { id: "UC6yW44UGJJBvYTlfC7CRg2Q", name: "Manchester United", handle: "ManUtd" },
   { id: "UCpryVRk_VDudG8SHXgWcG0w", name: "Arsenal", handle: "Arsenal" },
@@ -24,17 +23,32 @@ const CHANNELS = [
   { id: "UCEg25rdRZXg32iwai6N6l0w", name: "Tottenham Hotspur", handle: "TottenhamHotspur" },
   { id: "UCeOCuVSSweaEj6oVtJZEKQw", name: "Bournemouth", handle: "afcbournemouth" },
 ];
+const CHAMPIONS_CHANNELS = [
+  { id: "UCWV3obpZVGgJ3j9FVhEjF2Q", name: "Real Madrid" },
+  { id: "UC_2ynsXrRrKP8zYrU7Hc06A", name: "PSV" },
+  { id: "UC14UlmYlSNiQCBe9Eookf_A", name: "Barcelona" },
+  { id: "UCZkcxFIsqW5htimoUQKA0iA", name: "Bayern München" },
+  { id: "UCt9a_qP9CqHCNwilf-iULag", name: "Paris Saint-Germain" },
+  { id: "UCvXzEblUa0cfny4HAJ_ZOWw", name: "Inter" },
+  { id: "UCK8rTVgp3-MebXkmeJcQb1Q", name: "Borussia Dortmund" },
+  { id: "UCET00YnetHT7tOpu12v8jxg", name: "CBS Sports Golazo", broadcaster: true },
+  { id: "UC4i_9WvfPRTuRWEaWyfKuFw", name: "TNT Sports Football", broadcaster: true },
+  { id: "UCbxWTKqVmD_AMeOIcKFhQ3Q", name: "TV360 Thể Thao", broadcaster: true },
+];
+const allChannels = [...CHANNELS, ...CHAMPIONS_CHANNELS];
 const REFRESH_MS = 30 * 60 * 1000;
 const RETENTION_MS = 28 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function normalize(value) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[øØ]/g, "o")
     .toLowerCase().replace(/&amp;/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function teamAliases(name) {
-  const team = normalize(name).replace(/\b(fc|afc)\b/g, "").replace(/\s+/g, " ").trim();
+function teamAliases(name, champions = false) {
+  const team = normalize(name)
+    .replace(champions ? /\b(afc|cf|club|fc|fk|kv|osc|sk|ssc|vfb)\b/g : /\b(fc|afc)\b/g, "")
+    .replace(/\s+/g, " ").trim();
   const aliases = {
     "manchester united": ["man utd", "man united"], "manchester city": ["man city"],
     "tottenham hotspur": ["tottenham", "spurs"], "wolverhampton wanderers": ["wolves"],
@@ -43,21 +57,37 @@ function teamAliases(name) {
     "brighton and hove albion": ["brighton"], "leeds united": ["leeds"],
     "ipswich town": ["ipswich"], "coventry city": ["coventry"], "hull city": ["hull"],
   };
-  return [team, ...(aliases[team] || [])].filter(Boolean);
+  const europeanAliases = {
+    "as roma": ["roma"], "atletico de madrid": ["atletico madrid", "atleti"],
+    "bayern munchen": ["bayern munich", "bayern"], "borussia dortmund": ["dortmund", "b dortmund"],
+    "como 1907": ["como"], "feyenoord rotterdam": ["feyenoord"],
+    "internazionale milano": ["inter milan", "inter"], "lask linz": ["lask"],
+    "pae aek": ["aek athens", "aek"], "paris saint germain": ["psg", "paris"],
+    "psv": ["psv eindhoven"],
+    "racing de lens": ["lens", "rc lens"], "rb leipzig": ["leipzig"],
+    "real betis balompie": ["real betis", "betis"], "slovan bratislava": ["s bratislava"],
+    "sporting clube de portugal": ["sporting cp", "sporting lisbon", "sporting"],
+    "villarreal": ["villareal"],
+  };
+  return [team, ...(aliases[team] || []), ...(champions ? europeanAliases[team] || [] : [])].filter(Boolean);
 }
 
+const europeanHighlightTitle = /\b(highlights?|resumen|resumo|samenvatting|hoogtepunten|ozet|zusammenfassung)\b/;
 function matchesFixture(video, fixture) {
-  const channel = CHANNELS.find(channel => channel.id === video.channelId);
-  if (!channel || ![fixture.homeTeam, fixture.awayTeam].some(team => teamAliases(team).includes(normalize(channel.name)))) return false;
+  const champions = fixture.competition === "champions";
+  const channel = (champions ? allChannels : CHANNELS).find(channel => channel.id === video.channelId);
+  const homeAliases = teamAliases(fixture.homeTeam, champions), awayAliases = teamAliases(fixture.awayTeam, champions);
+  if (!channel || (!channel.broadcaster && ![...homeAliases, ...awayAliases].includes(normalize(channel.name)))) return false;
   const publishedMs = Date.parse(video.publishedAt), kickoffMs = Date.parse(fixture.kickoff);
   if (!Number.isFinite(publishedMs) || !Number.isFinite(kickoffMs)
     || publishedMs < kickoffMs + 90 * 60 * 1000 || publishedMs > kickoffMs + 3 * DAY_MS) return false;
-  const title = normalize(video.title);
-  if (!/\bhighlights?\b/.test(title)
+  const rawTitle = String(video.title || "");
+  const title = normalize(champions ? rawTitle.replace(/(\p{L})\s+[-–—]\s+(?=\p{L})/gu, "$1 v ") : rawTitle);
+  if (!(champions ? europeanHighlightTitle : /\bhighlights?\b/).test(title)
     || /\b(women|womens|ladies|wsl|u18|u19|u21|u23|under 18|under 21|youth|academy|classic|classics|retro|throwback|friendly|friendlies|preseason|simulation|efootball|fifa|preview|prediction|predictions|watchalong|first half|half time)\b/.test(title)) return false;
   // Require a fixture-style pairing, rather than just both clubs appearing
   // somewhere in a roundup or an interview title.
-  return teamAliases(fixture.homeTeam).some(home => teamAliases(fixture.awayTeam).some(away => {
+  return homeAliases.some(home => awayAliases.some(away => {
     const separator = "(?:v|vs|versus|[0-9]+(?: [0-9]+)?)";
     return new RegExp(`\\b(?:${home} ${separator} ${away}|${away} ${separator} ${home})\\b`).test(title);
   }));
@@ -71,12 +101,17 @@ function normalizeVideo(item, channel, retrievedAt) {
     publishedAt: details.videoPublishedAt || snippet.publishedAt, retrievedAt };
 }
 
-function isPlayableInCountry(video, country, nowMs) {
+function isPublicVideo(video, nowMs) {
   const availability = video.availability;
-  if (!availability || !Number.isFinite(availability.checkedAt)
-    || nowMs - availability.checkedAt >= DAY_MS || availability.checkedAt > nowMs
-    || availability.privacyStatus !== "public" || availability.uploadStatus !== "processed") return false;
-  const restrictions = availability.regionRestriction || {};
+  return availability && Number.isFinite(availability.checkedAt)
+    && nowMs - availability.checkedAt < DAY_MS && availability.checkedAt <= nowMs
+    && availability.privacyStatus === "public" && availability.uploadStatus === "processed"
+    && !availability.ageRestricted;
+}
+
+function isPlayableInCountry(video, country, nowMs) {
+  if (!isPublicVideo(video, nowMs)) return false;
+  const restrictions = video.availability.regionRestriction || {};
   if (Array.isArray(restrictions.allowed) && !restrictions.allowed.includes(country)) return false;
   return !Array.isArray(restrictions.blocked) || !restrictions.blocked.includes(country);
 }
@@ -84,7 +119,7 @@ function isPlayableInCountry(video, country, nowMs) {
 function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl = global.fetch, readCache = () => ({}), writeCache = () => {}, now = Date.now } = {}) {
   const saved = readCache() || {};
   let videos = Array.isArray(saved.videos) ? saved.videos : [];
-  let checkedAt = 0, pending = null, failed = false;
+  let checkedAt = 0, pending = null, failed = false, championsFailed = false;
   const playlists = new Map();
 
   async function api(resource, params) {
@@ -103,7 +138,7 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
 
   function currentVideos() {
     const cutoff = now() - RETENTION_MS;
-    return videos.filter(video => CHANNELS.some(channel => channel.id === video.channelId)
+    return videos.filter(video => allChannels.some(channel => channel.id === video.channelId)
       && Number(video.retrievedAt) > cutoff && /^[\w-]{11}$/.test(video.videoId || ""));
   }
 
@@ -113,28 +148,29 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
     if (checkedAt && now() - checkedAt < REFRESH_MS) return;
     pending = (async () => {
       const collected = [];
-      let errors = 0;
+      let clubErrors = 0, championsErrors = 0;
       try {
-        if (playlists.size !== CHANNELS.length) {
-          const channels = await api("channels", { part: "contentDetails", id: CHANNELS.map(channel => channel.id).join(",") });
+        if (playlists.size !== allChannels.length) {
+          const channels = await api("channels", { part: "contentDetails", id: allChannels.map(channel => channel.id).join(",") });
           channels.forEach(channel => {
-            if (CHANNELS.some(allowed => allowed.id === channel.id) && channel.contentDetails?.relatedPlaylists?.uploads) {
+            if (allChannels.some(allowed => allowed.id === channel.id) && channel.contentDetails?.relatedPlaylists?.uploads) {
               playlists.set(channel.id, channel.contentDetails.relatedPlaylists.uploads);
             }
           });
         }
-        const results = await Promise.allSettled(CHANNELS.map(async channel => {
+        const results = await Promise.allSettled(allChannels.map(async channel => {
           const playlistId = playlists.get(channel.id);
           if (!playlistId) throw new Error("Official uploads playlist unavailable");
           const items = await api("playlistItems", { part: "snippet,contentDetails", playlistId, maxResults: 50 });
           return items.map(item => normalizeVideo(item, channel, now())).filter(Boolean);
         }));
-        results.forEach(result => {
+        results.forEach((result, index) => {
           if (result.status === "fulfilled") collected.push(...result.value);
-          else errors += 1;
+          else if (index < CHANNELS.length) clubErrors += 1;
+          else championsErrors += 1;
         });
         const catalogue = new Map(currentVideos().map(video => [video.videoId, video]));
-        collected.filter(video => /\bhighlights?\b/i.test(video.title)).forEach(video => {
+        collected.filter(video => europeanHighlightTitle.test(normalize(video.title))).forEach(video => {
           catalogue.set(video.videoId, { ...catalogue.get(video.videoId), ...video });
         });
         const candidates = [...catalogue.values()];
@@ -149,18 +185,21 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
             const detail = byId.get(video.videoId);
             video.availability = { checkedAt: now(), privacyStatus: detail?.status?.privacyStatus || "unavailable",
               uploadStatus: detail?.status?.uploadStatus || "unavailable",
+              ageRestricted: detail?.contentDetails?.contentRating?.ytRating === "ytAgeRestricted",
               regionRestriction: detail?.contentDetails?.regionRestriction || {} };
           });
         }));
-        errors += checks.filter(result => result.status === "rejected").length;
+        const availabilityFailed = checks.some(result => result.status === "rejected");
         videos = candidates
           .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt)).slice(0, 2000);
         // Keep the recent catalogue across restarts, and expire API metadata
         // within 30 days. A transient source failure preserves unexpired items.
         writeCache({ videos });
-        failed = errors > 0;
+        failed = clubErrors > 0 || availabilityFailed;
+        championsFailed = failed || championsErrors > 0;
       } catch {
         failed = true;
+        championsFailed = true;
       } finally {
         checkedAt = now();
       }
@@ -173,13 +212,24 @@ function createMatchHighlightsService({ apiKey = "", country = "VN", fetchImpl =
     if (!apiKey) return { status: "unavailable", videos: [] };
     await refresh();
     const effectiveFixture = { ...fixture, kickoff: state.utcDate || fixture.kickoff };
-    const matched = currentVideos().filter(video => matchesFixture(video, effectiveFixture)
-      && isPlayableInCountry(video, String(country).toUpperCase(), now())).slice(0, 1)
-      .map(({ videoId, title, channelName }) => ({ videoId, title, channelName }));
-    return { status: matched.length ? "available" : failed ? "error" : "empty", videos: matched };
+    const candidates = currentVideos().filter(video => matchesFixture(video, effectiveFixture));
+    const matched = fixture.competition === "champions"
+      ? candidates.filter(video => video.availability?.ageRestricted === false && isPublicVideo(video, now()))
+        .map(({ videoId, title, channelName, availability }) => {
+          const { allowed, blocked } = availability.regionRestriction || {};
+          const regions = Array.isArray(allowed) ? { allowed } : blocked?.length ? { blocked } : null;
+          return { videoId, title, channelName, regions };
+        })
+        .filter(video => video.regions?.allowed?.length !== 0)
+        .sort((a, b) => Number(Boolean(a.regions)) - Number(Boolean(b.regions)))
+        .slice(0, 4)
+      : candidates.filter(video => isPlayableInCountry(video, String(country).toUpperCase(), now())).slice(0, 1)
+        .map(({ videoId, title, channelName }) => ({ videoId, title, channelName }));
+    const lookupFailed = fixture.competition === "champions" ? championsFailed : failed;
+    return { status: matched.length ? "available" : lookupFailed ? "error" : "empty", videos: matched };
   }
 
   return { forFixture, refresh };
 }
 
-module.exports = { CHANNELS, matchesFixture, normalizeVideo, isPlayableInCountry, createMatchHighlightsService };
+module.exports = { CHANNELS, CHAMPIONS_CHANNELS, matchesFixture, normalizeVideo, isPlayableInCountry, createMatchHighlightsService };

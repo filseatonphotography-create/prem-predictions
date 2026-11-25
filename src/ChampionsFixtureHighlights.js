@@ -1,27 +1,7 @@
-import React, { useEffect, useId, useState } from 'react';
-import { OfficialHighlightLink } from './FixtureHighlights';
-import { findChampionsHighlight, loadChampionsHighlights, UEFA_HIGHLIGHTS } from './championsHighlights';
+import React, { useId, useState } from 'react';
+import FixtureHighlights from './FixtureHighlights';
 
-function ChampionsHighlightLinks({ match, theme }) {
-  const [catalogue, setCatalogue] = useState(null);
-  useEffect(() => {
-    let cancelled = false;
-    loadChampionsHighlights().then(
-      results => { if (!cancelled) setCatalogue(results); },
-      () => { if (!cancelled) setCatalogue([]); }
-    );
-    return () => { cancelled = true; };
-  }, []);
-  if (!catalogue) return <div role="status">Checking for highlights…</div>;
-
-  const clip = findChampionsHighlight(catalogue, match);
-  return <OfficialHighlightLink href={clip?.url || UEFA_HIGHLIGHTS} thumbnail={clip?.thumbnail}
-    title={clip ? '▶ Watch match highlights ↗' : 'Browse UEFA highlights ↗'}
-    source={clip ? 'UEFA.com · Sign-in or regional restrictions may apply' : 'UEFA.com · Direct clip unavailable in this list'}
-    theme={theme} />;
-}
-
-export default function ChampionsFixtureHighlights({ match, theme }) {
+export default function ChampionsFixtureHighlights({ match, theme, base }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
@@ -33,7 +13,8 @@ export default function ChampionsFixtureHighlights({ match, theme }) {
         Highlights <span aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
       <div id={id} hidden={!open} style={{ textAlign: 'left', paddingTop: 4 }}>
-        {open && <ChampionsHighlightLinks match={match} theme={theme} />}
+        {open && <FixtureHighlights fixtureId={`cl:${match.id}`} finished active base={base} theme={theme}
+          searchQuery={`${match.homeTeam.name} vs ${match.awayTeam.name} Champions League official highlights ${match.utcDate?.slice(0, 10) || ''}`.trim()} />}
       </div>
     </div>
   );

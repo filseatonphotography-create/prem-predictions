@@ -42,7 +42,7 @@ function getMatchDisplay({ status, minute, utcDate, score }) {
   };
 }
 
-function MatchRow({ match, theme }) {
+function MatchRow({ match, theme, base }) {
   const { live, goals, penalties, label } = getMatchDisplay(match);
   const renderTeam = (team, away = false) => {
     const name = team?.name || 'TBD';
@@ -61,7 +61,7 @@ function MatchRow({ match, theme }) {
       </div>
       {renderTeam(match.awayTeam, true)}
       {match.status === 'FINISHED' && match.homeTeam?.name && match.awayTeam?.name &&
-        <ChampionsFixtureHighlights match={match} theme={theme} />}
+        <ChampionsFixtureHighlights match={match} theme={theme} base={base} />}
     </li>
   );
 }
@@ -127,7 +127,7 @@ export default function ChampionsLeagueScores({ base, theme, buttonStyle }) {
         <div key={date}>
           <h3 style={{ margin: '0 0 6px', color: theme.muted, font: 'inherit', fontWeight: 800, textAlign: 'left' }}>{date}</h3>
           <ul style={{ margin: 0, padding: 0, display: 'grid', gap: 5, listStyle: 'none' }}>
-            {fixtures.map(match => <MatchRow key={match.id} match={match} theme={theme} />)}
+            {fixtures.map(match => <MatchRow key={match.id} match={match} theme={theme} base={base} />)}
           </ul>
         </div>
       ))}

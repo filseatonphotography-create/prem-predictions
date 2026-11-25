@@ -3694,10 +3694,20 @@ const highlightsService = createMatchHighlightsService({
   writeCache: data => saveJson(path.join(DATA_DIR, "youtube-highlights-cache.json"), data),
 });
 app.get("/api/fixtures/:fixtureId/highlights", async (req, res) => {
-  const fixture = loadFixturesFromSrc().find(item => String(item.id) === req.params.fixtureId);
-  if (!fixture) return res.status(404).json({ error: "Unknown fixture" });
   try {
-    const highlights = await highlightsService.forFixture(fixture, loadResults()[fixture.id], loadMatchStates()[fixture.id]);
+    const fixtureId = req.params.fixtureId;
+    let highlights;
+    if (/^cl:\d+$/.test(fixtureId)) {
+      const { matches } = await championsOverview.get();
+      const match = matches.find(item => `cl:${item.id}` === fixtureId);
+      if (!match) return res.status(404).json({ error: "Unknown fixture" });
+      if (match.status !== "FINISHED") return res.json({ status: "pending", videos: [] });
+      highlights = await highlightsService.forFixture(championsFixture(match), {}, match);
+    } else {
+      const fixture = loadFixturesFromSrc().find(item => String(item.id) === fixtureId);
+      if (!fixture) return res.status(404).json({ error: "Unknown fixture" });
+      highlights = await highlightsService.forFixture(fixture, loadResults()[fixture.id], loadMatchStates()[fixture.id]);
+    }
     res.setHeader("Cache-Control", highlights.status === "error" ? "no-store" : "public, max-age=300");
     return res.json(highlights);
   } catch {
