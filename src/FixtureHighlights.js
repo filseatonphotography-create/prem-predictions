@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from "react";
 
+export function OfficialHighlightLink({ href, thumbnail, title, source, action, theme }) {
+  return <a className="results-highlights-link" style={{ color: theme.text, borderColor: theme.line }}
+    href={href} target="_blank" rel="noopener noreferrer">
+    {thumbnail && <img src={thumbnail} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = "none"; }} />}
+    <span><strong>{title}</strong><span className="results-highlights-source" style={{ color: theme.muted }}>{source}</span>
+      {action && <span style={{ color: theme.accent }}>{action}</span>}</span>
+  </a>;
+}
+
 export default function FixtureHighlights({ fixtureId, finished, active, base = "", theme }) {
   const [state, setState] = useState({ status: "loading", videos: [] });
   const [attempt, setAttempt] = useState(0);
@@ -30,12 +39,9 @@ export default function FixtureHighlights({ fixtureId, finished, active, base = 
       : state.status === "loading" ? <div role="status">Checking for highlights…</div>
       : state.status === "error" ? <div>Highlights could not be loaded. <button type="button" className="results-highlights-retry" style={{ color: theme.accent }} onClick={() => setAttempt(value => value + 1)}>Try again</button></div>
       : state.videos.length ? <>
-        <div className="results-highlights-list">{state.videos.map(video => <a key={video.videoId}
-          className="results-highlights-link" style={{ color: theme.text, borderColor: theme.line }}
-          href={`https://www.youtube.com/watch?v=${video.videoId}`} target="_blank" rel="noopener noreferrer">
-          <img src={`https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = "none"; }} />
-          <span><strong>{video.title}</strong><span className="results-highlights-source" style={{ color: theme.muted }}>{video.channelName}</span><span style={{ color: theme.accent }}>▶ Watch on YouTube ↗</span></span>
-        </a>)}</div>
+        <div className="results-highlights-list">{state.videos.map(video => <OfficialHighlightLink key={video.videoId}
+          href={`https://www.youtube.com/watch?v=${video.videoId}`} thumbnail={`https://i.ytimg.com/vi/${video.videoId}/hqdefault.jpg`}
+          title={video.title} source={video.channelName} action="▶ Watch on YouTube ↗" theme={theme} />)}</div>
         <div style={{ color: theme.muted, fontSize: 11 }}>Availability may vary by country.</div>
       </> : <div>Official highlights are not available yet.</div>}
   </div>;

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import StudioTeamBadge from './StudioTeamBadge';
+import ChampionsFixtureHighlights from './ChampionsFixtureHighlights';
 import { fetchStudioOverview } from './studioOverviewClient';
 import { LIVE_STUDIO_STATUSES } from './studioNavigation';
 
@@ -59,6 +60,8 @@ function MatchRow({ match, theme }) {
         {penalties && <div style={{ fontSize: 11, color: theme.muted }}>Pens {penalties}</div>}
       </div>
       {renderTeam(match.awayTeam, true)}
+      {match.status === 'FINISHED' && match.homeTeam?.name && match.awayTeam?.name &&
+        <ChampionsFixtureHighlights match={match} theme={theme} />}
     </li>
   );
 }

@@ -79,10 +79,14 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
     fixture(3, 'FINISHED', 'Benfica', 'Celtic', { duration: 'PENALTY_SHOOTOUT',
       fullTime: { home: 5, away: 4 }, regularTime: { home: 1, away: 1 },
       extraTime: { home: 0, away: 0 }, penalties: { home: 4, away: 3 } }, -14),
+    fixture(4, 'FINISHED', 'Madrid', 'Milan', { fullTime: { home: 2, away: 1 } }, -21),
   ];
+  const clipPath = '/uefachampionsleague/video/highlights/02ab-2226ac39f420-1c5c72baa84c-1000--champions-league-highlights-benfica-1-1-celtic/';
   global.fetch = jest.fn(async url => ({
     ok: true, status: 200, headers: { get: () => null },
-    json: async () => String(url).includes('scope=fixtures') ? { scope: 'fixtures', matches }
+    json: async () => String(url).includes('/champions-highlights') ? { highlights: [
+      { path: clipPath, publishedAt: Date.parse(matches[2].utcDate) + 4 * 3600000 },
+    ] } : String(url).includes('scope=fixtures') ? { scope: 'fixtures', matches }
       : String(url).includes('/matches?') ? { matches: [] } : {},
   }));
   render(<App />); await act(flush);
@@ -93,10 +97,17 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
   expect(screen.getByText('18′').closest('li')).toHaveTextContent('0–0');
   expect(screen.getByText('Ajax').closest('li')).not.toHaveTextContent('0–0');
   expect(screen.getByText('Porto')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Highlights for/ })).not.toBeInTheDocument();
   expect(screen.queryByText('Benfica')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Predictions' })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Results' }));
   expect(screen.getByText('Benfica').closest('li')).toHaveTextContent('FT1–1Pens 4–3');
+  expect(global.fetch.mock.calls.some(([url]) => url.includes('/champions-highlights'))).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Highlights for Benfica vs Celtic' }));
+  expect(await screen.findByRole('link', { name: /Watch match highlights/ })).toHaveAttribute('href', `https://www.uefa.com${clipPath}`);
+  fireEvent.click(screen.getByRole('button', { name: 'Highlights for Madrid vs Milan' }));
+  expect(await screen.findByRole('link', { name: /Browse UEFA highlights/ })).toHaveAttribute('href', 'https://www.uefa.com/uefachampionsleague/video/highlights/');
+  expect(global.fetch.mock.calls.filter(([url]) => url.includes('/champions-highlights'))).toHaveLength(1);
   expect(screen.queryByText('Ajax')).not.toBeInTheDocument();
   expect(global.fetch.mock.calls.some(([url]) => /predictions|coins/.test(url))).toBe(false);
 });
