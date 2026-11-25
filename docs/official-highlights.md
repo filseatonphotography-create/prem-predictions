@@ -1,8 +1,9 @@
 # Official match highlights
 
 Premier League fixture dropdowns include official highlights beneath predictions
-and coin bets. Champions League results have a highlights dropdown after full
-time. Each video card opens the publisher's video on YouTube in a new tab.
+and coin bets. Finished Champions League matches show a highlights dropdown when
+an eligible video is available in the viewer's country. Each video card opens the
+publisher's video on YouTube in a new tab.
 Videos are linked, rather than downloaded or hosted by this app.
 
 ## Enable automatic discovery
@@ -17,7 +18,7 @@ This uses the API's default free quota. No paid football data subscription or
 quota extension is needed. The existing football statistics plan is unchanged.
 The backend reads the configured clubs' and broadcasters' official uploads
 playlists every 30 minutes, sharing that catalogue across all visitors. A normal
-day uses about 1,400 playlist requests, plus the channel lookup at startup and batched video
+day uses about 1,500 playlist requests, plus the channel lookup at startup and batched video
 availability checks. This stays within the default free quota; there is no search
 per fixture.
 If a request fails, the service waits for the next refresh interval.

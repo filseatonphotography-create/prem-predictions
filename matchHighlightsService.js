@@ -33,6 +33,8 @@ const CHAMPIONS_CHANNELS = [
   { id: "UCK8rTVgp3-MebXkmeJcQb1Q", name: "Borussia Dortmund" },
   { id: "UCET00YnetHT7tOpu12v8jxg", name: "CBS Sports Golazo", broadcaster: true, english: true },
   { id: "UC4i_9WvfPRTuRWEaWyfKuFw", name: "TNT Sports Football", broadcaster: true, english: true },
+  { id: "UCSZ21xyG8w_33KriMM69IxQ", name: "DAZN Football", broadcaster: true, english: true },
+  { id: "UC0jPwNs4B7yJySNewHan5hQ", name: "Stan Sport Football", broadcaster: true, english: true },
 ];
 const allChannels = [...CHANNELS, ...CHAMPIONS_CHANNELS];
 const REFRESH_MS = 30 * 60 * 1000;
@@ -73,13 +75,13 @@ function teamAliases(name, champions = false) {
 
 const europeanHighlightTitle = /\b(highlights?|resumen|resumo|samenvatting|hoogtepunten|ozet|zusammenfassung)\b/;
 function matchesFixture(video, fixture) {
+  const publishedMs = Date.parse(video.publishedAt), kickoffMs = Date.parse(fixture.kickoff);
+  if (!Number.isFinite(publishedMs) || !Number.isFinite(kickoffMs)
+    || publishedMs < kickoffMs + 90 * 60 * 1000 || publishedMs > kickoffMs + 3 * DAY_MS) return false;
   const champions = fixture.competition === "champions";
   const channel = (champions ? allChannels : CHANNELS).find(channel => channel.id === video.channelId);
   const homeAliases = teamAliases(fixture.homeTeam, champions), awayAliases = teamAliases(fixture.awayTeam, champions);
   if (!channel || (!channel.broadcaster && ![...homeAliases, ...awayAliases].includes(normalize(channel.name)))) return false;
-  const publishedMs = Date.parse(video.publishedAt), kickoffMs = Date.parse(fixture.kickoff);
-  if (!Number.isFinite(publishedMs) || !Number.isFinite(kickoffMs)
-    || publishedMs < kickoffMs + 90 * 60 * 1000 || publishedMs > kickoffMs + 3 * DAY_MS) return false;
   const rawTitle = String(video.title || "");
   const title = normalize(champions ? rawTitle.replace(/(\p{L})\s+[-–—]\s+(?=\p{L})/gu, "$1 v ") : rawTitle);
   if (!(champions ? europeanHighlightTitle : /\bhighlights?\b/).test(title)

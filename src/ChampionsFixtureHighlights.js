@@ -1,7 +1,7 @@
 import React, { useId, useState } from 'react';
-import FixtureHighlights from './FixtureHighlights';
+import { YouTubeHighlightLink } from './FixtureHighlights';
 
-export default function ChampionsFixtureHighlights({ match, theme, base }) {
+export default function ChampionsFixtureHighlights({ match, theme, video }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
@@ -13,7 +13,7 @@ export default function ChampionsFixtureHighlights({ match, theme, base }) {
         Highlights <span aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
       <div id={id} hidden={!open} style={{ textAlign: 'left', paddingTop: 4 }}>
-        {open && <FixtureHighlights fixtureId={`cl:${match.id}`} finished active englishOnly base={base} theme={theme} />}
+        {open && <YouTubeHighlightLink video={video} theme={theme} />}
       </div>
     </div>
   );

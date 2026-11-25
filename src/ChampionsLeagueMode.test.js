@@ -81,12 +81,13 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
       extraTime: { home: 0, away: 0 }, penalties: { home: 4, away: 3 } }, -14),
     fixture(4, 'FINISHED', 'Madrid', 'Milan', { fullTime: { home: 2, away: 1 } }, -21),
   ];
+  let highlightsAvailable = true;
   global.fetch = jest.fn(async url => ({
     ok: true, status: 200, headers: { get: () => null },
-    json: async () => String(url).includes('/fixtures/cl%3A3/highlights') ? { videos: [
-      { videoId: 'Abcdef123_-', title: 'Benfica vs Celtic', channelName: 'Official channel', language: 'en' },
-      { videoId: 'Gbcdef123_-', title: 'Benfica vs Celtic extended', channelName: 'Another channel', language: 'en' },
-    ] } : String(url).includes('/highlights') ? { videos: [] } : String(url).includes('scope=fixtures') ? { scope: 'fixtures', matches }
+    json: async () => String(url).includes('/api/champions/highlights') ? { status: 'ready', videosByFixtureId: highlightsAvailable ? {
+      3: { videoId: 'Abcdef123_-', title: 'Benfica vs Celtic', channelName: 'Official channel', language: 'en' },
+      4: { videoId: 'Gbcdef123_-', title: 'Madrid vs Milan in Vietnamese', channelName: 'Another channel', language: 'vi' },
+    } : {} } : String(url).includes('scope=fixtures') ? { scope: 'fixtures', matches }
       : String(url).includes('/matches?') ? { matches: [] } : {},
   }));
   render(<App />); await act(flush);
@@ -100,17 +101,23 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
   expect(screen.queryByRole('button', { name: /Highlights for/ })).not.toBeInTheDocument();
   expect(screen.queryByText('Benfica')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Predictions' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Results' }));
-  expect(screen.getByText('Benfica').closest('li')).toHaveTextContent('FT1–1Pens 4–3');
   expect(global.fetch.mock.calls.some(([url]) => url.includes('/highlights'))).toBe(false);
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Results' })); await flush(); });
+  expect(screen.getByText('Benfica').closest('li')).toHaveTextContent('FT1–1Pens 4–3');
+  expect(global.fetch.mock.calls.filter(([url]) => url.includes('/highlights'))).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: 'Highlights for Benfica vs Celtic' }));
   const clip = await screen.findByRole('link', { name: /Watch on YouTube/ });
   expect(clip).toHaveAttribute('href', 'https://www.youtube.com/watch?v=Abcdef123_-');
-  fireEvent.click(screen.getByRole('button', { name: 'Highlights for Madrid vs Milan' }));
-  expect(await screen.findByText('No verified English highlight is available in your region yet.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: 'Highlights for Madrid vs Milan' })).not.toBeInTheDocument();
+  expect(global.fetch.mock.calls.filter(([url]) => url.includes('/highlights'))).toHaveLength(1);
   expect(screen.getAllByRole('link', { name: /YouTube/ })).toHaveLength(1);
   expect(screen.queryByText('Ajax')).not.toBeInTheDocument();
   expect(global.fetch.mock.calls.some(([url]) => /predictions|coins/.test(url))).toBe(false);
+  highlightsAvailable = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Fixtures' }));
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Results' })); await flush(); });
+  expect(screen.getByText('No English YouTube highlights are available in your region yet.')).toBeVisible();
+  expect(screen.queryByRole('button', { name: /Highlights for/ })).not.toBeInTheDocument();
 });
 
 test('mobile coverage uses the shared brand and compact coverage heading and toggles match focus without an All selected games button', async () => {

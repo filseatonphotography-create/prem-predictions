@@ -3721,6 +3721,24 @@ if (process.env.YOUTUBE_API_KEY) {
   setInterval(() => highlightsService.refresh().catch(() => {}), 30 * 60 * 1000).unref();
 }
 
+app.get("/api/champions/highlights", async (req, res) => {
+  try {
+    const { matches } = await championsOverview.get();
+    const viewerCountry = String(req.query.country || "").toUpperCase();
+    const highlights = await Promise.all(matches.filter(match => match.status === "FINISHED").map(async match => {
+      const fixture = championsFixture(match);
+      return [String(match.id), await highlightsService.forFixture(fixture, {}, match, { viewerCountry })];
+    }));
+    const unavailable = highlights.some(([, result]) => result.status === "error");
+    res.setHeader("Cache-Control", unavailable ? "no-store" : "public, max-age=120");
+    return res.json({ status: unavailable ? "partial" : "ready", videosByFixtureId: Object.fromEntries(
+      highlights.filter(([, result]) => result.videos.length > 0).map(([id, result]) => [id, result.videos[0]])
+    ) });
+  } catch {
+    return res.status(503).json({ error: "Highlights temporarily unavailable" });
+  }
+});
+
 // Public: return latest results snapshot (global source of truth)
 app.get("/api/results/snapshot", (req, res) => {
   try {

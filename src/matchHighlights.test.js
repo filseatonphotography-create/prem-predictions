@@ -206,19 +206,20 @@ test("the public endpoint resolves fixtures on the server and returns a cacheabl
   const source = fs.readFileSync("server.js", "utf8");
   const start = source.indexOf("const highlightsService = createMatchHighlightsService(");
   const end = source.indexOf("// Public: return latest results snapshot", start);
-  let route, handler;
+  const routes = new Map();
   const forFixture = jest.fn(async () => ({ status: "available", videos: [video] }));
   const championsMatch = { id: 42, status: "FINISHED", utcDate: kickoff };
   const championsFixture = jest.fn(() => ({ ...fixture, competition: "champions", id: "cl:42" }));
   vm.runInNewContext(source.slice(start, end), {
-    app: { get: (path, callback) => { route = path; handler = callback; } },
+    app: { get: (path, callback) => routes.set(path, callback) },
     createMatchHighlightsService: () => ({ forFixture }), process: { env: {} },
     loadFixturesFromSrc: () => [fixture], loadResults: () => ({ 1: score }), loadMatchStates: () => ({ 1: finished }),
     championsOverview: { get: async () => ({ matches: [championsMatch, { id: 43, status: "IN_PLAY" }] }) },
     championsFixture,
   });
   const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis(), setHeader: jest.fn() };
-  expect(route).toBe("/api/fixtures/:fixtureId/highlights");
+  const handler = routes.get("/api/fixtures/:fixtureId/highlights");
+  expect(handler).toBeDefined();
   await handler({ params: { fixtureId: "999" } }, res);
   expect(res.status).toHaveBeenCalledWith(404);
   expect(forFixture).not.toHaveBeenCalled();
@@ -230,6 +231,9 @@ test("the public endpoint resolves fixtures on the server and returns a cacheabl
   await handler({ params: { fixtureId: "cl:42" }, query: { country: "gb" } }, res);
   expect(championsFixture).toHaveBeenCalledWith(championsMatch);
   expect(forFixture).toHaveBeenLastCalledWith({ ...fixture, competition: "champions", id: "cl:42" }, {}, championsMatch, { viewerCountry: "GB" });
+  await routes.get("/api/champions/highlights")({ query: { country: "ca" } }, res);
+  expect(forFixture).toHaveBeenLastCalledWith({ ...fixture, competition: "champions", id: "cl:42" }, {}, championsMatch, { viewerCountry: "CA" });
+  expect(res.json).toHaveBeenLastCalledWith({ status: "ready", videosByFixtureId: { 42: video } });
   forFixture.mockRejectedValueOnce(new Error("Failure"));
   await handler({ params: { fixtureId: "1" } }, res);
   expect(res.status).toHaveBeenCalledWith(503);

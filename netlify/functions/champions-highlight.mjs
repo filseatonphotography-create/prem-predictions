@@ -3,10 +3,11 @@ const headers = { 'Cache-Control': 'private, no-store' };
 
 export default async function handler(request, context) {
   const fixtureId = new URL(request.url).searchParams.get('fixtureId');
-  if (!/^cl:\d+$/.test(fixtureId || '')) {
+  if (fixtureId != null && !/^cl:\d+$/.test(fixtureId)) {
     return Response.json({ status: 'error', videos: [] }, { status: 400, headers });
   }
-  const url = new URL(`/api/fixtures/${encodeURIComponent(fixtureId)}/highlights`, backend);
+  const path = fixtureId == null ? '/api/champions/highlights' : `/api/fixtures/${encodeURIComponent(fixtureId)}/highlights`;
+  const url = new URL(path, backend);
   const country = context.geo?.country?.code;
   if (/^[A-Z]{2}$/.test(country || '')) url.searchParams.set('country', country);
   try {

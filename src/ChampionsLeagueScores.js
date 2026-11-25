@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import StudioTeamBadge from './StudioTeamBadge';
 import ChampionsFixtureHighlights from './ChampionsFixtureHighlights';
 import { fetchStudioOverview } from './studioOverviewClient';
+import { studioRequest } from './studioRequest';
 import { LIVE_STUDIO_STATUSES } from './studioNavigation';
 
 const { numeric } = require('./liveMatchEvents');
@@ -42,7 +43,7 @@ function getMatchDisplay({ status, minute, utcDate, score }) {
   };
 }
 
-function MatchRow({ match, theme, base }) {
+function MatchRow({ match, theme, video }) {
   const { live, goals, penalties, label } = getMatchDisplay(match);
   const renderTeam = (team, away = false) => {
     const name = team?.name || 'TBD';
@@ -60,8 +61,8 @@ function MatchRow({ match, theme, base }) {
         {penalties && <div style={{ fontSize: 11, color: theme.muted }}>Pens {penalties}</div>}
       </div>
       {renderTeam(match.awayTeam, true)}
-      {match.status === 'FINISHED' && match.homeTeam?.name && match.awayTeam?.name &&
-        <ChampionsFixtureHighlights match={match} theme={theme} base={base} />}
+      {video && match.status === 'FINISHED' && match.homeTeam?.name && match.awayTeam?.name &&
+        <ChampionsFixtureHighlights match={match} theme={theme} video={video} />}
     </li>
   );
 }
@@ -71,6 +72,7 @@ export default function ChampionsLeagueScores({ base, theme, buttonStyle }) {
   const [tab, setTab] = useState('fixtures');
   const [error, setError] = useState('');
   const [request, setRequest] = useState(0);
+  const [highlights, setHighlights] = useState(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -91,6 +93,30 @@ export default function ChampionsLeagueScores({ base, theme, buttonStyle }) {
     refresh();
     return () => { controller.abort(); clearTimeout(timer); };
   }, [base, request]);
+
+  useEffect(() => {
+    if (tab !== 'results') return undefined;
+    const controller = new AbortController();
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+    const endpoint = local ? `${base}/api/champions/highlights` : '/.netlify/functions/champions-highlight';
+    let timer;
+    const refresh = async () => {
+      try {
+        const data = await studioRequest(endpoint, { signal: controller.signal, timeoutMs: 15000 });
+        if (!controller.signal.aborted) {
+          const videos = Object.entries(data.videosByFixtureId || {}).filter(([id, video]) =>
+            /^\d+$/.test(id) && video?.language === 'en' && /^[\w-]{11}$/.test(video.videoId || ''));
+          setHighlights({ videos: Object.fromEntries(videos), failed: !data.videosByFixtureId || data.status === 'partial' });
+        }
+      } catch {
+        if (!controller.signal.aborted) setHighlights({ videos: {}, failed: true });
+      } finally {
+        if (!controller.signal.aborted) timer = setTimeout(refresh, 120000);
+      }
+    };
+    refresh();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [tab, base]);
 
   const days = useMemo(() => {
     const live = [], dated = new Map();
@@ -123,11 +149,16 @@ export default function ChampionsLeagueScores({ base, theme, buttonStyle }) {
       </div>}
       {!matches && !error && <p role="status">Loading Champions League matches…</p>}
       {matches && !days.length && <p>{tab === 'results' ? 'No results available yet.' : 'No upcoming fixtures listed.'}</p>}
+      {tab === 'results' && days.length > 0 && highlights && !Object.keys(highlights.videos).length && (
+        <p role="status" style={{ margin: 0, fontSize: 13, color: theme.muted }}>
+          {highlights.failed ? 'Could not check English highlights. Retrying shortly.' : 'No English YouTube highlights are available in your region yet.'}
+        </p>
+      )}
       {days.map(([date, fixtures]) => (
         <div key={date}>
           <h3 style={{ margin: '0 0 6px', color: theme.muted, font: 'inherit', fontWeight: 800, textAlign: 'left' }}>{date}</h3>
           <ul style={{ margin: 0, padding: 0, display: 'grid', gap: 5, listStyle: 'none' }}>
-            {fixtures.map(match => <MatchRow key={match.id} match={match} theme={theme} base={base} />)}
+            {fixtures.map(match => <MatchRow key={match.id} match={match} theme={theme} video={highlights?.videos[match.id]} />)}
           </ul>
         </div>
       ))}
