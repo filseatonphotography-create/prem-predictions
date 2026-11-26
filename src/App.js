@@ -112,7 +112,7 @@ const {
 const { buildFinalBadgeAwards, isFinalBadgeFixture, countFinalPredictionBadges } = require("./badgeRules");
 const { isPenaltyGoal, penaltyLabel, penaltyDetails } = require("./penaltyUtils");
 const { isSupersededYellowPost } = require("./cardDecisionUtils");
-const { isConfirmedVarDecision, mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
+const { isConfirmedVarDecision, isOwnGoal, mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
 
 const { getResultsRefreshInterval } = require("./liveResultsRefresh");
 
@@ -4795,8 +4795,8 @@ export function getLiveStudioHalfTimeSnapshotScore(matchState = {}, events = [],
 }
 
 function getLiveStudioEventSortMinute(event = {}, fallback = -1) {
-  const sortMinute = Number(event?.sortMinute);
-  if (Number.isFinite(sortMinute)) return sortMinute;
+  const sortMinute = numeric(event?.sortMinute);
+  if (sortMinute != null) return sortMinute;
   const minute = numeric(event?.minute);
   const injuryTime = Number(event?.injuryTime);
   if (!Number.isFinite(minute)) return fallback;
@@ -5000,7 +5000,7 @@ export function buildLiveStudioEventHeader({ fixture, event, score, statusLabel 
   }
   if (kind === "goal-disallowed") {
     const team = getLiveStudioEventTeamLabel(event);
-    const teamCode = team ? getTeamCode(team) : "";
+    const teamCode = isOwnGoal(event) ? getLiveStudioScoringTeamCode(fixture, score, event) : team ? getTeamCode(team) : "";
     return [`${isConfirmedVarDecision(event) ? "VAR: goal disallowed" : "Goal ruled out"}${teamCode ? ` for ${teamCode}` : ""}`, scoreText].filter(Boolean).join(" ");
   }
   if (kind === "red-card" && (event.cardUpgrade || isConfirmedVarDecision(event))) {
@@ -5649,6 +5649,24 @@ function getLiveStudioLeadingSide(score) {
 }
 
 function getLiveStudioScoringTeam(fixture, score, latestGoal) {
+  if (latestGoal && isOwnGoal(latestGoal)) {
+    const home = getLiveStudioTeamName(fixture.homeTeam);
+    const away = getLiveStudioTeamName(fixture.awayTeam);
+    const current = getLiveStudioEventScore(latestGoal, score);
+    const previousHome = numeric(latestGoal.previousHomeGoals);
+    const previousAway = numeric(latestGoal.previousAwayGoals);
+    if (current && previousHome != null && previousAway != null) {
+      const change = getLiveStudioEventKind(latestGoal) === "goal-disallowed" ? -1 : 1;
+      if (current.homeGoals === previousHome + change && current.awayGoals === previousAway) return home;
+      if (current.awayGoals === previousAway + change && current.homeGoals === previousHome) return away;
+    }
+    if (latestGoal.scoringSide === "home") return home;
+    if (latestGoal.scoringSide === "away") return away;
+    const playerTeam = normalizeTeamName(getLiveStudioEventTeamLabel(latestGoal));
+    if (playerTeam && playerTeam === normalizeTeamName(fixture.homeTeam)) return away;
+    if (playerTeam && playerTeam === normalizeTeamName(fixture.awayTeam)) return home;
+    return "";
+  }
   if (latestGoal?.teamName) {
     const normalizedGoalTeam = normalizeTeamName(latestGoal.teamName);
     if (normalizedGoalTeam === normalizeTeamName(fixture.homeTeam)) {
@@ -5714,7 +5732,7 @@ export function buildLiveStudioRevealLine(fixture, score, event, matchContext = 
   const seed = `${fixture.id}:${getLiveStudioUpdateKeyPart(event)}`;
   const side = normalizeTeamName(team) === normalizeTeamName(fixture.homeTeam) ? "home"
     : normalizeTeamName(team) === normalizeTeamName(fixture.awayTeam) ? "away" : null;
-  const ownGoal = /own[ _-]?goal/i.test(`${event.type || ""} ${event.detail || ""} ${event.goalType || ""}`);
+  const ownGoal = isOwnGoal(event);
   const situation = getLiveStudioEventKind(event) === "goal" ? buildGoalMatchContext({ ...matchContext, event, score, team,
     side: ownGoal ? null : side,
     opponent: side === "home" ? getLiveStudioTeamName(fixture.awayTeam) : side === "away" ? getLiveStudioTeamName(fixture.homeTeam) : "",
@@ -5725,7 +5743,9 @@ export function buildLiveStudioRevealLine(fixture, score, event, matchContext = 
     return [`${player || team || "A player"} scores from the penalty spot${player && team ? ` for ${team}` : ""}${formatGoalMinute(event) ? ` (${formatGoalMinute(event)})` : ""}. ${penaltyDetails(event)}`.trim(), situation].filter(Boolean).join(" ");
   }
   if (getLiveStudioEventKind(event) === "goal-disallowed") {
-    const subject = player ? `${player}'s goal${team ? ` for ${team}` : ""}` : `the goal${team ? ` for ${team}` : ""}`;
+    const subject = ownGoal
+      ? `the own goal${player ? ` by ${player}` : ""}${team ? ` that would have counted for ${team}` : ""}`
+      : player ? `${player}'s goal${team ? ` for ${team}` : ""}` : `the goal${team ? ` for ${team}` : ""}`;
     if (isConfirmedVarDecision(event)) return `VAR has disallowed ${subject}. ${getLiveStudioScoreSummary(fixture, score)}.${event.reason ? ` ${event.reason}` : ""}`;
     if (event.scoreCorrection) return `Goal ruled out! ${subject} will not count. ${getLiveStudioScoreSummary(fixture, score)}.`;
     return pickLiveStudioPhrase(seed, [
@@ -5817,12 +5837,15 @@ export function buildChampionsStudioCommentary(entry) {
 
 // Stable per event: polling must not keep changing the commentator's lines.
 export function buildLiveStudioAside({ event, events = [] }) {
-  if (getLiveStudioEventKind(event) !== "goal") return "";
+  const minute = getLiveStudioEventSortMinute(event);
+  if (getLiveStudioEventKind(event) !== "goal" || minute < 0 || isOwnGoal(event) || event.synthetic) return "";
   const player = getLiveStudioEventPlayerName(event);
-  const isOwnGoal = (goal) => /own[ _-]?goal/i.test(`${goal.type || ""} ${goal.detail || ""} ${goal.goalType || ""}`);
   const seen = new Set();
   const credited = [];
-  events.filter((goal) => getLiveStudioEventSortMinute(goal) <= getLiveStudioEventSortMinute(event))
+  events.filter((goal) => {
+    const time = getLiveStudioEventSortMinute(goal);
+    return time >= 0 && time <= minute;
+  })
     .sort((a, b) => getLiveStudioEventSortMinute(a) - getLiveStudioEventSortMinute(b))
     .forEach((goal) => {
       const key = getLiveStudioUpdateKeyPart(goal);
@@ -5830,7 +5853,7 @@ export function buildLiveStudioAside({ event, events = [] }) {
       seen.add(key);
       const kind = getLiveStudioEventKind(goal);
       if (kind === "goal" && !isOwnGoal(goal) && !goal.synthetic) credited.push(goal);
-      if (kind === "goal-disallowed") {
+      if (kind === "goal-disallowed" && !isOwnGoal(goal)) {
         const team = getLiveStudioEventTeamLabel(goal);
         const scorer = getLiveStudioEventPlayerName(goal);
         for (let index = credited.length - 1; index >= 0; index -= 1) {
@@ -5845,7 +5868,7 @@ export function buildLiveStudioAside({ event, events = [] }) {
     getLiveStudioEventPlayerName(goal) === player &&
     normalizeTeamName(getLiveStudioEventTeamLabel(goal)) === normalizeTeamName(getLiveStudioEventTeamLabel(event))
   ).length;
-  if (player && !isOwnGoal(event) && !event.synthetic) {
+  if (player) {
     if (goals === 2) return `Another one for ${player}! On for a hat-trick now. Someone keep an eye on the match ball.`;
     if (goals === 3) return `That's the hat-trick for ${player}! The match ball is going home with them.`;
     if (goals > 3) return `${goals} for ${player} now. Leave some for everyone else!`;

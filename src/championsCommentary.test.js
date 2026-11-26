@@ -50,6 +50,34 @@ test('goal scores belong in the shared event heading and are not repeated in the
   expect(result.title).toContain('Goal for LIV!'); expect(result.title).toContain('1-1');
   expect(result.lines.join(' ')).not.toMatch(/1[–-]1/);
 });
+test('Sporting–United counts Bruno’s penalty once and credits the ruled-out own goal to United', () => {
+  const sporting = { id: 498, name: 'Sporting Clube de Portugal' };
+  const united = { id: 66, name: 'Manchester United FC' };
+  const penalty = { type: 'PENALTY', minute: 48, team: united, scorer: { name: 'Bruno Fernandes' }, score: { home: 1, away: 1 } };
+  const second = { ...penalty, type: 'REGULAR', minute: 50, score: { home: 1, away: 2 } };
+  const ownGoal = { type: 'GOAL', goalType: 'OWN_GOAL', minute: 82, team: sporting, scorerName: 'Kaique', homeGoals: 2, awayGoals: 3 };
+  const feed = footballFeed({ ...raw, id: 575411, status: 'FINISHED', minute: 90, homeTeam: sporting, awayTeam: united,
+    score: { fullTime: { home: 2, away: 2 } }, goals: [penalty, second],
+    recordedState: { matchEvents: [
+      { type: 'GOAL', goalType: 'PENALTY', team: united, scorerName: 'Bruno Fernandes', minute: null, scored: true },
+      ownGoal,
+      { ...ownGoal, type: 'GOAL_DISALLOWED', minute: 86, scoreCorrection: true, synthetic: true,
+        source: 'observed-score-correction', previousHomeGoals: 2, previousAwayGoals: 3, awayGoals: 2 },
+    ] },
+  }).map(buildChampionsStudioCommentary);
+  const bruno = feed.filter(entry => entry.event?.scorerName === 'Bruno Fernandes');
+  expect(bruno.map(entry => entry.event.minute)).toEqual([48, 50]);
+  expect(bruno[0].lines.join(' ')).not.toMatch(/hat-trick/i);
+  expect(bruno[1].lines.join(' ')).toContain('On for a hat-trick');
+  expect(bruno[1].lines.join(' ')).not.toContain("That's the hat-trick");
+  const scored = feed.find(entry => entry.event?.minute === 82);
+  expect(scored.title).toContain('Goal for MUN!');
+  expect(scored.lines[0]).toMatch(/own goal from Kaique.*Manchester United/i);
+  const ruledOut = feed.find(entry => entry.event?.type === 'GOAL_DISALLOWED');
+  expect(ruledOut.title).toContain('Goal ruled out for MUN');
+  expect(ruledOut.lines[0]).toMatch(/own goal by Kaique.*Manchester United/i);
+  expect(feed.find(entry => entry.minute === 'FT').title).toContain('2-2');
+});
 test('half-time and second-half headings retain the half-time score after later goals', () => {
   const feed = footballFeed({ ...raw, status: 'FINISHED', minute: 90, score: { halfTime: { home: 0, away: 0 }, fullTime: { home: 4, away: 2 } } }).map(buildChampionsStudioCommentary);
   const half = feed.find(entry => entry.minute === 'HT'), restart = feed.find(entry => entry.minute === '2H'), final = feed.find(entry => entry.minute === 'FT');

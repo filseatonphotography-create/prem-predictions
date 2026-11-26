@@ -33,6 +33,14 @@ test("combines goalEvents and matchEvents without hiding goals behind cards", ()
   expect(normalizeMatchEvents({ goalEvents, matchEvents }).filter(event => event.type === "GOAL")).toHaveLength(2);
 });
 
+test("ignores a scoreless penalty summary once the dated penalty arrives and keeps separate real penalties", () => {
+  const penalty = raw.goals[1];
+  const summary = { player: penalty.scorer, team: penalty.team, scored: true };
+  expect(normalizeGoalEvents({ penalties: [summary] })).toHaveLength(1);
+  const goals = [penalty, { ...penalty, minute: 73, injuryTime: null, score: { home: 1, away: 2 } }];
+  expect(normalizeGoalEvents({ goals, penalties: [summary] }).map(goal => goal.minute)).toEqual([45, 73]);
+});
+
 test("recognizes own goals and disallowed goals separately", () => {
   const events = normalizeMatchEvents({ goals: [{ ...raw.goals[0], type: "OWN" }], events: [{ ...raw.goals[1], type: "GOAL_DISALLOWED" }] });
   expect(events[0].goalType).toBe("OWN_GOAL");

@@ -1,13 +1,17 @@
 // Shared provider conversion: the studio and notifier must see the same events.
 // Keep this CommonJS module free of object spread: CRA injects ESM helpers for
 // spread, which makes Webpack reject module.exports at browser startup.
-const { penaltyEventType } = require("./penaltyUtils");
+const { isPenaltyGoal, penaltyEventType } = require("./penaltyUtils");
 const { normalizeCardDecision, resolveCardDecisions, reconcileCardDecisions } = require("./cardDecisionUtils");
 function numeric(value) {
   return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
 }
 function personName(value) {
   return typeof value === "string" ? value : String(value?.name || value?.playerName || value?.displayName || "").trim();
+}
+function isOwnGoal(event = {}) {
+  return event.ownGoal === true || [event.type, event.goalType].some(value => /^(?:OWN|OWN[_ -]?GOAL)$/i.test(value || ""))
+    || /\bown[_ -]?goal\b/i.test(`${event.detail || ""} ${event.description || ""}`);
 }
 function isConfirmedVarDecision(event = {}) {
   if (event.synthetic || event.scoreCorrection) return false;
@@ -46,7 +50,7 @@ function normalizeEvent(event, source = "", match = {}) {
     type,
     varConfirmed: isConfirmedVarDecision(event) || undefined,
     shootout: shootout || undefined,
-    goalType: event.goalType || (type === "GOAL" ? penaltyEventType(event, source) === "GOAL" ? "PENALTY" : event.type === "OWN" ? "OWN_GOAL" : event.type || "" : ""),
+    goalType: isOwnGoal(event) ? "OWN_GOAL" : event.goalType || (type === "GOAL" ? penalty === "GOAL" ? "PENALTY" : event.type || "" : ""),
     scorerName,
     playerName: personName(event.player || event.playerName || event.taker || event.takerName || event.footballer || event.athlete || event.name) || scorerName || playerOutName,
     takerName: personName(event.taker || event.takerName),
@@ -88,6 +92,18 @@ function sameEvent(a, b, allEvents = []) {
   if (scoring && a.homeGoals != null && b.homeGoals != null && !sameScore) return false;
   return Boolean(sameScore || a.playerName || b.playerName || a.teamName || b.teamName);
 }
+function isPenaltySummary(event) {
+  return event.type === "GOAL" && isPenaltyGoal(event) && event.id == null && event.minute == null
+    && event.homeGoals == null && event.awayGoals == null;
+}
+
+function repeatsDatedPenalty(summary, goal) {
+  return goal.type === "GOAL" && isPenaltyGoal(goal)
+    && (goal.minute != null || (goal.homeGoals != null && goal.awayGoals != null))
+    && summary.scorerName && summary.scorerName === goal.scorerName
+    && (summary.teamId && goal.teamId ? summary.teamId === goal.teamId : summary.teamName && summary.teamName === goal.teamName);
+}
+
 function mergeMatchEvents(...lists) {
   const result = [];
   const events = lists.flat().filter(event => event && typeof event === "object").map(raw => normalizeEvent(raw))
@@ -108,7 +124,10 @@ function mergeMatchEvents(...lists) {
     }
     result[index] = merged;
   });
-  return resolveCardDecisions(result.map(event => {
+  // The provider can publish a scored-penalty summary alongside the actual
+  // goal. The summary has no minute or score and is not a second event.
+  const timeline = result.filter(event => !isPenaltySummary(event) || !result.some(goal => repeatsDatedPenalty(event, goal)));
+  return resolveCardDecisions(timeline.map(event => {
     if (event.type !== "GOAL_DISALLOWED" || !event.estimatedMinute) return event;
     const removedGoal = result.filter(goal => goal.type === "GOAL"
       && numeric(event.previousHomeGoals) != null && numeric(event.previousAwayGoals) != null
@@ -306,4 +325,4 @@ function mergeRecordedMatchState(incoming = {}, recorded = {}) {
     goalEvents: incoming.goalEvents || [], matchEvents: incoming.matchEvents || [],
   }), { completeBookings: incoming.bookingsComplete === true, allowCardRevisions: !recordedIsNewer });
 }
-module.exports = { isConfirmedVarDecision, reconcileReportedGoals, isObservedScoreCorrection, shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };
+module.exports = { isConfirmedVarDecision, isOwnGoal, reconcileReportedGoals, isObservedScoreCorrection, shouldSendRecentFullTimeUpdate, mergeRecordedMatchState, numeric, normalizeMatchEvents, normalizeGoalEvents, mergeMatchEvents, shouldPushMatchEvent, isMeaningfulFixturePush, formatGoalMinute, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs };
