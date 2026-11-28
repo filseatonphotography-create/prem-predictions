@@ -111,8 +111,9 @@ const {
 
 const { buildFinalBadgeAwards, isFinalBadgeFixture, countFinalPredictionBadges } = require("./badgeRules");
 const { isPenaltyGoal, penaltyLabel, penaltyDetails } = require("./penaltyUtils");
-const { isSupersededYellowPost } = require("./cardDecisionUtils");
+const { isSupersededYellowPost, isSameYellowBooking } = require("./cardDecisionUtils");
 const { isConfirmedVarDecision, isOwnGoal, mergeRecordedMatchState, normalizeGoalEvents, normalizeMatchEvents, mergeMatchEvents, mergeMatchPhaseState, getConfirmedPhaseFlags, getMatchEventMomentMs, formatGoalMinute, numeric } = require("./liveMatchEvents");
+const { buildStudioFormNote, buildStudioBuildupPreview } = require("./studioPrematch");
 
 const { getResultsRefreshInterval } = require("./liveResultsRefresh");
 
@@ -5305,6 +5306,10 @@ function withoutIndividualFullTimeTable(entry) {
     || !/table|standings|position|order|since kick-off/i.test(line)) };
 }
 
+function isSameLiveStudioBooking(a, b) {
+  return isSameYellowBooking(a.cardEvent, b.cardEvent) && String(a.fixtureId) === String(b.fixtureId);
+}
+
 export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   // Keep published final roundups as history when the next game starts.
   // Late check-ins share one stable identity.
@@ -5313,6 +5318,11 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
   const keyFor = entry => {
     if (entry.id === "studio:closing") return entry.id;
     const key = entry.arrivalKey || entry.updateKey || entry.id;
+    if (entry.cardEvent?.type === "YELLOW_CARD" && !entries.has(key)) {
+      for (const [savedKey, saved] of entries) {
+        if (isSameLiveStudioBooking(saved, entry)) return savedKey;
+      }
+    }
     if (!key?.includes(":goal:") || !key.includes(":repeat:")) return key;
     // Repair duplicate flashes already saved by the old minute-based logic.
     // A repeat is valid only when a confirmed reversal lowered this score.
@@ -5328,19 +5338,23 @@ export function mergeLiveStudioDeskHistory(history = [], currentFeed = []) {
     });
     return reversed ? key : entry.updateKey || key.split(":repeat:")[0];
   };
+  const keepBookingIdentity = (entry, previous) => previous && isSameLiveStudioBooking(previous, entry)
+    ? { ...entry, id: previous.id, updateKey: previous.updateKey, arrivalKey: previous.arrivalKey }
+    : entry;
   const cardDecisions = allPosts.filter(entry => entry.cardEvent?.cardUpgrade);
   history.filter(entry => !isRetiredLiveStudioEntry(entry) && !isUnverifiedDisallowedPost(entry) && !isSupersededYellowPost(entry, cardDecisions))
     .map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).map(repairSavedLiveStudioGoalQuote)
     .sort((a, b) => (a.momentMs || 0) - (b.momentMs || 0)).forEach(entry => {
       const key = keyFor(entry);
       const previous = entries.get(key);
-      entries.set(key, previous ? enrichLiveStudioPlayerRoundup(previous, entry) : entry);
+      entries.set(key, previous ? keepBookingIdentity(enrichLiveStudioPlayerRoundup(previous, entry), previous) : entry);
     });
   currentFeed.filter(entry => isRetainedLiveStudioEntry(entry) && !isRetiredLiveStudioEntry(entry) && !isSupersededYellowPost(entry, cardDecisions)).map(normalizeLiveStudioDeskEntry).map(withoutIndividualFullTimeTable).forEach(entry => {
     const key = keyFor(entry);
     const previous = entries.get(key);
     if (entry.id === "studio:closing") entries.set(key, mergeLiveStudioFinalRoundup(previous, entry));
-    else if (!entry.id.startsWith("studio:")) entries.set(key, refreshLiveStudioGoalCommentary({ ...entry, momentMs: entry.kickoff ? entry.momentMs : previous?.momentMs ?? entry.momentMs }, previous));
+    else if (!entry.id.startsWith("studio:")) entries.set(key, refreshLiveStudioGoalCommentary(
+      { ...keepBookingIdentity(entry, previous), momentMs: entry.kickoff ? entry.momentMs : previous?.momentMs ?? entry.momentMs }, previous));
     else if (!previous) entries.set(key, entry);
     else entries.set(key, enrichLiveStudioPlayerRoundup(previous, entry));
   });
@@ -5376,7 +5390,7 @@ export function useLiveStudioCommentaryHistory(currentFeed, scope, enabled = tru
   const combined = retained.length
     ? [...currentFeed.filter((entry) => !isRetainedLiveStudioEntry(entry)), ...retained]
     : currentFeed;
-  const restoredIds = history.filter(entry => !currentFeed.some(current => current.id === entry.id)).map(entry => entry.id);
+  const restoredIds = history.filter(entry => !currentFeed.some(current => current.id === entry.id || isSameLiveStudioBooking(entry, current))).map(entry => entry.id);
   return getVisibleLiveStudioEntries(useLiveStudioFeedOrder(ready ? combined : history, orderScope, enabled, scope, ready, restoredIds));
 }
 
@@ -5740,7 +5754,10 @@ export function buildLiveStudioRevealLine(fixture, score, event, matchContext = 
     form: side === "home" ? matchContext.homeForm : side === "away" ? matchContext.awayForm : [],
   }) : "";
   if (getLiveStudioEventKind(event) === "goal" && isPenaltyGoal(event)) {
-    return [`${player || team || "A player"} scores from the penalty spot${player && team ? ` for ${team}` : ""}${formatGoalMinute(event) ? ` (${formatGoalMinute(event)})` : ""}. ${penaltyDetails(event)}`.trim(), situation].filter(Boolean).join(" ");
+    const scorer = player || event.takerName;
+    const minute = formatGoalMinute(event);
+    const announcement = `${scorer || team || "A player"} scores from the penalty spot${scorer && team ? ` for ${team}` : ""}${minute ? ` (${minute})` : ""}.`;
+    return [announcement, penaltyDetails(event, { includeTaker: false }), situation].filter(Boolean).join(" ");
   }
   if (getLiveStudioEventKind(event) === "goal-disallowed") {
     const subject = ownGoal
@@ -7466,16 +7483,23 @@ export function buildGeneratedModelOdds(fixtures = [], context = {}) {
   return out;
 }
 
-export function buildPremierTeamForm(teamName, results, beforeMs = Infinity) {
+export function buildPremierTeamForm(teamName, results, beforeMs = Infinity, states = null) {
   const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
   const normalizedTeam = normalizeTeamName(canonicalTeamName);
+  const kickoffTime = fixture => Date.parse(states?.[fixture.id]?.utcDate || fixture.kickoff);
   return FIXTURES.filter((fixture) => {
     const isTeamFixture =
       normalizeTeamName(fixture.homeTeam) === normalizedTeam ||
       normalizeTeamName(fixture.awayTeam) === normalizedTeam;
-    return isTeamFixture && Date.parse(fixture.kickoff) < beforeMs && isFixtureCompleted(fixture, results);
+    const kickoff = kickoffTime(fixture);
+    if (!isTeamFixture || !(kickoff < beforeMs) || !isFixtureCompleted(fixture, results)) return false;
+    if (!states) return true;
+    const state = states[fixture.id];
+    if (state?.status && !isLiveStudioFinalStatus(state.status)) return false;
+    const finished = Date.parse(state?.finishedAt || "");
+    return (Number.isFinite(finished) ? finished : kickoff + 120 * 60000) < beforeMs;
   })
-    .sort((a, b) => Date.parse(b.kickoff) - Date.parse(a.kickoff))
+    .sort((a, b) => kickoffTime(b) - kickoffTime(a))
     .slice(0, 5)
     .map((fixture) => {
       const res = results[fixture.id];
@@ -7495,8 +7519,7 @@ export function buildPremierTeamForm(teamName, results, beforeMs = Infinity) {
     });
 }
 
-export function buildLiveStudioPreMatchContext(fixture, results = {}, states = {}) {
-  const kickoff = Date.parse(fixture.kickoff);
+export function buildLiveStudioPreMatchContext(fixture, results = {}, states = {}, before = Date.parse(fixture.kickoff)) {
   const historical = {};
   FIXTURES.forEach(past => {
     if (String(past.id) === String(fixture.id) || !isFinalBadgeFixture(past, results, states)) return;
@@ -7504,12 +7527,12 @@ export function buildLiveStudioPreMatchContext(fixture, results = {}, states = {
     const ended = Date.parse(state.finishedAt || "");
     const start = Date.parse(state.utcDate || past.kickoff);
     const finalBy = Number.isFinite(ended) ? ended : start + 120 * 60000;
-    if (Number.isFinite(kickoff) && finalBy < kickoff) historical[past.id] = results[past.id];
+    if (finalBy < before) historical[past.id] = results[past.id];
   });
   const preMatchOdds = buildGeneratedModelOdds([fixture], { performanceByTeam: buildLeaguePerformanceContext(historical) });
   const historyFor = team => FIXTURES.filter(past => String(past.id) !== String(fixture.id)
     && [past.homeTeam, past.awayTeam].some(name => normalizeTeamName(name) === normalizeTeamName(team))
-    && Date.parse(states[past.id]?.utcDate || past.kickoff) < kickoff
+    && Date.parse(states[past.id]?.utcDate || past.kickoff) < before
     && !["POSTPONED", "CANCELLED"].includes(String(states[past.id]?.status).toUpperCase()))
     .sort((a, b) => Date.parse(states[b.id]?.utcDate || b.kickoff) - Date.parse(states[a.id]?.utcDate || a.kickoff))
     .map(past => {
@@ -21275,6 +21298,26 @@ if (!isLoggedIn) {
                   const entryFixture = entry.fixture || liveStudioFixtures.find((fixture) => String(fixture.id) === String(entry.fixtureId || ""));
                   const isStudioRoundup = entry.verdictLabel === "Back in the studio";
                   const isKickoffCard = entry.kickoff || entry.updateKey?.includes(":kick-off:");
+                  const championsForm = entryFixture?.competition === "champions";
+                  const showForm = entryFixture && (championsForm || !isWorldCupMode) &&
+                    (entry.formCard || isKickoffCard && !studioCoverage.preMatchFeed.some(card => card.formCard && String(card.fixtureId) === String(entry.fixtureId)));
+                  const formTeams = showForm ? [entryFixture.homeTeam, entryFixture.awayTeam].map(team => getLiveStudioTeamName(team)) : [];
+                  const formBefore = entry.formCard ? entry.momentMs : Date.parse(entryFixture?.kickoff || "");
+                  const teamForm = showForm ? Object.fromEntries(["home", "away"].map(side => [
+                    side,
+                    championsForm ? entry.championsForm?.[side] || []
+                      : buildPremierTeamForm(entryFixture[`${side}Team`], results, formBefore, entry.formCard ? matchStatesByFixtureId : null),
+                  ])) : null;
+                  const formNote = entry.formCard && teamForm ? buildStudioFormNote(entryFixture, teamForm, formTeams) : "";
+                  let lines = entry.lines;
+                  if (entry.buildupCard && entryFixture && gameMode === PREMIER_MODE && !entry.footballOnly) {
+                    const { probabilities, homeForm, awayForm } = buildLiveStudioPreMatchContext(entryFixture, results, matchStatesByFixtureId, entry.momentMs);
+                    lines = [entry.lines[0], ...buildStudioBuildupPreview(entryFixture, {
+                      probabilities,
+                      form: { home: homeForm, away: awayForm },
+                      teamNames: [entryFixture.homeTeam, entryFixture.awayTeam].map(team => getLiveStudioTeamName(team)),
+                    })];
+                  }
                   const toneColor =
                     isKickoffCard ? "#f87171" : isStudioRoundup ? "#f59e0b" : entry.tone === "live"
                       ? "#22c55e"
@@ -21384,7 +21427,7 @@ if (!isLoggedIn) {
                           </span>
                         </div>
                         <div style={{ display: "grid", gap: 4, marginTop: 6 }}>
-                          {(isStudioRoundup && entry.roundupMatches?.length && !entry.compactCheckIn ? entry.lines.slice(0, 1) : entry.lines).map((line, index) => (
+                          {(isStudioRoundup && entry.roundupMatches?.length && !entry.compactCheckIn ? lines.slice(0, 1) : lines).map((line, index) => (
                             <div
                               key={`${entry.id}:${index}`}
                               style={{
@@ -21398,22 +21441,24 @@ if (!isLoggedIn) {
                             </div>
                           ))}
                         </div>
-                        {(entry.formCard || isKickoffCard && !studioCoverage.preMatchFeed.some(card => card.formCard && String(card.fixtureId) === String(entry.fixtureId))) && entryFixture && (entryFixture.competition === "champions" || !isWorldCupMode) && (
+                        {showForm && (
                           <section aria-label={entry.formCard ? "Team form before kick-off" : "Team form at kick-off"} style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                            <div style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35 }}>
-                              {entryFixture.competition === "champions" ? "Champions League form this season · before kick-off · latest first" : pickLiveStudioPhrase(`${entryFixture.id}:kickoff-form`, [
-                                "Let's look at the teams' current form.",
-                                "A quick look at recent form for both sides.",
-                                "How are they coming into this one? Here's the form.",
-                                "Before we get going, here's how these two have been shaping up.",
-                              ])}
-                            </div>
-                            {[entryFixture.homeTeam, entryFixture.awayTeam].map((team, sideIndex) => (
-                              <div key={team} role="group" aria-label={`${getLiveStudioTeamName(team)} form`} style={{ display: "grid", gap: 5 }}>
-                                <strong style={{ color: theme.text, fontSize: isMobile ? 12 : 13 }}>{getLiveStudioTeamName(team)}</strong>
+                            {(!entry.formCard || formNote) && (
+                              <div style={{ color: theme.text, fontSize: isMobile ? 12 : 13, lineHeight: 1.35 }}>
+                                {entry.formCard ? formNote : championsForm ? "Champions League form this season · before kick-off · latest first" : pickLiveStudioPhrase(`${entryFixture.id}:kickoff-form`, [
+                                  "Let's look at the teams' current form.",
+                                  "A quick look at recent form for both sides.",
+                                  "How are they coming into this one? Here's the form.",
+                                  "Before we get going, here's how these two have been shaping up.",
+                                ])}
+                              </div>
+                            )}
+                            {formTeams.map((team, sideIndex) => (
+                              <div key={team} role="group" aria-label={`${team} form`} style={{ display: "grid", gap: 5 }}>
+                                <strong style={{ color: theme.text, fontSize: isMobile ? 12 : 13 }}>{team}</strong>
                                 <TeamFormStrip
-                                  form={entryFixture.competition === "champions" ? entry.championsForm?.[sideIndex === 0 ? "home" : "away"] || [] : buildPremierTeamForm(team, results, Date.parse(entryFixture.kickoff))}
-                                  emptyLabel={entryFixture.competition === "champions" ? entry.championsForm ? "No earlier Champions League results this season." : "Champions League form is unavailable." : undefined}
+                                  form={teamForm[sideIndex === 0 ? "home" : "away"]}
+                                  emptyLabel={championsForm ? entry.championsForm ? "No earlier Champions League results this season." : "Champions League form is unavailable." : undefined}
                                   isMobile={isMobile} theme={theme} />
                               </div>
                             ))}

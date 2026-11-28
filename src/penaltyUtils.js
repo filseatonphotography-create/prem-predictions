@@ -24,9 +24,10 @@ function penaltyLabel(type) {
   return { PENALTY_AWARDED: "Penalty awarded", PENALTY_MISSED: "Penalty missed", PENALTY_SAVED: "Penalty saved",
     PENALTY_CANCELLED: "Penalty overturned", PENALTY_REVIEW: "Penalty under review", PENALTY_RETAKE: "Penalty retake", PENALTY_SCORED: "Penalty scored" }[type] || "Penalty update";
 }
-function penaltyDetails(event = {}) {
+function penaltyDetails(event = {}, { includeTaker = true } = {}) {
   const details = [];
-  if (event.takerName || event.scorerName || event.playerName) details.push(`Taker: ${event.takerName || event.scorerName || event.playerName}.`);
+  const taker = event.takerName || event.scorerName || event.playerName;
+  if (includeTaker && taker) details.push(`Taker: ${taker}.`);
   if (event.goalkeeperName) details.push(`Goalkeeper: ${event.goalkeeperName}.`);
   const reason = String(event.reason || event.description || event.detail || "").trim();
   if (reason) details.push(reason);

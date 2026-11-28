@@ -1,5 +1,6 @@
 const { normalizeMatchEvents, mergeRecordedMatchState, mergeMatchEvents, isConfirmedVarDecision } = require("./liveMatchEvents");
 const { buildLiveStudioEventHeader, buildLiveStudioEventLine, mergeLiveStudioDeskHistory, getVisibleLiveStudioEntries, buildFixtureSyncPayload } = require("./App");
+const { orderLiveStudioUpdates } = require("./liveStudioFeedOrder");
 const fixture = { id: 560627, homeTeam: "Tottenham Hotspur FC", awayTeam: "Crystal Palace FC", kickoff: "2026-10-31T17:30:00Z" };
 const yellow = { type: "YELLOW_CARD", minute: 12, card: "YELLOW", player: { id: 641, name: "Jean-Philippe Mateta" }, team: { id: 354, name: fixture.awayTeam } };
 const red = { ...yellow, type: "RED_CARD", minute: 13, card: "RED" };
@@ -69,4 +70,35 @@ test("saved and late original-yellow posts are folded into the decision without 
   expect(merged).toHaveLength(3);
   expect(getVisibleLiveStudioEntries([old, unrelated, upgraded])).toEqual([unrelated, upgraded]);
   expect(mergeLiveStudioDeskHistory(merged, [{ ...old, cardEvent: normalizeMatchEvents({ bookings: [yellow] })[0] }])).toHaveLength(3);
+});
+
+const fofana = { type: "YELLOW_CARD", minute: 49, player: { id: 1, name: "Wesley Fofana" }, team: { id: 61, name: "Chelsea FC" } };
+const corrected = { ...fofana, minute: 50 };
+
+test("a booking corrected from 49 to 50 minutes replaces the previous event across polls", () => {
+  const first = { lastUpdated: "2026-10-31T18:34:00Z", matchEvents: [fofana] };
+  const second = { lastUpdated: "2026-10-31T18:35:00Z", matchEvents: [corrected] };
+  expect(normalizeMatchEvents({ matchEvents: [fofana], bookings: [corrected] })).toEqual([expect.objectContaining({ minute: 50 })]);
+  const merged = mergeRecordedMatchState(second, first);
+  expect(merged.matchEvents).toEqual([expect.objectContaining({ minute: 50, playerName: "Wesley Fofana" })]);
+  expect(mergeRecordedMatchState(first, merged).matchEvents).toEqual(merged.matchEvents);
+});
+
+test("distinct provider IDs, players, periods and a confirmed second yellow stay separate", () => {
+  expect(mergeMatchEvents([{ ...fofana, id: 1 }], [{ ...corrected, id: 2 }])).toHaveLength(2);
+  expect(mergeMatchEvents([fofana], [{ ...corrected, player: { id: 2, name: "Another player" } }])).toHaveLength(2);
+  expect(mergeMatchEvents([{ ...fofana, minute: 45 }], [{ ...corrected, minute: 46 }])).toHaveLength(2);
+  const secondYellow = { ...corrected, type: "SECOND_YELLOW_CARD" };
+  expect(mergeMatchEvents([fofana], [secondYellow]).map(event => event.type)).toEqual(["YELLOW_CARD", "RED_CARD"]);
+});
+
+test("Live Studio updates the original booking card without adding another arrival", () => {
+  const post = event => ({ id: `1:YELLOW_CARD:${event.minute}:1`, updateKey: `1:yellow-card:${event.minute}`,
+    fixtureId: 1, minute: `${event.minute}'`, momentMs: event.minute * 60000, cardEvent: event });
+  const first = post(fofana), next = post(corrected);
+  const originalOrder = orderLiveStudioUpdates([first]);
+  const merged = mergeLiveStudioDeskHistory([first], [next]);
+  expect(merged).toEqual([expect.objectContaining({ id: first.id, updateKey: first.updateKey, minute: "50'", cardEvent: corrected })]);
+  expect(orderLiveStudioUpdates(merged, originalOrder.state).state).toEqual(originalOrder.state);
+  expect(mergeLiveStudioDeskHistory([first, next])).toHaveLength(1);
 });

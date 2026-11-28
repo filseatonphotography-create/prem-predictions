@@ -11,6 +11,7 @@ import useStudioCoverage from './useStudioCoverage';
 import { studioRequest } from './studioRequest';
 import { currentStudioPush, enableStudioPush, studioPushSupported } from './studioPushClient';
 import { PREMIER, WORLD_CUP } from './competitionModes';
+const { buildStudioFormNote } = require('./studioPrematch');
 
 export const championsTheme = { bg: '#050b14', panel: '#0a1525', panelHi: '#0e1e33', text: '#e2eaf5', muted: '#8a9db5', accent: '#60a5fa', accent2: '#38bdf8', line: 'rgba(96,165,250,0.16)' };
 const theme = championsTheme;
@@ -117,6 +118,8 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
           {(studio.error || studio.detailsError) && <div role="status" style={{ color: theme.muted, fontSize: 12 }}>{studio.error || studio.detailsError}</div>}
           {entries.map(entry => {
             const fixture = entry.fixture, showForm = entry.formCard || entry.footballOnly && entry.updateKey?.includes(':kick-off:') && !formFixtures.has(entry.fixtureId);
+            const form = entry.championsForm || emptyObject;
+            const formNote = entry.formCard && fixture ? buildStudioFormNote(fixture, form, [cleanName(fixture.homeTeam), cleanName(fixture.awayTeam)]) : '';
             return <article key={entry.id} data-live-studio-fixture-id={entry.fixtureId} data-studio-update-key={entry.updateKey} style={{ border: `1px solid ${entry.prematch ? theme.accent : theme.line}`, borderRadius: 8, background: 'rgba(255,255,255,0.04)', padding: mobile ? 10 : 12, display: 'grid', gap: 10 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 {fixture && <><StudioTeamBadge src={fixture.homeBadge} team={fixture.homeTeam} /><span style={{ color: theme.muted, fontSize: 10 }}>v</span><StudioTeamBadge src={fixture.awayBadge} team={fixture.awayTeam} /></>}
@@ -126,10 +129,11 @@ export default function ChampionsLeagueMode({ auth, base, onModeChange, onLogout
               {entry.lines.map((line, index) => <div key={index} style={{ color: index ? theme.muted : theme.text, fontSize: 13, lineHeight: 1.4 }}>{line}</div>)}
               {entry.lineups && fixture && <LiveStudioLineups theme={theme} isMobile={mobile} teams={['home', 'away'].map(side => ({ ...entry.lineups[side], name: cleanName(fixture[`${side}Team`]), badge: fixture[`${side}Badge`] }))} />}
               {showForm && fixture && <section aria-label={entry.formCard ? 'Team form before kick-off' : 'Team form at kick-off'} style={{ display: 'grid', gap: 10 }}>
-                <div style={{ fontSize: 13 }}>Champions League form this season · before kick-off · latest first</div>
+                {entry.formCard ? formNote && <div style={{ fontSize: 13 }}>{formNote}</div>
+                  : <div style={{ fontSize: 13 }}>Champions League form this season · before kick-off · latest first</div>}
                 {['home', 'away'].map(side => <div key={side} role="group" aria-label={`${cleanName(fixture[`${side}Team`])} form`} style={{ display: 'grid', gap: 5 }}>
                   <strong style={{ fontSize: 13 }}>{cleanName(fixture[`${side}Team`])}</strong>
-                  <TeamFormStrip form={entry.championsForm?.[side] || []} emptyLabel={entry.championsForm ? 'No earlier Champions League results this season.' : 'Champions League form is unavailable.'} theme={theme} isMobile={mobile} />
+                  <TeamFormStrip form={form[side] || []} emptyLabel={entry.championsForm ? 'No earlier Champions League results this season.' : 'Champions League form is unavailable.'} theme={theme} isMobile={mobile} />
                 </div>)}
               </section>}
             </article>;

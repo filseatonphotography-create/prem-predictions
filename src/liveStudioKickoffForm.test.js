@@ -1,6 +1,6 @@
 import React from "react";
 import { act, cleanup, render, screen, within } from "@testing-library/react";
-import App, { buildPremierTeamForm } from "./App";
+import App, { buildLiveStudioPreMatchContext, buildPremierTeamForm } from "./App";
 import FIXTURES from "./fixtures";
 
 const fixture = FIXTURES.find(game => game.id === 560616);
@@ -20,6 +20,25 @@ test("kickoff form uses the league table's latest-five order and excludes this g
   expect(form.map(item => item.outcome)).toEqual(expected.map(game => game.homeTeam === fixture.homeTeam ? "W" : "L"));
   expect(form.map(item => item.venue)).toEqual(expected.map(game => game.homeTeam === fixture.homeTeam ? "H" : "A"));
   expect(form.every(item => item.opponentCode && item.scoreText)).toBe(true);
+});
+
+test("the pre-match form guide excludes live scores and results confirmed after it was published", () => {
+  const latest = buildPremierTeamForm(fixture.homeTeam, results, before);
+  const states = {
+    [latest[0].fixtureId]: { status: "IN_PLAY" },
+    [latest[1].fixtureId]: { status: "FINISHED", finishedAt: new Date(before - 1000).toISOString() },
+  };
+  const form = buildPremierTeamForm(fixture.homeTeam, results, before - 30 * 60000, states);
+  expect(form.map(match => match.fixtureId)).not.toContain(latest[0].fixtureId);
+  expect(form.map(match => match.fixtureId)).not.toContain(latest[1].fixtureId);
+  expect(form.map(match => match.fixtureId)).toContain(latest[2].fixtureId);
+});
+
+test("the countdown model uses results that were settled when the card appeared", () => {
+  const latest = buildPremierTeamForm(fixture.homeTeam, results, before)[0];
+  const states = { [latest.fixtureId]: { status: "FINISHED", finishedAt: new Date(before - 5 * 60000).toISOString() } };
+  expect(buildLiveStudioPreMatchContext(fixture, results, states, before - 15 * 60000).homeForm[0].outcome).toBe("?");
+  expect(buildLiveStudioPreMatchContext(fixture, results, states).homeForm[0].outcome).toBe(latest.outcome);
 });
 
 test("the full app shows both teams' table-style form strips on a kickoff card without opening Leagues", async () => {
@@ -94,11 +113,13 @@ test.each(['premier', 'champions'])('the %s feed shows scheduled form and build-
   localStorage.setItem('live-studio-selection:v1:diagnostic', JSON.stringify({ 'cl:77': true }));
   const lineup = Array.from({ length: 11 }, (_, id) => ({ id, name: `Player ${id}` }));
   const state = { status: 'TIMED', utcDate: fixture.kickoff, lineupsAnnouncedAt: new Date(kickoff - 75 * 60000).toISOString(), lineups: { home: { lineup }, away: { lineup } } };
-  const raw = { id: 77, ...state, homeTeam: { id: 1, name: 'Fenerbahçe SK' }, awayTeam: { id: 2, name: 'Liverpool FC' }, score: {}, form: { home: [], away: [] } };
+  const raw = { id: 77, ...state, homeTeam: { id: 1, name: 'Fenerbahçe SK' }, awayTeam: { id: 2, name: 'Liverpool FC' }, score: {},
+    form: { home: [], away: [{ fixtureId: 'cl:66', outcome: 'W' }, { fixtureId: 'cl:65', outcome: 'W' }] } };
   const original = global.fetch;
   global.fetch = jest.fn(async url => {
     let data = {};
     if (String(url).includes('/api/live-studio/matches?')) data = { matches: [raw] };
+    if (String(url).includes('/api/results/snapshot')) data = results;
     if (String(url).includes('/api/match-states/snapshot')) data = { [fixture.id]: state };
     if (String(url).includes('/api/results?')) data = [{ id: fixture.id, ...state, homeTeam: { name: fixture.homeTeam, lineup }, awayTeam: { name: fixture.awayTeam, lineup }, score: {} }];
     return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
@@ -106,8 +127,20 @@ test.each(['premier', 'champions'])('the %s feed shows scheduled form and build-
   try {
     render(<App />); await act(async () => { for (let i = 0; i < 70; i++) await Promise.resolve(); });
     expect(screen.getByText('The pre-match form guide')).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Team form before kick-off' })).toBeInTheDocument();
-    expect(screen.getByText('The countdown is on')).toBeInTheDocument();
+    const section = screen.getByRole('region', { name: 'Team form before kick-off' });
+    expect(section.closest('article')).toHaveTextContent(competition === 'champions' ? 'Champions League' : 'Premier League');
+    expect(section).not.toHaveTextContent(/current form|quick look at recent form|how are they coming into this one|before we get going|form this season/i);
+    if (competition === 'champions') expect(section).toHaveTextContent(/3 wins in a row|2 straight wins|2 consecutive wins/);
+    else expect(section).toHaveTextContent(/straight|last time out|last \d|in a row|consecutive|on the bounce/);
+    const countdown = screen.getByText('The countdown is on').closest('article');
+    expect(countdown).toHaveTextContent('15 minutes to kick-off');
+    if (competition === 'champions') {
+      expect(countdown).toHaveTextContent(/Liverpool.*Fenerbahçe SK|Fenerbahçe SK.*Liverpool/);
+      expect(countdown).toHaveTextContent(/winning momentum|in-form Liverpool/);
+      expect(countdown).not.toHaveTextContent(/model|%/);
+    } else {
+      expect(countdown).toHaveTextContent('pre-match model');
+    }
     expect(screen.getByRole('button', { name: 'Live Studio' })).toHaveClass('live-studio-live-button');
   } finally { cleanup(); global.fetch = original; jest.useRealTimers(); window.history.replaceState({}, '', '/'); }
 });

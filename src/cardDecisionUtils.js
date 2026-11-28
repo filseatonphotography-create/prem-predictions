@@ -24,6 +24,18 @@ function secondYellow(event) {
   return /YELLOW[_ -]?RED|SECOND[_ -]?YELLOW|2ND[_ -]?YELLOW|TWO[_ -]?YELLOW/i.test(
     `${event.card || ""} ${event.cardType || ""} ${event.type || ""} ${event.reason || ""}`);
 }
+function isSameYellowBooking(a, b) {
+  if (a?.type !== "YELLOW_CARD" || b?.type !== "YELLOW_CARD") return false;
+  if (a.id != null && b.id != null) return String(a.id) === String(b.id);
+  if (!samePlayer(a, b) || secondYellow(a) || secondYellow(b)) return false;
+  const minuteA = number(a.minute), minuteB = number(b.minute);
+  if (minuteA == null || minuteB == null) return false;
+  // An adjacent-minute correction in the same period can arrive without an event ID.
+  const period = minute => minute <= 45 ? 1 : minute <= 90 ? 2 : minute <= 105 ? 3 : 4;
+  if (period(minuteA) !== period(minuteB)) return false;
+  const elapsed = event => Number(event.minute) + (number(event.injuryTime) || 0);
+  return Math.abs(elapsed(a) - elapsed(b)) <= 1;
+}
 function metadata(red, yellow) {
   return { from: "YELLOW", to: "RED", originalMinute: number(yellow?.minute), originalInjuryTime: number(yellow?.injuryTime),
     originalEventId: yellow?.id == null ? "" : String(yellow.id),
@@ -96,4 +108,4 @@ function isSupersededYellowPost(entry, decisions) {
     return at != null && redAt != null && at <= redAt && redAt - at <= 3 && (originalAt == null || Math.abs(at - originalAt) <= 1);
   });
 }
-module.exports = { normalizeCardDecision, resolveCardDecisions, reconcileCardDecisions, isSupersededYellowPost };
+module.exports = { normalizeCardDecision, resolveCardDecisions, reconcileCardDecisions, isSupersededYellowPost, isSameYellowBooking, isSecondYellow: secondYellow };

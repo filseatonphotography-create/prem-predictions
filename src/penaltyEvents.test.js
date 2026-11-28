@@ -8,7 +8,19 @@ test("scored penalties remain one goal and carry the supplied taker, team and mi
   expect(goal).toMatchObject({ type: "GOAL", goalType: "PENALTY", minute: 70, scorerName: "Cole Palmer" });
   expect(normalizeMatchEvents({ goals: [raw], matchEvents: [goal] })).toHaveLength(1);
   expect(buildLiveStudioEventHeader({ fixture, event: goal, score: { homeGoals: 2, awayGoals: 0 } })).toContain("(penalty)");
-  expect(buildLiveStudioRevealLine(fixture, { homeGoals: 2, awayGoals: 0 }, goal)).toMatch(/Cole Palmer scores from the penalty spot.*70'/);
+  const line = buildLiveStudioRevealLine(fixture, { homeGoals: 2, awayGoals: 0 }, goal);
+  expect(line).toMatch(/Cole Palmer scores from the penalty spot.*70'/);
+  expect(line.match(/Cole Palmer/g)).toHaveLength(1);
+  expect(line).not.toContain("Taker:");
+});
+
+test("a penalty goal can name a supplied taker in its announcement and retain other details", () => {
+  const event = { type: "GOAL", goalType: "PENALTY", teamName: "Chelsea FC", takerName: "Cole Palmer",
+    goalkeeperName: "Senne Lammens", reason: "Scored after a retake." };
+  const line = buildLiveStudioRevealLine(fixture, { homeGoals: 2, awayGoals: 0 }, event);
+  expect(line).toContain("Cole Palmer scores from the penalty spot for Chelsea.");
+  expect(line).toContain("Goalkeeper: Senne Lammens. Scored after a retake.");
+  expect(line).not.toContain("Taker:");
 });
 
 test.each([

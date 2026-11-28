@@ -2,7 +2,7 @@
 // Keep this CommonJS module free of object spread: CRA injects ESM helpers for
 // spread, which makes Webpack reject module.exports at browser startup.
 const { isPenaltyGoal, penaltyEventType } = require("./penaltyUtils");
-const { normalizeCardDecision, resolveCardDecisions, reconcileCardDecisions } = require("./cardDecisionUtils");
+const { normalizeCardDecision, resolveCardDecisions, reconcileCardDecisions, isSameYellowBooking, isSecondYellow } = require("./cardDecisionUtils");
 function numeric(value) {
   return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
 }
@@ -24,7 +24,7 @@ function eventKind(event = {}, source = "") {
   if (penaltyType) return penaltyType;
   if (/DISALLOW|RULED.OUT|CHALKED.OFF|CANCELLED|CANCELED/.test(text)) return "GOAL_DISALLOWED";
   if (source === "bookings" || /YELLOW|RED|BOOKING|CARD/.test(text)) {
-    return /RED|DISMISS/.test(text) ? "RED_CARD" : "YELLOW_CARD";
+    return /RED|DISMISS/.test(text) || isSecondYellow(event) ? "RED_CARD" : "YELLOW_CARD";
   }
   if (source === "substitutions" || /SUB/.test(text) || event.playerOut || event.playerIn || event.substituteName) return "SUBSTITUTION";
   if (/HALF.?TIME|SECOND.?HALF|FULL.?TIME|KICK.?OFF/.test(text)) return String(event.type || event.eventType).toUpperCase();
@@ -61,7 +61,7 @@ function normalizeEvent(event, source = "", match = {}) {
     injuryTime: injuryTime > 0 ? injuryTime : null,
     homeGoals: numeric(event.homeGoals ?? event.score?.home ?? event.score?.homeGoals ?? event.result?.home),
     awayGoals: numeric(event.awayGoals ?? event.score?.away ?? event.score?.awayGoals ?? event.result?.away),
-    card: String(event.card || event.cardType || ""),
+    card: String(event.card || event.cardType || (type === "RED_CARD" && isSecondYellow(event) ? "SECOND_YELLOW" : "")),
     reason: String(event.reason || event.description || ""),
     substituteName: playerInName,
     playerOutName,
@@ -72,6 +72,7 @@ function normalizeEvent(event, source = "", match = {}) {
 function sameEvent(a, b, allEvents = []) {
   if (a.type !== b.type) return false;
   if (a.id != null && b.id != null) return String(a.id) === String(b.id);
+  if (isSameYellowBooking(a, b)) return true;
   const scoring = ["GOAL", "GOAL_DISALLOWED"].includes(a.type);
   const sameScore = a.homeGoals != null && a.awayGoals != null && a.homeGoals === b.homeGoals && a.awayGoals === b.awayGoals;
   if (a.type === "GOAL" && sameScore) {
@@ -165,13 +166,17 @@ function isObservedScoreCorrection(event = {}) {
 function reconcileReportedGoals(previous = {}, incoming = {}, options = {}) {
   const reportedEvents = normalizeMatchEvents(incoming);
   const reported = reportedEvents.filter(event => event.type === "GOAL");
-  let events = mergeMatchEvents(normalizeMatchEvents(previous), normalizeMatchEvents(incoming));
+  const previousEvents = normalizeMatchEvents(previous);
+  const previousTime = Date.parse(previous.lastUpdated || ""), incomingTime = Date.parse(incoming.lastUpdated || "");
+  const stale = Number.isFinite(previousTime) && Number.isFinite(incomingTime) && incomingTime < previousTime;
+  const mergeableEvents = stale || options.allowCardRevisions === false
+    ? reportedEvents.filter(event => !previousEvents.some(old => isSameYellowBooking(old, event))) : reportedEvents;
+  let events = mergeMatchEvents(previousEvents, mergeableEvents);
   const goals = events.filter(event => event.type === "GOAL");
   const home = numeric(incoming.homeGoals), away = numeric(incoming.awayGoals);
   const status = String(incoming.status || "").toUpperCase();
-  const previousTime = Date.parse(previous.lastUpdated || ""), incomingTime = Date.parse(incoming.lastUpdated || "");
   if (["IN_PLAY", "PAUSED"].includes(status) && home != null && away != null
-    && !(Number.isFinite(previousTime) && Number.isFinite(incomingTime) && incomingTime < previousTime)) {
+    && !stale) {
     const removed = goals.filter(goal => {
       if (goal.id != null && reported.some(current => current.id === goal.id)) return false;
       const candidate = { scoreCorrection: true, source: "observed-score-correction",
@@ -204,7 +209,7 @@ function reconcileReportedGoals(previous = {}, incoming = {}, options = {}) {
     }
   }
   const merged = Object.assign({}, incoming, { goalEvents: goals, matchEvents: events });
-  if (options.allowCardRevisions === false || Number.isFinite(previousTime) && Number.isFinite(incomingTime) && incomingTime < previousTime) return merged;
+  if (options.allowCardRevisions === false || stale) return merged;
   return reconcileCardDecisions(previous, merged, reportedEvents, options.completeBookings ?? incoming.bookingsComplete === true);
 }
 function shouldPushMatchEvent(kind) {
