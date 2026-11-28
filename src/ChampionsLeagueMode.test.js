@@ -96,7 +96,12 @@ test('Live Scores & Results shows live scores, future fixtures and past results 
   expect(new URLSearchParams(window.location.search).get('view')).toBe('championsLeagueScores');
   expect(screen.getByRole('heading', { name: 'Live now' })).toBeInTheDocument();
   expect(screen.getByText('18′').closest('li')).toHaveTextContent('0–0');
-  expect(screen.getByText('Ajax').closest('li')).not.toHaveTextContent('0–0');
+  const upcoming = screen.getByText('Ajax').closest('li');
+  expect(upcoming).not.toHaveTextContent('0–0');
+  const kickoff = new Date(matches[1].utcDate);
+  expect(upcoming.querySelector('time')).toHaveAttribute('datetime', matches[1].utcDate);
+  expect(upcoming).toHaveTextContent(new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(kickoff));
+  expect(upcoming).toHaveTextContent(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' }).format(kickoff));
   expect(screen.getByText('Porto')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Highlights for/ })).not.toBeInTheDocument();
   expect(screen.queryByText('Benfica')).not.toBeInTheDocument();

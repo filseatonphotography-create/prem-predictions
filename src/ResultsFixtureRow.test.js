@@ -1,5 +1,7 @@
 import React from "react";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, cleanup, render, screen, fireEvent, within } from "@testing-library/react";
+import App from "./App";
+import FIXTURES from "./fixtures";
 import ResultsFixtureRow from "./ResultsFixtureRow";
 
 const props = {
@@ -52,4 +54,43 @@ test("pending or failed bets never display an old bet as current", () => {
   rerender(<ResultsFixtureRow {...props} betsError="Network failure" bet={{ stake: 3, side: "H" }} />);
   expect(screen.getByText(/Bets could not be loaded/)).toBeVisible();
   expect(screen.queryByText(/on Arsenal to win/)).not.toBeInTheDocument();
+});
+
+test("the results page shows the updated local kick-off before play and score labels after play starts", async () => {
+  const [final, live, upcoming, postponed] = FIXTURES.filter(fixture => fixture.gameweek === 8);
+  const kickoff = new Date(Date.parse(upcoming.kickoff) + 90 * 60000);
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date(Date.parse(final.kickoff) - 24 * 60 * 60000));
+  const states = {
+    [final.id]: { status: "FINISHED", utcDate: final.kickoff, homeGoals: 1, awayGoals: 0 },
+    [live.id]: { status: "IN_PLAY", utcDate: live.kickoff, homeGoals: 0, awayGoals: 0 },
+    [upcoming.id]: { status: "TIMED", utcDate: kickoff.toISOString() },
+    [postponed.id]: { status: "POSTPONED", utcDate: postponed.kickoff },
+  };
+  const originalFetch = global.fetch;
+  localStorage.clear();
+  window.history.replaceState({}, "", "/?mode=premier&view=results");
+  localStorage.setItem("pl_prediction_auth_v1", JSON.stringify({ token: "test-only", userId: "user", username: "Example" }));
+  localStorage.setItem("prediction_gameweeks_by_mode_v1", JSON.stringify({ premierLeague: 8 }));
+  window.scrollTo = jest.fn();
+  global.fetch = jest.fn(async url => ({ ok: true, status: 200, headers: { get: () => null },
+    json: async () => String(url).includes("/api/match-states/snapshot") ? states : {},
+  }));
+  const match = fixture => within(screen.getByRole("button", { name: `${fixture.homeTeam} vs ${fixture.awayTeam} prediction and bets` }));
+  try {
+    render(<App />);
+    await act(async () => { for (let i = 0; i < 70; i++) await Promise.resolve(); });
+    const date = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short" }).format(kickoff);
+    const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" }).format(kickoff);
+    expect(match(upcoming).getByText(`${date} ${time}`)).toBeVisible();
+    expect(match(live).getByText("LIVE SCORE")).toBeVisible();
+    expect(match(final).getByText("FINAL SCORE")).toBeVisible();
+    expect(match(postponed).getByText("Postponed")).toBeVisible();
+  } finally {
+    cleanup();
+    jest.useRealTimers();
+    global.fetch = originalFetch;
+    localStorage.clear();
+    window.history.replaceState({}, "", "/");
+  }
 });

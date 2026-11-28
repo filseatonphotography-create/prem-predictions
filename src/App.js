@@ -10,7 +10,7 @@ import { canShowMatchHighlights } from "./matchHighlights";
 import LiveStudioLineups from "./LiveStudioLineups";
 import LiveStudioScores from "./LiveStudioScores";
 import LiveStudioCoverage, { LiveStudioScoreStrip } from "./LiveStudioCoverage";
-import { isStudioMatchLive } from "./studioNavigation";
+import { isStudioMatchLive, LIVE_STUDIO_STATUSES } from "./studioNavigation";
 import StudioTeamBadge from "./StudioTeamBadge";
 import StudioEventIcon from "./StudioEventIcon";
 import ChampionsLeagueMode, { championsTheme } from "./ChampionsLeagueMode";
@@ -4317,13 +4317,14 @@ function generatePseudoOddsForFixture(fixture) {
 }
 
 // Helpers
-function formatKickoffShort(kickoff) {
+function formatKickoffShort(kickoff, { dateOnly = false } = {}) {
   if (!kickoff) return "";
   const d = new Date(kickoff);
   if (Number.isNaN(d.getTime())) return "";
   const day = String(d.getDate()).padStart(2, "0");
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const month = monthNames[d.getMonth()];
+  if (dateOnly) return `${day} ${month}`;
   const hours = String(d.getHours()).padStart(2, "0");
   const mins = String(d.getMinutes()).padStart(2, "0");
   return `${day} ${month} ${hours}:${mins}`;
@@ -4521,11 +4522,17 @@ function getLeaderboardDecoration(rows = [], index = 0, getValue = () => 0, enab
   return { rank, borderColor: null, emoji: "", highlight: false };
 }
 
-function getScoreLabel(matchState) {
+function getScoreLabel(matchState, score, fixture) {
   const status = String(matchState?.status || "").toUpperCase();
-  if (["IN_PLAY", "PAUSED", "LIVE"].includes(status)) return "LIVE SCORE";
+  if (LIVE_STUDIO_STATUSES.includes(status)) return "LIVE SCORE";
   if (["FINISHED", "AWARDED"].includes(status)) return "FINAL SCORE";
-  return "SCORE";
+  if (status === "POSTPONED") return "Postponed";
+  if (status === "CANCELLED") return "Cancelled";
+  if (status === "SUSPENDED") return "Suspended";
+  if (hasValidResultScore(score)) return "SCORE";
+  const dateOnly = status === "SCHEDULED" || fixture.kickoffTimeConfirmed === false;
+  const kickoff = formatKickoffShort(fixture.kickoff, { dateOnly });
+  return kickoff ? `${kickoff}${dateOnly ? " · Time TBC" : ""}` : "Kick-off TBC";
 }
 
 export function isFixtureLive(matchState) {
@@ -22642,7 +22649,8 @@ if (!isLoggedIn) {
     <div style={{ display: "grid", gap: 8 }}>
       {visibleFixtures.map((fixture) => {
         const res = results[fixture.id] || {};
-        const fixtureLive = isFixtureLive(matchStatesByFixtureId[fixture.id]);
+        const matchState = matchStatesByFixtureId[fixture.id];
+        const fixtureLive = isFixtureLive(matchState);
         const pred = predictions[currentPredictionKey]?.[fixture.id];
         const pointsForThisFixture = getFixturePredictionPoints(pred, res);
 
@@ -22659,14 +22667,14 @@ if (!isLoggedIn) {
             home={{ name: fixture.homeTeam, code: homeCode, badgeSrc: homeBadgeSrc, flag: isWorldCupMode ? getWorldCupFlag(fixture.homeTeam) : "" }}
             away={{ name: fixture.awayTeam, code: awayCode, badgeSrc: awayBadgeSrc, flag: isWorldCupMode ? getWorldCupFlag(fixture.awayTeam) : "" }}
             score={res}
-            scoreLabel={hasValidResultScore(res) ? getScoreLabel(matchStatesByFixtureId[fixture.id]) : ""}
+            scoreLabel={getScoreLabel(matchState, res, fixture)}
             stageLabel={isWorldCupMode ? getWorldCupFixtureLabel(fixture) : ""}
             points={pointsForThisFixture}
             prediction={pred}
             bet={coinsState.bets?.[fixture.id]}
             betsLoading={coinsState.loading}
             betsError={coinsState.error}
-            highlights={!isWorldCupMode ? { fixtureId: fixture.id, finished: canShowMatchHighlights(fixture, res, matchStatesByFixtureId[fixture.id]), base: BACKEND_BASE } : undefined}
+            highlights={!isWorldCupMode ? { fixtureId: fixture.id, finished: canShowMatchHighlights(fixture, res, matchState), base: BACKEND_BASE } : undefined}
             live={fixtureLive}
             isMobile={isMobile}
             theme={theme}

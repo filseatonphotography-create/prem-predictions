@@ -7,6 +7,7 @@ import { LIVE_STUDIO_STATUSES } from './studioNavigation';
 
 const { numeric } = require('./liveMatchEvents');
 const dateLabel = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+const kickOffDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
 const kickOffTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
 const liveStatuses = new Set(LIVE_STUDIO_STATUSES);
 const finalStatuses = new Set(['FINISHED', 'AWARDED']);
@@ -34,17 +35,16 @@ function getMatchDisplay({ status, minute, utcDate, score }) {
     FINISHED: score?.duration === 'EXTRA_TIME' ? 'AET' : 'FT',
     PAUSED: 'HT', AWARDED: 'Awarded', EXTRA_TIME: 'Extra time', PENALTY_SHOOTOUT: 'Penalties',
     POSTPONED: 'Postponed', SUSPENDED: 'Suspended', CANCELLED: 'Cancelled',
-    SCHEDULED: 'Kick-off TBC',
-    TIMED: Number.isFinite(time) ? kickOffTime.format(time) : 'Kick-off TBC',
+    SCHEDULED: 'Time TBC',
   };
   return {
-    live, goals: goals?.join('–'), penalties: penalties?.join('–'),
+    live, goals: goals?.join('–'), penalties: penalties?.join('–'), kickoff: status === 'TIMED' && Number.isFinite(time) ? time : null,
     label: labels[status] || (live && numeric(minute) != null && minute > 0 ? `${minute}′` : live ? 'Live' : 'Kick-off TBC'),
   };
 }
 
 function MatchRow({ match, theme, video }) {
-  const { live, goals, penalties, label } = getMatchDisplay(match);
+  const { live, goals, penalties, label, kickoff } = getMatchDisplay(match);
   const renderTeam = (team, away = false) => {
     const name = team?.name || 'TBD';
     return <span style={{ display: 'flex', flexDirection: away ? 'row' : 'row-reverse', justifyContent: 'flex-start', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -56,7 +56,12 @@ function MatchRow({ match, theme, video }) {
     <li style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)', alignItems: 'center', gap: 8, padding: '9px 8px', borderRadius: 8, background: theme.panelHi, fontSize: 13, fontWeight: 750 }}>
       {renderTeam(match.homeTeam)}
       <div style={{ textAlign: 'center', minWidth: 50, fontVariantNumeric: 'tabular-nums' }}>
-        <div style={{ color: live ? '#4ade80' : theme.muted, fontSize: 11 }}>{label}</div>
+        <div style={{ color: live ? '#4ade80' : theme.muted, fontSize: 11 }}>
+          {kickoff == null ? label : <time dateTime={match.utcDate} style={{ display: 'grid' }}>
+            <span>{kickOffDate.format(kickoff)}</span>
+            <span>{kickOffTime.format(kickoff)}</span>
+          </time>}
+        </div>
         {goals && <strong style={{ display: 'block', fontSize: 20 }}>{goals}</strong>}
         {penalties && <div style={{ fontSize: 11, color: theme.muted }}>Pens {penalties}</div>}
       </div>
