@@ -51,6 +51,16 @@ test('form commentary recognises winning and losing runs and stops at unknown re
   expect(buildStudioFormNote(fixture, { home: form(['?', 'W']), away: [] })).toBe('');
 });
 
+test('both pre-match cards use the whole verified winless run and stop at the previous win', () => {
+  const form = { home: ['D', 'D', 'L', 'D', 'L', 'D', 'L', 'D', 'L', 'W', 'L'].map(outcome => ({ outcome })), away: [] };
+  const premier = { ...fixture, competition: 'premier', homeTeam: 'Manchester United' };
+  expect(buildStudioFormNote(premier, form)).toContain('Manchester United are winless in their last 9 Premier League matches.');
+  expect(buildStudioBuildupPreview(premier, { form, probabilities: { home: 35, draw: 39, away: 26 } })[1]).toContain('last 9 Premier League matches');
+  form.home[6] = { outcome: '?' };
+  expect(buildStudioFormNote(premier, form)).toContain('last 6 Premier League matches');
+  expect(buildStudioBuildupPreview(fixture, { form })[0]).toContain('last 6 Champions League matches');
+});
+
 test('the countdown contrasts the model favourite with an unbeaten opponent', () => {
   const preview = buildStudioBuildupPreview(fixture, {
     probabilities: { home: 19.5, draw: 22, away: 58.5 },

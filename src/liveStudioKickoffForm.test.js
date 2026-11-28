@@ -113,15 +113,26 @@ test.each(['premier', 'champions'])('the %s feed shows scheduled form and build-
   localStorage.setItem('live-studio-selection:v1:diagnostic', JSON.stringify({ 'cl:77': true }));
   const lineup = Array.from({ length: 11 }, (_, id) => ({ id, name: `Player ${id}` }));
   const state = { status: 'TIMED', utcDate: fixture.kickoff, lineupsAnnouncedAt: new Date(kickoff - 75 * 60000).toISOString(), lineups: { home: { lineup }, away: { lineup } } };
+  const arsenalGames = previousGames.filter(game => [game.homeTeam, game.awayTeam].includes(fixture.homeTeam))
+    .sort((a, b) => Date.parse(b.kickoff) - Date.parse(a.kickoff));
+  const winlessResults = Object.fromEntries(arsenalGames.map((game, index) => [game.id, index % 2 === 0 ? { homeGoals: 0, awayGoals: 0 }
+    : game.homeTeam === fixture.homeTeam ? { homeGoals: 0, awayGoals: 2 } : { homeGoals: 2, awayGoals: 0 }]));
+  const finalStates = Object.fromEntries(arsenalGames.map(game => [game.id, {
+    status: 'FINISHED', utcDate: game.kickoff, lastUpdated: new Date(Date.parse(game.kickoff) + 110 * 60000).toISOString(),
+    ...winlessResults[game.id],
+  }]));
   const raw = { id: 77, ...state, homeTeam: { id: 1, name: 'Fenerbahçe SK' }, awayTeam: { id: 2, name: 'Liverpool FC' }, score: {},
-    form: { home: [], away: [{ fixtureId: 'cl:66', outcome: 'W' }, { fixtureId: 'cl:65', outcome: 'W' }] } };
+    form: { home: Array.from({ length: 9 }, (_, index) => ({ fixtureId: `cl:${66 - index}`, outcome: index % 2 ? 'D' : 'L' })), away: [] } };
   const original = global.fetch;
   global.fetch = jest.fn(async url => {
     let data = {};
     if (String(url).includes('/api/live-studio/matches?')) data = { matches: [raw] };
-    if (String(url).includes('/api/results/snapshot')) data = results;
-    if (String(url).includes('/api/match-states/snapshot')) data = { [fixture.id]: state };
-    if (String(url).includes('/api/results?')) data = [{ id: fixture.id, ...state, homeTeam: { name: fixture.homeTeam, lineup }, awayTeam: { name: fixture.awayTeam, lineup }, score: {} }];
+    if (String(url).includes('/api/results/snapshot')) data = winlessResults;
+    if (String(url).includes('/api/match-states/snapshot')) data = { ...finalStates, [fixture.id]: state };
+    if (String(url).includes('/api/results?')) data = [
+      ...arsenalGames.map(game => ({ id: game.id, ...finalStates[game.id], score: { fullTime: { home: winlessResults[game.id].homeGoals, away: winlessResults[game.id].awayGoals } } })),
+      { id: fixture.id, ...state, homeTeam: { name: fixture.homeTeam, lineup }, awayTeam: { name: fixture.awayTeam, lineup }, score: {} },
+    ];
     return { ok: true, status: 200, headers: { get: () => null }, json: async () => data };
   });
   try {
@@ -130,13 +141,15 @@ test.each(['premier', 'champions'])('the %s feed shows scheduled form and build-
     const section = screen.getByRole('region', { name: 'Team form before kick-off' });
     expect(section.closest('article')).toHaveTextContent(competition === 'champions' ? 'Champions League' : 'Premier League');
     expect(section).not.toHaveTextContent(/current form|quick look at recent form|how are they coming into this one|before we get going|form this season/i);
-    if (competition === 'champions') expect(section).toHaveTextContent(/3 wins in a row|2 straight wins|2 consecutive wins/);
-    else expect(section).toHaveTextContent(/straight|last time out|last \d|in a row|consecutive|on the bounce/);
+    const team = competition === 'champions' ? 'Fenerbahçe SK' : 'Arsenal';
+    const streak = competition === 'champions' ? '9 Champions League' : '7 Premier League';
+    expect(section).toHaveTextContent(`${team} are winless in their last ${streak} matches`);
+    expect(within(within(section).getByRole('group', { name: `${team} form` })).getAllByText(/^[WDL]$/)).toHaveLength(5);
     const countdown = screen.getByText('The countdown is on').closest('article');
     expect(countdown).toHaveTextContent('15 minutes to kick-off');
+    expect(countdown).toHaveTextContent(`${team} are winless in their last ${streak} matches`);
     if (competition === 'champions') {
       expect(countdown).toHaveTextContent(/Liverpool.*Fenerbahçe SK|Fenerbahçe SK.*Liverpool/);
-      expect(countdown).toHaveTextContent(/winning momentum|in-form Liverpool/);
       expect(countdown).not.toHaveTextContent(/model|%/);
     } else {
       expect(countdown).toHaveTextContent('pre-match model');

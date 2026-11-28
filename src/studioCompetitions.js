@@ -38,15 +38,16 @@ function buildChampionsForm(fixture, seasonMatches = []) {
       const start = Date.parse(match.utcDate);
       const finished = Date.parse(match.finishedAt || '');
       const estimatedEnd = start + (['EXTRA_TIME', 'PENALTY_SHOOTOUT'].includes(match.score?.duration) ? 180 : 120) * 60000;
-      if (!Number.isFinite(start) || (Number.isFinite(finished) ? finished : estimatedEnd) >= before) return false;
+      return Number.isFinite(start) && (Number.isFinite(finished) ? finished : estimatedEnd) < before;
+    }).sort((a, b) => Date.parse(b.utcDate) - Date.parse(a.utcDate)).map(match => {
+      const fixtureId = `cl:${match.id}`;
       const score = match.score?.fullTime;
-      return numeric(score?.home) != null && numeric(score?.away) != null && Number(score.home) >= 0 && Number(score.away) >= 0;
-    }).sort((a, b) => Date.parse(b.utcDate) - Date.parse(a.utcDate)).slice(0, 5).map(match => {
+      if ([numeric(score?.home), numeric(score?.away)].some(goals => goals == null || goals < 0)) return { fixtureId, outcome: '?' };
       const home = String(match.homeTeam.id) === String(team.id);
       const opponent = home ? match.awayTeam : match.homeTeam;
       const goalsFor = Number(match.score.fullTime[home ? 'home' : 'away']);
       const goalsAgainst = Number(match.score.fullTime[home ? 'away' : 'home']);
-      return { fixtureId: `cl:${match.id}`, outcome: goalsFor > goalsAgainst ? 'W' : goalsFor < goalsAgainst ? 'L' : 'D',
+      return { fixtureId, outcome: goalsFor > goalsAgainst ? 'W' : goalsFor < goalsAgainst ? 'L' : 'D',
         opponent: opponent?.name || '', opponentCode: opponent?.tla || String(opponent?.shortName || opponent?.name || '?').slice(0, 3).toUpperCase(),
         venue: home ? 'H' : 'A', scoreText: `${goalsFor}-${goalsAgainst}` };
     });

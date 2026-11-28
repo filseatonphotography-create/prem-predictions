@@ -1,13 +1,14 @@
 import React from "react";
 
 export default function TeamFormStrip({ form = [], isMobile, theme, emptyLabel = "No completed fixtures yet." }) {
+  const latestResults = form.filter(item => ["W", "D", "L"].includes(item.outcome)).slice(0, 5);
   return <div style={{
     display: "grid",
     gridTemplateColumns: isMobile ? "repeat(5, minmax(0, 1fr))" : "repeat(5, minmax(54px, 1fr))",
     gap: isMobile ? 4 : 6,
     minWidth: 0,
   }}>
-    {form.length ? form.map(item => {
+    {latestResults.length ? latestResults.map(item => {
       const outcomeColor = item.outcome === "W" ? "#22c55e" : item.outcome === "D" ? "#eab308" : "#ef4444";
       return <div key={`form-${item.fixtureId}`} style={{
         minWidth: 0, width: "100%", padding: isMobile ? "5px 3px" : "6px 8px",

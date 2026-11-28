@@ -7483,25 +7483,29 @@ export function buildGeneratedModelOdds(fixtures = [], context = {}) {
   return out;
 }
 
-export function buildPremierTeamForm(teamName, results, beforeMs = Infinity, states = null) {
+export function buildPremierTeamForm(teamName, results, beforeMs = Infinity, states = null, { includeUnknown = false } = {}) {
   const canonicalTeamName = resolveCanonicalPremierLeagueTeam(teamName);
   const normalizedTeam = normalizeTeamName(canonicalTeamName);
   const kickoffTime = fixture => Date.parse(states?.[fixture.id]?.utcDate || fixture.kickoff);
-  return FIXTURES.filter((fixture) => {
+  const fixtures = FIXTURES.filter((fixture) => {
     const isTeamFixture =
       normalizeTeamName(fixture.homeTeam) === normalizedTeam ||
       normalizeTeamName(fixture.awayTeam) === normalizedTeam;
-    const kickoff = kickoffTime(fixture);
-    if (!isTeamFixture || !(kickoff < beforeMs) || !isFixtureCompleted(fixture, results)) return false;
+    if (!isTeamFixture || !(kickoffTime(fixture) < beforeMs)) return false;
+    const status = String(states?.[fixture.id]?.status || "").toUpperCase();
+    return !includeUnknown || !["POSTPONED", "CANCELLED"].includes(status);
+  }).sort((a, b) => kickoffTime(b) - kickoffTime(a));
+  const settledBefore = (fixture) => {
+    if (!isFixtureCompleted(fixture, results)) return false;
     if (!states) return true;
     const state = states[fixture.id];
     if (state?.status && !isLiveStudioFinalStatus(state.status)) return false;
     const finished = Date.parse(state?.finishedAt || "");
-    return (Number.isFinite(finished) ? finished : kickoff + 120 * 60000) < beforeMs;
-  })
-    .sort((a, b) => kickoffTime(b) - kickoffTime(a))
-    .slice(0, 5)
+    return (Number.isFinite(finished) ? finished : kickoffTime(fixture) + 120 * 60000) < beforeMs;
+  };
+  return (includeUnknown ? fixtures : fixtures.filter(settledBefore).slice(0, 5))
     .map((fixture) => {
+      if (includeUnknown && !settledBefore(fixture)) return { fixtureId: fixture.id, outcome: "?" };
       const res = results[fixture.id];
       const isHome = normalizeTeamName(fixture.homeTeam) === normalizedTeam;
       const goalsFor = isHome ? Number(res.homeGoals) : Number(res.awayGoals);
@@ -21306,7 +21310,7 @@ if (!isLoggedIn) {
                   const teamForm = showForm ? Object.fromEntries(["home", "away"].map(side => [
                     side,
                     championsForm ? entry.championsForm?.[side] || []
-                      : buildPremierTeamForm(entryFixture[`${side}Team`], results, formBefore, entry.formCard ? matchStatesByFixtureId : null),
+                      : buildPremierTeamForm(entryFixture[`${side}Team`], results, formBefore, entry.formCard ? matchStatesByFixtureId : null, { includeUnknown: entry.formCard }),
                   ])) : null;
                   const formNote = entry.formCard && teamForm ? buildStudioFormNote(entryFixture, teamForm, formTeams) : "";
                   let lines = entry.lines;

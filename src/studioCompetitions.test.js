@@ -115,19 +115,19 @@ test('the background worker polls Champions League and sends football-only resul
   expect(final[4].body).not.toMatch(/prediction|coins/i);
 });
 
-test('Champions League form uses the last five earlier completed games, with team IDs and home/away results', () => {
+test('Champions League form returns earlier completed games, with team IDs and home/away results', () => {
   const { buildChampionsForm } = require('./studioCompetitions');
   const current = match();
   const previous = Array.from({ length: 6 }, (_, i) => ({ id: 100 + i, utcDate: `2026-10-${String(i + 1).padStart(2, '0')}T18:00:00Z`,
     competition: { code: 'CL' }, status: 'FINISHED', homeTeam: { id: 1, name: 'Fenerbahçe SK' }, awayTeam: { id: 3, name: 'Opponent', tla: 'OPP' }, score: { fullTime: { home: 2, away: 0 } } }));
   previous.push({ ...previous[0], id: 200, utcDate: '2026-11-01T18:00:00Z', homeTeam: { id: 3, name: 'Opponent', tla: 'OPP' }, awayTeam: current.awayTeam, score: { fullTime: { home: 0, away: 0 } } });
   const form = buildChampionsForm(current, previous);
-  expect(form.home.map(item => item.fixtureId)).toEqual(['cl:105', 'cl:104', 'cl:103', 'cl:102', 'cl:101']);
+  expect(form.home.map(item => item.fixtureId)).toEqual(['cl:105', 'cl:104', 'cl:103', 'cl:102', 'cl:101', 'cl:100']);
   expect(form.home[0]).toMatchObject({ outcome: 'W', opponentCode: 'OPP', venue: 'H', scoreText: '2-0' });
   expect(form.away).toEqual([expect.objectContaining({ outcome: 'D', venue: 'A', scoreText: '0-0' })]);
 });
 
-test('form excludes domestic games, this fixture, later results, unfinished games and missing scores', () => {
+test('form excludes domestic games, this fixture, later results and unfinished games, and marks missing scores', () => {
   const { buildChampionsForm } = require('./studioCompetitions');
   const current = match();
   const prior = { ...current, id: 1, utcDate: '2026-10-01T18:00:00Z', status: 'FINISHED', competition: { code: 'CL' }, score: { fullTime: { home: 2, away: 0 } } };
@@ -137,7 +137,8 @@ test('form excludes domestic games, this fixture, later results, unfinished game
     { ...prior, score: { fullTime: { home: null, away: 0 } } },
     { ...prior, finishedAt: '2026-11-04T18:00:00Z' },
   ];
-  expect(buildChampionsForm(current, invalid)).toEqual({ home: [], away: [] });
+  const missingScore = [{ fixtureId: 'cl:1', outcome: '?' }];
+  expect(buildChampionsForm(current, invalid)).toEqual({ home: missingScore, away: missingScore });
   expect(buildChampionsForm({ ...current, homeTeam: { name: 'Fenerbahçe SK' } }, [prior]).home).toEqual([]);
 });
 

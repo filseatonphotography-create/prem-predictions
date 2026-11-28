@@ -20,16 +20,20 @@ function pickPrematchPhrase(seed, choices) {
 
 function recentOutcomes(matches) {
   const outcomes = [];
-  for (const match of (matches || []).slice(0, 5)) {
+  for (const match of matches || []) {
     if (!['W', 'D', 'L'].includes(match.outcome)) break;
     outcomes.push(match.outcome);
   }
   return outcomes;
 }
 
-function countUnbeaten(outcomes) {
-  const firstLoss = outcomes.indexOf('L');
-  return firstLoss < 0 ? outcomes.length : firstLoss;
+function countBefore(outcomes, result) {
+  const boundary = outcomes.indexOf(result);
+  return boundary < 0 ? outcomes.length : boundary;
+}
+
+function competitionName(fixture) {
+  return fixture.competition === 'champions' ? 'Champions League' : 'Premier League';
 }
 
 function buildStudioFormNote(fixture, form, teamNames = [fixture.homeTeam, fixture.awayTeam]) {
@@ -42,12 +46,14 @@ function buildStudioFormNote(fixture, form, teamNames = [fixture.homeTeam, fixtu
     const latest = outcomes[0];
     const changedAt = outcomes.findIndex(outcome => outcome !== latest);
     const streak = changedAt < 0 ? outcomes.length : changedAt;
+    const winless = countBefore(outcomes, 'W');
+    if (winless >= 3 && winless > streak) return {
+      weight: 5 + winless,
+      lines: [`${team} are winless in their last ${winless} ${competitionName(fixture)} matches. Can they get back to winning ways here?`],
+    };
     if (streak >= 2 && latest === 'W') return {
       weight: 5 + streak,
-      lines: streak === 5 ? [
-        `${team} have won their last five and will want to keep that run going.`,
-        `Five wins in the form guide for ${team}, who have a chance to extend the run here.`,
-      ] : [
+      lines: [
         `${team} are hoping to make it ${streak + 1} wins in a row.`,
         `That's ${streak} straight wins for ${team}, and another would extend the run.`,
         `Can ${team} follow up ${streak} consecutive wins with another here?`,
@@ -68,13 +74,10 @@ function buildStudioFormNote(fixture, form, teamNames = [fixture.homeTeam, fixtu
         `After ${streak} draws on the bounce, can ${team} turn a point into three?`,
       ],
     };
-    if (outcomes.length >= 3 && !outcomes.includes('L')) return {
+    const unbeaten = countBefore(outcomes, 'L');
+    if (unbeaten >= 3) return {
       weight: 5,
-      lines: [`${team} are unbeaten in their last ${outcomes.length} and will look to extend that run.`],
-    };
-    if (outcomes.length >= 3 && !outcomes.includes('W')) return {
-      weight: 5,
-      lines: [`${team} are looking for a first win after ${outcomes.length} matches without one.`],
+      lines: [`${team} are unbeaten in their last ${unbeaten} and will look to extend that run.`],
     };
     return { weight: 1, lines: [{
       W: `${team} won last time out and will want to build on that result.`,
@@ -98,6 +101,13 @@ function buildStudioBuildupPreview(fixture, { form = {}, probabilities, teamName
     'One early chance could change the feel of this one. Which side will create it?',
     'Almost time. Will either side take the initiative from the first whistle?',
   ]);
+  const homeWinless = countBefore(homeForm, 'W');
+  const awayWinless = countBefore(awayForm, 'W');
+  const winless = Math.max(homeWinless, awayWinless);
+  const winlessTeam = homeWinless >= awayWinless ? home : away;
+  const winlessHook = winless >= 5
+    ? `${winlessTeam} are winless in their last ${winless} ${competitionName(fixture)} matches. Can they get on the front foot here?`
+    : '';
 
   if (probabilities && [probabilities.home, probabilities.draw, probabilities.away].every(value => Number.isFinite(value) && value >= 0 && value <= 100)) {
     const homeAhead = probabilities.home >= probabilities.away;
@@ -107,27 +117,28 @@ function buildStudioBuildupPreview(fixture, { form = {}, probabilities, teamName
     const gap = Math.round(Math.abs(probabilities.home - probabilities.away));
     if (Math.round(probabilities.draw) > winChance) return [
       `A draw is the pre-match model's most likely result (${Math.round(probabilities.draw)}%).`,
-      pick(['Who can find a way to break the deadlock?', 'An early goal would change the picture. Which side will take the first risk?']),
+      winlessHook || pick(['Who can find a way to break the deadlock?', 'An early goal would change the picture. Which side will take the first risk?']),
     ];
     if (gap <= 5) return [
       'The pre-match model has almost nothing between these two sides.',
-      homeForm[0] === 'W' && awayForm[0] === 'L' ? `Can ${home} carry the momentum from their last win into the opening exchanges?`
-        : awayForm[0] === 'W' && homeForm[0] === 'L' ? `Can ${away} carry the momentum from their last win into the opening exchanges?` : opening,
+      winlessHook || (homeForm[0] === 'W' && awayForm[0] === 'L' ? `Can ${home} carry the momentum from their last win into the opening exchanges?`
+        : awayForm[0] === 'W' && homeForm[0] === 'L' ? `Can ${away} carry the momentum from their last win into the opening exchanges?` : opening),
     ];
-    const challengerUnbeaten = countUnbeaten(challengerForm);
+    const challengerUnbeaten = countBefore(challengerForm, 'L');
     return [
       gap >= 15 ? `The pre-match model makes ${favourite} favourites with a ${winChance}% chance of winning.`
         : `The pre-match model gives ${favourite} a slight edge at ${winChance}% to win.`,
-      challengerUnbeaten >= 3 ? `Can ${challenger}, unbeaten in their last ${challengerUnbeaten} matches, put that forecast under pressure?`
+      winlessHook || (challengerUnbeaten >= 3 ? `Can ${challenger}, unbeaten in their last ${challengerUnbeaten} matches, put that forecast under pressure?`
         : favouriteForm[0] === 'L' && favouriteForm[1] === 'L' ? `Can ${favourite} shake off back-to-back defeats and take charge early?`
         : pick([
           `Can ${challenger} get at them early and turn the pressure around?`,
           `Watch how ${challenger} start. An early chance could put a different spin on this one.`,
           `The first goal could change the shape of this. Can ${challenger} get it?`,
-        ]),
+        ])),
     ];
   }
 
+  if (winlessHook) return [winlessHook];
   if (homeForm[0] === 'W' && awayForm[0] === 'W') return [
     pick([
       'Both teams won last time out. Who can turn that confidence into an early advantage?',
@@ -143,8 +154,8 @@ function buildStudioBuildupPreview(fixture, { form = {}, probabilities, teamName
       `Keep an eye on the opening minutes. Can ${opponent} wrestle the initiative away from an in-form ${team}?`,
     ])];
   }
-  const homeUnbeaten = countUnbeaten(homeForm);
-  const awayUnbeaten = countUnbeaten(awayForm);
+  const homeUnbeaten = countBefore(homeForm, 'L');
+  const awayUnbeaten = countBefore(awayForm, 'L');
   if (Math.max(homeUnbeaten, awayUnbeaten) >= 3) {
     if (homeUnbeaten >= 3 && awayUnbeaten >= 3) return ['Both sides are on unbeaten runs. Who can put the other under pressure from the first whistle?'];
     const [team, opponent, unbeaten] = homeUnbeaten > awayUnbeaten ? [home, away, homeUnbeaten] : [away, home, awayUnbeaten];
@@ -165,7 +176,7 @@ function buildStudioPrematchCards({ fixture, state = {}, now = Date.now(), annou
       competitionLabel: fixture.competitionLabel || 'Premier League', minute: 'PRE', momentMs: moment, title, lines,
       tone: 'live', prematch: true, footballOnly: fixture.competition === 'champions' }, extra));
   };
-  const league = fixture.competition === 'champions' ? 'Champions League' : 'Premier League';
+  const league = competitionName(fixture);
   add('form', announced + 30 * 60000, 'The pre-match form guide', [
     pickPrematchPhrase(`${lineupTimeKey(fixture)}:intro`, [
       `Before the first whistle, here's how both sides have been doing in the ${league}.`,
